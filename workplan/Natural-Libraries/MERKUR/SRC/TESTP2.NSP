@@ -1,0 +1,88 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* <Natural Source Header
+/*  This program serves as example how to design a user-defined
+/*  program to call 'USR1052N'.
+/***********************************************************************
+DEFINE DATA
+LOCAL
+ 1 USR1052L
+   2 OS-COMMAND        (A253)
+   2 RESPONSE          (I04)
+   2 CMD-OPTIONS       (A253)        /* OPTIONAL PARAMETER for USR1052N
+   2 CMD-OUTPUT        (A/1:*) DYNAMIC    /* OPTIONAL PARA for USR1052N
+1 #STDOUT-FLAG         (A1)
+1 #SCREEN-FLAG         (A1)
+1 #SYNCH-FLAG          (A1)
+1 #LINES-RETURNED      (I4)
+1 #CNT                 (I4)
+END-DEFINE
+/*
+SET KEY ALL
+SET CONTROL 'L'        /* Accept lower case
+/*
+DECIDE FOR FIRST CONDITION
+  WHEN *MACHINE-CLASS = 'PC'
+    ASSIGN OS-COMMAND  = 'CMD.EXE /C DIR *.*'
+ /* ASSIGN OS-COMMAND  = 'notepad'
+  WHEN NONE            /* UNIX assumed
+    ASSIGN OS-COMMAND  = 'ls -l '
+ /* ASSIGN OS-COMMAND = 'vi'
+END-DECIDE
+/*
+#STDOUT-FLAG := 'Y'  /* set STDOUT as option
+#SCREEN-FLAG := 'S'  /* set SCREENIO as option
+INPUT (AD=MIW IP=OFF)
+      'Enter an operating system command:' OS-COMMAND (AL=44)
+    / 'STDOUT - get command output (Y/N):' #STDOUT-FLAG
+    / 'Screen-IO, NoScreen-IO      (S/N):' #SCREEN-FLAG
+    / 'Synch, Asynch               (S/A):' #SYNCH-FLAG
+/*
+IF *PF-KEY NE 'ENTR'
+  ESCAPE ROUTINE
+END-IF
+/*
+/* give the desired flags to CMD-OPTIONS
+IF #STDOUT-FLAG = 'Y' OR= 'y' THEN
+  COMPRESS CMD-OPTIONS 'STDOUT' INTO CMD-OPTIONS
+END-IF
+IF #SCREEN-FLAG = 'S' OR= 's' THEN
+  COMPRESS CMD-OPTIONS 'SCREENIO' INTO CMD-OPTIONS
+END-IF
+IF #SCREEN-FLAG = 'N' OR= 'n' THEN
+  COMPRESS CMD-OPTIONS 'NOSCREENIO' INTO CMD-OPTIONS
+END-IF
+IF #SYNCH-FLAG = 'S' OR= 's' THEN
+  COMPRESS CMD-OPTIONS 'SYNCH' INTO CMD-OPTIONS
+END-IF
+IF #SYNCH-FLAG = 'A' OR= 'a' THEN
+  COMPRESS CMD-OPTIONS 'ASYNCH' INTO CMD-OPTIONS
+END-IF
+/*
+/* NOTES:
+/* Set all options in CMD-OPTIONS (if specified).
+/*   Do not set them in #OS-COMMAND and in CMD-OPTIONS.
+/* Avoid translation of quotation marks:
+/*   Set the profile parameter TQ=OFF or
+/*   replace quotation marks with hex-code.
+/* If you use one of the keywords SCREENIO, NOSCREENIO,
+/*   SYNCH or ASYNCH in the system command itself,
+/*   enclose it with quotation marks.
+/*
+EXAMINE OS-COMMAND FOR '"' AND REPLACE WITH H'22'
+/*
+/*
+/* call the interface
+CALLNAT 'USR1052N'  USR1052L
+/*
+WRITE / 'Return code from the operating system:' RESPONSE (AD=L)
+/*
+#LINES-RETURNED := *OCCURRENCE (CMD-OUTPUT)
+IF (#LINES-RETURNED > 0)
+  PRINT 'Output of command:' #LINES-RETURNED (AD=L) 'lines'
+  FOR #CNT = 1 to *OCCURRENCE (CMD-OUTPUT)
+    PRINT CMD-OUTPUT (#CNT)
+  END-FOR
+END-IF
+END
