@@ -1,0 +1,429 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP ISO_8859-1:1987
+* :LineIncrement 10
+* <Natural Source Header
+*****************************************************************
+* NATURAL SOURCE CODE ANALYZER
+*
+* Version 2023
+* Big/Little Endian I2/I4 processing (Code BLE)
+* Bugfixing in DEFINE DATA Processing
+*
+* Mathias Steul 28.08.2023
+*****************************************************************
+DEFINE DATA
+LOCAL USING USR-MSG   /* Data for message exchange
+LOCAL USING USR-FLD   /* Description of the field in error
+LOCAL USING ANAMOD0A
+LOCAL USING NSCANEWL
+LOCAL
+1 #L-WORKFILE (A255)
+1 #L-WORKFILE2 (A255)
+1 #L-PATH(A200) INIT <'C:\temp\'>
+1 #L-LIB(A8)
+/*
+1 LIB (A8) INIT  <'SCANLB'>/* Library to analyse
+1 COUNT-NAT (I4)
+1 MAP (L) CONST <TRUE> /* Show Processing Map
+1 DB (L) CONST <TRUE> /* use Adabas File 255 for Sort Resultlist
+1 UNIX (L) const <TRUE>
+1 #ERG (I4/1:5)
+1 #SUM (I4)
+1 #STATUS (A70)
+* $Id
+1 USR1055L
+  2 OBJECT-KEY
+    3 LIBRARY        (A08)
+    3 OBJECT-FROM    (A33)
+    3 OBJECT-TO      (A33)
+    3 OBJECT-KIND    (A01)
+/*
+  2 INPUTS
+    3 OPT-ACCESS     (A01)
+    3 OPT-TYPE-OP    (A01)
+    3 OPT-TYPE       (A24)
+    3 OPT-SCROLL     (A01)
+    3 OPT-WILDCARD   (A01)
+    3 OPT-ASTERISK   (A01)
+    3 OPT-AMOUNT     (I02)
+/*
+  2 INPUT-OUTPUTS
+    3 INT-HANDLE     (I04)
+    3 NEXT-OBJ       (A32)
+  2 OUTPUTS
+    3 RETURNED       (I02)
+    3 LIST-OBJ       (A32/1:255)
+    3 LIST-TYPE-SRC  (A01/1:255)
+    3 LIST-TYPE-MOD  (A01/1:255)
+/*
+1 USR1055N
+  2 VERSION          (I01)     INIT <2>
+  2 V1-NSC-CKECK     (A01)
+  2 V2-DBID          (N05)
+  2 V2-FNR           (N04)
+  2 V2-PSW           (A08)
+  2 V2-CIP           (N08)
+  2 V2-SYSFILE       (A01)
+1 REDEFINE USR1055N
+  2 EXTENDED-PARMS
+    3 EXTENDED-DATA  (A01/1:28)
+LOCAL
+1 #IND(I2)
+1 #ET-COUNT (I2) CONST <500>
+
+1 #I3 (I4)
+1 #SUMLINES (I4)
+1 #PROGRESSBAR (A75)
+1 #PROGRESS (I4)
+1 #COUNT (I4)
+1 #OUT (A200)
+1 REDEFINE #OUT
+  2 #OUT-LIB (A8)
+  2 FILLER 1X
+  2 #OUT-OBJ (A8)
+  2 FILLER 1X
+  2 #OUT-TYPE (A1)
+  2 FILLER 1X
+  2 #OUT-MODE (A1)
+  2 FILLER 1X
+  2 #OUT-CODE (A3)
+  2 FILLER 1X
+  2 #OUT-LINE (A5)
+  2 FILLER 1X
+  2 #OUT-COMMENT (A122)
+1 #TEMP (A100)
+1 #OLDPROG (A8)
+1 #COUNT-TEMP (I4)
+1 #SUM-TEMP (I4)
+1 #L-LAST-MAP (L) INIT <TRUE>
+1 WORKBUF (A100)
+END-DEFINE
+/*
+FORMAT LS=133 PS=55
+/*
+IF #L-LIB <> ' '
+  LIB := #L-LIB
+  #L-LAST-MAP := FALSE
+END-IF
+/*
+IF LIB = ' '
+  /*
+  WRITE 'Keine Library angegeben !!!'
+  /*
+  STOP
+/*
+END-IF
+/*
+
+COMPRESS #L-PATH LIB '.csv' INTO #L-WORKFILE LEAVING NO
+COMPRESS #L-PATH LIB '-Ergebnis.csv' INTO #L-WORKFILE2 LEAVING NO
+
+DEFINE WORK FILE 1 #L-WORKFILE TYPE 'CSV'
+DEFINE WORK FILE 2 #L-WORKFILE2 TYPE 'CSV'
+/*
+PERFORM COUNT-NAT
+/*
+USR1055L.LIBRARY     := LIB
+USR1055L.OBJECT-FROM := 'A>'
+USR1055L.OBJECT-TO   := ' '
+USR1055L.OBJECT-KIND := 'S'
+USR1055L.OPT-TYPE-OP := 'I'
+USR1055L.OPT-TYPE    := 'PNSCH'
+USR1055L.OPT-SCROLL  := 'D'
+USR1055L.OPT-AMOUNT  := 255
+USR1055L.OPT-ACCESS := 'O'     /* Open
+NAD-FLD.FIELD-POSITION := 2
+/*
+RESET #COUNTS
+ANAMOD0.SHOWMAP := MAP
+ANAMOD0.DBACCESS := DB
+anamod0.UNIXONLY:= UNIX
+IF DB
+/* delete all records in temporary file
+  FIND NUMBER NSCANEW WITH SP-LIBRARY-CODE-MODUL-LINE > ' '
+  #COUNT-TEMP := *NUMBER
+  COMPRESS 'Temporary records from last analysis will be deleted !' INTO #STATUS
+  RESET #SUM
+  READ NSCANEW BY ISN
+    DELETE
+    ADD 1 TO #IND
+    IF #IND >= #ET-COUNT
+      END TRANSACTION
+      RESET #IND
+    END-IF
+    ADD  1 TO #SUM-TEMP
+    IF ANAMOD0.SHOWMAP
+      #PROGRESS := 75 * #SUM-TEMP / #COUNT-TEMP
+      MOVE ALL 'X' TO #PROGRESSBAR UNTIL #PROGRESS
+      SET CONTROL 'n'
+      input using map 'ANAMAP'
+    END-IF
+  END-READ
+  END TRANSACTION
+  RESET #STATUS #PROGRESSBAR
+END-IF
+MAIN. REPEAT
+/*
+  CALLNAT 'USR1055N' USR1055L  USR1055N.EXTENDED-PARMS
+    NAD-MSG   NAD-FLD
+/*
+  USR1055L.OPT-ACCESS := 'R'   /* Read
+/*
+  FOR #I3 = 1 TO USR1055L.RETURNED
+/*  Module Processing
+    ANAMOD0.#LIBRARY := USR1055L.LIBRARY
+    ANAMOD0.#OBJECT := LIST-OBJ (#I3)
+    ANAMOD0.#TYPE := LIST-TYPE-SRC (#I3)
+    CALLNAT 'ANAMOD0N' ANAMOD0
+    IF ANAMOD0.SHOWMAP
+      #PROGRESS := 75 * #SUM / COUNT-NAT
+      MOVE ALL 'X' TO #PROGRESSBAR UNTIL #PROGRESS
+      SET CONTROL 'n'
+      input using map 'ANAMAP'
+    END-IF
+    ADD #LINES TO #SUMLINES
+/* Reporting
+    DECIDE ON FIRST VALUE OF LIST-TYPE-SRC (#I3)
+      VALUE 'P' /* Program
+        ADD 1 TO #ERG(1)
+      VALUE 'N' /* Subprogram
+        ADD 1 TO #ERG(2)
+      VALUE 'S' /* Subroutine
+        ADD 1 TO #ERG(3)
+      VALUE 'C' /* Copycode
+        ADD 1 TO #ERG(4)
+      VALUE 'H' /* Helproutine
+        ADD 1 TO #ERG(5)
+      ANY VALUE
+        ADD 1 TO #SUM
+      NONE VALUE
+        IGNORE
+    END-DECIDE
+  END-FOR
+
+  IF MSG-NR NE 0
+/* leave loop if last object reached
+    ESCAPE BOTTOM (MAIN.)
+  END-IF
+/*
+END-REPEAT
+/*
+USR1055L.OPT-ACCESS := 'C'     /* Close
+*** CALLNAT 'USR1055N' USR1055L  USR1055N.EXTENDED-PARMS
+***  NAD-MSG   NAD-FLD
+/* End Report
+IF DB
+/*
+  WRITE WORK 1 VARIABLE
+    'Library'
+    'Name'
+    'Type'
+    'Mode'
+    'Code'
+    'Line'
+    'Content'
+/* write records to workfile workfile
+  READ NSCANEW BY SP-LIBRARY-CODE-MODUL-LINE
+    AT BREAK OF CODE
+      #TEMP := OLD(CODE)
+      DECIDE ON FIRST VALUE OF #TEMP
+        VALUE '???'
+          COUNTASKMOD := #COUNT
+        VALUE 'CAL'
+          COUNTCALLMOD := #COUNT
+        VALUE 'DBA'
+          COUNTDBMOD := #COUNT
+        VALUE 'IFR'
+          COUNTIFMOD := #COUNT
+        VALUE 'HEX'
+          COUNTHEXMOD := #COUNT
+        VALUE 'RED'
+          COUNTREDMOD := #COUNT
+        VALUE 'BLE'
+          COUNTBLEMOD := #COUNT
+        VALUE 'RER'
+          COUNTRERMOD := #COUNT
+        VALUE 'WRK'
+          COUNTWORKMOD := #COUNT
+        VALUE 'SOR'
+          COUNTSORTMOD := #COUNT
+        VALUE 'PRT'
+          COUNTPRTMOD := #COUNT
+        VALUE 'CPD'
+          COUNTPCMOD := #COUNT
+        VALUE 'ISN'
+          COUNTISNMOD := #COUNT
+        VALUE 'PRO'
+          COUNTPROCESSMOD := #COUNT
+        VALUE 'JUL'
+          COUNTJULIANMOD := #COUNT
+        VALUE 'INC'
+          COUNTINCOREMOD := #COUNT
+        VALUE 'CWV'
+          COUNTCWVMOD := #COUNT
+        VALUE 'CWO'
+          COUNTCWOMOD := #COUNT
+        NONE VALUE
+          IGNORE
+      END-DECIDE
+      RESET #COUNT #OLDPROG
+    END-BREAK
+    RESET #OUT
+    #OUT-LIB := NSCANEW.LIBRARY
+    #OUT-OBJ := NSCANEW.MODUL
+    #OUT-TYPE := NSCANEW.TYPE
+    #OUT-MODE := NSCANEW.MODE
+    MOVE EDITED NSCANEW.LINE (EM=99999) TO #OUT-LINE
+    #OUT-CODE := NSCANEW.CODE
+    #OUT-COMMENT := COMMENT
+    /*
+    WRITE WORK 1  VARIABLE
+      #OUT.#OUT-LIB
+      #OUT.#OUT-OBJ
+      #OUT.#OUT-TYPE
+      #OUT.#OUT-MODE
+      #OUT.#OUT-CODE
+      #OUT.#OUT-LINE
+      #OUT.#OUT-COMMENT
+    /*
+
+  IF #OLDPROG <> NSCANEW.MODUL
+      ADD 1 TO #COUNT
+  END-IF
+
+  #OLDPROG:= NSCANEW.MODUL
+
+  END-READ
+END-IF
+/*
+RESET       #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE
+/*
+WRITE WORK 1  VARIABLE #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE 'CAL' '=' 'CALL Statement'
+WRITE WORK 1  VARIABLE #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE 'CPD' '=' 'DOWNLOAD PC FILE'
+WRITE WORK 1  VARIABLE #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE 'CWO' '=' 'Callnat , Module nicht vorhanden'
+WRITE WORK 1  VARIABLE #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE 'CWV' '=' 'Callnat , Modul wird über eine Variable aufgerufen'
+WRITE WORK 1  VARIABLE #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE 'DBA' '=' 'Datenbank Zugriff'
+WRITE WORK 1  VARIABLE #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE 'HEX' '=' 'Hexadecimale Zuweisungen'
+WRITE WORK 1  VARIABLE #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE 'IFR' '=' 'IF Konstrukte'
+WRITE WORK 1  VARIABLE #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE 'INC' '=' 'IncoreDB , Natural Process'
+WRITE WORK 1  VARIABLE #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE 'ISN' '=' 'ISN Verarbeitung'
+WRITE WORK 1  VARIABLE #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE 'PRO' '=' 'Natural Process'
+WRITE WORK 1  VARIABLE #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE 'PRT' '=' 'Write oder Define Printer'
+WRITE WORK 1  VARIABLE #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE 'RED' '=' 'Redefine Statements'
+WRITE WORK 1  VARIABLE #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE 'RER' '=' 'Redefine Statements im Reporting Mode'
+WRITE WORK 1  VARIABLE #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE 'BLE' '=' 'Redefine Big/Little Endian'
+WRITE WORK 1  VARIABLE #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE 'SOR' '=' 'Sort Statements'
+WRITE WORK 1  VARIABLE #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE 'WRK' '=' 'Workfile Verarbeitung'
+WRITE WORK 1  VARIABLE #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE '???' '=' 'unkown THRU Statements'
+/*
+CLOSE WORK 1
+/*
+WRITE WORK 2  VARIABLE 'Ergebnis der Library' USR1055L.LIBRARY
+WRITE WORK 2  VARIABLE 'Programme     :' #ERG(1)
+WRITE WORK 2  VARIABLE 'Subprogramme  :' #ERG(2)
+WRITE WORK 2  VARIABLE 'Subroutinen  :' #ERG(3)
+WRITE WORK 2  VARIABLE 'Copycodes    :' #ERG(4)
+WRITE WORK 2  VARIABLE 'Helproutinen :' #ERG(5)
+WRITE WORK 2  VARIABLE 'Total        :' #SUM
+WRITE WORK 2  VARIABLE 'Source-Lines :' #SUMLINES
+WRITE WORK 2  VARIABLE '---------------------------------------------'
+WRITE WORK 2  VARIABLE '      '              'Anzahl'     'Module'
+WRITE WORK 2  VARIABLE 'CALL Statement' COUNTCALL COUNTCALLMOD
+WRITE WORK 2  VARIABLE 'Datenbank Zugriff' COUNTDB COUNTDBMOD
+WRITE WORK 2  VARIABLE 'Workfile Verarbeitung' COUNTWORK COUNTWORKMOD
+WRITE WORK 2  VARIABLE 'Hexadecimale Zuweisungen' COUNTHEX COUNTHEXMOD
+WRITE WORK 2  VARIABLE 'Redefine Statements' COUNTRED COUNTREDMOD
+WRITE WORK 2  VARIABLE 'Redefine Statements Reporting Mode' COUNTRER COUNTRERMOD
+WRITE WORK 2  VARIABLE 'Redefine Big/Little Endian :' COUNTBLE COUNTBLEMOD
+WRITE WORK 2  VARIABLE 'IF Konstrukte' COUNTIF COUNTIFMOD
+WRITE WORK 2  VARIABLE 'Write oder Define Printer' COUNTPRT COUNTPRTMOD
+WRITE WORK 2  VARIABLE 'DOWNLOAD PC FILE' COUNTPC COUNTPCMOD
+WRITE WORK 2  VARIABLE 'Sort Statements' COUNTSORT COUNTSORTMOD
+WRITE WORK 2  VARIABLE 'unkown THRU Statements' COUNTASK COUNTASKMOD
+WRITE WORK 2  VARIABLE 'ISN Verarbeitung' COUNTISN COUNTISNMOD
+WRITE WORK 2  VARIABLE 'Natural Process' COUNTPROCESS COUNTPROCESSMOD
+WRITE WORK 2  VARIABLE 'JULIAN DATE  :' COUNTJULIAN COUNTJULIANMOD
+WRITE WORK 2  VARIABLE 'IncoreDB , Natural Process' COUNTINCORE COUNTINCOREMOD
+WRITE WORK 2  VARIABLE 'Callnat , Modul wird über eine Variable aufgerufen' COUNTCWV COUNTCWVMOD
+WRITE WORK 2  VARIABLE 'Callnat , Module nicht vorhanden' COUNTCWO COUNTCWOMOD
+/*
+CLOSE WORK 2
+/*
+IF NOT ANAMOD0.SHOWMAP
+  NEWPAGE
+  WRITE 'Result of Library' USR1055L.LIBRARY ':'
+  WRITE 'Programs     :' #ERG(1)
+  WRITE 'Subprograms  :' #ERG(2)
+  WRITE 'Subroutines  :' #ERG(3)
+  WRITE 'Copycodes    :' #ERG(4)
+  WRITE 'Helproutines :' #ERG(5)
+  WRITE 'Total        :' #SUM
+  WRITE 'Source-Lines :' #SUMLINES
+  WRITE '---------------------------------------------'
+  WRITE '                    COUNTS     MODULES'
+  WRITE 'CALL              :' COUNTCALL COUNTCALLMOD
+  WRITE 'DB                :' COUNTDB COUNTDBMOD
+  WRITE 'WORK              :' COUNTWORK COUNTWORKMOD
+  WRITE 'HEX               :' COUNTHEX COUNTHEXMOD
+  WRITE 'REDEFINE          :' COUNTRED COUNTREDMOD
+  WRITE 'REDEFINE Rep. Mode:' COUNTRER COUNTRERMOD
+  WRITE 'BIG LITTLE ENDIAN :' COUNTBLE COUNTREDMOD
+  WRITE 'IF           :' COUNTIF COUNTIFMOD
+  WRITE 'PRINTER      :' COUNTPRT COUNTPRTMOD
+  WRITE 'UP/DOWNLOAD  :' COUNTPC COUNTPCMOD
+  WRITE 'SORT         :' COUNTSORT COUNTSORTMOD
+  WRITE '???          :' COUNTASK COUNTASKMOD
+  WRITE 'ISN          :' COUNTISN COUNTISNMOD
+  WRITE 'PROCESS      :' COUNTPROCESS COUNTPROCESSMOD
+  WRITE 'JULIAN DATE  :' COUNTJULIAN COUNTJULIANMOD
+  WRITE 'INCORE DB    :' COUNTINCORE COUNTINCOREMOD
+  WRITE 'CALLNAT VAR  :' COUNTCWV COUNTCWVMOD
+  WRITE 'CALLNAT MISS :' COUNTCWO COUNTCWOMOD
+ELSE
+  IF #L-LAST-MAP
+    COMPRESS 'all' #SUM 'Objects of Library' LIB 'being processed !' INTO #STATUS
+    input using map 'ANAMAP'
+  END-IF
+END-IF
+/*
+/**************************
+DEFINE SUBROUTINE COUNT-NAT
+/**************************
+/*
+RESET COUNT-NAT
+USR1055L.LIBRARY     := LIB
+USR1055L.OBJECT-FROM := 'A>'
+USR1055L.OBJECT-TO   := ' '
+USR1055L.OBJECT-KIND := 'S'
+USR1055L.OPT-TYPE-OP := 'I'
+USR1055L.OPT-TYPE    := 'PNSCH'
+USR1055L.OPT-SCROLL  := 'D'
+USR1055L.OPT-AMOUNT  := 255
+USR1055L.OPT-ACCESS := 'O'     /* Open
+NAD-FLD.FIELD-POSITION := 2
+/*
+REPEAT
+/*
+  CALLNAT 'USR1055N' USR1055L  USR1055N.EXTENDED-PARMS
+    NAD-MSG   NAD-FLD
+/*
+  ADD USR1055L.RETURNED TO COUNT-NAT
+
+  USR1055L.OPT-ACCESS := 'R'   /* Readend-subroutine
+  IF MSG-NR NE 0
+    /* leave loop if last object reached
+    ESCAPE BOTTOM
+  END-IF
+/*
+END-REPEAT
+/*
+USR1055L.OPT-ACCESS := 'C'     /* Close
+CALLNAT 'USR1055N' USR1055L  USR1055N.EXTENDED-PARMS
+  NAD-MSG   NAD-FLD
+/*
+/**************************
+END-SUBROUTINE /* COUNT-NAT
+/**************************
+/*
+END

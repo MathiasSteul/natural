@@ -1,0 +1,184 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP ISO_8859-1:1987
+* :LineIncrement 10
+* <Natural Source Header
+define data
+global using anamod0g
+parameter using anamod0a
+LOCAL USING USR-MSG   /* Data for message exchange
+LOCAL USING USR-FLD   /* Description of the field in error
+LOCAL
+1 AMOUNT (i4) const <255> /* number of returning lines with one callnat
+1 USR1057L
+  2 OBJECT-KEY
+    3 LIBRARY        (A08)
+    3 OBJECT-NAME    (A32)
+    3 OBJECT-TYPE    (A02)
+    3 OPT-ACCESS     (A01)
+    3 OPT-UNUSED-1   (L)
+    3 OPT-UNUSED-2   (A01)
+    3 OPT-LINE-NUM   (A01)
+    3 OPT-UNUSED-3   (L)
+    3 OPT-REDEF-DIR  (L)
+    3 OPT-UNUSED-4   (A01)
+    3 OPT-AMOUNT     (I02)
+    3 OPT-LINESIZE   (I02)
+/*
+  2 INPUT-OUTPUTS
+    3 INT-HANDLE     (I04)
+    3 NEXT-SEQ       (I04)
+    3 NEXT-NUM       (I02)
+/*
+  2 OUTPUTS
+    3 RETURNED       (I02)
+    3 SRC-NUM        (I02/1:amount)
+    3 SRC-TEXT       (A01/1:amount,1:93)
+    3 REDEFINE SRC-TEXT
+      4 SRC-GROUP    (1:amount)
+        5 SRC-LINE   (A93)
+        5 REDEFINE SRC-LINE
+          6 SRC-LINE-ARRAY (A1/1:93)
+    3 REDEFINE SRC-TEXT
+      4 DIR-OBJNAME      (A32)    /* Object Name
+      4 DIR-LIBRARY      (A08)    /* Library ID
+      4 DIR-OBJTYPE      (A02)    /* Object Type
+      4 DIR-OBJKIND      (A01)    /* Source or Module
+      4 DIR-DBID         (A05)    /* DBID of System File
+      4 DIR-FNR          (A05)    /* FNR of System File
+      4 DIR-DATN         (A08)    /* Date in Format (YYYYMMDD)
+      4 DIR-TIMN         (A07)    /* Time in Format (HHIISST)
+      4 DIR-USERID       (A08)    /* User ID
+      4 DIR-PROGMODE     (A01)    /* Programming Mode
+      4 DIR-SRCSIZE      (A10)    /* Source Area Size
+      4 DIR-GPSIZE       (A10)    /* Size of Module
+      4 DIR-UNIQUE-ID    (A32)    /* Unique ID
+      4 DIR-DDM-DBID     (A05)    /* DBID the DDM is cataloged with
+      4 DIR-DDM-FNR      (A05)    /* FNR the DDM is cataloged with
+      4 DIR-NATVERS      (A04)    /* NATURAL Version
+      4 DIR-NATSM        (A02)    /* NATURAL SM Level
+      4 DIR-INIT-USER    (A08)    /* Init User ID
+      4 DIR-TID          (A08)    /* Terminal ID
+      4 DIR-TRANS-NAME   (A08)    /* TP Transcation Name
+      4 DIR-OPSYS        (A08)    /* Operating System
+      4 DIR-TPSYS        (A08)    /* TP System
+      4 DIR-USED-GDA     (A08)    /* Used GDA
+/* End of directory attributes
+    3 SRC-SEQ        (I04/1:amount)
+    3 SRC-LONG       (A01/1:amount)
+/*
+1 USR1057N
+  2 VERSION          (I01)     INIT <2>
+  2 V1-NSC-CKECK     (A01)
+  2 V2-DBID          (N05)
+  2 V2-FNR           (N04)
+  2 V2-PSW           (A08)
+  2 V2-CIP           (N08)
+  2 V2-SYSFILE       (A01)
+1 REDEFINE USR1057N
+  2 EXTENDED-PARMS
+    3 EXTENDED-DATA  (A01/1:28)
+1 usr2011l
+  2 inputs
+    3 function (a1) init <'S'>
+    3 work-num (i1) init <5>
+  2 input-outputs
+    3 work-file (a253)
+    3 work-type (a1) init <'D'>
+  2 outputs
+    3 max-num (i1)
+  3 response (i4)
+1 #i3 (i4)
+1 #i4 (i4)
+1 #i5 (i4)
+1 workbuf (a100)
+end-define
+/*
+/* Move Counter from PDA to GDA
+move by name ANAMOD0 to COUNTS
+move by name ANAMOD0 to PROFILE
+/*
+USR1057L.OPT-LINE-NUM  := 'Y'
+USR1057L.OPT-REDEF-DIR := TRUE
+USR1057L.OPT-AMOUNT    := amount
+USR1057L.OPT-LINESIZE  := 93
+USR1057L.LIBRARY       := #library
+USR1057L.OBJECT-NAME   := #object
+reset #lines
+/*
+USR1057L.OPT-ACCESS   := 'O' /* Open Source
+CALLNAT 'USR1057N' USR1057L  USR1057N.EXTENDED-PARMS
+  NAD-MSG   NAD-FLD
+/*
+if nad-msg.msg-nr ne 0
+  escape routine
+end-if
+/*
+reset modul(*) maxlines variables(*) varcount redef redef
+objname := DIR-OBJNAME
+objtype := DIR-OBJTYPE
+objprogmode := DIR-PROGMODE
+objsize := val(DIR-SRCSIZE)
+objlibrary := DIR-LIBRARY
+/*
+USR1057L.OPT-ACCESS := 'R' /* Read Source
+/*
+REPEAT
+/*
+  CALLNAT 'USR1057N' USR1057L  USR1057N.EXTENDED-PARMS
+    NAD-MSG   NAD-FLD
+/*
+   write work 31 variable OBJNAME OBJTYPE OBJSIZE RETURNED 'After Read Source'
+   FOR #i3 = 1 TO USR1057L.RETURNED
+/* loop thru source lines
+    perform delete-remarks
+    if src-line(#i3) <> ' '
+/* Lines has no Remarks
+      add 1 to #lines
+      maxlines := #lines
+      lineno(maxlines) := src-num(#i3)
+      text(maxlines) := src-line(#i3)
+      examine text(maxlines) translate into upper
+    end-if
+  END-FOR
+/*
+ IF USR1057L.RETURNED = 0
+/* end of source reached -> stop
+    write work 31 variable OBJNAME OBJTYPE OBJSIZE RETURNED 'RETURNED = 0'
+    escape bottom
+  end-if
+/*
+if nad-msg.msg-nr ne 0
+   write work 31 variable OBJNAME OBJTYPE OBJSIZE RETURNED nad-msg.msg-nr nad-msg.msg
+end-if
+
+END-REPEAT
+/*
+/* Process Natural Modul
+write work 30 variable OBJNAME OBJTYPE OBJSIZE
+perform ANAMOD0S
+/* Put Counter from GDA to PDA
+move by name COUNTS to ANAMOD0
+/*
+define subroutine delete-remarks
+/* delete all remarks from source-line
+/* delete whole source-line if it contains remarks only
+/*
+if SRC-LINE-ARRAY(#i3,1) = '*'
+  reset src-line(#i3)
+  escape routine
+end-if
+examine src-line(#i3) for '/*' giving position #i4
+if #i4 <> 0
+  reset SRC-LINE-ARRAY(#i3,#i4:93)
+end-if
+for #i5 = 1 to 93
+  if SRC-LINE-ARRAY(#i3,#i5) <> ' '
+    escape bottom
+  end-if
+  SRC-LINE-ARRAY(#i3,#i5) := H'FF'
+end-for
+examine  src-line(#i3) for h'FF' delete
+end-subroutine
+/*
+end

@@ -1,0 +1,239 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP ISO_8859-1:1987
+* :LineIncrement 10
+* <Natural Source Header
+/***********************************************************************
+DEFINE DATA
+local using nscanewl
+local using anamod0a
+LOCAL
+1 V                  (I02)  CONST <200>
+LOCAL
+1 #L-WORKFILE2 (A255)
+1 #L-PATH(A200) INIT <'C:\temp\'>
+1 #L-WORKFILE (A255)
+1 UNIX (L) const <FALSE>
+1 MAPOUT (L) const <TRUE> /* Show Processing Map
+1 DB (L) const <TRUE> /* use Adabas File 250 for Sort Resultlist
+1 USR1054L
+  2 OBJECT-KEY
+    3 SYSTEM-FILE    (A01)
+    3 LIBRARY-FROM   (A09)
+    3 LIBRARY-TO     (A09)
+      /*
+  2 INPUTS
+    3 OPT-ACCESS     (A01)
+    3 OPT-KIND       (A01)
+    3 OPT-SCROLL     (A01)
+    3 OPT-WILDCARD   (A01)
+    3 OPT-ASTERISK   (A01)
+    3 OPT-AMOUNT     (I02)
+      /*
+  2 INPUT-OUTPUTS
+    3 INT-HANDLE     (I04)
+    3 NEXT-LIB       (A08)
+  2 OUTPUTS
+    3 RETURNED       (I02)
+    3 LIST-LIB       (A08/1:V)
+    3 LIST-KIND      (A01/1:V)
+      /*
+1 USR1054N
+  2 VERSION          (I01)     INIT <2>
+  2 V1-NSC-CKECK     (A01)
+  2 V2-DBID          (N05)
+  2 V2-FNR           (N04)
+  2 V2-PSW           (A08)
+  2 V2-CIP           (N08)
+1 REDEFINE USR1054N
+  2 EXTENDED-PARMS
+    3 EXTENDED-DATA  (A01/1:27)
+/*
+LOCAL USING USR-MSG   /* Data for message exchange
+LOCAL USING USR-FLD   /* Description of the field in error
+/*
+LOCAL
+1 LOCAL-MSG          (A79)
+1 IX                 (I02)
+1 INPUT-OK           (L)
+1 #count-temp (i4)
+1 #status (a70)
+1 #sum (i4)
+1 #sum-temp (i4)
+1 #progress (i4)
+1 #progressbar (a75)
+1 #erg (i4/1:5)
+1 #sumlines (i4)
+1 #temp (a100)
+1 #count (i4)
+1 #out (a200)
+1 redefine #out
+  2 #out-lib (a8)
+  2 filler 1x
+  2 #out-obj (a8)
+  2 filler 1x
+  2 #out-type (a1)
+  2 filler 1x
+  2 #out-mode (a1)
+  2 filler 1x
+  2 #out-code (a3)
+  2 filler 1x
+  2 #out-line (a5)
+  2 filler 1x
+  2 #out-comment (a122)
+1 #OLDPROG (A8)
+END-DEFINE
+/*
+compress #L-PATH 'liball.csv' into #l-workfile leaving no
+compress #L-PATH 'liball-Ergebnis.csv' into #l-workfile2 leaving no
+DEFINE WORK FILE 1 #L-WORKFILE TYPE 'CSV'
+DEFINE WORK FILE 2 #L-WORKFILE2 TYPE 'CSV'
+reset #counts
+if db
+/* delete all records in temporary file
+  find number nscanew with sp-library-code-modul-line > ' '
+  read nscanew by isn
+    delete
+    end transaction
+  end-read
+end-if
+SET KEY ALL
+/*
+SYSTEM-FILE  := 'U'
+LIBRARY-FROM := '*       '
+LIBRARY-TO   := '        '
+OPT-KIND     := 'A'
+OPT-SCROLL   := 'D'
+OPT-AMOUNT   := 200
+/*
+OPT-ACCESS := 'O'    /* Open
+/*
+IF NAD-FLD.FIELD-POSITION = 0 THEN
+  NAD-FLD.FIELD-POSITION := 2
+END-IF
+/*
+CALLNAT 'USR1054N' USR1054L  USR1054N.EXTENDED-PARMS
+  NAD-MSG   NAD-FLD
+/*
+OPT-ACCESS := 'R'    /* Read
+/*
+FOR IX = 1 TO RETURNED
+  callnat 'ANALYZ2N'  LIST-LIB(IX) DB MAPOUT UNIX #erg(*) #sumlines #sum anamod0
+END-FOR
+/*
+OPT-ACCESS := 'C'    /* Close
+CALLNAT 'USR1054N' USR1054L  USR1054N.EXTENDED-PARMS
+  NAD-MSG   NAD-FLD
+/*
+if db
+/* write records to workfile workfile
+  WRITE WORK 1 VARIABLE
+    'Library'
+    'Name'
+    'Type'
+    'Mode'
+    'Code'
+    'Line'
+    'Content'
+  read nscanew by sp-library-code-modul-line
+    at break of code
+      #temp := old(code)
+      DECIDE ON FIRST VALUE OF #TEMP
+        VALUE '???'
+          COUNTASKMOD := #COUNT
+        VALUE 'CAL'
+          COUNTCALLMOD := #COUNT
+        VALUE 'DBA'
+          COUNTDBMOD := #COUNT
+        VALUE 'IFR'
+          COUNTIFMOD := #COUNT
+        VALUE 'HEX'
+          COUNTHEXMOD := #COUNT
+        VALUE 'RED'
+          COUNTREDMOD := #COUNT
+        VALUE 'BLE'
+          COUNTBLEMOD := #COUNT
+        VALUE 'RER'
+          COUNTRERMOD := #COUNT
+        VALUE 'WRK'
+          COUNTWORKMOD := #COUNT
+        VALUE 'SOR'
+          COUNTSORTMOD := #COUNT
+        VALUE 'PRT'
+          COUNTPRTMOD := #COUNT
+        VALUE 'CPD'
+          COUNTPCMOD := #COUNT
+        VALUE 'ISN'
+          COUNTISNMOD := #COUNT
+        VALUE 'PRO'
+          COUNTPROCESSMOD := #COUNT
+        VALUE 'JUL'
+          COUNTJULIANMOD := #COUNT
+        VALUE 'INC'
+          COUNTINCOREMOD := #COUNT
+        VALUE 'CWV'
+          COUNTCWVMOD := #COUNT
+        VALUE 'CWO'
+          COUNTCWOMOD := #COUNT
+        NONE VALUE
+          IGNORE
+      END-DECIDE
+      reset #count
+    end-break
+    reset #out
+    #out-lib := nscanew.library
+    #out-obj := nscanew.modul
+    #out-type := nscanew.type
+    #out-mode := nscanew.mode
+    move edited nscanew.line (em=99999) to #out-line
+    #out-code := nscanew.code
+    #out-comment := COMMENT
+    WRITE WORK 1  VARIABLE
+      #OUT.#OUT-LIB
+      #OUT.#OUT-OBJ
+      #OUT.#OUT-TYPE
+      #OUT.#OUT-MODE
+      #OUT.#OUT-CODE
+      #OUT.#OUT-LINE
+      #OUT.#OUT-COMMENT
+    IF #OLDPROG <> nscanew.modul
+      ADD 1 TO #COUNT
+    END-IF
+    #OLDPROG:= nscanew.modul
+  end-read
+end-if
+RESET       #OUT.#OUT-LIB #OUT.#OUT-OBJ #OUT.#OUT-TYPE #OUT.#OUT-MODE
+/*
+close work 1
+WRITE WORK 2  VARIABLE 'Ergebnis aller Libraries'
+WRITE WORK 2  VARIABLE 'Programme     :' #ERG(1)
+WRITE WORK 2  VARIABLE 'Subprogramme  :' #ERG(2)
+WRITE WORK 2  VARIABLE 'Subroutinen  :' #ERG(3)
+WRITE WORK 2  VARIABLE 'Copycodes    :' #ERG(4)
+WRITE WORK 2  VARIABLE 'Helproutinen :' #ERG(5)
+WRITE WORK 2  VARIABLE 'Total        :' #SUM
+WRITE WORK 2  VARIABLE 'Source-Lines :' #SUMLINES
+WRITE WORK 2  VARIABLE '---------------------------------------------'
+WRITE WORK 2  VARIABLE '      '              'Anzahl'     'Module'
+WRITE WORK 2  VARIABLE 'CALL Statement' COUNTCALL COUNTCALLMOD
+WRITE WORK 2  VARIABLE 'Datenbank Zugriff' COUNTDB COUNTDBMOD
+WRITE WORK 2  VARIABLE 'Workfile Verarbeitung' COUNTWORK COUNTWORKMOD
+WRITE WORK 2  VARIABLE 'Hexadecimale Zuweisungen' COUNTHEX COUNTHEXMOD
+WRITE WORK 2  VARIABLE 'Redefine Statements' COUNTRED COUNTREDMOD
+WRITE WORK 2  VARIABLE 'Redefine Statements Reporting Mode' COUNTRER COUNTRERMOD
+WRITE WORK 2  VARIABLE 'Redefine Big/Little Endian :' COUNTBLE COUNTBLEMOD
+WRITE WORK 2  VARIABLE 'IF Konstrukte' COUNTIF COUNTIFMOD
+WRITE WORK 2  VARIABLE 'Write oder Define Printer' COUNTPRT COUNTPRTMOD
+WRITE WORK 2  VARIABLE 'DOWNLOAD PC FILE' COUNTPC COUNTPCMOD
+WRITE WORK 2  VARIABLE 'Sort Statements' COUNTSORT COUNTSORTMOD
+WRITE WORK 2  VARIABLE 'unkown THRU Statements' COUNTASK COUNTASKMOD
+WRITE WORK 2  VARIABLE 'ISN Verarbeitung' COUNTISN COUNTISNMOD
+WRITE WORK 2  VARIABLE 'Natural Process' COUNTPROCESS COUNTPROCESSMOD
+WRITE WORK 2  VARIABLE 'JULIAN DATE  :' COUNTJULIAN COUNTJULIANMOD
+WRITE WORK 2  VARIABLE 'IncoreDB , Natural Process' COUNTINCORE COUNTINCOREMOD
+WRITE WORK 2  VARIABLE 'Callnat , Modul wird über eine Variable aufgerufen' COUNTCWV COUNTCWVMOD
+WRITE WORK 2  VARIABLE 'Callnat , Module nicht vorhanden' COUNTCWO COUNTCWOMOD
+/*
+CLOSE WORK 2
+/*
+END
