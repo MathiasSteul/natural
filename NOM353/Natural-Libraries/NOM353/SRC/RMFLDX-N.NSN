@@ -1,0 +1,100 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMFLDX-N - Version      1.3
+* Get attributes for flush via NATUNIX
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* fhi     2005-08-10 s(999999) created from RMFLLP-N
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-12-21 NOMALL-865 restow due to changes in RMFL---P
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER USING RMFL---P
+PARAMETER
+1 P-ERROR-CODE       (N4)
+1 P-ERROR-TEXT       (A250)
+************************************************************************
+LOCAL USING EOMPHTYE
+LOCAL
+1 PRINTOUT VIEW OF NRM-PRINTOUTS
+  2 PO-ATTRIBUTES    (1:25)
+  2 REDEFINE PO-ATTRIBUTES
+    3 PO-ATTRIB      (1:25)
+      4 PO-IDENT     (I1)
+      4 PO-LENGTH    (N2)
+      4 PO-PROMPT    (N4)
+      4 PO-VAR       (A16)
+      4 PO-VALUE     (A72)
+  2 C*PO-ATTRIBUTES
+*
+* variables for hex conversion
+1 F                  (I2)
+1 NOE                (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-ERROR-CODE P-ERROR-TEXT
+*
+PERFORM READ-PRINTOUT-RECORD
+IF P-ERROR-CODE = 0
+  PERFORM NATUNIX-INTERFACE
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-PRINTOUT-RECORD
+************************************************************************
+FNDPR. FIND PRINTOUT WITH PO-ID = FLUSH-POID
+  IF NO RECORDS FOUND
+    P-ERROR-CODE := 0005
+    P-ERROR-TEXT := 'Printout Record not found'
+    ESCAPE BOTTOM (FNDPR.)
+  END-NOREC
+END-FIND
+*
+END-SUBROUTINE /* READ-PRINTOUT-RECORD
+*
+************************************************************************-
+DEFINE SUBROUTINE NATUNIX-INTERFACE
+************************************************************************
+RESET NATUNIX-ATTRIBUTES
+IF PRINTOUT.C*PO-ATTRIBUTES > 25
+  NOE := 25
+ELSE
+  NOE := PRINTOUT.C*PO-ATTRIBUTES
+END-IF
+FOR F = 1 TO NOE
+  DECIDE ON FIRST PO-VAR (F)
+    VALUE 'PHYSICAL-NAME' NATUNIX-PHYSICAL-NAME := PO-VALUE (F)
+    VALUE 'PRINT-METHOD'  NATUNIX-PRINT-METHOD  := PO-VALUE (F)
+    VALUE 'PROFILE'       NATUNIX-PROFILE       := PO-VALUE (F)
+    VALUE 'FORMFEED'      NATUNIX-FORMFEED      := PO-VALUE (F)
+    VALUE 'TRACE'         NATUNIX-TRACE         := PO-VALUE (F)
+    VALUE 'PAGE-SIZE'
+      IF PO-VALUE(F) IS (N3) NATUNIX-PAGE-SIZE:=VAL(PO-VALUE (F)) END-IF
+    VALUE 'LINE-SIZE'
+      IF PO-VALUE(F) IS (N3) NATUNIX-LINE-SIZE:=VAL(PO-VALUE (F)) END-IF
+    VALUE 'MAX-PAGES'
+      IF PO-VALUE(F) IS (N10) NATUNIX-MAX-PAGES:=VAL(PO-VALUE(F)) END-IF
+    VALUE 'OUTPUT-TARGET'
+      IF PO-VALUE (F) IS (N1)
+        NATUNIX-OUTPUT-TARGET := VAL(PO-VALUE (F))
+      END-IF
+    NONE VALUE IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* NATUNIX-INTERFACE
+*
+END

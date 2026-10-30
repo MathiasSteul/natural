@@ -1,0 +1,496 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RPRTRP-N - Display Printer Selection List and queue Report forPrinting
+*
+* Creation and Maintenance History
+* uuu yy-mm-dd s(999999) ...
+* mrs 92-09-14 s(999999) highlight and definition creation = NO
+* gw  93-11-11 s(999999) call rselpr-n instead of rselph-n
+* gw  94-05-13 s(999999) new field po-esy-userid
+* gw  94-07-04 s(999999) wake up monitor
+* mrs 95-05-05 s(223428) avoid 3145
+* gw  96-07-18 s(999999) extended attributes BS2
+* gw  96-09-25 s(999999) init printer selection with global value
+* JWO 97-05-07 P(162258) set correct SPACE parameter for BS2000
+* mrs 97-06-03 p(162804) personal printer (user profile)
+* mwi 97-06-10 p(162737) spool-attr account-number
+* jwo 97-09-22 p(165064) new logic to get PO-ID
+* jvd 98-05-04 p(168326)  Increase display size to show lines > 10m
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+*                        p(168326) is now in p(164220) so I have removed
+*                        all refferance to P(168326) to make easier
+*                        reading
+* sju 00-04-28 p(191368)  wake up print task
+* wcd 00-04-01 CE 7267   Increase to 20 printers
+* xsiszha 2000-08-02 (CE7461) Extend Report and Bundle Names
+* sju 03-12-15 p(248535) Default print class not taken
+* xsetggr 04-03-10 p(250355) wkf not always correspond to recfm
+* sju     2004-04-22 p(250355) correct handling of recfm
+* sju     2005-01-12 p(260836) correct handling of recfm
+* fhi 05-04-21 NOM3107  Support 7-byte job numbers
+* fhi     2005-12-14 P272732 cataloged, because VPRINT-L was changed.
+* xsetggr 2007-05-02 NOM3201 support 5 byte node numbers
+* xsetggr 2007-05-02 NOM3201 support 11 byte run numbers
+* xsetggr 2007-06-27 NOM3201 restow - changes in eompom-parms
+* xsetggr 2007-10-25 NRT2185 default values for UNIXLP printers
+* xsetggr 2007-11-26 NRT2771 Start and stop group of printers
+* xsetggr 2008-02-16 p(302045) assign missing po-attributes
+* xsetggr 2008-02-21 p(301593) honoured hold status of stopped po
+* xsetggr 2008-05-05 p(304350) restow dues to changes in rmspl--l
+* xsetggr 2008-11-28 P311915  default printers DEFAULTA - DEFAULTZ
+* fhi     2009-06-09 N3463     Extend metadata for OPO
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-11-15 NOMALL-865 restow due to changes in EOMPHTYE
+* xsetggr 2011-10-27 NOMALL-970 implement report flag 'print once'
+* raya    2012-02-01 NOMALL-1096 error-text a250 in NOMWK--P stow only
+* raya    2012-02-07 NOMALL-98 check existance of printer-exit and if
+*                    not exist no printout
+* raya    2012-04-18 NOMALL-98 change err 1585 to 1587  remove-steplib
+* raya    2012-06-19 NOMALL-1142 add error 1078 when prob with steplib
+* fhi     2012-10-22 NOMALL-1204 Add trace output
+* raya    2012-10-22 NOMALL-1204 print correctly while multiple select
+* raya    2013-01-08 NOMALL-1214 check cat date of user exit
+* xsetggr 2013-01-22 NOMALL-970 implementation cancelled
+* raya    2013-12-18 NOMALL-1314 error not displayed when many pr
+* SU1     2014-01-02 NOMALL-1331 restructured + uqaced for raya
+* SU2     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* fhi     2016-11-10 NOMALL-1917 use correct node number
+* fhi     2017-04-07 NOMALL-1961 Omit field PO-MONITOR
+* SU3     2018-03-15 NOMALL-2085 NOM35 printer:sep.pages
+* SU4     2020-05-18 NOMALL-2349 use N-CHKCAT
+* SU5     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU6     2021-01-08 NOMALL-2443 attr. "with Sep.Pages"(NOMALL-2085
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 G-USERID         (A8)
+1 G-USER-TYPE      (A1)
+1 G-C-REPORT       (A25)
+1 G-C-REPRNB       (P11)
+1 G-C-PRINTER      (A8)
+1 #FROM            (P8)
+1 #TO              (P8)
+1 #LAYOUT-N        (P3)
+1 #LAYOUT-F        (P3/10)
+1 #LAYOUT-T        (P3/10)
+1 #HEADER-LINES    (N3)
+1 G-MONITOR-NODE   (N5)
+1 G-USER-PROFILE   (A250)
+1 G-USE-OWNER      (L)
+1 G-NATRP-ERC      (N4)
+1 G-NATRP-ERT      (A250)
+************************************************************************
+LOCAL USING NOMWK--P
+LOCAL USING NOMFNC-E
+LOCAL USING VPRINT-L
+/*SU5 LOCAL USING VMONITUL            /* NOMALL-1917
+LOCAL USING VPRRP-L
+LOCAL USING SUPER-L
+LOCAL USING EOMPOM-P
+LOCAL USING RMSPLA-L
+LOCAL USING RMSPL--L
+LOCAL USING PROF-LOC
+LOCAL USING RMTASK-E
+LOCAL USING EOMPHTYE
+* ----------------------------------------------------------------------
+LOCAL
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU5
+  2 MF-PRINT-CLASS (A1)  /* used as
+1 PHYSICAL-PRINTER    VIEW  OF  NRM-PHYSICAL-PRINTERS
+  2 PH-VTAMID
+  2 PH-ESCAPE-CHAR
+  2 PH-JCL-SKELETON
+  2 PH-PRINT-PGM
+  2 PH-PRINTER-TYPE
+  2 PH-STATUS
+1 DEFAULT-PRINTER VIEW OF NRM-PRINTERS
+  2 P-ID
+  2 P-ATTRIBUTES              (1:25)
+1 ACTIVE-REPORT  VIEW  OF  NRM-ACTIVE-REPORTS
+  2 AR-CC-TYPE
+  2 AR-USERID
+  2 AR-PRINTERS               (1:20)
+  2 C*AR-PRINTERS
+  2 AR-SPOOL-ATTRIBUTES
+  2 AR-SPOOL-ATTR-EXTENDED    (1:120)
+1 REPORTS  VIEW  OF  NRM-REPORTS-NEW
+  2 R-PRINT-JOBCARD           (1:3)
+  2 C*R-PRINT-JOBCARD
+  2 R-PRINTERS                (A12/1:20)
+  2 REDEFINE R-PRINTERS
+    3 R-PRINT-TAB             (1:20)
+      4 R-PRINTER             (A8)
+      4 R-COPIES              (N3) /*SU6
+      4 R-SEP-PAGES           (A1) /*SU6
+  2 C*R-PRINTERS
+* *****
+1 #PRINTER                    (A8)
+1 #CLASS                      (A1)
+1 #PRTY                       (N1)
+1 #COPIES                     (N3)
+1 #DEST                       (A8)
+1 #FORM                       (A4)
+1 #HOLD                       (A1)
+1 I                           (P3)
+1 G-P-PHYSICAL-NAME           (A8)
+1 #NOP                        (P2)
+1 #I                          (I4)
+1 #VAR                        (A16)
+1 #VALUE                      (A72)
+1 #RETRY                      (I4)
+1 #RMPOID-FUNC                (A1)
+1 #J                          (I2)
+1 #RESET-RECFM                (L)
+1 #P-ID-E                     (A8)
+1 #P-ID                       (A8)  INIT <'DEFAULT'>
+1 REDEFINE #P-ID
+  2 #P-ID-1                   (A7)
+  2 #SUFFIX                   (A1)
+1 #TRACE-MSG                  (A250)
+1 #TRACING                    (L)
+1 #ERC                        (N4)
+1 #ERT                        (A250)
+1 #CAT-DATE-1                 (A10)
+1 #CAT-DATE-2                 (A10)
+1 #CALLER                     (A8) INIT <*PROGRAM>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM RMGTRACO-GET-SETTINGS #TRACING
+IF #TRACING
+  COMPRESS 'Start' *PROGRAM TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+PERFORM READ-ACTIVE-REP-AND-DEFINITION
+*
+PERFORM PERSONAL-PRINTER
+IF #PRINTER = ' '
+  PERFORM SELECT-PRINTER
+END-IF
+IF #TRACING
+  COMPRESS 'Printer selected:' #PRINTER TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+IF #PRINTER NE ' '
+  G-C-PRINTER := #PRINTER
+  PERFORM CREATE-PRINTOUT-RECORD
+  IF G-NATRP-ERC EQ 1078
+    COMPRESS '1078' P-EXITLIB TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+  END-IF
+  IF G-NATRP-ERC = 1078 OR= 1079 OR= 5
+    COMPRESS P-EXITLIB '(' P-EXITMEM ')' TO #TRACE-MSG LEAVING NO
+    COMPRESS '1587' G-C-REPORT #TRACE-MSG G-C-PRINTER TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+    END TRANSACTION
+    ESCAPE ROUTINE
+  END-IF
+  END TRANSACTION
+  IF #ERC = 1078 OR= 1079 OR=1587 OR=1592 OR=1591 OR= 5 OR= 1593
+    G-NATRP-ERC := #ERC
+    G-NATRP-ERT := #ERT
+  END-IF
+  IF PRINTOUTS.PO-SCHEDULED NE 0 AND PRINTOUTS.PO-SCHEDULED <= *TIMX
+    NOMWK-TASK-TYPE:= EQU-MANAGE-PRINTOUTS
+    CALLNAT NOM-WAKE-MONITOR NOMWK-NOMVERS NOMWK-PARMS (*)
+  END-IF
+ELSE
+  IF #TRACING
+    #TRACE-MSG := 'Printer empty causes NOM0428.'
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+  G-NATRP-ERC := 0428
+  ESCAPE ROUTINE
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ACTIVE-REP-AND-DEFINITION
+************************************************************************
+#AR-REPNAME := G-C-REPORT
+#AR-REPRNB  := G-C-REPRNB
+FNDAR. FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REPORT-RNB
+  #SPOOL-ATTRIBUTES := AR-SPOOL-ATTRIBUTES
+  CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+  PERFORM XXMVAR-S-MOVE-ARRAY #SPOOL-ATTRIBUTES-EXT
+    AR-SPOOL-ATTR-EXTENDED (1:3)
+END-FIND
+FNDR. FIND REPORTS WITH R-REPNAME = G-C-REPORT
+  IF NO RECORDS FOUND
+    #NOP              := ACTIVE-REPORT.C*AR-PRINTERS
+    R-PRINTERS (1:20) := ACTIVE-REPORT.AR-PRINTERS (1:20)
+    ESCAPE BOTTOM (FNDR.)
+  END-NOREC
+  #NOP := C*R-PRINTERS
+END-FIND
+*
+END-SUBROUTINE /* READ-ACTIVE-REP-AND-DEFINITION
+*
+************************************************************************
+DEFINE SUBROUTINE SELECT-PRINTER
+************************************************************************
+#VAR := 'COPIES'
+CALLNAT 'RPRTATTN' #SPOOL-ATTRIBUTES #SPOOL-ATTRIBUTES-EXT #VAR
+  #VALUE AR-CC-TYPE
+IF #VALUE NE ' '
+  #COPIES := VAL (#VALUE)
+END-IF
+*
+#PRINTER := G-C-PRINTER
+CALLNAT 'RSELPR-N' #PRINTER #CLASS #FORM #DEST #COPIES
+  G-P-PHYSICAL-NAME #PRTY #HOLD G-USERID G-USER-TYPE
+  REPORTS.R-PRINTER (1:20) #NOP
+*
+END-SUBROUTINE /* SELECT-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-PRINTOUT-RECORD
+************************************************************************
+RESET PRINTOUTS
+IF G-NATRP-ERC =1078 OR=1079 OR=5 OR=1587 OR=1592 OR=1591 OR=1593
+  #ERC := 1593
+END-IF
+RESET G-NATRP-ERC G-NATRP-ERT
+*
+IF #TRACING
+  #TRACE-MSG := 'Creating printout record.'
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+FIND PRINTERS WITH P-ID = G-C-PRINTER
+  FIND (1) PHYSICAL-PRINTER WITH PH-VTAMID = P-PHYSICAL-NAME
+  END-FIND
+  IF #TRACING
+    COMPRESS 'Processing printer:' G-C-PRINTER TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+  RESET PRINTOUTS.PO-LAST-PRINTED-RECNO PRINTOUTS.PO-JOBNO
+  IF P-EXITLIB NE ' ' AND P-EXITMEM NE ' '
+    IF #TRACING
+      COMPRESS 'Checking exit:' P-EXITLIB '/' P-EXITMEM TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END TRANSACTION
+    END-IF
+    CALLNAT 'N-CHKCAT' G-NATRP-ERC G-NATRP-ERT P-EXITMEM /*SU4
+      P-EXITLIB #CALLER #CAT-DATE-1 #CAT-DATE-2
+    IF G-NATRP-ERC NE 0
+      IF #TRACING
+        COMPRESS 'Checking exit RC:' G-NATRP-ERC TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END TRANSACTION
+      END-IF
+      ESCAPE ROUTINE IMMEDIATE
+    END-IF
+  END-IF
+*
+  RESET #RMPOID-FUNC
+  CALLNAT 'RMPOID-N' PRINTOUTS.PO-ID G-NATRP-ERC G-NATRP-ERT
+    #RMPOID-FUNC
+  PRINTOUTS.PO-ID-INV := 9999998 - PRINTOUTS.PO-ID
+  PERFORM ASSIGN-PO-COPIES
+  PO-NODE        := G-MONITOR-NODE
+  PO-CREATED     := *TIMX
+  PO-ESCAPE-CHAR := PH-ESCAPE-CHAR
+  PO-EXITLIB     := P-EXITLIB
+  PO-EXITMEM     := P-EXITMEM
+  PO-FROM-LINE   := #FROM
+  PO-HEADLINES   := #HEADER-LINES
+  IF PHYSICAL-PRINTER.PH-STATUS = 'S'
+    PO-STATUS := 'S'
+    IF #HOLD = 'Y'
+      PO-HOLD := 'Y'
+    ELSE
+      RESET PO-HOLD
+    END-IF
+  ELSE
+    IF #HOLD = 'Y'
+      PO-STATUS := 'H'
+    ELSE
+      PO-STATUS := 'R'
+    END-IF
+  END-IF
+  PO-JCL-SKELETON := PH-JCL-SKELETON
+  PERFORM ASSIGN-PO-JOBCARD
+  PO-LANGUAGE := *LANGUAGE
+  RESET  PO-LAYOUT        (*)
+  FOR I 1 TO #LAYOUT-N
+    PO-LAYOUT-FROM (I) := #LAYOUT-F (I)
+    PO-LAYOUT-TO   (I) := #LAYOUT-T (I)
+  END-FOR
+  PO-LOGICAL       := G-C-PRINTER
+  PO-PHYSICAL-NAME := P-PHYSICAL-NAME
+  PO-PRINT-PGM     := PH-PRINT-PGM
+  PO-PRINTER-TYPE  := PH-PRINTER-TYPE
+  PO-PRIORITY      := P-PRIORITY
+  PO-REPNAME       := G-C-REPORT
+  PO-REPRNB        := G-C-REPRNB
+  IF PO-STATUS = 'R'
+    PERFORM ASSIGN-PO-SCHEDULED
+  END-IF
+  PO-TO-LINE := #TO
+  PO-USERID  := G-USERID
+  PROFILE-STRING := G-USER-PROFILE
+  IF PROF-EXTERNAL = 'Y'
+    PO-ESY-USERID := G-USERID
+  ELSE
+    IF G-USE-OWNER
+      PO-ESY-USERID := AR-USERID
+    ELSE
+      RESET  PO-ESY-USERID
+    END-IF
+  END-IF
+  PERFORM ASSIGN-PO-ATTRIBUTES
+  RESET PRINTOUTS.PO-BUNDLE
+*
+  IF #TRACING
+    COMPRESS 'Storing printout:' '- PO-REPNAME' PO-REPNAME
+      '- PO-REPRNB'  PO-REPRNB '- PO-LOGICAL' PO-LOGICAL
+      '- PO-PHYSICAL-NAME'  PO-PHYSICAL-NAME
+      '- PO-PRINT-PGM'      PO-PRINT-PGM
+      '- PO-PRINTER-TYPE'   PO-PRINTER-TYPE TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+  PO-OBJECT-TYPE := 'PO'
+  PO-OBJECT-TIME := *TIMX
+  STORE PRINTOUTS
+  G-NATRP-ERC := 0427
+*
+  GETAR. GET ACTIVE-REPORT *ISN(FNDAR.)
+END-FIND
+*
+END-SUBROUTINE /* CREATE-PRINTOUT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-PO-ATTRIBUTES
+************************************************************************
+PO-ATTRIBUTES (*) := PRINTERS.P-ATTRIBUTES (*)
+RESET #RESET-RECFM
+*
+FOR #I 1 25
+  IF P-ATTR-VAR(#I) = 'DCB1' OR = 'DCB2'
+    EXAMINE P-ATTR-VALUE(#I) FOR 'RECFM=' GIVING INDEX #J
+    IF #J GT 0
+      #RESET-RECFM:= TRUE
+    END-IF
+  END-IF
+  IF P-ATTR-VALUE (#I) = ' '
+    CALLNAT 'RPRTATTN' #SPOOL-ATTRIBUTES #SPOOL-ATTRIBUTES-EXT
+      P-ATTR-VAR (#I) P-ATTR-VALUE (#I) AR-CC-TYPE
+    IF P-ATTR-VAR(#I) = 'CLASS' AND P-ATTR-VALUE(#I) = ' '
+      READ(1) MF-NODE BY MF-TYPE-ID = 'MR-'
+        P-ATTR-VALUE(#I):= MF-PRINT-CLASS
+      END-READ
+    END-IF
+    IF P-ATTR-VAR(#I) = 'RECFM' AND #RESET-RECFM
+      RESET #RESET-RECFM P-ATTR-VALUE(#I)
+    END-IF
+    PO-ATTRIBUTES (#I) := PRINTERS.P-ATTRIBUTES (#I)
+    IF PH-PRINTER-TYPE = ##PHYS-UNIXLP
+      PERFORM DEFAULT-UNIXLP-VALUES
+    END-IF
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* ASSIGN-PO-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE DEFAULT-UNIXLP-VALUES
+************************************************************************
+#SUFFIX := 'Z'
+#P-ID-E := #P-ID
+#SUFFIX := 'A'
+FIND (1) DEFAULT-PRINTER WITH P-PHYSICAL-NAME = PH-VTAMID
+WHERE P-ID = #P-ID THRU #P-ID-E                                       /*
+  PO-ATTRIBUTES(#I) := DEFAULT-PRINTER.P-ATTRIBUTES(#I)
+END-FIND
+*
+END-SUBROUTINE /* DEFAULT-UNIXLP-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-PO-COPIES
+************************************************************************
+IF #COPIES = 0
+  PO-COPIES := 1
+ELSE
+  PO-COPIES := #COPIES
+END-IF
+*
+END-SUBROUTINE /* ASSIGN-PO-COPIES
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-PO-JOBCARD
+************************************************************************
+IF REPORTS.C*R-PRINT-JOBCARD NE 0
+  PO-JOBCARD (*) := REPORTS.R-PRINT-JOBCARD (*)
+ELSE
+  PO-JOBCARD (*) := P-JOBCARD (*)
+END-IF
+#VAR := 'JOBNAME'
+CALLNAT 'RPRTATTN' #SPOOL-ATTRIBUTES #SPOOL-ATTRIBUTES-EXT #VAR
+  #VALUE AR-CC-TYPE
+COMPRESS PH-ESCAPE-CHAR 'JOBNAME' TO #VAR LEAVING NO
+EXAMINE PO-JOBCARD (1) FOR #VAR REPLACE #VALUE
+**        looking for an entry "ACCOUNT=&ACCOUNT" in the job-card
+**        and replace &ACCOUNT with the original:
+#VAR := 'ACCOUNT-NUMBER'
+CALLNAT 'RPRTATTN' #SPOOL-ATTRIBUTES #SPOOL-ATTRIBUTES-EXT #VAR
+  #VALUE AR-CC-TYPE
+COMPRESS PH-ESCAPE-CHAR 'ACCOUNT' TO #VAR LEAVING NO
+EXAMINE PO-JOBCARD (1) FOR #VAR REPLACE #VALUE
+*
+END-SUBROUTINE /* ASSIGN-PO-JOBCARD
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-PO-SCHEDULED
+************************************************************************
+EOMPOM-PHYSICAL-NAME := PO-PHYSICAL-NAME
+CALLNAT 'EOMPOTWN' EOMPOM-PARMS
+PO-SCHEDULED := EOMPOM-SCHEDULED
+*
+END-SUBROUTINE /* ASSIGN-PO-SCHEDULED
+*
+************************************************************************
+DEFINE SUBROUTINE PERSONAL-PRINTER
+************************************************************************
+PROFILE-STRING := G-USER-PROFILE
+*
+IF PROF-PRINTER NE ' '
+  FNDPP. FIND NUMBER PRINTERS WITH P-ID = PROF-PRINTER
+  IF *NUMBER(FNDPP.) NE 0
+    #HOLD    := 'N'
+    #COPIES  := 1
+    #PRINTER := PROF-PRINTER
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* PERSONAL-PRINTER
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF *ERROR-NR = 3145
+    ADD 1 TO #RETRY
+    IF #RETRY <= 20
+      RETRY
+    ELSE
+      G-NATRP-ERC := *ERROR-NR
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+END-ERROR
+*
+END

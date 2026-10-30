@@ -1,0 +1,359 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPRWSP - Print Object with NPR WRITE-SPOOL
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  93-03-30           created
+* gw  94-03-04 s(999999) first line is lost when record is inserted
+* mrs 95-06-09 s(226652) first line is lost when record is inserted
+* sju 95-10-09 s(228453) new return code (98) to stop printing
+* sju 99-06-28 p(183721) new printer exit return code 97 (means don't
+*                        call again until next report separator)
+* FHI     2000-04-25 S(191368) Make Natural 3.1 ready (STOW command)
+* fhi     2003-07-29 P(227985) Clear unused modules
+* xsetggr 2004-11-23 p(258871) recat due to changes in rmfl---p
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* xsetggr 2008-06-10 p(292935) fill po-printed only after successful end
+*                              of printing
+* xsetggr 2010-12-15 NOMALL-865 rewrite for using under z/os and z/vse
+* fhi     2010-12-20 NOMALL-97 Save File Handle for NPR Unix
+* xsetggr 2010-12-21 NOMALL-865 changes
+* fhi     2011-04-26 NOMALL-966 Do not suppress last line with Pr-Exit
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* fhi     2014-08-29 NOMALL-1454 Restowed due to changes in XXUX---P
+* SU2     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU3     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* SU4     2016-03-08 NOMALL-1847 PDA RMPRAPIP -> PDA P-PEXIT
+* fhi     2017-02-07 NOMALL-1917 Use binary NPR RECORD* fields
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU5     2020-09-09 NOMALL-2432 allow symbols inDestination(no NOMEX015
+* SU6     2021-08-11 NOMALL-2482 only restruct here
+* SU7     2022-01-10 NOMALL-2515 WRITE-SPOOL error:show fields(itracUqac
+* SU8     2024-03-07 ES-34613    NOM 3.6 Remove power / BS2
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER USING RMFL---P
+PARAMETER
+1 LINE-PARMS
+  2 LINE-CURRENT              (P3)
+  2 LINE-TAB                  (1:100)
+    3 LINE                    (A251)
+    3 REDEFINE LINE
+      4 LINE-L                (A1/1:251)
+    3 LINE-NUMBER             (P10)
+PARAMETER USING XXUX---P
+PARAMETER
+1 P-ERROR-CODE                (N4)
+1 P-ERROR-TEXT                (A250)
+************************************************************************
+INDEPENDENT
+1 +NOD-LOCAL-NODE             (N5)
+************************************************************************
+LOCAL USING P-PEXIT
+LOCAL USING RCCTYP-E
+LOCAL USING RMMCASAP
+LOCAL USING RMSPL--L /*SU5
+*
+LOCAL
+1 WRITE-SPOOL VIEW OF WRITE-SPOOL
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 JOB-NAME
+  2 DDNAME
+  2 JOB-NUMBER
+  2 SYSTEM-MESSAGE-CODE  (A10) /*SU7
+1 ORDER-STATUS VIEW OF NRM-PRINTOUTS
+  2 PO-COPIES
+  2 PO-STATUS
+  2 PO-LAST-PRINTED-RECNO
+  2 PO-JOBNAME
+  2 PO-JOBNO
+  2 PO-DDNAME
+1 ACTIVE-REPORTS VIEW OF NRM-ACTIVE-REPORTS /*SU5
+  2 AR-SPOOL-ATTRIBUTES
+*
+1 I                           (P3)
+1 #STATUS                     (A1)
+1 #UPD-COUNTER                (N8) INIT <10>
+1 #SAVE-LINE                  (A251)
+1 LAST-BUFFER                 (L)
+1 #FUNCTION                   (A8)
+1 #TEMP-LINE                  (A252)
+1 REDEFINE #TEMP-LINE
+  2 #TEMP-LINE-COL1           (A1)
+  2 #TEMP-LINE-REST           (A251)
+*
+1 #JOBNO                      (N7)
+1 #JOBNAME                    (A8)
+1 #DDNAME                     (A8)
+1 #BIN-ALLOWED                (L) CONST <TRUE>
+1 #BS2-ALLOWED                (L) CONST <FALSE>
+1 #TRACING                    (L) CONST <FALSE>
+1 #TRACE-MSG                  (A250)
+1 #SYMBOLS                    (A) DYNAMIC /*SU5 ->
+1 #REPORT-RNB                 (A31)
+1 REDEFINE #REPORT-RNB
+  2 #REPNAME                  (A25)
+  2 #REPRNB                   (P11) /*SU5 <-
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT (0) PS=0 LS=250
+*
+/*SU8 -> IF *OPSYS = MASK ('BS2') P-ERROR-CODE := 5 P-ERROR-TEXT :=
+/*  'Printing to spool with printer WRTSPOOL not allowed for BS2'
+/*SU8 <- FLUSH-ERROR := TRUE ESCAPE ROUTINE END-IF
+*
+ADD 1 TO FLUSH-BUFFERS
+ADD 1 TO FLUSH-COUNTER
+*
+IF FLUSH-SEG-BRACKET = 'L' OR = 'A' AND FLUSH-SEGMENT = 'L' OR = 'A'
+  LAST-BUFFER := TRUE
+  IF FLUSH-BUFFERS > 1
+    FLUSH-BRACKET := 'M'
+  ELSE
+    FLUSH-BRACKET := 'F'
+  END-IF
+END-IF
+*
+#REPNAME := FLUSH-REPNAME /*SU5 ->
+#REPRNB  := FLUSH-REPRNB
+FNDAR. FIND ACTIVE-REPORTS WITH AR-REPORT-RNB = #REPORT-RNB
+  #SPOOL-ATTRIBUTES := AR-SPOOL-ATTRIBUTES
+END-FIND
+IF *NUMBER(FNDAR.) = 0
+  PRINT (AD=L) *PROGRAM *LINE 'rp:' #REPNAME 'rnb:' #REPRNB 'not found.'
+END-IF /*SU5 <-
+FNDPO. FIND ORDER-STATUS WITH PO-ID = FLUSH-POID
+END-FIND
+*
+PERFORM RMFL---S-SUBSTITUTE-SYMBOLS FLUSH-PARMS WRTSPL-DESTINATION /*SU5
+  #SPOOL-ATTRIBUTES #SYMBOLS
+FOR I = 1 TO LINE-CURRENT
+  IF LAST-BUFFER AND I = LINE-CURRENT
+    FLUSH-BRACKET := 'L'
+  END-IF
+  PERFORM CALL-PRINTER-EXIT
+  IF P-ERROR-CODE NE 0
+    ESCAPE BOTTOM
+  END-IF
+*
+  IF FLUSH-BRACKET = 'L'
+    PERFORM CLOSE-PRINTER
+  END-IF
+END-FOR
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-STATUS
+************************************************************************
+GETPO. GET ORDER-STATUS *ISN(FNDPO.)
+PO-STATUS := #STATUS
+PO-LAST-PRINTED-RECNO := FLUSH-LINES
+/* save informationa about location of spool file to display it in
+/* Printouts - > General attributes screen
+IF FLUSH-BUFFERS = 1
+  PO-DDNAME  := #DDNAME
+  PO-JOBNAME := #JOBNAME
+  PO-JOBNO   := #JOBNO
+END-IF
+UPDATE (GETPO.)
+END OF TRANSACTION
+*
+END-SUBROUTINE /* UPDATE-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-IT
+************************************************************************
+ADD 1 TO FLUSH-LINES
+*
+IF FLUSH-COUNTER > #UPD-COUNTER OR FLUSH-BRACKET = 'L'
+  #STATUS := 'P'
+  PERFORM UPDATE-STATUS
+  RESET FLUSH-COUNTER
+END-IF
+*
+IF FLUSH-CC-TYPE NE ASA-CODE
+  DECIDE ON FIRST VALUE FLUSH-CC-TYPE
+    VALUE MACHINE-CODE
+      PERFORM MACHINE-TO-ASA
+    VALUE NO-CC
+      #TEMP-LINE-REST:= LINE(I)
+      #TEMP-LINE-COL1:=  ' '
+      LINE(I):= #TEMP-LINE
+    NONE IGNORE
+  END-DECIDE
+END-IF
+*
+/*SU8 IF *OPSYS = MASK('VSE') PERFORM PRINT-LINE-POWER ELSE
+PERFORM PRINT-LINE
+/*SU8 END-IF
+*
+IF FLUSH-BRACKET NE 'L'
+  FLUSH-BRACKET := 'M'
+END-IF
+*
+END-SUBROUTINE /* PRINT-IT
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-LINE-POWER
+************************************************************************
+IF I = WRTSPL-SEGMENTATION-SIZE
+  #FUNCTION := 'SEGMENT'
+ELSE
+  RESET #FUNCTION
+END-IF
+*
+PERFORM CHECK-NODE
+*
+FIND WRITE-SPOOL WITH NODE = WRTSPL-NODE
+* Attr. defined by NOM:
+AND RECORD   = LINE (I)     AND RECORD-LENGTH = FLUSH-RECORD-LENGTH   /*
+AND CONTROL  = 'A'          AND COPIES        = ORDER-STATUS.PO-COPIES/*
+AND FUNCTION = #FUNCTION                                              /*
+* Attr. defined by user as special printer attr.(common):
+AND CLASS    = WRTSPL-CLASS AND DESTINATION   = WRTSPL-DESTINATION    /*
+AND FORM     = WRTSPL-FORM  AND PROGRAM       = WRTSPL-PROGRAM        /*
+* attributes of z/VSE
+AND BURST              = WRTSPL-BURST                                 /*
+AND COMPACT            = WRTSPL-COMPACT                               /*
+AND COPY-MODIFY-MODULE = WRTSPL-COPY-MODIFY-MODULE                    /*
+AND COPY-MODIFY-TABLE  = WRTSPL-COPY-MODIFY-TABLE                     /*
+AND DISPOSITION        = WRTSPL-DISPOSITION                           /*
+AND FLASH-COUNT        = WRTSPL-FLASH-COUNT                           /*
+AND JOB-NAME           = WRTSPL-JOB-NAME                              /*
+AND SEGMENTATION-SIZE  = WRTSPL-SEGMENTATION-SIZE                     /*
+AND SEP-PAGES-COPIES   = WRTSPL-SEP-PAGES-COPIES                      /*
+AND SEP-PAGES-COUNT    = WRTSPL-SEP-PAGES-COUNT                       /*
+AND TARGET-NODE        = WRTSPL-TARGET-NODE                           /*
+AND UCS                = WRTSPL-UCS                                   /*
+AND UCS-OPTIONS        = WRTSPL-UCS-OPTIONS                           /*
+AND USER-INFO          = WRTSPL-USER-INFO                             /*
+  IF ERROR-CODE NE 0
+    P-ERROR-CODE := 5
+    P-ERROR-TEXT := ERROR-TEXT
+    FLUSH-ERROR  := TRUE
+    ESCAPE ROUTINE
+  END-IF
+  IF I = 1
+    #DDNAME  := DDNAME
+    #JOBNO   := JOB-NUMBER
+    #JOBNAME := JOB-NAME
+    PERFORM UPDATE-STATUS
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* PRINT-LINE-POWER
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-LINE /*z/OS
+************************************************************************
+RESET #FUNCTION
+PERFORM CHECK-NODE
+WRITE. FIND WRITE-SPOOL WITH NODE = WRTSPL-NODE
+* Attr. defined by NOM:
+AND RECORD  = LINE (I)     AND RECORD-LENGTH = FLUSH-RECORD-LENGTH    /*
+AND CONTROL = 'A'          AND FUNCTION      = #FUNCTION              /*
+* Attr. defined by user as special printer attr. (common):
+AND CLASS   = WRTSPL-CLASS AND COPIES        = ORDER-STATUS.PO-COPIES /*
+AND FORM    = WRTSPL-FORM  AND PROGRAM       = WRTSPL-PROGRAM         /*
+AND DESTINATION = WRTSPL-DESTINATION                                  /*
+* Attr. of z/OS:
+AND FLASH = WRTSPL-FLASH AND FCB = WRTSPL-FCB AND HOLD = WRTSPL-HOLD  /*
+  IF ERROR-CODE NE 0
+    PRINT (AD=L) *PROGRAM *DAT4I *TIME(AL=8) 'node:' WRTSPL-NODE /*SU7->
+      'func:' #FUNCTION 'class:' WRTSPL-CLASS
+      'copies:' ORDER-STATUS.PO-COPIES 'form:' WRTSPL-FORM
+      'pgm:' WRTSPL-PROGRAM 'dest:' WRTSPL-DESTINATION
+      'flash:' WRTSPL-FLASH 'fcb:' WRTSPL-FCB 'hold:' WRTSPL-HOLD
+      'control:A'
+      / 'rec:' LINE (I) 'len:' FLUSH-RECORD-LENGTH
+      / ERROR-CODE ERROR-TEXT
+    /*****
+    /* "ESY5900 Cannot allocate SYSOUT data set." does not show reason.
+    /* But SYSTEM-MESSAGE-CODE is empty, so activate ESYTRACE (startup
+    /* or "*UQ K F NOMX040,TRACE=Y" and search in SYSOUT DD ESYTRACE
+    /* for "DYNALLOC RC = 04 ERROR=nnnn -> search in IBM docu for it
+    /* (see NOPALL-1749).
+    /*****
+    IF SYSTEM-MESSAGE-CODE NE ' '
+      PRINT 'sys msg:' SYSTEM-MESSAGE-CODE
+    END-IF /*SU7 <-
+    P-ERROR-CODE := 5
+    P-ERROR-TEXT := ERROR-TEXT
+    FLUSH-ERROR  := TRUE
+    ESCAPE ROUTINE
+  END-IF
+  IF I = 1
+    #JOBNO   := WRITE-SPOOL.JOB-NUMBER
+    #DDNAME  := DDNAME
+    #JOBNAME := JOB-NAME
+    PERFORM UPDATE-STATUS
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* PRINT-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-NODE
+************************************************************************
+IF WRTSPL-NODE = 0
+  WRTSPL-NODE := +NOD-LOCAL-NODE
+END-IF
+*
+END-SUBROUTINE /* CHECK-NODE
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-PRINTER
+************************************************************************
+FIND WRITE-SPOOL WITH NODE = WRTSPL-NODE AND FUNCTION = 'CLOSE'
+AND  JOB-NAME  = #JOBNAME                                             /*
+  IF ERROR-CODE NE 0
+    P-ERROR-CODE := ERROR-CODE
+    P-ERROR-TEXT := ERROR-TEXT
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* CLOSE-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE MACHINE-TO-ASA
+************************************************************************
+RMMCASA-PARMS.P-RECORD  := LINE (I)
+RMMCASA-PARMS.P-PREV-CC := WKF-CC-SAVE
+CALLNAT 'RMMCASAN' RMMCASA-PARMS
+WKF-CC-SAVE := RMMCASA-PARMS.P-PREV-CC
+*
+IF RMMCASA-PARMS.P-PRINT-NUMBER > 0
+  LINE (I) := RMMCASA-PARMS.P-RECORD
+END-IF
+*
+END-SUBROUTINE /* MACHINE-TO-ASA
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  CALLNAT 'C-NATERN' P-ERROR-TEXT
+  P-ERROR-CODE := 21
+  FLUSH-ERROR := TRUE
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+INCLUDE RMPR-C /*V12-PRINTER-API,CALL-PRINTER-EXIT
+*
+END

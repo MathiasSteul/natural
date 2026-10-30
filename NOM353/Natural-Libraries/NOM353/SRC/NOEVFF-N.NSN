@@ -1,0 +1,126 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOEVFF-N - NOM API Maintenance of NOM Event Definitions
+*            Function  delete
+*            Input keys :
+*            ES-KEY-PARM(1)     Event name
+*
+* Maintenance:
+* CF      2018-01-09 NOMALL-2062 Created
+* SU1     2024-04-30 NOM 3.6     remove unused
+************************************************************************
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL     USING NADA2000
+LOCAL     USING NAD-MSG
+LOCAL     USING NAD-FLD
+LOCAL     USING RLOG-L
+LOCAL
+1 EVENTS VIEW OF NRM-EMAIL-EVENTS
+1 #ES-MSG-PREF          (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM         (A3)
+  2 #ES-MSG-NR          (N4)
+/*SU1 1 #ES-RC  (N3) 1 #ES-MSG-TXT (A250) 1 #ES-NUMBER (N8)
+1 #LIBRARY-ID           (A8)
+1 #USER-LIB             (A8)
+1 #EVENT-ID-S           (A20) INIT<'E-'>
+1 REDEFINE #EVENT-ID-S
+  2 #EV-PFX-S           (A2)
+  2 #EV-NAME-S          (A16)
+/*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-MSG-NR ES-MSG-FIELD ES-MSG-TXT
+/*
+#LIBRARY-ID  := ES-APP-SERVER-LIBRARY
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+#EV-NAME-S := ES-KEY-PARM(1)
+/*
+/* Maintain Event Definition
+DECIDE ON FIRST VALUE OF  ES-ORIG-FUNCTION
+  VALUE 'DL'
+    PERFORM DELETE-EVENT
+    IF ES-RC = 0
+      PERFORM WRITE-LOG
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  NONE VALUE
+    ES-RC := 1
+    #ES-MSG-NR := 2600   /* Invalid function
+    PERFORM GET-MSG-TXT
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-EVENT
+************************************************************************
+FNDDEL. FIND EVENTS WITH EM-MONITOR-ID = #EVENT-ID-S
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 2024   /* Event definition does not exist
+    ESCAPE BOTTOM(FNDDEL.)
+  END-NOREC
+  DELETE(FNDDEL.)
+END-FIND
+/*
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+/*
+END-SUBROUTINE /* DELETE-EVENT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG
+************************************************************************
+IF ES-ORIG-FUNCTION = 'DL'
+  COMPRESS '0075' ES-KEY-PARM(1) 'Event' TO LG-MSG
+  LG-USERID   := ES-USER
+  LG-CODE     := 'MO'
+  LG-FUNCTION := 'W'
+  CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+END-IF
+/*
+END-SUBROUTINE /* WRITE-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+ES-RC := 1
+/*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

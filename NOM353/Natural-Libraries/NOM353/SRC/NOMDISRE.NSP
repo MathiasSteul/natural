@@ -1,0 +1,94 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMDISRE - List Report Definition with Raw Data
+*
+* Maintenance:
+* uuu     yyyy-mm-dd iTrac       Comment
+* fhi     2017-02-06             Created
+* SU3     2020-04-01 NOMALL-2379 recat:VREP---L mod:Unix files A26-> A50
+* SU4     2024-01-24 ES-34613    3.6 remove: Power+SAP:warning
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL USING VREP---L
+LOCAL
+1 #DBID         (N5)
+1 #FNR          (N5)
+1 #REP          (A25)
+1 #ANY          (L)
+1 #I            (I4)
+1 #J            (I4)
+1 #ID-MAX       (I2) CONST <8>
+1 #GROUPS       (A5/#ID-MAX)
+  INIT < 'JES','POWER','NAT','BS2','CMA','SAP','Unix','3GL' >
+1 #ID-FROM      (I2/#ID-MAX)
+  CONST  < 1,     5,     8,   14,   17,   21,    23,  10000  >
+1 #ID-TO        (I2/10)
+  CONST  < 4,     7,    13,   16,   20,   22,    24,  32767  >
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY ALL
+EJECT
+REPEAT
+  INPUT NO ERASE (AD=MILT'_')
+    '     * --------------------------------------------------------------- *' /
+    '     *                             NOMDISRE                            *' /
+    '     *                             --------                            *' /
+    '     *    Utility to show the identification of a report definition    *' /
+    '     * --------------------------------------------------------------- *' /
+    '(End: PF-Key)'                                //
+    'System File DBID:' 20T ' ' #DBID (AD=MILT'_') /
+    'System File FNR:'  20T ' ' #FNR  (AD=MILT'_') //
+    'Report name:'      20T ' ' #REP  (AD=MILT'_') //
+  IF *PF-KEY NE 'ENTR'
+    ESCAPE ROUTINE
+  END-IF
+  IF #DBID = 0 OR #FNR = 0 OR #DBID = 255 OR #FNR = 255
+    REINPUT 'DBID/FNR must not be 0 or 255'
+  END-IF
+  FETCH RETURN 'SETNRMLF' #DBID #FNR 206
+  FIND REPORTS WITH R-REPNAME = #REP
+    IF NO RECORDS FOUND
+      SET CONTROL 'N'
+      INPUT ' '
+      ESCAPE TOP
+    END-NOREC
+    SET CONTROL 'N'
+    WRITE NOTITLE NOHDR ////////////
+      'Type' 10T 'Identification Value' / '-'(78)
+    FORI. FOR #I=1 TO C*R-IDENT
+/*SU4 IF R-IDENT-VALUE (#I) NE ' '
+      RESET #ANY
+      FORJ. FOR #J=1 TO #ID-MAX
+        IF R-IDENT-TYPE (#I) >= #ID-FROM (#J)
+          AND R-IDENT-TYPE (#I) <= #ID-TO   (#J)                      /*
+          WRITE NOTITLE NOHDR #GROUPS(#J) 10T R-IDENT-VALUE(#I)(AL=68)
+          IF #GROUPS(#J) = 'POWER' OR='SAP' /*SU4
+            WRITE 10T '>> Invalid ident type <<'
+          END-IF
+          #ANY := TRUE
+          ESCAPE BOTTOM (FORJ.)
+        END-IF
+      END-FOR
+      IF NOT #ANY
+        WRITE NOTITLE NOHDR 'unknown' 10T R-IDENT-VALUE (#I) (AL=68)
+      END-IF
+/*    END-IF
+    END-FOR
+    WRITE / 'Files:'
+    FOR #I=1 TO C*R-IDENT-FILES
+      IF R-IDENT-FILES (#I) NE ' '
+        WRITE NOTITLE NOHDR R-IDENT-FILES (#I)
+      END-IF
+    END-FOR
+  END-FIND
+END-REPEAT
+*
+END

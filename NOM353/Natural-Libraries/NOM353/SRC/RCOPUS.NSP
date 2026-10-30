@@ -1,0 +1,297 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RCOPUS - Copy User Definition
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ....
+* mrs 93-08-09 s(999999) clean up
+* gw  95-12-06 s(236062) copy with folders
+* gw  96-05-09 s(999999) correct window size
+* gw  98-07-22 p(172469) check existance of defined user
+* xsetggr 2012-02-02 NOMALL-1100 write msg in log
+* xsetggr 2012-10-18 NOMALL-1198 copy folders with grants
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* xsetggr 2013-05-26 nomall-1198 corrections
+* xsetggr 2013-06-21 NOMALL-89 add copied user to auth list,if copy auth
+* raya    2013-08-06 NOMALL-1198 correction for dist list
+* SU2     2013-10-22 NOMALL-1281 last update user+date for update
+* SU3     2018-12-03 NOMALL-2182 Reject reserved names 'ADMIN'+'PUBLIC'
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING VUSERS-L
+LOCAL USING ROT----L
+LOCAL USING RTXT---L
+LOCAL USING RLOG-L
+LOCAL USING VGRANT-L
+*
+LOCAL
+1 DISTRIBUTION-LIST VIEW OF NRM-DISTRIBUTION-LIST
+  2 D-USER-LIST   (191)
+  2 C*D-USER-LIST
+1 FOLDER  VIEW  OF  NRM-FOLDER
+  2 FO-ID
+  2 FO-USER-ID
+  2 FO-NAME
+  2 FO-DESC
+  2 FO-MAP-LAYOUT
+  2 FO-DEFAULT-LOCATION
+  2 FO-LINKED-FO-ID     (A10)
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER  (A8)
+    3 FO-LINKED-ID    (B2)
+* ----------------------------------------------------------------------
+1 #FROM-USER                 (A8)
+1 #TO-USER                   (A8)
+1 REDEFINE  #TO-USER
+  2 #TO-USER-1               (A1)
+1 #FATHER-PROG               (A8) INIT <'RLISUS'>
+1 UPDATE-ALLOWED             (L)
+*
+1 #FOLDER-NAME               (A70)
+1 #FO-USER-FO-ID             (A10)
+1 REDEFINE  #FO-USER-FO-ID
+  2 #FO-USER                 (A8)
+  2 #FO-ID                   (B2)
+1 #WITH-FOLDERS              (A1) INIT <'N'>
+1 #COUNTER                   (I4)
+1 #GR-SUPER                  (A34)
+1 REDEFINE #GR-SUPER
+  2 #GR-TYPE                 (A1)
+  2 #GR-USER                 (A8)
+  2 #GR-NAME                 (A25)
+1 #ADD-GRANTS                (L)
+1 #NEW-NAME                  (A25)
+1 #FO-ID-N                   (N5)
+1 REDEFINE #FO-ID-N
+  2 #FO-ID-A                 (A5)
+1 #GRANTED                   (L)
+1 #GR-OPTIONS                (A1/6)
+1 #I                         (I2)
+1 #UPDATE-DIST               (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+CALLNAT 'ROTINI-N' ##EQO-USER G-OBJ-TYPE G-OTB
+*
+INPUT #FROM-USER
+*
+CALLNAT 'NARPSEC' G-USER-PROFILE 'MUS' UPDATE-ALLOWED
+IF NOT UPDATE-ALLOWED
+  G-NATRP-ERC := 0020
+  INCLUDE C-ESCAPE
+END-IF
+*
+FNDUS. FIND NUMBER USERS WITH USER-ID = #FROM-USER
+IF *NUMBER (FNDUS.) = 0
+  G-NATRP-ERC := 0602
+  INCLUDE C-ESCAPE
+END-IF
+*
+SET KEY PF3 = PGM
+*
+REPEAT
+  SET CONTROL 'MT'
+  SET CONTROL 'WC13L44B06/25F'
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'RCOPUSM&'
+  RESET G-NATRP-ERC G-NATRP-ERT
+  IF *PF-KEY =  'PF3'
+    SET CONTROL 'WB'
+    INCLUDE C-ESCAPE
+  END-IF
+  DECIDE FOR FIRST CONDITION
+    WHEN #TO-USER = ' '                REINPUT *0614 ALARM
+    WHEN NOT(#TO-USER-1 = MASK(A))     REINPUT *0019 ALARM
+    WHEN NOT(#WITH-FOLDERS='Y' OR='N') REINPUT *1099 MARK *#WITH-FOLDERS
+    WHEN #TO-USER=' '       REINPUT *0614 MARK *#TO-USER ALARM
+    WHEN #TO-USER='ADMIN'   REINPUT *0517 MARK *#TO-USER ALARM
+    WHEN #TO-USER='PUBLIC'  REINPUT *0518 MARK *#TO-USER ALARM
+    WHEN NOT(#TO-USER = MASK (A) OR=MASK (0-9))
+      REINPUT *0022 MARK *#TO-USER ALARM
+    WHEN NONE IGNORE
+  END-DECIDE
+*
+  FINDNUM. FIND NUMBER USERS WITH USER-ID = #TO-USER
+  IF *NUMBER(FINDNUM.) > 0
+    REINPUT *33,G-OBJ-TYPE ALARM
+  END-IF
+  LIST.  FIND NUMBER DISTRIBUTION-LIST WITH D-LIST-NAME = #TO-USER
+  IF *NUMBER (LIST.) NE 0
+    REINPUT *605 ALARM
+  END-IF
+*
+  FIND-S. FIND USERS WITH USER-ID = #FROM-USER
+    USERS.USER-ID := #TO-USER
+    IF #WITH-FOLDERS = 'Y'
+      PERFORM COPY-FOLDERS
+    ELSE
+      PERFORM ADD-FOLDER
+    END-IF
+    US-LAST-UPDATE      := *TIMX
+    US-LAST-UPDATE-USER := G-USERID
+    STORE USERS
+    G-NATRP-ERC := 35
+    G-NATRP-ERT := G-OBJ-TYPE
+    LG-USERID := G-USERID
+    LG-CODE := 'UM'
+    LG-OBJECT-NAME := #TO-USER
+    COMPRESS '0769' #FROM-USER #TO-USER TO LG-MSG
+    CALLNAT 'RLOG' PL-PARMS
+*
+    END OF TRANSACTION
+  END-FIND
+*
+END-REPEAT
+SET CONTROL 'WB'
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-FOLDER
+************************************************************************
+CALLNAT 'RLTINI-N' ##TXT-INBASKET #FOLDER-NAME G-TXB
+*
+#FO-USER := USERS.USER-ID
+#FO-ID   := 1
+*
+FNDFO. FIND FOLDER WITH FO-USER-FO-ID = #FO-USER-FO-ID
+*
+  IF NO RECORDS FOUND
+    FO-USER-ID := USERS.USER-ID
+    FO-ID      := 1
+    FO-NAME    := #FOLDER-NAME
+    STORE FOLDER
+    #FO-ID-N := FO-ID
+    COMPRESS USERS.USER-ID #FO-ID-A TO #GR-NAME LEAVING NO
+    #GR-TYPE := 'F'
+    #GR-USER := USERS.USER-ID
+    FIND GRANTS WITH GR-SUPER = #GR-SUPER
+      IF NO RECORDS FOUND
+        GR-OBJECT-TYPE := #GR-TYPE
+        GR-OBJECT-NAME := #GR-NAME
+        GR-USERID      := #GR-USER
+        GR-OPTION(*)   := 'Y'
+        STORE GRANTS
+      END-NOREC
+    END-FIND
+  END-NOREC
+*
+END-FIND
+*
+END-SUBROUTINE /* ADD-FOLDER
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-FOLDERS
+************************************************************************
+#FO-USER := #FROM-USER
+RESET  #FO-ID #COUNTER
+*
+READFO. READ FOLDER BY FO-USER-FO-ID = #FO-USER-FO-ID
+*
+  IF FO-USER-ID NE #FROM-USER
+    ESCAPE BOTTOM(READFO.)
+  END-IF
+*
+  ACCEPT IF FO-ID NE 1
+  ADD 1 TO #COUNTER
+*
+  GETFO. GET FOLDER *ISN(READFO.)
+  FO-USER-ID := #TO-USER
+  STORE FOLDER
+  IF FO-LINKED-FO-ID > ' '
+    #FO-ID-N := FO-LINKED-ID
+    PERFORM COPY-FOLDER-AUTHORIZATION
+  ELSE
+    #FO-ID-N := FO-ID
+    PERFORM ADD-FOLDER-AUTHORIZATION
+  END-IF
+*
+END-READ
+*
+* IF #COUNTER = 0
+PERFORM ADD-FOLDER
+* END-IF
+*
+END-SUBROUTINE /* COPY-FOLDERS
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-FOLDER-AUTHORIZATION
+************************************************************************
+COMPRESS #FROM-USER #FO-ID-A TO #GR-NAME LEAVING NO
+#GR-TYPE := 'F'
+#GR-USER := #FROM-USER
+COMPRESS #TO-USER #FO-ID-A TO #NEW-NAME LEAVING NO
+FIND GRANTS WITH GR-SUPER = #GR-SUPER
+  GR-OBJECT-NAME := #NEW-NAME
+  GR-USERID      := #TO-USER
+  STORE GRANTS
+  IF NOT #UPDATE-DIST
+    IF NOT (#TO-USER = #FROM-USER OR = 'PUBLIC')
+      FNDDLA. FIND DISTRIBUTION-LIST WITH D-USER-LIST = #FROM-USER
+        GTA. GET DISTRIBUTION-LIST *ISN(FNDDLA.)
+        #I := C*D-USER-LIST + 1
+        D-USER-LIST(#I) := #TO-USER
+        UPDATE (GTA.)
+      END-FIND
+      #UPDATE-DIST := TRUE
+    END-IF
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* ADD-FOLDER-AUTHORIZATION
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-FOLDER-AUTHORIZATION
+************************************************************************
+RESET #ADD-GRANTS
+COMPRESS FOLDER.FO-LINKED-USER #FO-ID-A TO #GR-NAME LEAVING NO
+#GR-TYPE := 'F'
+#GR-USER := #TO-USER
+CALLNAT 'RGRANT-N' #GR-USER #GR-TYPE #GR-NAME #GRANTED #GR-OPTIONS(*)
+IF NOT #GRANTED
+  #ADD-GRANTS := TRUE
+ELSE
+  RESET #ADD-GRANTS
+  ESCAPE ROUTINE
+END-IF
+*
+#GR-USER := #FROM-USER
+RESET #GR-OPTIONS(*) #GRANTED
+CALLNAT 'RGRANT-N' #GR-USER #GR-TYPE #GR-NAME #GRANTED #GR-OPTIONS(*)
+IF #GRANTED
+  DECIDE FOR FIRST CONDITION
+    WHEN #GR-USER = 'PUBLIC' OR = #FROM-USER
+      FNDGR. FIND GRANTS WITH GR-SUPER = #GR-SUPER
+        IF #ADD-GRANTS
+          IF #GR-USER = #FROM-USER
+            GR-USERID := #TO-USER
+          ELSE
+            GR-USERID := #GR-USER     /* public
+          END-IF
+          STORE GRANTS
+        END-IF
+      END-FIND
+*
+    WHEN NOT (#GR-USER = #FROM-USER OR = 'PUBLIC')
+      FNDDL. FIND DISTRIBUTION-LIST WITH D-USER-LIST = #FROM-USER
+        GT. GET DISTRIBUTION-LIST *ISN(FNDDL.)
+        #I := C*D-USER-LIST + 1
+        D-USER-LIST(#I) := #TO-USER
+        UPDATE (GT.)
+        #UPDATE-DIST := TRUE
+      END-FIND
+    WHEN NONE IGNORE
+  END-DECIDE
+END-IF
+*
+END-SUBROUTINE /* COPY-FOLDER-AUTHORIZATION
+*
+END

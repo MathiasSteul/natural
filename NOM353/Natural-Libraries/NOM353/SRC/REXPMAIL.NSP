@@ -1,0 +1,84 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    REXPMAIL
+* Function  Distribute using Distribution List
+* Version   1.3
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 92-08-05           clean up
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+            LOCAL  USING SUPER-L
+            LOCAL
+*
+1 USERS VIEW OF NRM-USERS
+  2 USER-ID
+*
+1 NRM-LISTS VIEW OF NRM-DISTRIBUTION-LIST
+  2 D-LIST-NAME
+  2 D-USER-LIST (1:191)
+  2 C*D-USER-LIST
+*
+1 MEMBER-IN-LIST               (L)
+1 #D                           (P4)
+1 #M                           (P4)
+1 #L                           (P4)
+1 #PROCESSED-MEMBERS           (P3)
+1 #MEM-NO                      (P3)
+1 #MEMBER                      (A8)
+*
+1 #FOUND                       (L)
+1 #KKK                         (P3)
+1 #DN                          (N4)
+END-DEFINE
+RESET G-MEMBERS (*)
+RESET G-MEMBER-SENT (*)
+MOVE 1 TO #DN #MEM-NO #PROCESSED-MEMBERS
+*
+INPUT G-MEMBERS (1)
+MOVE G-C-REPORT TO #AR-REPNAME
+MOVE G-C-REPRNB TO #AR-REPRNB
+*
+REPEAT UNTIL #PROCESSED-MEMBERS = 0
+  FOR #D 1 TO #MEM-NO
+    IF NOT G-MEMBER-SENT(#D)
+       MOVE G-MEMBERS(#D) TO #MEMBER
+       MOVE TRUE TO G-MEMBER-SENT(#D)
+       SUBTRACT 1 FROM #PROCESSED-MEMBERS
+IS-NRM-USER.
+       FIND NUMBER USERS WITH USER-ID = #MEMBER
+       IF *NUMBER(IS-NRM-USER.) > 0
+          CALLNAT 'RADDMAIL' G-C-REPORT
+                             G-C-REPRNB
+                             G-USERID
+                             #MEMBER
+                             G-NATRP-ERC
+          RESET G-NATRP-ERC G-NATRP-ERT
+        ELSE
+IS-NATREP-DIST-LIST.
+          FIND NRM-LISTS WITH D-LIST-NAME = #MEMBER
+            FOR #M 1 TO C*D-USER-LIST
+               MOVE D-USER-LIST(#M) TO #MEMBER
+               RESET MEMBER-IN-LIST
+               FOR #L 1 TO #DN
+                  IF G-MEMBERS(#L) = #MEMBER
+                     MOVE TRUE TO MEMBER-IN-LIST
+                     ESCAPE BOTTOM
+                  END-IF
+               END-FOR
+               IF NOT MEMBER-IN-LIST
+                  ADD 1 TO #MEM-NO
+                  ADD 1 TO #PROCESSED-MEMBERS
+                  MOVE #MEMBER TO G-MEMBERS(#MEM-NO)
+               END-IF
+            END-FOR
+          END-FIND
+       END-IF
+    END-IF
+  END-FOR
+END-REPEAT
+END

@@ -1,0 +1,253 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    EOMRPMSN
+* Version   1.3
+* Function  DB Interface EOM Object Report (separation attributes)
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-05-24           created
+* jvd 97-07-08 p(163579) separator page length truncation
+*                         re-cat as change was made to EOMRPM-P
+* wcd 00-04-01 CE 7267  re-cat as changes made to EOMRPM-P, EOMRPM-E
+* xsethz   2000-05-30 s(CE7760) READ-NEXT, READ-HOLD-NEXT added
+* sju 00-07-24 CE 7465 create report definition
+* xsethz  2000-07-31 (CE7461) Extend Report and Bundle Names
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2010-11-16 NOMALL-879 get default value of CREATE-DEFINITION
+*                    only when separation exit exist.
+* fhi     2013-08-29 FHI285    Enhance error message 406
+* SU1     2013-11-22 NOMALL-1288 correct FHI285 for msg 406
+* fhi     2014-08-26 NOMALL-1475 Recat for new field 'FORMATTER'
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* SU2     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 EOM-FUNCTION               (I2)
+PARAMETER USING EOMRPM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL USING EOM----E
+LOCAL USING VDEFRP-L
+LOCAL
+1 REPORT VIEW OF NRM-REPORTS-NEW
+  2 R-LAST-MODIFIED /*SU2
+  2 R-MODIFIED-BY   /*SU2
+  2 R-TYPE
+  2 R-REPNAME
+  2 R-CREATE-DEFINITION
+  2 R-EXITLIB
+  2 R-EXITMEM
+  2 R-ASM-EXIT
+  2 R-E-IDENT-LINE
+  2 R-E-IDENT-STRING
+  2 R-E-BREAK-LINE
+  2 R-E-BREAK-START
+  2 R-E-BREAK-END
+  2 R-E-REP-PREFIX
+  2 R-BUNDLE                            (1:5)
+  2 R-UPARMS                            (1:5)
+  2 R-E-PARAMS                          (1:4)
+  2 REDEFINE R-E-PARAMS
+    3 R-STD2-IDENT-LINE                 (N3)
+    3 R-STD2-IDENT-STRING               (A78)
+    3 REDEFINE R-STD2-IDENT-STRING
+      4 R-STD2-IDENT-STRNG              (A50)
+    3  R-STD2-TAB                       (1:5)
+      4 R-STD2-BREAK-LINE               (N3)
+      4 R-STD2-BREAK-START              (N3)
+      4 R-STD2-BREAK-END                (N3)
+      4 R-STD2-REPORT-PREFIX-17         (A17)
+      4 R-STD2-BUNDLE-PREFIX-8          (A8/1:5)
+    3 R-STD2-TAB-R                      (1:5)
+      4 R-STD2-REPORT-PREFIX-R          (A8)
+      4 R-STD2-BUNDLE-PREFIX-R          (A17/1:5)
+* -----------------------------local Variables--------------------------
+1 #STD-EXIT                             (A8)
+1 REDEFINE #STD-EXIT
+  2 #STD-PREFIX                         (A3)
+  2 #STD-EXIT-NUM                       (A5)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-READ, EOM-READ-NEXT
+    PERFORM READ-SEPARATION-ATTRIBUTES
+  VALUE EOM-READHOLD, EOM-READHOLD-NEXT
+    PERFORM READ-SEPARATION-ATTRIBUTES
+  VALUE EOM-MODIFY
+    PERFORM MODIFY-SEPARATION-ATTRIBUTES
+  NONE  IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SEPARATION-ATTRIBUTES
+************************************************************************
+FNDRP. FIND REPORT WITH R-REPNAME = EOMRPM-I-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0406
+    COMPRESS EOMRPM-I-NAME ' (' *PROGRAM ',' *LINE ')'
+      TO EOMMSG-TOKEN(1) LEAVING NO
+    ESCAPE BOTTOM (FNDRP.)
+  END-NOREC
+  IF R-TYPE = 'C'
+    EOMMSG-NR := 0020
+    ESCAPE BOTTOM (FNDRP.)
+  END-IF
+  EOMRPM-CREATE-DEFINITION         := R-CREATE-DEFINITION
+  IF EOMRPM-CREATE-DEFINITION = ' '
+* xsetggr 2010-11-16 NOMALL-879 insert next line
+      AND R-EXITMEM NE ' ' OR R-ASM-EXIT NE ' '
+    PERFORM READ-REPORT-DEFAULTS
+      EOMRPM-CREATE-DEFINITION
+      := REPORT-DEFAULTS.R-CREATE-DEFINITION
+  END-IF
+  EOMRPM-EXIT-PARAMETER (*) := ' '
+  DECIDE FOR FIRST CONDITION
+    WHEN R-EXITMEM  = MASK ('STD'.....)
+      #STD-EXIT := R-EXITMEM
+      EOMRPM-EXIT-STANDARD := VAL(#STD-EXIT-NUM)
+      RESET EOMRPM-EXIT-USER-NATPGM EOMRPM-EXIT-USER-NATLIB
+        EOMRPM-EXIT-USER-3GL
+      DECIDE ON FIRST EOMRPM-EXIT-STANDARD
+        VALUE 1
+          EOMRPM-STD1-IDENT-LINE        := R-E-IDENT-LINE
+          EOMRPM-STD1-IDENT-STRING      := R-E-IDENT-STRING
+          EOMRPM-STD1-BREAK-LINE        := R-E-BREAK-LINE
+          EOMRPM-STD1-BREAK-START       := R-E-BREAK-START
+          EOMRPM-STD1-BREAK-END         := R-E-BREAK-END
+          EOMRPM-STD1-REPORT-PREFIX     := R-E-REP-PREFIX
+          EOMRPM-STD1-BUNDLE-PREFIX (*) := R-BUNDLE (*)
+        VALUE 2
+          EOMRPM-STD2-IDENT-LINE          := R-STD2-IDENT-LINE
+          EOMRPM-STD2-IDENT-STRING        := R-STD2-IDENT-STRING
+          EOMRPM-STD2-BREAK-LINE(*)       := R-STD2-BREAK-LINE(*)
+          EOMRPM-STD2-BREAK-START(*)      := R-STD2-BREAK-START(*)
+          EOMRPM-STD2-BREAK-END(*)        := R-STD2-BREAK-END(*)
+          EOMRPM-STD2-REPORT-PREFIX-17(*) := R-STD2-REPORT-PREFIX-17(*)
+          EOMRPM-STD2-REPORT-PREFIX-R(*)  := R-STD2-REPORT-PREFIX-R(*)
+          EOMRPM-STD2-BUNDLE-PREFIX-8(*,*):= R-STD2-BUNDLE-PREFIX-8(*,*)
+          EOMRPM-STD2-BUNDLE-PREFIX-R(*,*):= R-STD2-BUNDLE-PREFIX-R(*,*)
+        VALUE 3
+          EOMRPM-EXIT-PARAMETER (*) := R-E-PARAMS (*)
+        NONE VALUE IGNORE
+      END-DECIDE
+    WHEN R-EXITMEM NE ' '
+      EOMRPM-EXIT-USER-NATPGM := R-EXITMEM
+      EOMRPM-EXIT-USER-NATLIB := R-EXITLIB
+      RESET EOMRPM-EXIT-STANDARD EOMRPM-EXIT-USER-3GL
+      EOMRPM-USER-PARMS (1:5) := R-UPARMS (1:5)
+    WHEN NONE
+      EOMRPM-EXIT-USER-3GL    := R-ASM-EXIT
+      RESET EOMRPM-EXIT-STANDARD EOMRPM-EXIT-USER-NATPGM
+        EOMRPM-EXIT-USER-NATLIB
+      EOMRPM-USER-PARMS (1:5) := R-UPARMS (1:5)
+  END-DECIDE
+*
+  IF EOM-FUNCTION = EOM-READHOLD OR = EOM-READHOLD-NEXT
+    UPD. GET REPORT *ISN (FNDRP.)
+    IF R-REPNAME NE R-REPNAME
+      UPDATE (UPD.)
+    END-IF
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* READ-SEPARATION-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-SEPARATION-ATTRIBUTES
+************************************************************************
+FNDMOD. FIND REPORT WITH R-REPNAME = EOMRPM-I-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0406
+    COMPRESS EOMRPM-I-NAME ' (' *PROGRAM ',' *LINE ')'
+      TO EOMMSG-TOKEN(1) LEAVING NO
+    ESCAPE BOTTOM (FNDMOD.)
+  END-NOREC
+  IF R-TYPE = 'C'
+    EOMMSG-NR := 0020
+    ESCAPE BOTTOM (FNDMOD.)
+  END-IF
+  R-CREATE-DEFINITION := EOMRPM-CREATE-DEFINITION
+  DECIDE FOR FIRST CONDITION
+    WHEN EOMRPM-EXIT-STANDARD NE 0
+      COMPRESS 'STD' EOMRPM-EXIT-STANDARD TO R-EXITMEM LEAVING NO
+      RESET R-EXITLIB R-ASM-EXIT
+      DECIDE ON FIRST EOMRPM-EXIT-STANDARD
+        VALUE 1
+          R-E-IDENT-LINE   := EOMRPM-STD1-IDENT-LINE
+          R-E-IDENT-STRING := EOMRPM-STD1-IDENT-STRING
+          R-E-BREAK-LINE   := EOMRPM-STD1-BREAK-LINE
+          R-E-BREAK-START  := EOMRPM-STD1-BREAK-START
+          R-E-BREAK-END    := EOMRPM-STD1-BREAK-END
+          R-E-REP-PREFIX   := EOMRPM-STD1-REPORT-PREFIX
+          R-BUNDLE (*)     := EOMRPM-STD1-BUNDLE-PREFIX (*)
+          RESET R-UPARMS (*) R-E-PARAMS (*)
+        VALUE 2
+          R-STD2-IDENT-LINE          := EOMRPM-STD2-IDENT-LINE
+          R-STD2-IDENT-STRING        := EOMRPM-STD2-IDENT-STRING
+          R-STD2-BREAK-LINE(*)       := EOMRPM-STD2-BREAK-LINE(*)
+          R-STD2-BREAK-START(*)      := EOMRPM-STD2-BREAK-START(*)
+          R-STD2-BREAK-END(*)        := EOMRPM-STD2-BREAK-END(*)
+          R-STD2-REPORT-PREFIX-17(*) := EOMRPM-STD2-REPORT-PREFIX-17(*)
+          R-STD2-REPORT-PREFIX-R(*)  := EOMRPM-STD2-REPORT-PREFIX-R(*)
+          R-STD2-BUNDLE-PREFIX-8(*,*):= EOMRPM-STD2-BUNDLE-PREFIX-8(*,*)
+          R-STD2-BUNDLE-PREFIX-R(*,*):= EOMRPM-STD2-BUNDLE-PREFIX-R(*,*)
+          RESET R-UPARMS (*) R-E-IDENT-LINE R-E-IDENT-STRING
+            R-E-BREAK-LINE R-E-BREAK-START R-E-BREAK-END R-E-REP-PREFIX
+            R-BUNDLE (*)
+        VALUE 3
+          R-E-PARAMS (*) := EOMRPM-EXIT-PARAMETER (*)
+          RESET R-UPARMS (*) R-E-IDENT-LINE R-E-IDENT-STRING R-BUNDLE(*)
+            R-E-BREAK-LINE R-E-BREAK-START R-E-BREAK-END R-E-REP-PREFIX
+        NONE VALUE
+          IGNORE
+      END-DECIDE
+      RESET R-UPARMS (*)
+    WHEN EOMRPM-EXIT-USER-NATPGM NE ' '
+      R-EXITMEM      := EOMRPM-EXIT-USER-NATPGM
+      R-EXITLIB      := EOMRPM-EXIT-USER-NATLIB
+      R-UPARMS (1:5) := EOMRPM-USER-PARMS (1:5)
+      RESET R-ASM-EXIT R-E-IDENT-LINE R-E-IDENT-STRING R-E-BREAK-LINE
+        R-E-BREAK-START R-E-BREAK-END R-E-REP-PREFIX R-BUNDLE (*)
+    WHEN NONE
+      R-ASM-EXIT := EOMRPM-EXIT-USER-3GL
+      RESET R-EXITMEM R-EXITLIB
+      R-UPARMS (1:5) := EOMRPM-USER-PARMS (1:5)
+      RESET R-E-IDENT-LINE R-E-IDENT-STRING R-E-BREAK-LINE
+        R-E-BREAK-START R-E-BREAK-END R-E-REP-PREFIX R-BUNDLE (*)
+  END-DECIDE
+  R-LAST-MODIFIED := *TIMX    /*SU2
+  R-MODIFIED-BY   := *USER /*EOM-USER /*SU2
+*
+  UPDATE (FNDMOD.)
+*
+END-FIND
+*
+END-SUBROUTINE /* MODIFY-SEPARATION-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-REPORT-DEFAULTS
+************************************************************************
+M-MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+FNDDEF. FIND REPORT-DEFAULTS WITH M-MONITOR-ID = M-MONITOR-ID
+END-FIND
+*
+END-SUBROUTINE /* READ-REPORT-DEFAULTS
+* --------------------------------------- on error ---------------------
+INCLUDE C-EOMERR
+*
+END

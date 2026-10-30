@@ -1,0 +1,457 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* YEAR01-N - DISPLAY AND MODIFICATION OF CALENDARS,SCHEDULES,SCHEDULING
+*  HISTORY.
+* CALLED SUBROUTINES:
+*  NOPDTA     (ASS)  DATE TABLE HANDLER
+*  YSWD---N   (NAT)  WEEKLY HOLIDAYS FOR CALENDAR
+* MAPS:
+*  YEAR01M1   TABULAR CALENDAR
+*
+* MODULE HISTORY:
+*  10.03.89 SN  CREATED
+*  27.02.90 (100537) DIFFERENT COLOURS FOR DIFFERENT DATES .DWI03.
+*  29.05.91 f(219) pf7/pf8 logic changed
+* mrs 91-12-29 s(141159) support languages other than english
+* jvd 97-10-09 p(163166) Replace Callnat 'DATOUT-N' with 'IODATE-N'
+*                        Y2C and use only one date routine for NOM
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* raya    2012-05-24 NOMALL-988 avoid nat1143 by examine MO
+*                               if Mo - monday was not found.
+* SU1     2014-06-04 NOMALL-1281 show last update user+date
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 P-RETURNCODE       (I2)    /* <-  RETURNED TO CALLER
+*              0: OK
+*              1: ANOTHER YEAR REQUESTED;
+*                 P-YEAR CONTAINS THE WANTED YEAR
+*              2: DATE TABLE WAS MODIFIED
+1 P-OWNER            (A10)
+1 P-TABLE-NAME       (A10)
+1 P-TABLE-TYPE       (A1) /*'C' CALENDAR, 'H' HISTORY, 'S' SCHEDULE
+1 P-YEAR             (N4)   /* <-> (MODIFIABLE IN MAP)
+1 P-HALF-YEAR        (N1)   /* <-> 0: NO PRESELECTION
+1 P-TABLE            (A50)   /* <-> COMPRESSED CALENDAR OR SCHEDULE
+1 P-CALENDAR         (A10)   /*  -> FOR HEADER; FOR TYPE H/S
+1 P-MODIFY-ALLOWED   (L)     /*  ->
+1 P-DATE-FORMAT      (A1)    /*  ->
+1 G-PF
+  2 G-PF-KEYS        (1:24)
+    3 G-PF-IDENT     (I2)
+    3 G-PF-CODE      (A8)
+    3 G-PF-TEXT      (A5)
+1 P-LAST-UPDATE      (T) /*SU1
+1 P-LAST-UPDATE-USER (A16) /*SU1
+1 G-DATE-FORMAT      (A1) /*SU1
+************************************************************************
+LOCAL
+1 #ROWS                   (I2) CONST <14>
+1 #COLS                   (I2) CONST <20>
+1 L-HEADER                (A78)
+1 L-TEXT-01               (A08)
+1 L-TEXT-02               (A08)
+1 CV-TEXT-02              (C) INIT <(AD=N)>
+1 CV-CALENDAR             (C) INIT <(AD=N CD=NE)>
+1 L-WEEKDAY               (A10/1:#ROWS)
+*
+1 L-MONTH-TAB
+  2 L-MONTH               (A15/1:2,1:3)
+1 REDEFINE L-MONTH-TAB
+  2 L-MON-1               (A15/1:6)
+*
+1 L-DATE-TAB
+  2 L-DATE-01             (A2/1:#COLS)
+  2 L-DATE-02             (A2/1:#COLS)
+  2 L-DATE-03             (A2/1:#COLS)
+  2 L-DATE-04             (A2/1:#COLS)
+  2 L-DATE-05             (A2/1:#COLS)
+  2 L-DATE-06             (A2/1:#COLS)
+  2 L-DATE-07             (A2/1:#COLS)
+  2 L-DATE-08             (A2/1:#COLS)
+  2 L-DATE-09             (A2/1:#COLS)
+  2 L-DATE-10             (A2/1:#COLS)
+  2 L-DATE-11             (A2/1:#COLS)
+  2 L-DATE-12             (A2/1:#COLS)
+  2 L-DATE-13             (A2/1:#COLS)
+  2 L-DATE-14             (A2/1:#COLS)
+* ... AS MANY AS #ROWS ...
+1 REDEFINE L-DATE-TAB
+  2 L-DATE                (A2/1:#ROWS,1:#COLS)
+*
+1 CV-DATE-TAB
+  2 CV-DATE-01            (C/1:#COLS)
+  2 CV-DATE-02            (C/1:#COLS)
+  2 CV-DATE-03            (C/1:#COLS)
+  2 CV-DATE-04            (C/1:#COLS)
+  2 CV-DATE-05            (C/1:#COLS)
+  2 CV-DATE-06            (C/1:#COLS)
+  2 CV-DATE-07            (C/1:#COLS)
+  2 CV-DATE-08            (C/1:#COLS)
+  2 CV-DATE-09            (C/1:#COLS)
+  2 CV-DATE-10            (C/1:#COLS)
+  2 CV-DATE-11            (C/1:#COLS)
+  2 CV-DATE-12            (C/1:#COLS)
+  2 CV-DATE-13            (C/1:#COLS)
+  2 CV-DATE-14            (C/1:#COLS)
+* ... AS MANY AS #ROWS ...
+1 REDEFINE CV-DATE-TAB
+  2 CV-DATE               (C/1:#ROWS,1:#COLS)
+*
+1 CV-MAP                  (C)
+*
+1 #JULIAN-DATE            (A7)
+1 REDEFINE #JULIAN-DATE
+  2 #JU-YEAR              (N4)
+  2 #JU-DAY               (N3)
+*
+1 #DATE-8                 (A8)
+1 REDEFINE #DATE-8
+  2 #YEAR                 (N4)
+  2 #MONTH-DAY            (A4)
+  2 REDEFINE #MONTH-DAY
+    3 #MONTH              (N2)
+    3 #DAY                (N2)
+*
+1 T-DATE                  (I2/1:#ROWS,1:#COLS)
+1 T-SET                   (L/1:366)
+1 #MONTH-TOP-TABLE        (I2/1:12) CONST < 1,1,1,8,8,8,1,1,1,8,8,8>
+1 #MONTH-COLUMN-TABLE     (I2/1:12) CONST < 1,8,15,1,8,15,1,8,15,1,8,15>
+1 #JDL-365                (N3/1:4) CONST <1, 181, 182, 365>
+1 #JDL-366                (N3/1:4) CONST <1, 182, 183, 366>
+1 #JDL                    (N3/1:2,1:2)
+1 REDEFINE #JDL
+  2 #JDL-A                (N3/1:4)
+*
+1 #I                      (I2)
+1 #J                      (I2)
+1 #OLD-HALF-YEAR          (N1)
+1 #WBJ                    (I2) /* WEEK BEGIN JULIAN
+1 #WEJ                    (I2) /* WEEK END  JULIAN
+1 #WBR                    (I2) /* WEEK BEGIN RELATIVE
+1 #MONTH-TOP              (I2) INIT <1>
+1 #MONTH-BOTTOM           (I2) INIT <7>
+1 #CURS-COL               (P3) INIT <1>
+1 #CURS-LINE              (P3) INIT <1>
+1 #USER-LANGUAGE          (N1)
+1 #NATOP-ERC              (N4)
+1 #NATOP-ERT              (A250)
+1 #TEXT-10                (A10)      /* TO BUILD MESSAGE
+1 #OLD-P-YEAR             (N4)
+1 #OLD-MONTH              (N2)
+1 #WEEK-BEGIN-DAY         (A2) INIT <'Mo'> /* DEFAULT
+1 #WEEK-BEGIN-DAY-C       (A2) INIT <'MO'>
+1 #WEEKDAY-TAB            (A2/1:7)
+1 #CHECK-DATE             (A8) /* YYYYMMDD
+1 #HELP-START             (A8) INIT <' '>
+1 #DUMMY                  (A1)
+1 #TABLE-CHANGED          (L)  /* RESET IN EACH LOOP
+1 #TABLE-MODIFIED         (L)  /* FOR RETURNCODE
+*
+1 NOPDTA-RC               (I2)
+1 NOPDTA-WA               (A20)
+*
+1 #DATE                   (D)
+1 #DATE-OUT               (A8) /* DD.MM.YY ETC.
+1 #P-DATE                 (A8)
+1 #FORMATED-DATE          (A10)
+1 REDEFINE #FORMATED-DATE
+  2 #S-FORMATED-DATE      (A8)
+1 #ERROR-CODE             (N4)
+1 #ERROR-TEXT             (A250)
+1 #LAST-MOD               (A40) /*SU1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM SET-PFKEYS
+*
+RESET P-RETURNCODE
+DECIDE ON EVERY VALUE OF P-TABLE-TYPE
+  VALUE 'C'
+    IF P-MODIFY-ALLOWED
+      #HELP-START := 'H1350000'
+    ELSE
+      #HELP-START := 'H1350100'
+    END-IF
+    L-TEXT-01 := 'Calendar'
+    CALL 'NOPDTA' 'IT' NOPDTA-RC NOPDTA-WA P-TABLE     /* INVERT
+*   -- CALENDARS ARE STORED IN INVERTED FORMAT FOR EASIER
+*   -- LOGICAL OPERATIONS ON SCHEDULES.
+*   -- THEY MUST THEREFORE BE INVERTED BEFORE AND AFTER TREATMENT.
+  VALUE 'H'
+    L-TEXT-01 := 'History'
+    #HELP-START := 'H1380000'
+  VALUE 'S'
+    L-TEXT-01 := 'Schedule'
+  VALUE 'H', 'S'
+    IF P-CALENDAR NE ' '
+      L-TEXT-02 := 'Calendar'
+      CV-TEXT-02 := (AD=IP)
+      CV-CALENDAR := (AD=DP CD=NE)
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+IF P-HALF-YEAR > 2
+  WRITE *PROGRAM *LINE 'UNEXPECTED P-HALF-YEAR =' P-HALF-YEAR
+  STOP
+END-IF
+*
+IF NOT P-MODIFY-ALLOWED
+  CV-MAP := (AD=P CD=NE)
+END-IF
+#JU-YEAR := #YEAR := #OLD-P-YEAR := P-YEAR
+COMPRESS #JU-YEAR '0229' TO #CHECK-DATE LEAVING NO
+IF #CHECK-DATE = MASK (YYYYMMDD)
+  #JDL-A(*) := #JDL-366(*)
+ELSE
+  #JDL-A(*) := #JDL-365(*)
+END-IF
+*
+*  -- EXPAND TABLE --
+CALL 'NOPDTA' 'XT' NOPDTA-RC NOPDTA-WA P-TABLE T-SET(*)
+*
+RESET #OLD-HALF-YEAR
+IF P-HALF-YEAR < 1           /* IF NO HALF YEAR PRESELECTED
+  P-HALF-YEAR := 1
+  #DATE-8 := *DATN /* CURRENT YEAR: DEPENDING ON DATE
+  IF #YEAR = P-YEAR AND #MONTH >= 7
+    P-HALF-YEAR := 2
+  END-IF
+END-IF          /* (0222)
+*
+SET CONTROL 'WB'
+REP1. REPEAT
+  IF P-HALF-YEAR NE #OLD-HALF-YEAR OR #TABLE-CHANGED
+    #CURS-COL := #CURS-LINE := 1
+    PERFORM FIRST-WEEKDAY-POSITION
+    PERFORM FILL-TABLE
+    #OLD-HALF-YEAR := P-HALF-YEAR
+  END-IF
+*
+  IF #CURS-COL  < 1
+    #CURS-COL := 1
+  END-IF
+  IF #CURS-LINE < 1
+    #CURS-LINE := 1
+  END-IF
+  *CURS-COL := #CURS-COL
+  *CURS-LINE := #CURS-LINE
+  RESET #TABLE-CHANGED
+  CALLNAT 'N-HEADER' L-HEADER P-DATE-FORMAT 'YEAR01M1'
+  CALLNAT 'N-HEAD2' P-LAST-UPDATE-USER P-LAST-UPDATE /*SU1
+    #LAST-MOD G-DATE-FORMAT /*SU1
+  INPUT WITH TEXT *#NATOP-ERC,#NATOP-ERT USING MAP 'YEAR01M&'
+  #CURS-COL := *CURS-COL
+  #CURS-LINE := *CURS-LINE
+  RESET #NATOP-ERC #NATOP-ERT
+*
+  DECIDE ON FIRST VALUE OF *PF-KEY
+    VALUE 'PF1'
+      IF #HELP-START NE ' '
+        REINPUT USING HELP
+      END-IF
+    VALUE 'PF3'  ESCAPE BOTTOM (REP1.)
+    VALUE 'PF4' /*weekly holidays
+      IF P-TABLE-TYPE = 'C' AND P-MODIFY-ALLOWED    /* CALENDAR
+        RESET #TABLE-CHANGED
+        CALLNAT 'YSWD---N'
+          P-TABLE-NAME P-YEAR P-TABLE #WBJ #TABLE-CHANGED
+        IF #TABLE-CHANGED
+          CALL 'NOPDTA' 'XT' NOPDTA-RC NOPDTA-WA P-TABLE T-SET(*)
+          #TABLE-MODIFIED := TRUE
+        END-IF
+      END-IF
+    VALUE 'PF5'  IGNORE  /*  END TRANSACTION
+    VALUE 'PF7'
+      IF P-HALF-YEAR = 2
+        P-HALF-YEAR := 1
+      END-IF
+    VALUE 'PF8'
+      IF P-HALF-YEAR = 1
+        P-HALF-YEAR := 2
+      END-IF
+    NONE VALUE IGNORE
+  END-DECIDE
+*
+  IF P-YEAR NE #OLD-P-YEAR            /* -- YEAR WAS MODIFIED --
+    DECIDE FOR FIRST CONDITION
+      WHEN P-YEAR = #OLD-P-YEAR + 1   P-HALF-YEAR := 1
+      WHEN P-YEAR = #OLD-P-YEAR - 1   P-HALF-YEAR := 2
+      WHEN NONE                       RESET     P-HALF-YEAR
+    END-DECIDE
+    P-RETURNCODE := 1 /* OTHER YEAR REQUESTED
+  END-IF
+  IF P-RETURNCODE NE 0
+    ESCAPE BOTTOM
+  END-IF
+*
+  IF P-MODIFY-ALLOWED AND CV-MAP MODIFIED
+    PERFORM CHECK-MODIFIED
+  END-IF
+END-REPEAT
+*
+IF P-TABLE-TYPE = 'C'       /* CALENDAR
+  CALL 'NOPDTA' 'IT' NOPDTA-RC NOPDTA-WA P-TABLE     /* INVERT
+END-IF
+*
+IF #TABLE-MODIFIED
+  P-RETURNCODE := 2
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE FIRST-WEEKDAY-POSITION
+************************************************************************
+* DETERMINE WEEKDAY POSITION OF FIRST DAY ON MAP
+*
+#USER-LANGUAGE := *LANGUAGE
+*LANGUAGE := 1 /* ENGLISH FOR WEEKDAY DETERMINATION
+#WBJ := #JDL(P-HALF-YEAR,1)
+#WEJ := #WBJ + 6
+RESET #I
+FOR #JU-DAY = #WBJ TO #WEJ
+  ADD 1 TO #I
+  MOVE EDITED #JULIAN-DATE     TO #DATE (EM=YYYYJJJ)
+  MOVE EDITED #DATE (EM=N(02)) TO #WEEKDAY-TAB(#I)
+END-FOR
+EXAMINE #WEEKDAY-TAB(*) FOR #WEEK-BEGIN-DAY GIVING INDEX IN #WBR
+IF #WBR EQ 0
+  EXAMINE #WEEKDAY-TAB(*) FOR #WEEK-BEGIN-DAY-C GIVING INDEX IN #WBR
+  IF #WBR EQ 0
+    WRITE 'MO was not found in' / '=' #WEEKDAY-TAB(*)
+      / '=' #WEEK-BEGIN-DAY
+    STOP
+  END-IF
+END-IF
+*LANGUAGE := #USER-LANGUAGE
+*
+* FILL WEEKDAY TEXT
+*
+RESET #I
+#WBJ := #WBR + #JDL(P-HALF-YEAR,1) - 1
+#WEJ := #WBJ + 6
+FOR #JU-DAY = #WBJ TO #WEJ
+  ADD 1 TO #I
+  MOVE EDITED #JULIAN-DATE     TO #DATE (EM=YYYYJJJ)
+  MOVE EDITED #DATE (EM=N(10)) TO L-WEEKDAY(#I)
+END-FOR
+L-WEEKDAY(8:14) := L-WEEKDAY(1:7)
+*
+END-SUBROUTINE /* FIRST-WEEKDAY-POSITION
+*
+************************************************************************
+DEFINE SUBROUTINE FILL-TABLE
+************************************************************************
+RESET L-DATE(*,*) T-DATE(*,*) #OLD-MONTH
+CV-DATE(*,*) := (AD=P CD=NE)
+#MONTH-TOP := #MONTH-TOP-TABLE(1)
+#MONTH-BOTTOM := #MONTH-TOP + 6
+IF #WBR = 1
+  RESET #I
+ELSE
+  #I := 8 - #WBR
+END-IF
+*
+FOR #JU-DAY = #JDL(P-HALF-YEAR,1) TO #JDL(P-HALF-YEAR,2)
+  MOVE EDITED #JULIAN-DATE    TO #DATE (EM=YYYYJJJ)
+  MOVE EDITED #DATE (EM=MMDD) TO #MONTH-DAY
+  ADD 1 TO #I
+  IF #I > #MONTH-BOTTOM
+    #I := #MONTH-TOP
+    ADD 1 TO #J
+  END-IF
+*
+  IF #MONTH NE #OLD-MONTH
+    IF #MONTH <= 6
+      MOVE EDITED #DATE (EM=L(15)) TO L-MON-1(#MONTH)
+    ELSE
+      MOVE EDITED #DATE (EM=L(15)) TO L-MON-1(#MONTH - 6)
+    END-IF
+    SUBTRACT #MONTH-TOP FROM #I
+    #MONTH-TOP :=  #MONTH-TOP-TABLE(#MONTH)
+    #MONTH-BOTTOM := #MONTH-TOP + 6
+    ADD   #MONTH-TOP TO #I
+    #J :=  #MONTH-COLUMN-TABLE(#MONTH)
+    #OLD-MONTH :=  #MONTH
+  END-IF           /* (0375)
+*
+  MOVE EDITED #DAY (EM=Z9) TO L-DATE(#I,#J)
+  T-DATE(#I,#J) := #DAY
+*
+  IF P-MODIFY-ALLOWED
+    IF T-SET(#JU-DAY)
+      CV-DATE(#I,#J) := (AD=I CD=RE)
+    ELSE
+      CV-DATE(#I,#J) := (AD=D CD=NE)
+    END-IF
+  ELSE          /*  -- MODIFICATION NOT ALLOWED --
+    IF T-SET(#JU-DAY)
+      CV-DATE(#I,#J) := (AD=IP CD=RE)
+    ELSE
+      CV-DATE(#I,#J) := (AD=DP CD=NE)
+    END-IF
+  END-IF        /* (0398)
+END-FOR         /* (0238)
+*
+END-SUBROUTINE /* FILL-TABLE
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-MODIFIED
+************************************************************************
+IF NOT CV-DATE(*,*) MODIFIED
+  ESCAPE ROUTINE
+END-IF
+FOR #I = 1 TO #ROWS
+  IF NOT CV-DATE(#I,*) MODIFIED
+    ESCAPE TOP
+  END-IF
+  FOR #J = 1 TO #COLS
+    IF NOT CV-DATE(#I,#J) MODIFIED
+      ESCAPE TOP
+    END-IF
+    MOVE EDITED T-DATE (#I,#J) (EM=Z9) TO L-DATE(#I,#J)
+    #DAY := T-DATE(#I,#J)
+    #MONTH := (#J + 6) / 7 + ((#I - 1) / 7) * 3 + (P-HALF-YEAR - 1) * 6
+    MOVE EDITED #DATE-8            TO #DATE (EM=YYYYMMDD)
+    MOVE EDITED #DATE (EM=YYYYJJJ) TO #JULIAN-DATE
+    CALL 'NOPDTA' 'IV' NOPDTA-RC NOPDTA-WA P-TABLE #DUMMY #JULIAN-DATE
+    IF T-SET(#JU-DAY)
+      RESET T-SET(#JU-DAY)
+      CV-DATE (#I,#J) := (AD=D CD=NE)
+      #TEXT-10 := 'reset'
+    ELSE
+      T-SET(#JU-DAY) := TRUE
+      CV-DATE (#I,#J) := (AD=I CD=RE)
+      #TEXT-10 := 'set'
+    END-IF
+*
+    #NATOP-ERC := 3020 /*  'DATE DD.MM.YY MODIFIED'
+*
+    MOVE EDITED #DATE (EM=YYYYMMDD) TO #P-DATE
+    CALLNAT 'IODATE-N' 'M' 'S' /* Mask date / Short (dd/mm/yy)
+      #P-DATE #FORMATED-DATE P-DATE-FORMAT #ERROR-CODE #ERROR-TEXT
+    IF #ERROR-CODE = 0
+      #DATE-OUT := #S-FORMATED-DATE
+    END-IF
+    COMPRESS #DATE-OUT #TEXT-10 TO #NATOP-ERT
+*
+    #TABLE-MODIFIED := TRUE
+  END-FOR         /* (0415)
+END-FOR         /* (0419)
+*
+END-SUBROUTINE /* CHECK-MODIFIED
+*
+INCLUDE RPFSET-C
+*
+END

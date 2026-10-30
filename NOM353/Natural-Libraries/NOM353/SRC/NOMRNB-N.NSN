@@ -1,0 +1,180 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMRNB-N
+* Version   1.3
+* Function  Return run number
+*
+* Note      Run number was limited to P7 (design error)
+*           Since it is not necessary that the run number itself be
+*           unique but only the combinations 'report-rnb' and
+*           'bundle-rnb', we start again at the beginning and now
+*           check for unique combinations.
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  96-09-17 s(999999) created
+* xsiszha 2000-08-07 (CE7461) Extend Report and Bundle Names
+* sju     2004-12-03 NOM31    correct run number wrap-around
+* xsetggr 2007-08-30 NOM3201  Change run number format to P11
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* SU1     2014-03-05 NOMALL-1281 show last update user+date
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+*
+1 NOMRNB-PARMS
+  2 NOMRNB-RNB              (P11)
+  2 NOMRNB-NAME             (A25)
+  2 NOMRNB-TYPE             (A1)      /* 'R' - Report , 'B' - Bundle
+  2 G-USERID                (A8) OPTIONAL /*SU1
+************************************************************************
+LOCAL
+1 CONTROL-RECORD VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-LASTRNB
+  2 R-IDENT-WRITER
+  2 R-SEPNO
+  2 R-LAST-UPDATE /*SU1
+  2 R-LAST-UPDATE-USER /*SU1
+*
+1 ACTIVE-REPORTS VIEW OF NRM-ACTIVE-REPORTS
+*
+1 #AR-REPORT-RNB            (A31)
+1 REDEFINE #AR-REPORT-RNB
+  2 #AR-REPORT              (A25)
+  2 #AR-RNB                 (P11)
+*
+1 ACTIVE-BUNDLES VIEW OF NRM-ACTIVE-BUNDLES
+  2 AB-BUNDLE-RNB
+  2 REDEFINE AB-BUNDLE-RNB
+    3 AB-BUNDL              (A25)
+    3 AB-RNB                (P11)
+*
+1 #AB-BUNDLE-RNB            (A31)
+1 REDEFINE #AB-BUNDLE-RNB
+  2 #AB-BUNDL               (A25)
+  2 #AB-RNB                 (P11)
+*
+1 BUNDLE-CONTENTS VIEW OF NRM-BUNDLE-CONTENTS
+*
+1 ARCHIVED-REPORT VIEW OF NRM-DATASET-REPORT
+*
+1 #I                        (I4)
+1 #USERID                   (A8) /*SU1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF G-USERID SPECIFIED /*SU1 ->
+  #USERID := G-USERID
+ELSE
+  #USERID := *USER
+END-IF /*SU1 <-
+FIND CONTROL-RECORD WITH R-REPNAME = 'NOM-CONTROL-REC'
+*
+  IF NO RECORDS FOUND
+    R-REPNAME      := 'NOM-CONTROL-REC'
+    R-LASTRNB      := 10000
+    R-IDENT-WRITER := 'DUMMY'
+    R-LAST-UPDATE      := *TIMX /*SU1
+    R-LAST-UPDATE-USER := #USERID /*SU1
+    STORE CONTROL-RECORD
+    ESCAPE BOTTOM
+  END-NOREC
+*
+  IF R-LASTRNB = 99999999999
+    R-LASTRNB := 1
+    ADD 1 TO R-SEPNO                   /* one more time around
+  ELSE
+    ADD 1 TO R-LASTRNB
+  END-IF
+*
+  IF R-SEPNO NE 0
+    PERFORM CHECK-AND-GET-UNIQUE-RNB
+  END-IF
+*
+  R-LAST-UPDATE      := *TIMX /*SU1
+  R-LAST-UPDATE-USER := #USERID /*SU1
+  UPDATE
+*
+END-FIND
+*
+NOMRNB-RNB := CONTROL-RECORD.R-LASTRNB
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-AND-GET-UNIQUE-RNB
+************************************************************************
+IF NOMRNB-TYPE = 'R'
+  PERFORM CHECK-REPORT-RNB
+ELSE
+  PERFORM CHECK-BUNDLE-RNB
+END-IF
+*
+END-SUBROUTINE /* CHECK-AND-GET-UNIQUE-RNB
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-REPORT-RNB
+************************************************************************
+#AR-REPORT := NOMRNB-NAME
+#AR-RNB    := R-LASTRNB
+*
+REPEAT
+  AR.
+  FIND NUMBER ACTIVE-REPORTS WITH AR-REPORT-RNB = #AR-REPORT-RNB
+  IF *NUMBER (AR.) =0
+    BC.
+    FIND NUMBER BUNDLE-CONTENTS WITH BC-REPORT-RNB = #AR-REPORT-RNB
+    IF *NUMBER (BC.) = 0
+      ARC.
+      FIND NUMBER ARCHIVED-REPORT WITH DR-REPORT-RNB = #AR-REPORT-RNB
+      IF *NUMBER (ARC.) = 0
+        ESCAPE BOTTOM
+      END-IF
+    END-IF
+  END-IF
+*
+  IF #AR-RNB = 99999999999
+    RESET #AR-RNB
+  END-IF
+  ADD 1 TO #AR-RNB
+*
+END-REPEAT
+*
+R-LASTRNB := #AR-RNB
+*
+END-SUBROUTINE /* CHECK-REPORT-RNB
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-BUNDLE-RNB
+************************************************************************
+#AB-BUNDL := NOMRNB-NAME
+#AB-RNB   := R-LASTRNB
+*
+HISTOGRAM ACTIVE-BUNDLES FOR AB-BUNDLE-RNB STARTING FROM #AB-BUNDLE-RNB
+  IF AB-BUNDL NE #AB-BUNDL
+    ESCAPE BOTTOM
+  END-IF
+  #I := AB-RNB - #AB-RNB
+  IF #I NE 0
+    ESCAPE BOTTOM
+  END-IF
+  IF #AB-RNB = 99999999999
+    RESET #AB-RNB
+  END-IF
+  ADD 1 TO #AB-RNB
+END-HISTOGRAM
+*
+R-LASTRNB := #AB-RNB
+*
+END-SUBROUTINE /* CHECK-BUNDLE-RNB
+*
+END

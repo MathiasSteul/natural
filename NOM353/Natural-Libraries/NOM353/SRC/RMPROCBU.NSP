@@ -1,0 +1,448 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPROCBU - Process bundles which are ready to be flushed
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  93-07-06           clean up
+* gw  94-05-13 s(999999) new field po-esy-userid
+* mrs 94-06-09 s(999999) close bundle if no printer specified
+* gw  96-11-06 s(257035) logon with bundle coordinator id only if
+*                        G-USE-OWNER
+* gw  96-11-29 s(258536) use *language from owner profile
+* jwo 97-09-22  p(165064) new logic to get PO-ID
+* jwo 97-11-19  p(167387) ET logic corrected
+* gw  98-08-06  s(999999) commented out data defs not needed
+* sju 00-03-24 p(191368) monitor multitasking
+* wcd 00-04-01 CE 7267   Increase to 20 printers
+* xsiszha 2000-06-26 (CE4962) User API NOMUS01N changed
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* sju 03-10-07 p(245720) NAT1305 if more than 99,999,999 lines in bundle
+* sju 03-12-15 p(248535) Default print class not taken
+* sju 04-12-07 NOM31     Tracing
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* fhi 05-12-14 P272732   cataloged, because VPRINT-L was changed.
+* xsetggr 2007-06-27 NOM3201   support 5 byte node and 11 byte run numbe
+*                              numbers, restow - changes in eompom-parms
+* xsetggr 2007-10-25 NRT2185   default values for UNIXLP printers
+* xsetggr 2008-11-28 P311915  default printers DEFAULTA - DEFAULTZ
+* fhi     2009-03-02 P314788  Do not use NOM-CURRENT-VERSION as a constant
+* fhi     2010-03-29 P324700   Pass correct file to GETHOLD
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* xsetggr 2010-12-21 NOMALL-865 restow due to changes in RMFL---P
+* raya    2012-01-19 NOMALL-1096 NOMUS--0 (ERROR-TEXT(A250))STOW ONLY
+* raya    2012-02-07 NOMALL-98 check existance of printer-exit and if
+*                    not exist no printout
+* raya    2012-04-18 NOMALL-98 remove steplib when added only
+* bli     2012-09-21 NOMALL-94 NOM-CURRENT-VERSION again (see P314788)
+* raya     2013-01-07 NOMALL-1214 check cat date of user exit
+* fhi     2014-03-03 NOMALL-1363 Get cat cate into trace messages
+* SU1     2014-07-02 NOMALL-1279 fill fields for Adabas Vista
+* SU2     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU3     2016-01-19 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi     2017-04-07 NOMALL-1961 Omit field PO-MONITOR
+* fhi     2018-12-14 NOM 3.5     Add CPU measure
+* SU4     2020-05-18 NOMALL-2349 use N-CHKCAT
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  MONIT-GL
+INDEPENDENT
+1 +NOD-LOCAL-NODE          (N5)
+1 +CMRDC                   (A1)
+* *****
+LOCAL USING NOMFNC-E            /* NOM API's
+LOCAL USING NOMUS--P
+LOCAL USING NOMUS--E
+LOCAL USING VBURP-L
+LOCAL USING RLOG-L
+LOCAL USING VPRINT-L
+LOCAL USING VPRRP-L
+LOCAL USING SUPER-L
+LOCAL USING EOMPOM-P
+LOCAL USING EOMPHTYE
+LOCAL USING RACTLF-A
+* ----------------------------------------------------------------------
+LOCAL
+1 BUNDLE VIEW OF NRM-BUNDLES
+  2 B-PRINT-LIST           (20)
+  2 REDEFINE B-PRINT-LIST
+    3 B-PRINT-TAB          (20)
+      4 B-PRINTER          (A8)
+      4 B-PRINTER-COPIES   (N3)
+  2 C*B-PRINT-LIST
+  2 B-PRINT-JOBCARD        (3)
+  2 C*B-PRINT-JOBCARD
+1 PHYSICAL-PRINTER VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-VTAMID
+  2 PH-ESCAPE-CHAR
+  2 PH-JCL-SKELETON
+  2 PH-PRINT-PGM
+  2 PH-PRINTER-TYPE
+1 DEFAULT-PRINTERS VIEW OF NRM-PRINTERS
+  2 P-ID
+  2 P-PHYSICAL-NAME
+  2 P-ATTRIBUTES           (1:25)
+* *****
+1 #COORDINATOR             (A8)
+1 I                        (P3)
+1 FLUSH-IT                 (L)
+*
+1 #ABUND-ISN               (P10)
+1 #ADA-RC                  (N4)
+1 #REASON                  (A20)
+1 #BUNDLE-IS-EMPTY         (L)
+1 #BC-BUNDLE-RNB           (A33)
+1 REDEFINE    #BC-BUNDLE-RNB
+  2 #BC-BUNDLE             (A25)
+  2 #BC-BUNDRNB            (P11)
+  2 #BC-SEQ                (P3)
+1 #T-TIME                  (A14)
+1 #DATE-IN                 (D)
+1 #DATE-OUT                (D)
+1 #DATE-A                  (A8)
+1 #I                       (I2)
+1 #RMPOID-FUNC             (A1)
+1 #P-ID-E                  (A8)
+1 #J                       (P3)
+1 #P-ID                    (A8) INIT <'DEFAULT'>
+1 REDEFINE #P-ID
+  2 #P-ID-1                (A7)
+  2 #SUFFIX                (A1)
+1 #TRACING                 (L)
+1 #TRACE-MSG               (A250)
+1 #CAT-DATE-1              (A10)
+1 #CAT-DATE-2              (A10)
+1 #CATDATE                 (A19)
+1 RMSETTIM
+  2 FUNCTION               (A1)
+  2 ERC                    (N4)
+  2 MSG                    (A250)
+1 #CALLER                  (A8) INIT <*PROGRAM>
+1 P-ERC                    (N4)
+1 P-ERT                    (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF G-TRACE GE *LEVEL AND G-TRACE-SET = SCAN ('CREATE')
+  #TRACING := TRUE
+  RMSETTIM.FUNCTION := 'S'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS 'Start' *PROGRAM 'cataloged at' #CATDATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+INCLUDE CMRDC
+FIND-ACTIVE. FIND ACTIVE-BUNDLES WITH AB-STATUS = 'O' OR = 'P'
+  #ABUND-ISN := *ISN(FIND-ACTIVE.)
+  #AB-BUNDLE := G-C-BUNDLE := AB-BUNDLE
+  #AB-BUNDRNB := G-C-BUNDRNB := AB-BUNDRNB
+  RESET #REASON
+  #BUNDLE-IS-EMPTY := TRUE
+  #BC-BUNDLE := AB-BUNDLE
+  #BC-BUNDRNB := AB-BUNDRNB
+  RESET #BC-SEQ
+  CHECK-IF-EMPTY. READ BUNDLE-CONTENTS BY BC-BUNDLE-RNB = #BC-BUNDLE-RNB
+    IF BC-BUNDLE NE AB-BUNDLE OR BC-BUNDRNB NE AB-BUNDRNB
+      ESCAPE BOTTOM
+    END-IF
+    #BUNDLE-IS-EMPTY := FALSE
+    ESCAPE BOTTOM
+  END-READ
+  IF #BUNDLE-IS-EMPTY
+    ESCAPE TOP
+  END-IF
+*
+  RESET RACTLF-ERROR-LOGGING RACTLF-LOGGING #ADA-RC
+  RACTLF-LFILE-1   := 91
+  CALLNAT 'RACTLF-N' RACTLF-PARMS
+  IF RACTLF-ERROR-CODE = 0
+    CALLNAT 'GETHOLD' RACTLF-DBID-1 RACTLF-FNR-1 #ABUND-ISN 'BS' #ADA-RC
+  END-IF
+  IF #ADA-RC = 145
+    BACKOUT TRANSACTION
+    ESCAPE TOP
+  END-IF
+*
+  #COORDINATOR := AB-COORDINATOR-ID
+  MOVE EDITED AB-PLAN-FLUSH-TIME (EM=YYYYMMDDHHIISS) TO #T-TIME
+  DECIDE FOR EVERY CONDITION
+    WHEN AB-STATUS = 'P'
+      #REASON := '0463'
+      PERFORM FLUSH-BUNDLE
+      ESCAPE TOP
+    WHEN AB-FLUSH-LINES > 0 AND AB-FLUSH-LINES <= AB-NUMBER-OF-LINES
+      #REASON := '0462'
+      PERFORM FLUSH-BUNDLE
+      ESCAPE TOP
+    WHEN #T-TIME NE '00000102000000'
+      IF AB-PLAN-FLUSH-TIME <= *TIMX
+        #REASON := '0460'
+        PERFORM FLUSH-BUNDLE
+        ESCAPE TOP
+      END-IF
+    WHEN C*AB-FLUSH-EVENTS > 0
+      FLUSH-IT := TRUE
+      READ-BC. READ BUNDLE-CONTENTS BY BC-BUNDLE-RNB = #BC-BUNDLE-RNB
+        IF BC-BUNDLE NE AB-BUNDLE OR BC-BUNDRNB NE AB-BUNDRNB
+          ESCAPE BOTTOM
+        END-IF
+        FOR I 1 TO C*AB-FLUSH-EVENTS
+          IF AB-FLUSH-REPORTS(I) = BC-REPNAME
+            AB-REPORT-STATUS(I) := '1'
+          END-IF
+        END-FOR
+      END-READ
+      FOR I 1 TO C*AB-FLUSH-EVENTS
+        IF AB-REPORT-STATUS(I) = '1' OR AB-FLUSH-REPORTS (I) = ' '
+          ESCAPE TOP
+        END-IF
+        FLUSH-IT := FALSE
+        ESCAPE BOTTOM
+      END-FOR
+      IF FLUSH-IT
+        #REASON := '0461'
+        PERFORM FLUSH-BUNDLE
+      END-IF
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+*
+  IF P-ERC EQ 1079
+    COMPRESS P-EXITLIB '(' P-EXITMEM ')' TO #TRACE-MSG LEAVING NO
+    COMPRESS '1586' G-C-BUNDLE #TRACE-MSG TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+  END-IF
+  END TRANSACTION
+END-FIND
+IF #TRACING
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+  G-TRACE-MSG := 'End'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+END TRANSACTION
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-BUNDLE
+************************************************************************
+G-CYCLE-WAS-IDLE := FALSE
+*
+GETD. GET ACTIVE-BUNDLES #ABUND-ISN
+*
+FIND (1) BUNDLE WITH B-BUNDLE = ACTIVE-BUNDLES.AB-BUNDLE
+END-FIND
+*
+RESET ACTIVE-BUNDLES.AB-EXPIRATION
+IF ACTIVE-BUNDLES.AB-RETENTION-ACTION = 'P'
+AND ACTIVE-BUNDLES.AB-RETENTION-PERIOD NE ' '                         /*
+  #DATE-IN := *DATX
+  CALLNAT 'RCOMED-N' #DATE-IN ACTIVE-BUNDLES.AB-RETENTION-PERIOD
+    #DATE-OUT
+  MOVE EDITED #DATE-OUT (EM=YYYYMMDD) TO #DATE-A
+  IF #DATE-A NE '00000102'
+    COMPRESS 'P' #DATE-A TO ACTIVE-BUNDLES.AB-EXPIRATION LEAVING NO
+  END-IF
+END-IF
+*
+ACTIVE-BUNDLES.AB-FLUSH-TIME  := *TIMX
+ACTIVE-BUNDLES.AB-STATUS      := 'C'
+*
+UPDATE (GETD.)
+*
+LG-USERID := G-LG-USERID
+LG-CODE := 'AB'
+COMPRESS AB-BUNDLE  '/' AB-BUNDRNB TO LG-OBJECT-NAME LEAVING NO
+COMPRESS #REASON LG-OBJECT-NAME TO LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+*
+IF ACTIVE-BUNDLES.C*AB-PRINT-LIST = 0
+  END TRANSACTION
+  ESCAPE ROUTINE
+END-IF
+FOR G-P 1 TO ACTIVE-BUNDLES.C*AB-PRINT-LIST
+  FNDP. FIND PRINTERS WITH P-ID = ACTIVE-BUNDLES.AB-PRINTER (G-P)
+    IF P-EXITLIB NE ' ' AND P-EXITMEM NE ' '
+      CALLNAT 'N-CHKCAT' P-ERC P-ERT P-EXITMEM /*SU4
+        P-EXITLIB #CALLER #CAT-DATE-1 #CAT-DATE-2
+      IF P-ERC NE 0
+        P-ERC := 1079
+        ESCAPE ROUTINE IMMEDIATE
+      END-IF
+    END-IF
+*
+    FIND (1) PHYSICAL-PRINTER WITH PH-VTAMID = P-PHYSICAL-NAME
+      RESET PRINTOUTS
+      #RMPOID-FUNC := 'M'
+      CALLNAT 'RMPOID-N' PRINTOUTS.PO-ID
+        G-NATRP-ERC G-NATRP-ERT #RMPOID-FUNC
+      PRINTOUTS.PO-ID-INV := 9999998 - PRINTOUTS.PO-ID
+      EXAMINE P-ATTR-VAR(*) FOR 'CLASS' GIVING INDEX IN I
+      IF I > 0 AND P-ATTR-VALUE(I) = ' '
+        P-ATTR-VALUE(I):= G-PRINT-CLASS
+      END-IF
+      FOR #J := 1 TO 25
+        IF PH-PRINTER-TYPE = ##PHYS-UNIXLP AND P-ATTR-VALUE(#J) = ' '
+          PERFORM DEFAULT-UNIXLP-VALUES
+        ELSE
+          PRINTOUTS.PO-ATTRIBUTES(#J) := PRINTERS.P-ATTRIBUTES(#J)
+        END-IF
+      END-FOR
+      PO-NODE          := +NOD-LOCAL-NODE
+      PO-BUNDLE        := ACTIVE-BUNDLES.AB-BUNDLE
+      PO-BUNDRNB       := ACTIVE-BUNDLES.AB-BUNDRNB
+      PERFORM ASSIGN-PO-COPIES
+      PO-CREATED       := *TIMX
+      PO-ESCAPE-CHAR   := PH-ESCAPE-CHAR
+      PO-EXITLIB       := P-EXITLIB
+      PO-EXITMEM       := P-EXITMEM
+      PO-FROM-LINE     := 1
+      IF ACTIVE-BUNDLES.AB-HOLD = 'Y'
+        PO-STATUS := 'H'
+      ELSE
+        PO-STATUS := 'R'
+      END-IF
+      PO-JCL-SKELETON  := PH-JCL-SKELETON
+      PERFORM ASSIGN-PO-JOBCARD
+      PERFORM GET-OWNER-LANGUAGE
+      PO-LANGUAGE      := VAL (NOMUS-PROF-LANGUAGE)
+      PO-LOGICAL       := P-ID
+      PO-PHYSICAL-NAME := P-PHYSICAL-NAME
+      PO-PRINT-PGM     := PH-PRINT-PGM
+      PO-PRINTER-TYPE  := PH-PRINTER-TYPE
+      PO-PRIORITY      := P-PRIORITY
+      IF PO-STATUS = 'R'
+        PERFORM ASSIGN-PO-SCHEDULED
+      END-IF
+* PO-TO-LINE is P8 but AB-NUMBER-OF-LINES is P9. Active reports
+* created from MVS sequential files get number of lines set to
+* 99,999,999 (because NOM doesn't count the lines). So if such a
+* report is in the bundle, we may get a NAT1305 setting PO-TO-LINE to
+* AB-NUMBER-OF-LINES
+      IF ACTIVE-BUNDLES.AB-NUMBER-OF-LINES GT 99999999
+        PO-TO-LINE:= 99999999
+      ELSE
+        PO-TO-LINE := ACTIVE-BUNDLES.AB-NUMBER-OF-LINES
+      END-IF
+      PO-USERID := ACTIVE-BUNDLES.AB-COORDINATOR-ID
+      IF G-USE-OWNER
+        PO-ESY-USERID := ACTIVE-BUNDLES.AB-COORDINATOR-ID
+      ELSE
+        RESET PO-ESY-USERID
+      END-IF
+      PO-OBJECT-TYPE := 'PO'
+      PO-OBJECT-TIME := *TIMX
+      STORE PRINTOUTS
+      END TRANSACTION
+    END-FIND
+  END-FIND
+END-FOR
+IF #TRACING
+  COMPRESS 'flush' ACTIVE-BUNDLES.AB-BUNDLE ACTIVE-BUNDLES.AB-BUNDRNB
+    TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* FLUSH-BUNDLE
+*
+************************************************************************
+DEFINE SUBROUTINE DEFAULT-UNIXLP-VALUES
+************************************************************************
+#SUFFIX := 'Z'
+#P-ID-E := #P-ID
+#SUFFIX := 'A'
+FIND DEFAULT-PRINTERS WITH P-PHYSICAL-NAME = PH-VTAMID
+WHERE P-ID = #P-ID THRU #P-ID-E                                       /*
+  PRINTOUTS.PO-ATTRIBUTES(#J) := DEFAULT-PRINTERS.P-ATTRIBUTES(#J)
+END-FIND
+*
+END-SUBROUTINE /* DEFAULT-UNIXLP-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-PO-COPIES
+************************************************************************
+RESET PO-COPIES
+*
+IF AB-PRINTER-COPIES (G-P) > 0
+  PO-COPIES := AB-PRINTER-COPIES (G-P)
+  ESCAPE ROUTINE
+END-IF
+*
+IF BUNDLE.C*B-PRINT-LIST NE 0
+  EXAMINE BUNDLE.B-PRINTER (*) FOR PRINTERS.P-ID GIVING INDEX #I
+  IF #I NE 0
+    IF BUNDLE.B-PRINTER-COPIES (#I) > 0
+      PO-COPIES := BUNDLE.B-PRINTER-COPIES (#I)
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+END-IF
+*
+PO-COPIES := PRINTERS.P-COPIES
+*
+END-SUBROUTINE /* ASSIGN-PO-COPIES
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-PO-JOBCARD
+************************************************************************
+IF ACTIVE-BUNDLES.AB-PRINT-JOBCARD (*) NE ' '
+  PO-JOBCARD (*) := ACTIVE-BUNDLES.AB-PRINT-JOBCARD (*)
+ELSE
+  IF C*BUNDLE.B-PRINT-JOBCARD NE 0
+    PO-JOBCARD (*) := BUNDLE.B-PRINT-JOBCARD (*)
+  ELSE
+    PO-JOBCARD (*) := P-JOBCARD (*)
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* ASSIGN-PO-JOBCARD
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-PO-SCHEDULED
+************************************************************************
+EOMPOM-PHYSICAL-NAME := PO-PHYSICAL-NAME
+CALLNAT 'EOMPOTWN' EOMPOM-PARMS
+PO-SCHEDULED := EOMPOM-SCHEDULED
+*
+END-SUBROUTINE /* ASSIGN-PO-SCHEDULED
+*
+************************************************************************
+DEFINE SUBROUTINE GET-OWNER-LANGUAGE
+************************************************************************
+NOMUS-NOMVERS := NOM-CURRENT-VERSION
+* NOMUS-NOMVERS := NOMVI-VERSION * 10 + NOMVI-RELEASE                   R...
+* bli  2012-09-21 NOMALL-94 above lines commented
+RESET NOMUS-ATTR-GENERAL
+NOMUS-FUNCTION := NOMUS-FCT-READ
+NOMUS-USER     := G-USERID
+NOMUS-USER-ID  := ACTIVE-BUNDLES.AB-COORDINATOR-ID
+CALLNAT NOM-USER-MAINTENANCE NOMUS-NOMVERS NOMUS-PARMS (*)
+*
+IF NOT NOMUS-PROF-LANGUAGE = '1' OR = '2'
+  NOMUS-PROF-LANGUAGE := '1'
+END-IF
+*
+END-SUBROUTINE /* GET-OWNER-LANGUAGE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF *ERROR-NR = 3145
+    RETRY
+  END-IF
+*
+END-ERROR
+*
+END

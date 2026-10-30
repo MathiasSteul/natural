@@ -1,0 +1,148 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RCONFPRT
+* Function  Confirm Print Active Report
+* Version   1.3
+*
+* Maintenance
+* uuu     yyyy-mm-dd p(999999)  ......
+* mrs     1993-08-09           clean up
+* gw      1994-07-14 s(999999) wake up monitor
+* sju     2000-04-28 p(191368) wake up print task
+* sju     2002-11-13 p(231843) mail wrong if run number wraps round
+* xsetggr 2007-05-04 NOM3201   Change run number format to P11
+* raya    2012-02-01 NOMALL-1096 error-text a250 in NOMWK--P stow only
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* CF1     2015-07-08 NOMALL-1669 Set unique log types
+* SU2     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING RLOG-L
+LOCAL USING SUPER-L
+LOCAL USING RMTASK-E
+LOCAL USING NOMWK--P
+LOCAL USING NOMFNC-E
+* *****
+LOCAL
+1 MAIL VIEW OF NRM-MAIL
+  2 MA-STATUS
+/*SU2 2 MA-OBJECT-TYPE /*SU1
+/*SU2 2 MA-OBJECT-TIME /*SU1
+*
+1 PRINTOUTS VIEW OF NRM-PRINTOUTS
+  2 PO-STATUS
+  2 PO-PHYSICAL-NAME
+  2 PO-SCHEDULED
+  2 PO-PRINTED
+  2 PO-LAST-PRINTED-RECNO
+  2 PO-MSG
+  2 PO-JOBNAME
+  2 PO-JOBNO
+  2 PO-JOBID
+/*SU2 2 PO-OBJECT-TYPE /*SU1
+/*SU2 2 PO-OBJECT-TIME /*SU1
+* *****
+1 PRINT-IT                   (L)
+1 CONFIRMED                  (L)
+*
+1 #MA-RNB-USER               (A14)
+1 REDEFINE #MA-RNB-USER
+  2 #MA-RNB                  (P11)
+  2 #MA-USER                 (A8)
+1 #MA-REP-RNB                (A31)
+1 REDEFINE #MA-REP-RNB
+  2 #MA-REP                  (A25)
+  2 #MA-REPRNB               (P11)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#MA-RNB    := G-C-REPRNB
+#MA-USER   := G-USERID
+#MA-REP    := G-C-REPORT
+#MA-REPRNB := G-C-REPRNB
+*
+PERFORM UPDATE-MAIL-RECORD
+IF CONFIRMED
+  PERFORM RELEASE-PRINTOUTS
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-MAIL-RECORD
+************************************************************************
+FNDMA. FIND MAIL WITH MA-RNB-USER = #MA-RNB-USER
+    AND MA-REP-RNB = #MA-REP-RNB
+*
+  IF MA-STATUS NE 'C'
+    ESCAPE BOTTOM (FNDMA.)
+  END-IF
+*
+  CONFIRMED := TRUE
+  MA-STATUS := 'P'
+/*SU2 MA-OBJECT-TYPE := 'MA' /*SU1
+/*SU2 MA-OBJECT-TIME := *TIMX /*SU1
+  UPDATE (FNDMA.)
+*
+  LG-USERID := G-USERID
+  /*LG-CODE := 'AD'                                        /* CF1
+  LG-CODE := 'AR'                                          /* CF1
+  COMPRESS G-C-REPORT '-' G-C-REPRNB TO LG-OBJECT-NAME LEAVING          NO
+  COMPRESS '0717' G-USERID TO LG-MSG
+  CALLNAT 'RLOG' PL-PARMS
+  END TRANSACTION
+*
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-MAIL-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE RELEASE-PRINTOUTS
+************************************************************************
+PRINT-IT := TRUE
+#AR-REPNAME := G-C-REPORT
+#AR-REPRNB := G-C-REPRNB
+*
+FIND MAIL WITH MA-REP-RNB = #AR-REPORT-RNB
+  IF MA-STATUS = 'C'
+    PRINT-IT := FALSE
+    ESCAPE BOTTOM
+  END-IF
+END-FIND
+*
+IF NOT PRINT-IT
+  ESCAPE ROUTINE
+END-IF
+*
+PRINTO. FIND PRINTOUTS WITH PO-REPORT-RNB = #AR-REPORT-RNB
+  PO-STATUS := 'R'
+  CALLNAT 'RDEFPO-N' PRINTOUTS.PO-PHYSICAL-NAME PRINTOUTS.PO-SCHEDULED
+  RESET PRINTOUTS.PO-PRINTED PRINTOUTS.PO-LAST-PRINTED-RECNO
+    PRINTOUTS.PO-MSG PRINTOUTS.PO-JOBNAME PRINTOUTS.PO-JOBNO
+    PRINTOUTS.PO-JOBID
+/*SU2 PRINTOUTS.PO-OBJECT-TYPE := 'PO' /*SU1
+/*SU2 PRINTOUTS.PO-OBJECT-TIME := *TIMX /*SU1
+  UPDATE (PRINTO.)
+  LG-USERID := G-USERID
+  /*LG-CODE := 'AD'                                        /* CF1
+  LG-CODE := 'AR'                                          /* CF1
+  COMPRESS G-C-REPORT '-' G-C-REPRNB TO LG-OBJECT-NAME LEAVING NO
+  LG-MSG := '0718'
+  CALLNAT 'RLOG' PL-PARMS
+  END TRANSACTION
+END-FIND
+NOMWK-TASK-TYPE:= EQU-MANAGE-PRINTOUTS
+CALLNAT NOM-WAKE-MONITOR NOMWK-NOMVERS NOMWK-PARMS (*)
+*
+END-SUBROUTINE /* RELEASE-PRINTOUTS
+*
+END

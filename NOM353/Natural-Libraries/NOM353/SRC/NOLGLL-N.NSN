@@ -1,0 +1,619 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOLGLL-N - EOM API List log
+*
+* Maintenance:
+* XSETGGR 2002-06-12 created
+* XSETGGR 2002-09-26 change check value of time variables
+* XSETGGR 2002-10-08 Add new fuction 'LL1'
+* XSETGGR 2002-10-16 Add new functions (Monitor, Printouts an User log)
+* XSETHZ  2002-11-05 modified
+* XSETGGR 2002-11-07 simplify reading from file
+* XSETGGR 2002-11-14 use new parameter ES-APP-SERVER-LIBRARY
+* XSETGGR 2002-12-16 change displaying of log time
+* XSETGGR 2005-01-26 NOM31 list of monitor tasks log
+* xsetggr 2007-05-09 p(294774) change date/time formats in lists
+* xsetggr 2008-05-03 p(303852) use SATLGR2P/N
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* XSETHZ  2009-02-24 P311767   Filter log
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* XSETHZ  2011-02-15 NOMALL-97 FOR #J = 1 TO 1
+* XSETHZ  2011-02-15 NOMALL-951
+* xsetggr 2012-02-02 NOMALL-1020 add NOM prefix to err msg if missing
+* xsetggr 2012-07-28 NOMALL-1167 increase message text to A250
+* raya    2013-06-19 NOMALL-1259 use SATLGR3N/P
+* SU1     2015-01-26 NOMALL-1388 avoid S0C7/(SAT-288:SATLGR3P changed)
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-01-04 NOMALL-1913 Use microseconds for logging
+* CF1     2018-01-18 NOMALL-2040 Avoid loop and wrong sequence
+* CF2     2018-05-14 NOMALL-2107 Provide time zone and microseconds
+* fhi     2019-05-13 NOMALL-2272 Correct evaluation of time inverted
+* BLI     2020-01-24 NOMALL-2337 Show logs from user TASKnn
+* SU2     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* BLI1    2023-12-07 NOMALL-2656 Show logs for Task-ID MAIN
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOLGLL-A
+************************************************************************
+LOCAL     USING ESMCONSL
+LOCAL USING CONST-L
+LOCAL USING SATLGR4P
+LOCAL USING SATLG01E
+LOCAL USING XXSUBS-A
+LOCAL USING XXBLNK-A
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RMTASK-P
+LOCAL
+1 #I2               (I4)
+1 #J                (I4)
+1 #IMAX             (I4)
+1 #MSG-NR           (N4)  INIT <6112>
+1 REDEFINE #MSG-NR
+  2 #MSG-NR-A       (A4)
+1 #TEXT-ARRAY       (A250/1:10)
+1 #MAX-REC          (N2) CONST <1>
+1 #END-OF-LIST      (L)
+1 #OBJECT           (A50)
+1 #TT               (T)
+1 #MESSAGE          (A250)
+1 #FILTER           (A253)
+1 REDEFINE #FILTER
+  2 #F-TIME-FROM    (A15)
+  2 #F-TIME-TO      (A15)
+  2 #F-CASE-SENSIT  (A1)
+  2 #F-STRING       (A222)
+1 #TIME-MIN         (T)
+1 #TIME-MAX         (T)
+1 #TIME-MAX-A       (A15)  INIT <'209912312359599'>
+1 #F-TIME-FROM-T    (T)
+1 REDEFINE #F-TIME-FROM-T
+  2 #F-TIME-FROM-P  (P13)
+1 #F-TIME-FROM-P-I  (P13)
+1 #F-TIME-TO-T      (T)
+1 REDEFINE #F-TIME-TO-T
+  2 #F-TIME-TO-P    (P13)
+1 #F-TIME-TO-P-I    (P13)
+1 #F-NUM            (I4)
+1 #F-TIME-C-T       (T)
+1 REDEFINE #F-TIME-C-T
+  2 #F-TIME-C-P     (P13)
+1 #A253             (A253)
+1 #PREFIX-ERC       (A7) INIT <'NOM'>
+1  REDEFINE #PREFIX-ERC
+  2 #PREFIX         (A3)
+  2 #ERC            (A4)
+1 #EXT-DATE         (A20)
+1 REDEFINE #EXT-DATE
+  2 #EXT-DATE-DATE  (A15)
+  2 #EXT-DATE-MICROSEC (A5)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-NUMBER ES-SORTKEY ES-SORTORDER ES-OPTION-COUNT #TT
+  SATLGR-PARMS
+ES-EOF := 'X'
+#FILTER := ES-SELECT
+RESET #TIME-MIN
+MOVE EDITED #TIME-MAX-A TO #TIME-MAX (EM=YYYYMMDDHHIISST)
+IF #F-TIME-FROM NE ' ' AND
+    #F-TIME-FROM = MASK(YYYYMMDD00-2300-5900-590-9)
+  MOVE EDITED #F-TIME-FROM TO #F-TIME-FROM-T (EM=YYYYMMDDHHIISST)
+ELSE
+  #F-TIME-FROM-T := #TIME-MIN
+END-IF
+IF #F-TIME-TO NE ' ' AND #F-TIME-TO = MASK(YYYYMMDD00-2300-5900-590-9)
+  MOVE EDITED #F-TIME-TO TO #F-TIME-TO-T (EM=YYYYMMDDHHIISST)
+ELSE
+  #F-TIME-TO-T := #TIME-MAX
+END-IF
+#F-TIME-TO-P-I   := #CONST-INV-TIME - #F-TIME-FROM-P
+#F-TIME-FROM-P-I := #CONST-INV-TIME - #F-TIME-TO-P
+IF #F-CASE-SENSIT NE 'Y'
+  EXAMINE #F-STRING TRANSLATE INTO UPPER
+END-IF
+/*
+DECIDE FOR FIRST CONDITION
+/* monitor task log(new for nom3.1)
+  WHEN ES-ORIG-OBJECT = 'LM' AND ES-KEY-CODE(1) = 'MT'
+    #IMAX := 80 /*85
+    NOLGL1-FIELD-LENGTH(1) := 820         /* Date/Time
+    NOLGL1-FIELD-LENGTH(2) := 5           /* Time zone
+    NOLGL1-FIELD-LENGTH(3) := 25          /* Object
+    NOLGL1-FIELD-LENGTH(4) := 250         /* Message text  /* CF2 <-
+    SATLGR-SEARCH-KEY   := SATLG-ENV-USERID-TIMEINV
+    RMTASK-P.FUNCTION       := 'L'
+    IF ES-KEY-PARM(1) > ' '
+      RMTASK-P.SUBTASK-NUMBER := VAL(ES-KEY-PARM(1))
+    END-IF
+    CALLNAT 'RMTASKID' RMTASK-P
+    SATLGR-START-USERID := RMTASK-P.TASK-ID
+    SATLGR-END-USERID   := SATLGR-START-USERID
+/* monitor log
+  WHEN ES-ORIG-OBJECT = 'MM' OR
+      (ES-ORIG-OBJECT = 'LM' AND ES-KEY-CODE(1) = ' ')
+    #IMAX := 84 /*90
+    NOLGLL-FIELD-LENGTH(1) := 820         /* Date/Time
+    NOLGLL-FIELD-LENGTH(2) := 5           /* Time zone
+    NOLGLL-FIELD-LENGTH(3) := 8           /* Userid
+    NOLGLL-FIELD-LENGTH(4) := 250         /* Message text  /* CF2 <-
+    SATLGR-SEARCH-KEY      := SATLG-ENV-TIME
+  WHEN ES-ORIG-OBJECT = 'LG'
+    #IMAX := 84 /*90
+    NOLGLL-FIELD-LENGTH(1) := 820         /* Date/Time
+    NOLGLL-FIELD-LENGTH(2) := 5           /* Time zone
+    NOLGLL-FIELD-LENGTH(3) := 8           /* Userid
+    NOLGLL-FIELD-LENGTH(4) := 250         /* Message text  /* CF2 <-
+    SATLGR-SEARCH-KEY      := SATLG-ENV-TYPE-OBJECT-TIMEINV
+    #OBJECT := ES-KEY-PARM(1)
+    SATLGR-START-OBJECT    := #OBJECT
+    SATLGR-END-OBJECT      := SATLGR-START-OBJECT
+    DECIDE ON FIRST VALUE ES-KEY-CODE(1)
+      VALUE 'RP'
+        SATLGR-START-TYPE := 'RM'
+      VALUE 'BN'
+        SATLGR-START-TYPE := 'BM'
+      VALUE 'AB'
+        COMPRESS #OBJECT '-' ES-KEY-PARM(2) TO #OBJECT LEAVING NO
+        SATLGR-SEARCH-KEY  := SATLG-ENV-TYPE-TIMEINV
+        SATLGR-START-TYPE5 := 'AB'
+        SATLGR-END-TYPE5   := SATLGR-START-TYPE5
+      VALUE 'PR'
+        SATLGR-START-TYPE := 'PM'
+      VALUE 'DL'
+        SATLGR-START-TYPE := 'LM'
+      VALUE 'US'
+        SATLGR-START-TYPE := 'UM'
+      NONE VALUE IGNORE
+    END-DECIDE
+    SATLGR-END-TYPE         := SATLGR-START-TYPE
+/* printout log
+  WHEN ES-ORIG-OBJECT = 'LP'
+    #IMAX := 80 /*85
+    NOLGL1-FIELD-LENGTH(1) := 820         /* Date/Time
+    NOLGL1-FIELD-LENGTH(2) := 5           /* Time zone
+    NOLGL1-FIELD-LENGTH(3) := 25          /* Object
+    NOLGL1-FIELD-LENGTH(4) := 250         /* Message text  /* CF2 <-
+    SATLGR-SEARCH-KEY  := SATLG-ENV-TYPE-TIMEINV
+    SATLGR-START-TYPE5 := 'PR'
+    SATLGR-END-TYPE5   := SATLGR-START-TYPE5
+/* users log
+  WHEN ES-ORIG-OBJECT = 'UL'
+    #IMAX :=  80 /*85
+    NOLGL1-FIELD-LENGTH(1) := 820         /* Date/Time
+    NOLGL1-FIELD-LENGTH(2) := 5           /* Time zone
+    NOLGL1-FIELD-LENGTH(3) := 25          /* Object
+    NOLGL1-FIELD-LENGTH(4) := 250         /* Message text  /* CF2 <-
+    SATLGR-SEARCH-KEY   := SATLG-ENV-USERID-TIMEINV
+    SATLGR-START-USERID := ES-KEY-PARM(1)
+    SATLGR-END-USERID   := SATLGR-START-USERID
+  WHEN ANY
+    ES-STARTINDEX  := 2
+    ES-FIELD-COUNT := 4 /*3                                /* CF2
+    ES-SORTORDER   := 1
+    SATLGR-PRODUCT           := 'NOM'
+    SATLGR-LANGUAGE          := ES-LANGUAGE
+    SATLGR-ACCESS-TYPE       := SATLG-READ
+    SATLGR-NUMBER-OF-RECORDS := #MAX-REC
+  WHEN NONE IGNORE
+END-DECIDE
+IF ES-NEXT-KEY-PARM(1) > ' '
+  DECIDE FOR FIRST CONDITION
+    WHEN ES-ORIG-OBJECT = 'MM' OR
+        (ES-ORIG-OBJECT = 'LM' AND ES-KEY-CODE(1) = ' ')
+      SATLGR-START-ENV2    := ES-NEXT-KEY-PARM(1)
+      SATLGR-START-TIME-PACKED := VAL(ES-NEXT-KEY-PARM(2))
+      SATLGR-END-TIME := #F-TIME-TO-T
+      SATLGR-START-MICROSEC2 := VAL(ES-NEXT-KEY-PARM(4))   /* CF1
+    WHEN ES-ORIG-OBJECT = 'LP'
+      SATLGR-START-ENV5     := ES-NEXT-KEY-PARM(1)
+      SATLGR-START-TIMEINV5 := VAL(ES-NEXT-KEY-PARM(2))
+      SATLGR-END-TIMEINV5 := #F-TIME-TO-P-I
+      SATLGR-START-MICROINV5 := VAL(ES-NEXT-KEY-PARM(4))   /* CF1
+    WHEN ES-ORIG-OBJECT = 'UL' OR
+        (ES-ORIG-OBJECT = 'LM' AND ES-KEY-CODE(1) = 'MT')
+      SATLGR-START-ENV6     := ES-NEXT-KEY-PARM(1)
+      SATLGR-START-TIMEINV6 := VAL(ES-NEXT-KEY-PARM(2))
+      SATLGR-END-TIMEINV6 := #F-TIME-TO-P-I
+      SATLGR-START-MICROINV6 := VAL(ES-NEXT-KEY-PARM(4))   /* CF1
+    WHEN ES-ORIG-OBJECT = 'LG'
+      IF ES-KEY-CODE(1) = 'AB'
+        SATLGR-START-ENV5     := ES-NEXT-KEY-PARM(1)
+        SATLGR-START-TIMEINV5 := VAL(ES-NEXT-KEY-PARM(2))
+        SATLGR-END-TIMEINV5 := #F-TIME-TO-P-I
+        SATLGR-START-MICROINV5 := VAL(ES-NEXT-KEY-PARM(4)) /* CF1
+      ELSE
+        SATLGR-START-ENV4     := ES-NEXT-KEY-PARM(1)
+        SATLGR-START-TIMEINV4 := VAL(ES-NEXT-KEY-PARM(2))
+        SATLGR-END-TIMEINV4 := #F-TIME-TO-P-I
+        SATLGR-START-MICROINV4 := VAL(ES-NEXT-KEY-PARM(4)) /* CF1
+      END-IF
+    WHEN ANY
+      SATLGR-START-ISN      := VAL(ES-NEXT-KEY-PARM(3))
+    WHEN NONE  IGNORE
+  END-DECIDE
+ELSE
+  #I2 := 1
+  DECIDE FOR FIRST CONDITION
+    WHEN ES-ORIG-OBJECT = 'MM' OR
+        (ES-ORIG-OBJECT = 'LM' AND ES-KEY-CODE(1) = ' ')
+      SATLGR-START-TIME := #F-TIME-FROM-T
+      SATLGR-END-TIME := #F-TIME-TO-T
+      RESET SATLGR-START-ENV2
+        SATLGR-START-MICROSEC2                    /* CF1
+    WHEN ES-ORIG-OBJECT = 'LP'
+      SATLGR-START-TIMEINV5 := #F-TIME-FROM-P-I
+      SATLGR-END-TIMEINV5 := #F-TIME-TO-P-I
+      RESET SATLGR-START-ENV5
+        SATLGR-START-MICROINV5                    /* CF1
+    WHEN ES-ORIG-OBJECT = 'UL' OR
+        (ES-ORIG-OBJECT = 'LM' AND ES-KEY-CODE(1) = 'MT')
+      SATLGR-START-TIMEINV6 := #F-TIME-FROM-P-I
+      SATLGR-END-TIMEINV6 := #F-TIME-TO-P-I
+      RESET SATLGR-START-ENV6
+        SATLGR-START-MICROINV6                    /* CF1
+    WHEN ES-ORIG-OBJECT = 'LG'
+      IF ES-KEY-CODE(1) = 'AB'
+        SATLGR-START-TIMEINV5 := #F-TIME-FROM-P-I
+        SATLGR-END-TIMEINV5 := #F-TIME-TO-P-I
+        RESET SATLGR-START-ENV5
+          SATLGR-START-MICROINV5                  /* CF1
+      ELSE
+        SATLGR-START-TIMEINV4 := #F-TIME-FROM-P-I
+        SATLGR-END-TIMEINV4 := #F-TIME-TO-P-I
+        RESET SATLGR-START-ENV4
+          SATLGR-START-MICROINV4                  /* CF1
+      END-IF
+    WHEN ANY
+      PERFORM HEADER
+      RESET SATLGR-START-ISN
+    WHEN NONE IGNORE
+  END-DECIDE
+END-IF
+RP. REPEAT
+  IF #END-OF-LIST
+    ESCAPE BOTTOM(RP.)
+  END-IF
+  CALLNAT 'SATLGR4N' SATLGR-PARMS
+  IF SATLGR-RC NE 0
+    ES-RC := 1
+    COMPRESS'Error in reading LOG file' SATLGR-ERROR-FIELD TO ES-MSG-TXT
+    ESCAPE ROUTINE
+  END-IF
+  IF SATLGR-RECORDS-FOUND LE 0
+    ESCAPE BOTTOM(RP.)
+  END-IF
+  IF SATLGR-RECORDS-FOUND < SATLGR-NUMBER-OF-RECORDS
+    #END-OF-LIST := TRUE
+  END-IF
+  PERFORM DATA-TO-PDA
+  /*                                                  /* CF1 ->
+*   /* Set restart for next SATLGR4N call
+*   #K := SATLGR-NUMBER-OF-RECORDS
+*   DECIDE FOR FIRST CONDITION
+*     WHEN ES-ORIG-OBJECT = 'MM' OR
+*         (ES-ORIG-OBJECT = 'LM' AND ES-KEY-CODE(1) = ' ')
+* *     SATLGR-START-TIMEINV   := SATLGR-TIME-INV(#K)
+*       SATLGR-START-TIME   := SATLGR-TIME(#K)
+* *     SATLGR-START-MICROSEC3 := SATLGR-MICROSEC-INV(#K)
+*       SATLGR-START-MICROSEC2 := SATLGR-MICROSEC(#K)
+*     WHEN ES-ORIG-OBJECT = 'LP'
+*       SATLGR-START-TIMEINV5  := SATLGR-TIME-INV(#K)
+*       SATLGR-START-MICROINV5 := SATLGR-MICROSEC-INV(#K)
+*     WHEN ES-ORIG-OBJECT = 'UL' OR
+*         (ES-ORIG-OBJECT = 'LM' AND ES-KEY-CODE(1) = 'MT')
+* *      SATLGR-START-TIMEINV6  := SATLGR-TIME-INV(#K)
+*       SATLGR-START-MICROINV6 := SATLGR-MICROSEC-INV(#K)
+* *      SATLGR-START-MICROINV6 := SATLGR-MICROSEC(#K)
+*     WHEN ES-ORIG-OBJECT = 'LG'
+*       IF ES-KEY-CODE(1) = 'AB'
+*         SATLGR-START-TIMEINV5  := SATLGR-TIME-INV(#K)
+*         SATLGR-START-MICROINV5 := SATLGR-MICROSEC-INV(#K)
+*       ELSE
+*         SATLGR-START-TIMEINV4  := SATLGR-TIME-INV(#K)
+*         SATLGR-START-MICROINV4 := SATLGR-MICROSEC-INV(#K)
+*       END-IF
+*     WHEN ANY
+*       SATLGR-START-ISN := SATLGR-ISN(#K)
+*     WHEN NONE IGNORE
+*   END-DECIDE
+  /*                                                  /* CF1 ->
+  IF #I2 = #IMAX
+    IF #J = #MAX-REC
+      PERFORM ASSIGN-START-VALUES
+    ELSE
+      ES-NEXT-KEY-PARM(1) := SATLGR-ENVIRONMENT(#J)
+      IF ES-ORIG-OBJECT = 'MM' OR
+          (ES-ORIG-OBJECT = 'LM' AND ES-KEY-CODE(1) = ' ')
+        #F-TIME-C-T := SATLGR-TIME(#J)
+        ES-NEXT-KEY-PARM(2) := #F-TIME-C-P
+        ES-NEXT-KEY-PARM(4) := SATLGR-MICROSEC(#J)         /* CF1
+      ELSE
+        ES-NEXT-KEY-PARM(2) := SATLGR-TIME-INV(#J)
+        ES-NEXT-KEY-PARM(4) := SATLGR-MICROSEC-INV(#J)     /* CF1
+      END-IF
+      ES-NEXT-KEY-PARM(3) := SATLGR-ISN(#J)
+    END-IF
+    ES-NUMBER := #IMAX
+    RESET ES-EOF
+    ESCAPE BOTTOM(RP.)
+  END-IF
+  ES-NUMBER := #I2
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE HEADER
+************************************************************************
+PERFORM GET-MSG-TXT
+DECIDE FOR FIRST CONDITION
+  WHEN ES-ORIG-OBJECT ='MM' OR='LG'
+  OR (ES-ORIG-OBJECT = 'LM' AND ES-KEY-CODE(1) = ' ')                 /*
+    RESET NOLGLL-HEADER
+*     COMPRESS LONG-MSG(1) C-HEADER-DELIMITER LONG-MSG(2)      /* CF2 ->
+*       C-HEADER-DELIMITER LONG-MSG(4) TO NOLGLL-HEADER LEAVING NO
+    COMPRESS LONG-MSG(1) C-HEADER-DELIMITER LONG-MSG(5)
+      C-HEADER-DELIMITER LONG-MSG(2) C-HEADER-DELIMITER LONG-MSG(4)
+      INTO NOLGLL-HEADER LEAVING NO                          /* CF2 <-
+  WHEN ES-ORIG-OBJECT = 'LP' OR  = 'UL'
+  OR (ES-ORIG-OBJECT = 'LM' AND ES-KEY-CODE(1) = 'MT')                /*
+    RESET NOLGL1-HEADER
+*     COMPRESS LONG-MSG(1) C-HEADER-DELIMITER LONG-MSG(3)      /* CF2 ->
+*       C-HEADER-DELIMITER LONG-MSG(4) TO NOLGL1-HEADER LEAVING NO
+    COMPRESS LONG-MSG(1) C-HEADER-DELIMITER LONG-MSG(5)
+      C-HEADER-DELIMITER LONG-MSG(3) C-HEADER-DELIMITER LONG-MSG(4)
+      INTO NOLGL1-HEADER LEAVING NO                          /* CF2 <-
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* HEADER
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-TO-PDA
+************************************************************************
+IF SATLGR-USER-DATA (1) = ' ' AND SATLGR-MESSAGE (1) NE ' '
+  SATLGR-USER-DATA (1) := SATLGR-MESSAGE (1) /* old stuff ...
+END-IF
+FOR #J = 1 TO 1
+  IF SATLGR-USER-DATA (#J) = ' '
+    ESCAPE BOTTOM
+  END-IF
+  DECIDE FOR FIRST CONDITION
+    WHEN ES-ORIG-OBJECT =  'MM'  OR
+        (ES-ORIG-OBJECT = 'LM' AND ES-KEY-CODE(1) = ' ')
+      RMTASK-P.FUNCTION       := 'L' /* BLI1 start
+      IF ES-KEY-PARM(1) NE MASK(NN)
+        RMTASK-P.SUBTASK-NUMBER := 1
+      ELSE
+        RMTASK-P.SUBTASK-NUMBER := VAL(ES-KEY-PARM(1))
+      END-IF
+      CALLNAT 'RMTASKID' RMTASK-P     /* BLI1 end
+      IF SATLGR-NOM-TYPE(#J) = 'MO' OR = 'A1' OR = 'R1'
+**        OR SATLGR-EXEC-USERID(#J) = 'MONITOR' OR = 'NOM01'
+**        OR = MASK('NOM'NN)        /* BLI NOMALL-2337 out, below in
+* BLI NOMALL-2337 two lines above out, two lines below in
+          OR SATLGR-EXEC-USERID(#J) = 'MONITOR' OR = RMTASK-P.TASK-ID
+          OR = MASK('TASK'NN)
+        #I2 := #I2 + 1
+        PERFORM GET-ATTRIBUTES-LL
+        IF #F-STRING NE ' '
+          #A253 := NOLGLL-MESSAGE(#I2)
+          IF #F-CASE-SENSIT NE 'Y'
+            EXAMINE #A253 TRANSLATE INTO UPPER
+          END-IF
+          EXAMINE #A253 FOR #F-STRING GIVING NUMBER #F-NUM
+          IF #F-NUM = 0
+            RESET NOLGLL-MESSAGE(#I2)
+              NOLGLL-DATE(#I2) NOLGLL-USERID(#I2)
+            #I2 := #I2 - 1
+          END-IF
+        END-IF
+        IF #I2 = #IMAX
+          ESCAPE ROUTINE
+        END-IF
+      END-IF
+    WHEN ES-ORIG-OBJECT = 'LG'
+      IF SATLGR-NOM-TYPE(#J) NE 'AB' OR
+          SATLGR-NOM-TYPE(#J) = 'AB' AND
+          SATLGR-NOM-OBJECT-NAME(#J) = #OBJECT
+        #I2 := #I2 + 1
+        PERFORM GET-ATTRIBUTES-LL
+        IF #F-STRING NE ' '
+          #A253 := NOLGLL-MESSAGE(#I2)
+          IF #F-CASE-SENSIT NE 'Y'
+            EXAMINE #A253 TRANSLATE INTO UPPER
+          END-IF
+          EXAMINE #A253 FOR #F-STRING GIVING NUMBER #F-NUM
+          IF #F-NUM = 0
+            RESET NOLGLL-MESSAGE(#I2)
+              NOLGLL-DATE(#I2) NOLGLL-USERID(#I2)
+            #I2 := #I2 - 1
+          END-IF
+        END-IF
+        IF #I2 = #IMAX
+          ESCAPE ROUTINE
+        END-IF
+      END-IF
+    WHEN ES-ORIG-OBJECT = 'LP' OR = 'UL' OR
+        (ES-ORIG-OBJECT = 'LM' AND ES-KEY-CODE(1) = 'MT')
+      #I2 := #I2 + 1
+      IF SATLGR-TIME(#J) NE #TT
+        /*                                                 -> CF2
+        /*MOVE EDITED SATLGR-TIME(#J)  (EM=YYYYMMDDHHIISST) TO
+        /*  NOLGL1-DATE(#I2)
+        MOVE EDITED SATLGR-TIME(#J)  (EM=YYYYMMDDHHIISST)
+          TO #EXT-DATE-DATE
+        MOVE EDITED SATLGR-MICROSEC(#J) (EM=99999)
+          TO #EXT-DATE-MICROSEC
+        NOLGL1-DATE(#I2) := #EXT-DATE
+        /*                                                 <- CF2
+      ELSE
+        RESET NOLGL1-DATE(#I2)
+      END-IF
+      NOLGL1-TIMEZONE(#I2) := SATLGR-TIME-ZONE(#J)    /* CF2
+      NOLGL1-OBJECT(#I2) := SATLGR-NOM-OBJECT-NAME(#J)
+      IF SATLGR-USER-DATA (#J) = MASK(9999)
+        PERFORM SUBSTITUTE
+        NOLGL1-MESSAGE(#I2) := #MESSAGE
+      ELSE
+        NOLGL1-MESSAGE(#I2) := SATLGR-USER-DATA (#J)
+      END-IF
+      IF #F-STRING NE ' '
+        #A253 := NOLGL1-MESSAGE(#I2)
+        IF #F-CASE-SENSIT NE 'Y'
+          EXAMINE #A253 TRANSLATE INTO UPPER
+        END-IF
+        EXAMINE #A253 FOR #F-STRING GIVING NUMBER #F-NUM
+        IF #F-NUM = 0
+          RESET NOLGL1-MESSAGE(#I2)
+            NOLGL1-DATE(#I2) NOLGL1-OBJECT(#I2)
+            NOLGL1-TIMEZONE(#I2)                           /* CF2
+          #I2 := #I2 - 1
+        END-IF
+      END-IF
+      IF #I2 = #IMAX
+        ESCAPE ROUTINE
+      END-IF
+    WHEN NONE IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* DATA-TO-PDA
+*
+************************************************************************
+DEFINE SUBROUTINE GET-ATTRIBUTES-LL
+************************************************************************
+IF SATLGR-TIME(#J) NE #TT
+  /*                                                       -> CF2
+* MOVE EDITED SATLGR-TIME(#J)  (EM=YYYYMMDDHHIISST) TO NOLGLL-DATE(#I2)
+  MOVE EDITED SATLGR-TIME(#J)  (EM=YYYYMMDDHHIISST) TO #EXT-DATE-DATE
+  MOVE EDITED SATLGR-MICROSEC(#J) (EM=99999) TO #EXT-DATE-MICROSEC
+  NOLGLL-DATE(#I2) := #EXT-DATE
+  /*                                                       <- CF2
+ELSE
+  RESET NOLGLL-DATE(#I2)
+END-IF
+NOLGLL-TIMEZONE(#I2) := SATLGR-TIME-ZONE(#J)    /* CF2
+NOLGLL-USERID(#I2) := SATLGR-EXEC-USERID(#J)
+IF SATLGR-USER-DATA (#J) =  MASK('NOM'NNNN' ')
+    AND SATLGR-USER-DATA(#J) NE MASK('NOM0005')
+  #PREFIX-ERC := SATLGR-USER-DATA (#J)
+  SATLGR-USER-DATA(#J) := #ERC
+END-IF
+IF SATLGR-USER-DATA (#J) = MASK(9999)
+  PERFORM SUBSTITUTE
+  NOLGLL-MESSAGE(#I2) := #MESSAGE
+ELSE
+  NOLGLL-MESSAGE(#I2) := SATLGR-USER-DATA (#J)
+END-IF
+*
+END-SUBROUTINE /* GET-ATTRIBUTES-LL
+*
+************************************************************************
+DEFINE SUBROUTINE SUBSTITUTE
+************************************************************************
+RESET #MESSAGE
+* substitute msg code with msg text
+SEPARATE SATLGR-USER-DATA (#J) INTO #TEXT-ARRAY (1:9) REMAINDER
+  #TEXT-ARRAY(10) WITH DELIMITER ' '
+IF #TEXT-ARRAY(1) IS (N4)
+  #MSG-NR := VAL(#TEXT-ARRAY(1))
+  IF #MSG-NR NE 5
+    PERFORM GET-MSG-TXT
+    #XX-SUBS-PARMS.#XX-SHORT-TEXT := SHORT-MSG
+    #XX-SUBS-PARMS.#XX-MSG-DYNA (1:9) := #TEXT-ARRAY (2:10)
+    CALLNAT 'XXSUBS-N' #XX-SUBS-PARMS
+    #XX-BLNK-STRING := #XX-SUBS-PARMS.#XX-SHORT-TEXT
+    CALLNAT 'XXBLNK-N' #XX-BLNK-PARMS
+    IF #XX-BLNK-STRING = SCAN 'text not found'
+      COMPRESS 'NOM' #MSG-NR-A TO #MESSAGE LEAVING NO
+      COMPRESS #MESSAGE #XX-BLNK-STRING TO #MESSAGE
+    ELSE
+      #MESSAGE := #XX-BLNK-STRING
+      IF #MESSAGE NE  MASK('NOM'NNNN' ') AND #MSG-NR > 0
+        #ERC := #MSG-NR-A
+        COMPRESS #PREFIX-ERC #MESSAGE TO #MESSAGE
+      END-IF
+    END-IF
+  ELSE
+    COMPRESS #PREFIX SATLGR-USER-DATA(#J) TO #MESSAGE LEAVING NO
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SUBSTITUTE
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-START-VALUES
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN ES-ORIG-OBJECT = 'MM' OR
+      (ES-ORIG-OBJECT = 'LM' AND ES-KEY-CODE(1) = ' ')
+*     ES-NEXT-KEY-PARM(1) := SATLGR-START-ENV3        /* CF1 ->
+*     ES-NEXT-KEY-PARM(2) := SATLGR-START-TIMEINV
+*     ES-NEXT-KEY-PARM(4) := SATLGR-START-MICROSEC3
+    ES-NEXT-KEY-PARM(1) := SATLGR-START-ENV2
+    ES-NEXT-KEY-PARM(2) := SATLGR-START-TIME-PACKED
+    ES-NEXT-KEY-PARM(4) := SATLGR-START-MICROSEC2     /* CF1 <-
+  WHEN ES-ORIG-OBJECT = 'LP'
+    ES-NEXT-KEY-PARM(1) := SATLGR-START-ENV5
+    ES-NEXT-KEY-PARM(2) := SATLGR-START-TIMEINV5
+    ES-NEXT-KEY-PARM(4) := SATLGR-START-MICROINV5     /* CF1
+  WHEN ES-ORIG-OBJECT = 'UL' OR
+      (ES-ORIG-OBJECT = 'LM' AND ES-KEY-CODE(1) = 'MT')
+    ES-NEXT-KEY-PARM(1) := SATLGR-START-ENV6
+    ES-NEXT-KEY-PARM(2) := SATLGR-START-TIMEINV6
+    ES-NEXT-KEY-PARM(4) := SATLGR-START-MICROINV6     /* CF1
+  WHEN ES-ORIG-OBJECT = 'LG'
+    IF ES-KEY-CODE(1) = 'AB'
+      ES-NEXT-KEY-PARM(1) := SATLGR-START-ENV5
+      ES-NEXT-KEY-PARM(2) := SATLGR-START-TIMEINV5
+      ES-NEXT-KEY-PARM(4) := SATLGR-START-MICROINV5   /* CF1
+    ELSE
+      ES-NEXT-KEY-PARM(1) := SATLGR-START-ENV4
+      ES-NEXT-KEY-PARM(2) := SATLGR-START-TIMEINV4
+      ES-NEXT-KEY-PARM(4) := SATLGR-START-MICROINV4   /* CF1
+    END-IF
+  WHEN ANY
+    ES-NEXT-KEY-PARM(3) := SATLGR-START-ISN
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* ASSIGN-START-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND    := 'U'
+NADA2000.ERROR-NUMBER   := #MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+NADA2000.LIBRARY        := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+**-------------------------------------------------------------------
+END

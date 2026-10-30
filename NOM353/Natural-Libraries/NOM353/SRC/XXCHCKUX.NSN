@@ -1,0 +1,487 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Name         XXCHCKUX
+* Version      3.4
+* Function     Check if required Unix modules are present and executable
+* Template     RCONV--N
+*
+* Check if commands can be executed.
+*
+* INPUT:
+*
+* - Fill XXUX---P for node access
+*
+* OUTPUT:
+*
+* Return 0 in P-ERC if ok,
+* Return error number and text in p-ert if error occurs
+* Return NONE in +T-UTILITY field if not executable or not found
+* Return path/name in #UTILITY field if found and executable:
+*
+*   +T-UTILITY(1) --> Unix node name
+*   +T-UTILITY(2) --> path/gs
+*   +T-UTILITY(3) --> path/enscript
+*   +T-UTILITY(4) --> path/uniprint
+*   +T-UTILITY(5) --> path/find
+*   +T-UTILITY(6) --> path/file
+*   +T-UTILITY(7) --> path/pdftk
+*
+* This routine logs error messages to the Monitor Log, but
+* no END TRANSACTION is performed. It is up to the caller to do thisÜ
+*
+* Maintenance
+* uuu     yyyy-mm-dd iTrac       Action
+* ----------------------------------------------------------------------
+* fhi     2015-08-17 NOMALL-1696 created
+* fhi     2017-08-01 NOMALL-1903 Check physically only once, then use
+*                                XXTABLE2. Rewritten for NOM 3.5.1
+* fhi     2017-01-05 NOMALL-1961 Improve err handling (return to ERROR)
+* SU1     2017-03-28 NOMALL-1976 avoid log entry in XXUX---N
+* fhi     2018-02-21 NOMALL-1918 Avoid AIV variables in PERFORM, no tags
+* fhi     2019-01-07 NOMALL-2194 Add tracing, no tags
+* BLI1    2023-01-24 NOMALL-2612 Error handling 'File not found'
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+* --------------------------------------- Parameters -------------------
+PARAMETER USING XXUX---P
+PARAMETER
+1 UX-NODE-TEMPDIR   (A) DYNAMIC   BY VALUE
+1 TRACING           (L) OPTIONAL
+************************************************************************
+LOCAL
+1 #T-COLUMNS        (I4) CONST <7> /* Number of columns in the table
+1 #T-FUNCTION       (A1)           /* Function: A=add, D=delete, F=find
+* *****
+INDEPENDENT
+1 +T-UTILITIES      (A/*,#T-COLUMNS) DYNAMIC /*X-Array table in memory
+1 +T-UTILITY        (A/#T-COLUMNS)   DYNAMIC /*To be checked+returned
+1 +T-IX             (I4)                 /* Current index variable
+1 +T-LAST-IX        (I4)                 /* Last    index variable
+1 +T-TMP1           (I4)                 /* Numeric temporary variable
+1 +T-TMP2           (I4)                 /* Numeric temporary variable
+1 +T-RC             (I4)                 /* Return code of functions
+* --------------------------------------- Local ------------------------
+LOCAL
+1 #T-UTILITY        (A/#T-COLUMNS) DYNAMIC /*To be checked and returned
+1 #UX-FUNCTION      (A)                   DYNAMIC
+1 #COMMAND          (A500)
+1 #LOGFILE-ID       (A250)
+1 #UTILITY          (A)                   DYNAMIC
+1 #P-BINARY         (A1)
+1 #TRACING          (L)
+1 #TRACE-MSG        (A250)
+1 #NPR-TRACE-INT    (I2)
+1 #P-OPSYS          (A8)
+1 #RC               (N4)
+1 #REP-WAIT         (I4)
+1 #P-ERT            (A250)
+1 #SECOND           (I2)             INIT <1>
+1 #EXIT-CODE        (N4)
+1 #REP              (I4)
+1 #WARNING          (L)
+1 #P-PROCESS-ID     (N10)
+1 #GETATTR          (A197) /* File Attributes
+1 REDEFINE #GETATTR
+  2 #REST           (A5)
+  2 #OWNER          (A8)
+  2 #SIZE           (N10) /* Bytes
+  2 #MOD-DATE-TIME  (N14) /* yyyymmddhhmmss
+  2 #GETATTR-FILLER (A158)
+  2 #FILE-LOCKED    (A1)
+1 #RECORD           (A250)
+1 #FILP             (A250)
+1 #P-ERC            (N4)
+1 #UTILPATH         (A)               DYNAMIC
+1 #PGM              (A8) INIT <*PROGRAM> /*SU1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF TRACING SPECIFIED
+  #TRACING := TRACING
+END-IF
+RESET P-ERC
+DECIDE ON EVERY VALUE OF P-ERC
+  VALUE 0                        /* Node accessible at all?
+    #UX-FUNCTION := 'INFO'
+    PERFORM UNIX-FUNCTION
+  VALUE 0                        /* Get node context
+    #UX-FUNCTION := 'LOGIN'
+    PERFORM UNIX-FUNCTION
+  VALUE 0                        /* Already in memory?
+    #T-FUNCTION   := 'F'             /* FIND
+    +T-UTILITY(1) := P-NODE-NAME
+    INCLUDE XXTABLE2
+      '#T-FUNCTION'
+      '+T-UTILITIES'
+      '+T-UTILITY'
+      '+T-IX'
+      '+T-LAST-IX'
+      '+T-TMP1'
+      '+T-TMP2'
+      '#T-COLUMNS'
+      '+T-RC'
+    IF +T-IX NE 0
+      ESCAPE ROUTINE
+    END-IF
+  VALUE 0                        /* Is there a path to the utilities?
+    #UTILPATH := '$UTILPATH'
+    PERFORM XXGETENV-GET-VARS #UTILPATH P-ERC P-ERT XXUX---P
+    IF P-ERC NE 0 OR #UTILPATH = '$UTILPATH'
+      RESET P-ERC P-ERT
+      RESET #UTILPATH
+    ELSE
+      #UTILPATH := '$UTILPATH/'
+    END-IF
+*                                /* Get the name of ghostscript
+    #T-UTILITY(2) := '$GSMOD'
+    PERFORM XXGETENV-GET-VARS #T-UTILITY(2) P-ERC P-ERT XXUX---P
+    +T-UTILITY(2) := #T-UTILITY(2)
+    IF P-ERC NE 0 OR +T-UTILITY(2) = '$GSMOD'
+      RESET P-ERC P-ERT
+      +T-UTILITY(2) := 'gs'
+    END-IF
+*                                /* Get the name of enscript
+    #T-UTILITY(3) := '$ENMOD'
+    PERFORM XXGETENV-GET-VARS #T-UTILITY(3) P-ERC P-ERT XXUX---P
+    +T-UTILITY(3) := #T-UTILITY(3)
+    IF P-ERC NE 0 OR +T-UTILITY(3) = '$ENMOD'
+      RESET P-ERC P-ERT
+      +T-UTILITY(3) := 'enscript'
+    END-IF
+*                                /* Get the name of uniprint
+    #T-UTILITY(4) := '$UNMOD'
+    PERFORM XXGETENV-GET-VARS #T-UTILITY(4) P-ERC P-ERT XXUX---P
+    +T-UTILITY(4) := #T-UTILITY(4)
+    IF P-ERC NE 0 OR +T-UTILITY(4) = '$UNMOD'
+      RESET P-ERC P-ERT
+      +T-UTILITY(4) := 'uniprint'
+    END-IF
+  VALUE 0                      /* See if we can access 'test'
+    #UTILITY := 'test'
+    PERFORM CHECK-UTILITY
+    IF #EXIT-CODE NE 0
+      MOVE 'NONE' TO +T-UTILITY(2:#T-COLUMNS)
+      P-ERC := 2142
+      COMPRESS '2142 test' P-NODE-NAME TO P-ERT
+    END-IF
+  VALUE 0                      /* Give ghostscript a try
+    #UTILITY := +T-UTILITY(2)
+    PERFORM CHECK-UTILITY
+    +T-UTILITY(2) := #UTILITY
+  VALUE 0                      /* Give enscript a try
+    RESET P-ERT
+    #UTILITY := +T-UTILITY(3)
+    PERFORM CHECK-UTILITY
+    +T-UTILITY(3) := #UTILITY
+  VALUE 0                      /* Give uniprint a try
+    RESET P-ERT
+    #UTILITY := +T-UTILITY(4)
+    PERFORM CHECK-UTILITY
+    +T-UTILITY(4) := #UTILITY
+  VALUE 0                      /* Check if 'find' can be used
+    RESET P-ERT
+    #UTILITY := 'find'
+    PERFORM CHECK-UTILITY
+    +T-UTILITY(5) := #UTILITY
+  VALUE 0                      /* Check if 'file' can be used
+    RESET P-ERT
+    #UTILITY := 'file'
+    PERFORM CHECK-UTILITY
+    +T-UTILITY(6) := #UTILITY
+  VALUE 0                     /* Check if 'pdftk' can be used (optional)
+    RESET P-ERT
+    #UTILITY := 'pdftk'
+    PERFORM CHECK-UTILITY
+    +T-UTILITY(7) := #UTILITY
+    RESET P-ERT P-ERC
+  VALUE 0                        /* Add to memory table
+    #T-FUNCTION   := 'A'
+    +T-UTILITY(1) := P-NODE-NAME
+    INCLUDE XXTABLE2
+      '#T-FUNCTION'
+      '+T-UTILITIES'
+      '+T-UTILITY'
+      '+T-IX'
+      '+T-LAST-IX'
+      '+T-TMP1'
+      '+T-TMP2'
+      '#T-COLUMNS'
+      '+T-RC'
+  NONE IGNORE
+END-DECIDE
+IF P-ERC NE 0
+  PERFORM XXRLOG-WRITE-LOG 'W' P-ERT
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-UTILITY
+************************************************************************
+COMPRESS #UTILPATH #UTILITY TO #COMMAND LEAVING NO
+COMPRESS 'which' #COMMAND   TO #COMMAND
+IF #P-OPSYS = SCAN 'WIN'
+  EXAMINE #COMMAND FOR 'which' REPLACE WITH 'where'
+END-IF
+COMPRESS UX-NODE-TEMPDIR '/.check-' #UTILITY '-' *PID '.log'
+  TO #LOGFILE-ID LEAVING NO
+PERFORM XXCHKFN-CHECK-FILENAME #LOGFILE-ID #RC
+RESET P-OUTPUT-MODE
+#UX-FUNCTION := 'COMMAND'
+PERFORM UNIX-FUNCTION
+PERFORM CHECK-LOGFILE /* returning #EXIT-CODE
+IF #EXIT-CODE NE 0    /* module not found or in error
+  #UTILITY := 'NONE'
+ELSE
+  #UTILITY := P-RECORD
+  RESET P-ERC P-ERT
+END-IF
+IF #P-OPSYS NE 'WIN' AND #UTILITY NE 'NONE'
+  COMPRESS 'test -x' #UTILITY ';echo + exit $?' TO #COMMAND
+  #UX-FUNCTION := 'COMMAND'
+  PERFORM UNIX-FUNCTION
+  PERFORM CHECK-LOGFILE /* returning #EXIT-CODE
+  IF #EXIT-CODE NE 0
+    #UTILITY := 'NONE'
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CHECK-UTILITY
+*
+************************************************************************
+DEFINE SUBROUTINE UNIX-FUNCTION
+************************************************************************
+XXUX---P.P-FUNCTION     := #UX-FUNCTION
+XXUX---P.P-LOG-FUNCTION := 'S'
+XXUX---P.P-FILE-NAME    := #LOGFILE-ID
+#P-BINARY               := XXUX---P.P-BINARY
+XXUX---P.P-BINARY       := 'N'
+IF #UX-FUNCTION = 'COMMAND'
+  XXUX---P.P-RECORD     := #COMMAND
+END-IF
+*
+IF #TRACING
+  COMPRESS 'Executing Unix function'
+    #UX-FUNCTION
+    '- Node:'        P-NODE-NAME
+    '- User:'        P-USERID
+    '- Group:'       P-GROUP
+    '- Node-Status:' P-NODE-SUSPEND
+    '- Binary:'      P-BINARY
+    '- Record:'      SUBSTR (XXUX---P.P-RECORD,1,30)
+    '- File:'        SUBSTR (XXUX---P.P-FILE-NAME,1,70)
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+CALLNAT 'XXUX---N' XXUX---P #NPR-TRACE-INT #PGM /*SU1
+*
+IF #TRACING
+  COMPRESS 'Unix function returned:' 'ERC:' XXUX---P.P-ERC
+    '- ERT:' XXUX---P.P-ERT '- Record:' SUBSTR (XXUX---P.P-RECORD,1,30)
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+IF #UX-FUNCTION = 'GETEXIT'
+  #REP-WAIT := 1
+  REPEAT
+    UNTIL XXUX---P.P-ERC = 0 OR #REP-WAIT = 3
+    CALLNAT 'NAT00031' #SECOND /* Wait a second
+    RESET #EXIT-CODE XXUX---P.P-ERC XXUX---P.P-ERT
+    CALLNAT 'XXUX---N' XXUX---P #NPR-TRACE-INT #PGM /*SU1
+    #REP-WAIT := #REP-WAIT + 1
+  END-REPEAT
+  IF P-ERC NE 0
+    P-ERC := 2035
+    #P-ERT := XXUX---P.P-ERT
+    COMPRESS '2035' *PROGRAM 'GETEXIT' P-FILE-NAME TO P-ERT
+    COMPRESS P-ERT '/' #P-ERT TO P-ERT LEAVING NO
+  END-IF
+END-IF
+XXUX---P.P-BINARY := #P-BINARY
+IF #UX-FUNCTION = 'INFO'
+  #P-OPSYS := XXUX---P.P-OPSYS
+  EXAMINE #P-OPSYS AND TRANSLATE INTO UPPER
+END-IF
+*
+END-SUBROUTINE /* UNIX-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-LOGFILE
+************************************************************************
+RESET #REP #REP-WAIT #WARNING #EXIT-CODE
+IF #LOGFILE-ID NE SCAN('.log')
+  RESET P-ERC P-ERT
+  ESCAPE ROUTINE
+END-IF
+IF #TRACING
+  #TRACE-MSG := '===================='
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  COMPRESS 'Checking logfile:' #LOGFILE-ID TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  #TRACE-MSG := '===================='
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+WAITLOG.
+REPEAT
+  UNTIL #REP-WAIT > 1800 OR P-ERC NE 0 /* max wait half an hour
+  IF #REP-WAIT > 1
+    CALLNAT 'NAT00031' #SECOND /* Wait a second
+  END-IF
+  IF #P-PROCESS-ID NE 0 /* will be set by NPR Unix 2.1.4.19 and above
+    #UX-FUNCTION          := 'STATUS'
+    XXUX---P.P-PROCESS-ID := #P-PROCESS-ID
+    PERFORM UNIX-FUNCTION
+    IF XXUX---P.P-STATUS = 2 THRU 5 /* running or sleeping
+      #REP-WAIT := #REP-WAIT + 1
+      ESCAPE TOP
+    END-IF
+  END-IF
+  RESET P-FILE-NAME P-FILE-HANDLE P-RECORD #EOF
+  P-FUNCTION := 'CLOSE'
+  P-FILE-NAME := #LOGFILE-ID
+  EXAMINE P-FILE-NAME   FOR '//' REPLACE '/' /* NOMALL-1363 fhi in
+  CALLNAT 'XXUX---N' XXUX---P #NPR-TRACE-INT #PGM /*SU1
+  P-FILE-NAME := #LOGFILE-ID
+  IF #TRACING
+    #NPR-TRACE-INT := *LEVEL + 1
+    CALLNAT 'XXLOCKED' XXUX---P #NPR-TRACE-INT #FILE-LOCKED
+    END TRANSACTION
+  ELSE
+    RESET #NPR-TRACE-INT
+    CALLNAT 'XXLOCKED' XXUX---P 1X #FILE-LOCKED
+  END-IF
+  DECIDE FOR FIRST CONDITION
+    WHEN #FILE-LOCKED = 'N'
+      ESCAPE BOTTOM (WAITLOG.)
+    WHEN #FILE-LOCKED = 'Y'
+      IGNORE
+    WHEN ANY
+      ADD 1 TO #REP-WAIT
+      ESCAPE TOP
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+  ESCAPE BOTTOM (WAITLOG.)
+END-REPEAT
+P-FUNCTION := 'OPEN'
+P-FILE-NAME := #LOGFILE-ID
+EXAMINE P-FILE-NAME   FOR '//' REPLACE '/' /* NOMALL-1363 fhi in
+CALLNAT 'XXUX---N' XXUX---P #NPR-TRACE-INT #PGM /*SU1
+READLOG. REPEAT
+  P-FUNCTION := 'READ'
+  CALLNAT 'XXUX---N' XXUX---P #NPR-TRACE-INT #PGM /*SU1
+  #RECORD := XXUX---P.P-RECORD
+  EXAMINE #RECORD AND TRANSLATE INTO LOWER
+  IF #TRACING
+    COMPRESS 'Log record read:' #RECORD TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+  DECIDE FOR FIRST CONDITION
+    WHEN #RECORD = SCAN('which: no ') /* thrown by 'which'
+    OR = SCAN('could not find')       /* thrown by 'where'            /*
+      #EXIT-CODE := 127
+      P-FILE-NAME := #LOGFILE-ID
+      #UX-FUNCTION             := 'DELETE'
+      PERFORM UNIX-FUNCTION
+    WHEN #RECORD = SCAN('npr3355 exit code 0') /* lower Ü case Ü
+    AND P-ERC = 0                                                     /*
+      P-FILE-NAME := #LOGFILE-ID
+      #UX-FUNCTION             := 'DELETE'
+      PERFORM UNIX-FUNCTION
+    WHEN #RECORD = SCAN('+ exit') /* from routine CHECK-UTILITY
+      SEPARATE #RECORD INTO P-ERT P-ERT P-ERT IGNORE
+        WITH DELIMITER ' '
+      IF P-ERT IS (N3)
+        P-ERC := VAL (P-ERT)
+      END-IF
+      IF P-ERC NE 0
+        #EXIT-CODE := 127
+      END-IF
+      P-FILE-NAME := #LOGFILE-ID
+      #UX-FUNCTION             := 'DELETE'
+      PERFORM UNIX-FUNCTION
+    WHEN #RECORD = SCAN('unrecoverable error')
+    OR = SCAN('couldn''t') /* NOMALL-1004 fhi in                      /*
+      P-ERC := 1588
+      COMPRESS  P-ERC #LOGFILE-ID TO #FILP
+      PERFORM XXGETENV-GET-VARS #FILP P-ERC P-ERT XXUX---P
+      P-ERT := #FILP
+    WHEN (#RECORD = SCAN('error') OR = SCAN('warning'))
+    AND #RECORD NE SCAN('unrecoverable')                              /*
+      #WARNING := TRUE
+      ESCAPE TOP
+    WHEN #RECORD = SCAN(#UTILITY)
+      #UTILITY := #RECORD
+      RESET P-ERC P-ERT #EXIT-CODE
+      ESCAPE BOTTOM (READLOG.)
+    WHEN #EOF OR #REP > 200 /* end of file or 200 lines read
+      ESCAPE BOTTOM (READLOG.)
+    WHEN P-ERC NE 0
+      IF P-ERC = 2036   /* BLI1
+          OR P-ERT = SCAN('3339') /* logfile already moved
+        RESET P-ERC P-ERT
+      ELSE
+        P-ERC := 2144
+        COMPRESS P-FUNCTION P-ERT #LOGFILE-ID TO P-ERT
+      END-IF
+    WHEN ANY
+      #P-ERC       := P-ERC
+      #P-ERT       := P-ERT
+      #UX-FUNCTION := 'CLOSE'
+      P-FILE-NAME  := #LOGFILE-ID
+      PERFORM UNIX-FUNCTION
+      RESET P-ERC P-ERT /* Ignore if already closed.
+      P-ERC        := #P-ERC
+      P-ERT        := #P-ERT
+      ESCAPE BOTTOM (READLOG.)
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+  #REP := #REP + 1
+END-REPEAT
+DECIDE FOR FIRST CONDITION
+  WHEN #WARNING AND P-ERC = 0
+    P-ERC := 1589
+    COMPRESS  P-ERC #LOGFILE-ID TO #FILP
+    PERFORM XXGETENV-GET-VARS #FILP P-ERC P-ERT XXUX---P
+    P-ERT := #FILP
+    PERFORM XXRLOG-WRITE-LOG 'W' P-ERT
+    END TRANSACTION
+  WHEN NONE
+    IGNORE
+END-DECIDE
+RESET P-WAIT-TERM
+*
+END-SUBROUTINE /* CHECK-LOGFILE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  IF *ERROR-NR = 1308        /* too many parameters in #COMMAND
+    P-ERC := 1590
+    SEPARATE #COMMAND INTO #COMMAND IGNORE
+    COMPRESS P-ERC #COMMAND *ERROR-LINE TO P-ERT
+    PERFORM XXRLOG-WRITE-LOG 'W' P-ERT
+    ESCAPE ROUTINE
+  END-IF
+  P-ERC := 21
+*
+END-ERROR
+* ----------------------------------------------------------------------
+END

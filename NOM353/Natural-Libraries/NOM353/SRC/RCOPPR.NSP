@@ -1,0 +1,132 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RCOPPR - Copy Printer Defintion
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 91-12-20 s(141159) support languages other than english
+* mrs 92-09-16           call from command processor implemented
+* mrs 92-09-16           security calls added
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* LP      2005-02-10 p(272732)STOWED WITH CHANGED LDA VPRINT-L
+*                             P-LABEL (ADABAS SHORT NAME TP) is multiple
+* xsetggr 2007-10-25 NRT2185  default vales for UNIXLP printers
+* xsetggr 2008-11-28 P311915  default printers DEFAULTA - DEFAULTZ
+* xsetggr 2012-02-02 NOMALL-1100 log copying of printers
+* xsetggr 2012-11-30 NOMALL-89  subroutine security check is implemented
+*                    and add PUBLIC authoriztion for copied printer
+* xsetggr 2013-05-28 NOMALL-89 add option 'With authorization'
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING VPRINT-L
+LOCAL USING ROT----L
+LOCAL USING RLOG-L
+LOCAL USING EOM----E
+LOCAL USING EOMGRM-P
+LOCAL USING EOMMSG-P
+LOCAL
+1 #FROM-PRT      (A8)
+1 #TO-PRT        (A8)
+1 #FATHER-PROG   (A8) INIT <'RLISPR'>
+1 #OBJECT-NAME   (A25)
+1 #P-ID-E        (A8)
+1 #P-ID          (A8)  INIT <'DEFAULT'>
+1 REDEFINE #P-ID
+  2 #P-ID-1      (A7)
+  2 #P-ID-2      (A1)
+1 #ALLOWED       (L)
+1 #PROG          (A8)
+1 #COPY-AUTH     (A1)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+CALLNAT 'ROTINI-N' ##EQO-PRINTER G-OBJ-TYPE G-OTB
+G-NATRP-ERT := 'PRINTER NOT COPIED '
+#FROM-PRT    := G-C-PRINTER
+#OBJECT-NAME := G-C-PRINTER
+#PROG        := *PROGRAM
+PERFORM XXSECURITY-CHECK #PROG #OBJECT-NAME #ALLOWED
+INCLUDE C-NALLOW
+*
+#P-ID-2 := 'Z'
+#P-ID-E := #P-ID
+#P-ID-2 := 'A'
+IF #FROM-PRT = #P-ID THRU #P-ID-E
+  G-NATRP-ERC := 0165
+  INCLUDE C-ESCAPE
+END-IF
+*
+FNDPR. FIND NUMBER PRINTERS WITH P-ID = #FROM-PRT
+IF *NUMBER (FNDPR.) = 0
+  G-NATRP-ERC := 0108
+  INCLUDE C-ESCAPE
+END-IF
+*
+SET KEY PF3
+REPEAT
+  SET CONTROL 'WC13L43B06/25F'
+  SET CONTROL 'MT'
+  INPUT WITH TEXT *G-NATRP-ERC, G-NATRP-ERT USING MAP 'RCOPPRM&'
+  RESET G-NATRP-ERC G-NATRP-ERT
+  IF *PF-KEY = 'PF3'
+    SET CONTROL 'WB'
+    INCLUDE C-ESCAPE
+  END-IF
+  IF #TO-PRT = ' '
+    REINPUT *0106, G-OBJ-TYPE MARK *#TO-PRT ALARM
+  END-IF
+  FIND-PRT. FIND NUMBER PRINTERS WITH P-ID = #TO-PRT
+  IF *NUMBER(FIND-PRT.) > 0
+    REINPUT *0033, G-OBJ-TYPE ALARM
+  END-IF
+  IF NOT(#COPY-AUTH = 'Y' OR = 'N' OR = ' ')
+    REINPUT *1099, G-OBJ-TYPE MARK *#COPY-AUTH ALARM
+  END-IF
+*
+  FIND-SOURCE. FIND PRINTERS WITH P-ID = #FROM-PRT
+    PRINTERS.P-ID := #TO-PRT
+    STORE PRINTERS
+    PERFORM ADD-GRANTS
+*
+    G-NATRP-ERC := 35
+    G-NATRP-ERT := G-OBJ-TYPE
+    SET CONTROL 'WB'
+    LG-USERID := G-USERID
+    LG-CODE := 'PM'
+    LG-OBJECT-NAME := #TO-PRT
+    COMPRESS '2514' #FROM-PRT #TO-PRT TO LG-MSG
+    CALLNAT 'RLOG' PL-PARMS
+*
+    END TRANSACTION
+  END-FIND
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-GRANTS
+************************************************************************
+EOMGRM-I-TYPE := 'P'
+IF #COPY-AUTH = 'Y'
+  EOMGRM-I-NAME    := #FROM-PRT
+  EOMGRM-I-NEWNAME := #TO-PRT
+  CALLNAT 'EOMGRM-N' EOM-COPY EOMGRM-PARMS EOMMSG-PARMS
+ELSE
+  EOMGRM-I-USER    := G-USERID
+  EOMGRM-I-NAME    := #TO-PRT
+  EOMGRM-OPTION(*) := 'Y'
+  CALLNAT 'EOMGRM-N' EOM-ADD EOMGRM-PARMS EOMMSG-PARMS
+END-IF
+*
+END-SUBROUTINE /* ADD-GRANTS
+*
+END

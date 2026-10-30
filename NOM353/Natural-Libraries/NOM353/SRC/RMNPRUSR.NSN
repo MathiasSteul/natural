@@ -1,0 +1,113 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMNPRUSR - Logon to ESY with correct user-id if necessary
+* It will check if another ESY-user than the desired ESY-user has been
+* used to logon to a Mainframe NPR.
+* It will logoff the current ESY user and logon to the desired ESY
+* user.
+* It uses the undocumented function 'WHOAMI' to get the user
+* which is currently active in the Mainframe NPR node.
+* If no logon to esy is possible the node is set to status 'E' (error)
+* but no END TRANSACTION is done.
+* Returns error codes in ERC (number) and ERT (texts)
+*
+* Maintenance
+* uuuuuuuu yyyy-mm-dd iTrac       Comment
+* fhi      2018-03-22 NOMALL-1918 Created.
+* fhi      2018-04-25 NOMALL-1621 Handle error status of node
+* fhi      2018-10-04 NOMALL-1621 same
+* fhi      2018-10-10 NOMALL-2157 Use field SECURITY-MESSAGE if avail.
+* SU1      2020-04-27 NOMALL-2349 use N-ESYLG
+* BLI      2021-10-08 NOMALL-2498 Reset Error code and text
+* ----------------------------------------------------------------------
+DEFINE DATA
+*
+PARAMETER
+1 NODE                     (N5)     BY VALUE
+1 ESY-USER                 (A8)     BY VALUE
+1 ERC                      (N4)     BY VALUE RESULT   /* out
+1 ERT                      (A250)   BY VALUE RESULT   /* out
+1 TRACING                  (L)      OPTIONAL
+************************************************************************
+INDEPENDENT
+1 +NOD-LOCAL-NODE          (N5)
+1 +NOD-CURRENT-NODE        (N5)
+1 +NOD-CURRENT-ID          (A20)
+************************************************************************
+LOCAL USING SATSL--E
+LOCAL
+1 MF-NODE VIEW OF NRM-MF-NODES
+  2 MF-TYPE               (A1)
+  2 MF-MONITOR-ID         (A20)
+1 #TRACING                 (L)
+1 #TRACE-MSG               (A250)
+1 #ESY-USER                (A8)
+1 #LASTPROG                (A8)
+1 #CALLER                  (A8) INIT <*PROGRAM>
+1 #SATSL-SECURITY-MSG      (A80)
+1 #ERC                     (N4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ERC ERT                     /* NOMALL-2498 BLI
+IF TRACING SPECIFIED
+  #TRACING := TRACING
+END-IF
+IF #TRACING
+  PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG
+  COMPRESS 'called from' #LASTPROG TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  COMPRESS 'Got parameters:' TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  COMPRESS 'node:' NODE '- esy-user:' ESY-USER TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+IF NODE = 0   /* on Unix
+  IF #TRACING
+    COMPRESS 'NODE = 0, escaping the program' TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+  ESCAPE ROUTINE
+END-IF
+* *****
+* Now mainframe:
+* *****
+#ESY-USER := F#WHOAMI(<NODE>)
+IF #TRACING
+  COMPRESS 'Got active ESY user' #ESY-USER TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+IF #ESY-USER = ESY-USER
+  ESCAPE ROUTINE
+END-IF
+IF NOT (#ESY-USER ='NONE' OR='ERROR')
+  CALLNAT 'N-ESYLG' SATSL-LOGOFF NODE #ESY-USER #CALLER ERC ERT 2X
+    #TRACING
+  RESET #ESY-USER
+END-IF
+CALLNAT 'N-ESYLG' 1X NODE ESY-USER #CALLER ERC ERT #SATSL-SECURITY-MSG
+IF ERC = 0
+  ESCAPE MODULE
+END-IF
+ERC := 7128 /*ESY Node :1: access error :2:
+COMPRESS ERC NODE ERT TO ERT
+IF NODE = +NOD-CURRENT-NODE
+AND +NOD-CURRENT-NODE NE +NOD-LOCAL-NODE /*remote node                /*
+  FNDNODE. FIND MF-NODE WITH MF-MONITOR-ID = +NOD-CURRENT-ID
+    MF-TYPE := F#SUSP (<MF-MONITOR-ID,MF-TYPE,#ERC,1X>)
+    UPDATE (FNDNODE.)
+  END-FIND
+  IF #SATSL-SECURITY-MSG NE ' '
+    COMPRESS '0005' #SATSL-SECURITY-MSG TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+  END-IF
+END-IF
+*
+END

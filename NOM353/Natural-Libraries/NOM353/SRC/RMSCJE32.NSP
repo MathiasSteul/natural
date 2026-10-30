@@ -1,0 +1,1871 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 5
+* <Natural Source Header
+* Function  Scan JES3 Queue and Create Source and Orders
+*
+* SJU 02-10-22 p(246164) copied from RMSCJES3 to work with NPR 3.2
+* NPR 3.2 provides 2 options for JES3
+* SPOOL=JES3 (compatibility mode) works similarly to NPR 2.2 and will be
+* withdrawn in a future version
+* SPOOL=JESC (consistency mode) works similarly to JES2
+* This program needs to be able to handle both modes.
+*
+* Maintenance
+* uuu yy-mm-dd s(999999)  ...
+* mrs 94-02-06 s(999999) created
+* mrs 94-03-03 s(999999) RMRECN-N Interface modified
+* mrs 94-06-23 s(999999) dbid, fnr in load order
+* mrs 94-07-28 s(999999) error counting machine code records
+* mrs 94-08-01 s(999999) nom12 compatible mode corrected
+* gw  94-08-03 s(999999) scan NOM trigger queue
+* mrs 94-08-04 s(999999) avoid rubbish in trc field
+* gw  94-08-08 s(999999) NOM trigger for sequential files
+* mrs 94-08-11 s(999999) since a fix in xcomv011 its possible to scan
+*                        output classes defined in jes as hold=extwtr
+*                        The class is changed to temp class directly by
+*                        the view processor.
+* mrs 94-11-22 s(999999) SPOOL-JES-DESTINATION not filled
+* gw  96-02-12 s(999999) user exits
+* mrs 96-12-18 s(259512) handle pagedef and formdef
+* jwo 97-02-25 S(262452) find out number of records if zero
+* SJU 97-02-25 S(259501) HANDLE NEW OUTPUT FROM ACTIVE JOBS
+* jwo 97-03-19 S(263692) No spool files found in temp-class
+* jwo 97-03-20 S(263692a) additional fix after cu. visit
+* jwo 97-04-16 S(263692b) rewritten because of ESY problem, logic
+*                         most previous changes have been taken out
+* jwo 97-04-17 S(263692c) modifications at cu. site
+* JWO 97-09-09 p(165177) move trigger dsname to spool-attributes
+* jwo 97-11-13 p(167263) add active reports exit
+* jvd 98-05-04 p(168326) Increase display size to show lines > 10m
+*                        This program was only re-cat to take the
+*                        new value of rec-count in spool-file
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+*                        p(168326) is now in p(164220)so I have removed
+*                        all refferance to P(168326) to make easier
+*                        reading
+* jvd 98-09-14 p(164220) NAT23ÖNOM141
+* gw  98-09-24 p(174305) pick up SPOOL-QUEUE.DESTINATION
+* gw  98-09-24 p(174304) SM files may be deleted by cleanup
+* gw  98-10-19 p(164220) OD-PARAMETER redefine
+* gw  98-11-02 s(164220) 5 byte dbid /fnr
+* gw  98-11-03 s(300070) stowed because spool-jes-dsno  N5 instead of N3
+* sju 00-03-27 p(191368) monitor multitasking
+* wcd 00-04-01 CE 7267   re-cat as changes made to EOMRPM-E
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* fhi     2000-09-28 QA04     Correct CE7461
+* sju     2000-11-30 p(202436) reset idle indicator if work to do
+* xsetggr 2001-10-25 p(203475) write error from RMSCCD-N in NOM log
+* fhi 02-06-13 s(225125) Add email notificaton, NOMEX010
+* sju     2002-07-05 p(225943) no message if trigger db/file wrong
+* fhi     2002-09-25 p(218246) Monitor error recovery
+* sju     2003-06-26 p(230407) Correct setting of retry info in orders
+* sju     2003-11-03 p(246785) Correct handling of retry orders
+* sju     2003-11-04 p(246785) Delete retry orders with no source
+* sju     2004-07-15 p(255080) CHARS padded with binary 0s
+* sju     2004-11-29 nom31     restow for changed NRM-ORDER
+* sju 04-12-06 NOM31     Add date and time (tenths of second) to trace
+* sju     2004-12-13 TYPE=AL   NOM31 TYPE=AL for Jes
+* sju 05-02-08 NOM31     Long records other than JES2
+* fhi 05-04-19 NOM31107  Support 7-byte job numbers
+* sju     2005-06-08 p(265616) Default reps created when TYPE=AL exists
+* fhi     2005-06-13 p(265381) Fill DESTINATION under JES3
+* fhi     2005-06-23 p(266530) Make Monitor NPR Mainframe independent
+* fhi     2005-09-01 P265381/1 Use SPOOLFILE.DESTINATION if filled
+* fhi    2005-12-05 P272727    Avoid NAT6223 under Unix
+* xsetggr 2006-09-04 p(283308) reset order isn
+* fhi    2007-03-30  FHI216    Allow 8.1.2/PF7 with *, all destinations
+*                              will go into a container file
+* xsetggr 2007-05-14 NOM3201   convert node number to 5 digit format
+* xsetggr 2008-02-14 p(300297) restow due changes in RMSCTR-P
+* xsetggr 2008-05-05 p(304350) restow due to changes in RMSPL--L
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* raya    2012-08-08 NOMALL-1191 avoid errors every cycle(as 4200)
+*                                and correct object
+* raya    2012-08-20 nomall-78 disable long records
+* fhi     2012-08-24 NOMALL-1004 Add report formatting
+* fhi     2012-10-18 NOMALL-1004 Add report formatting
+* raya    2012-11-29 NOMALL-1214 check cat date of nomex*
+* raya    2013-05-12 NOMALL-1214 backout check cat date of nomex*
+* raya    2013-10-01 NOMALL-1215 Re-creating solution
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* fhi     2016-08-01 NOMALL-1748 Backout Report Formatting
+* fhi     2016-12-02 NOMALL-1621 +NOD-* instead of G-MONITOR-NODE       STEM
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-01-10 NOMALL-1916 Use node number in report definition
+* fhi     2017-01-11 NOMALL-1961 Change descriptor of NRM-ORDER
+* fhi     2017-01-11 NOMALL-1916 Store codepage in source record
+* fhi     2017-01-26 NOMALL-1961 Wake correct monitor task
+* fhi     2017-01-27 NOMALL-1961 Show node name in errors
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi     2018-03-13 NOMALL-1918 Correct multinode behavior, no tags
+* SU2     2018-03-26             NOM 3.5: remove 'INTERNAL-NODE-ID'
+* fhi     2018-03-26 NOMALL-1918 Correct multinode behavior
+* fhi     2018-07-18 NOMALL-2008 Delete order sources
+* fhi     2018-07-19 NOMALL-2121 Use node number and esyuser
+* fhi     2018-08-06 NOMALL-2135 Use internal node id in orders
+* SU3     2018-08-02 NOMALL-2133 node fallback:use local if none in RP
+* fhi     2018-09-19 NOMALL-2121 Don't throw 7138, instead, do EsyLOGON
+* bli     2018-10-11 NOMALL-2061 use codepage function F#GETCP
+* SU4     2019-01-31             avoid 'Defaul' in output
+* SU5     2019-03-08 NOMALL-2177 RMSC-C2
+* SU6     2020-06-22 NOMALL-2349 show full msg
+* SU7     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ---------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +NOD-LOCAL-NAME                (A16)
+1 +G-NOMEXIT-ACTIVE              (L/1:20)
+1 +SPOOL-PARM                    (A4)
+1 +NOD-LOCAL-NODE                (N5)
+1 +NOD-CURRENT-NODE              (N5)
+1 +NOD-CURRENT-NAME              (A16)
+1 +NOD-CURRENT-CLASSES           (A1/20)
+1 +NOD-CURRENT-TEMP-CLASS        (A1)
+1 +NOD-CURRENT-JES3-CLASSES      (A1/20)
+1 +NOD-CURRENT-INTERNAL-ID       (P11)
+1 +CMRDC                         (A1)
+* -----------------------------LDA's-----------------------------------
+LOCAL USING RMSCCD-P
+LOCAL USING RMSPL--L
+LOCAL USING RMSR---L
+LOCAL USING RMSR---E
+LOCAL USING RCCTYP-E
+LOCAL USING RMODTY-E
+LOCAL USING EOMRPM-E
+LOCAL USING RMSCTR-P
+LOCAL USING RLOG-L
+*
+LOCAL
+1 SPOOL-QUEUE VIEW OF SPOOL-QUEUE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 NODE
+  2 JOB-NAME
+  2 JOB-NUMBER
+  2 CLASS
+  2 GROUP-ID
+  2 TYPE
+  2 QUEUE
+  2 DESTINATION
+1 SPOOL-FILE VIEW OF SPOOL-FILES
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 NODE
+  2 GROUP-ID
+  2 TYPE
+  2 JOB-NAME
+  2 JOB-NUMBER
+  2 COPIES
+  2 CLASS
+  2 RECORD-COUNT
+  2 FORM
+  2 FCB
+  2 WRITER
+  2 FLASH
+  2 PROCNAME
+  2 STEPNAME
+  2 DDNAME
+  2 DATA-SET
+  2 RECFM
+  2 LRECL
+  2 HOLD
+  2 TRC
+  2 CHARS
+  2 DATA-SET-KEY
+  2 UCS
+  2 BURST
+  2 COMPACT
+  2 LINECT
+  2 PAGEDEF
+  2 FORMDEF
+  2 DESTINATION
+1 SPOOLQ-DEST    VIEW OF SPOOL-QUEUE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 NODE
+  2 JOB-NAME
+  2 JOB-NUMBER
+  2 CLASS
+  2 DESTINATION
+  2 RECORD-COUNT
+1 SPOOLF-DEST VIEW OF SPOOL-FILES
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 NODE
+  2 JOB-NAME
+  2 JOB-NUMBER
+  2 CLASS
+  2 RECORD-COUNT
+  2 TYPE
+  2 DATA-SET-KEY
+  2 STEPNAME
+  2 DDNAME
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-CONTROL-FLAG
+  2 SR-TYPE
+  2 SR-MONITOR-ID
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-SPOOL-ATTRIBUTES
+  2 SR-REMOTE-CODEPAGE
+  2 SR-CC-TYPE
+  2 SR-RECORD-LENGTH
+  2 SR-NUMBER-OF-LINES
+  2 SR-RELATED-ID
+  2 SR-OBJECT-TYPE
+  2 SR-OBJECT-TIME
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-TYPE
+  2 OD-MONITOR-ID
+  2 OD-USER-ID
+  2 OD-PARAMETER            (1:1)
+  2 REDEFINE OD-PARAMETER
+    3 OD-MASTER             (A25)
+  2 REDEFINE OD-PARAMETER
+    3 OD-IDENT              (A8)
+    3 OD-FILLER1            (A17)
+    3 OD-DBID               (N3)
+    3 OD-FNR                (N3)
+    3 OD-RETRY-COUNT        (N3)
+    3 OD-DBID-N5            (N5)
+    3 OD-FNR-N5             (N5)
+    3 OD-REP-FORMAT         (A1)
+    3 OD-REPNAME            (A25)
+  2 OD-TIME-CREATED
+  2 OD-TIME-SCHEDULED
+  2 OD-SOURCE-ID            (P10)
+  2 OD-MAX-RETRIES          (N3)
+  2 OD-RETRY-INTERVAL       (N5)
+  2 OD-INTERNAL-NODE-ID     (P15)
+1 REPORT VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-USERID
+  2 R-IDENT-FILES           (1:10)
+  2 C*R-IDENT-FILES
+  2 R-INTERNAL-NODE-ID
+1 NOMPUT-QUEUE VIEW OF NRM-NOMPUT-QUEUE
+  2 NP-STATUS
+  2 NP-TYPE
+  2 NP-ATTRIBUTES-IDENT
+  2 NP-SPOOL-ATTRIBUTES
+  2 NP-CC-TYPE
+  2 NP-RECORD-LENGTH
+  2 NP-NUMBER-OF-LINES
+  2 NP-NODE
+  2 NP-ESYUSER
+1 SOURCE-AL VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-CONTROL-FLAG
+  2 SR-TYPE
+  2 SR-MONITOR-ID
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-SPOOL-ATTRIBUTES
+  2 SR-CC-TYPE
+  2 SR-RECORD-LENGTH
+  2 SR-NUMBER-OF-LINES
+1 SPOOLF-AL VIEW OF SPOOL-FILES
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECFM
+  2 LRECL
+1 SYSOUT-AL VIEW OF READ-SPOOL
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD-NUMBER
+*
+1 #SOURCE-TYPE-BIN          (B2)
+1 #CONTROL                  (A65)
+1 REDEFINE #CONTROL
+  2 #CONTROL-TYPE           (I2)
+  2 #CONTROL-IDENT          (A63)
+1 #IDENT                    (A11/1:12)
+1 REDEFINE #IDENT
+  2 #IDENT-TAB              (1:12)
+    3 #IDENT-RTYPE          (A1)
+    3 #IDENT-TYPE           (I2)
+    3 #IDENT-VALUE          (A8)
+1 #I                        (I2)
+1 #TJ                       (I2)
+1 DATASET-FOUND             (L)
+1 #COUNT                    (P10)
+1 #DEFINED-NUMBER           (P2)
+1 #LAST-ORDER-ISN           (P10)
+1 LOAD-SOURCE               (L)
+1 #FOUND                    (P3)
+1 #ATTRIBUTES
+  2 #CC-TYPE                (I2)
+  2 #RECORD-LENGTH          (N3)
+  2 #NUMBER-OF-LINES        (P10)
+  2 #JOB-NAME               (A8)
+  2 #DESTINATION            (A8)
+  2 #WRITER                 (A8)
+  2 #FORM                   (A8)
+  2 #SOURCE-TYPE            (I2)
+  2 #CONTROL-FLAG           (A1)
+1 #IDENT-FILE               (A54)
+1 REDEFINE #IDENT-FILE
+  2 #PROCNAME               (A8)
+  2 #STEPNAME               (A8)
+  2 #DDNAME                 (A8)
+  2 #DSTYPE                 (A2)
+  2 #DSNO                   (N5)
+1 #QUEUE-ATTRIBUTES
+  2 #QUEUE-ID               (P10)
+1 #NUMBER-OF-RECORDS        (P10)
+1 NOM12-MODE                (L)
+1 SOURCE-RECORD-CREATED     (L)
+1 #NP-QUEUE                 (A67) /*SU 2018-03-26 was (A75)
+1 REDEFINE    #NP-QUEUE
+  2 #NP-STATUS              (B2)
+  2 #NP-TYPE                (B2)
+  2 #NP-IDENT               (A63)
+1 #EOM-SYS2
+  2 #EOM-SYS2-DBID          (N5)
+  2 #EOM-SYS2-FNR           (N5)
+1 Q                         (I4)
+1 PROCESSED-BY-NOM          (L)
+1 #PREP-QUEUE-ID            (P10)
+1 #PREP-INDEX               (I1)
+1 #PREP-SOURCE              (2)
+  2 #PREP-SOURCE-CREATE          (L)
+  2 #PREP-SOURCE-CONTROL-TYPE    (I2)
+  2 #PREP-SOURCE-CONTROL-IDENT   (A63)
+  2 #PREP-SOURCE-CONTROL-FLAG    (A1)
+  2 #PREP-SOURCE-TYPE            (B2)
+  2 #PREP-SOURCE-ATTR-IDENT      (A250)
+  2 #PREP-SOURCE-SPOOL-ATTR      (A250)
+  2 #PREP-SOURCE-CC-TYPE         (B2)
+  2 #PREP-SOURCE-RECORD-LENGTH   (N3)
+  2 #PREP-SOURCE-NUMBER-OF-LINES (P10)
+  2 #PREP-SOURCE-MONITOR-ID      (A8)
+*
+1 #NEW-JOB                       (L)
+1 ORDER-FOUND                    (L)
+1 #END-OF-SPOOL-QUEUE            (L)
+1 #DO-NOT-DELETE-ORDER           (L)
+1 #RETRY-TIME                    (N3) CONST <100>
+1 #OD-TYPE-TIME                  (A9)
+1 REDEFINE #OD-TYPE-TIME
+  2 #OD-TYPE                     (B2)
+  2 #OD-TIME                     (T)
+1 #PROCESS-SI-AND-JL             (L)
+1 #SOURCE-DOES-NOT-EXIST         (L)
+1 #DO-TYPE-AL                    (L)
+1 #THIS-IS-TYPE-AL               (L)
+1 #TYPE-AL-SOURCE-ID             (P10)
+1 #SPOOL-ATTR-SAVE               (A250)
+1 #SOURCE-ATTR-SAVE              (A250)
+1 #LAST-TYPAL-ISN                (P10)
+1 #ONLY-TYPE-AL                  (L)
+1 #RECORD-SUM-SF                 (P11)
+1 #RECORD-SUM-SQ                 (P11)
+1 #TRACING                       (L)
+1 #MAX-RETRIES                   (N3)
+1 #RETRY-INTERVAL                (N5)
+1 #SPOOL                         (A6) CONST <'JES3'>
+1 #CATDATE                       (A19)
+1 #TYPE                          (A7) /*SU4 was A6
+1 #TYPE1                         (A50)
+1 #CHECK-NODE                    (L)
+1 #PROCESS-TRIGGER               (L)
+1 #ISN                           (P10)
+1 #ESYUSER                       (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT (0) LS=133 PS=60
+*
+IF G-TRACE GE *LEVEL AND G-TRACE-SET = SCAN ('SCAN')
+  #TRACING := TRUE
+  LG-FUNCTION := 'W' /*RLOG: write log to output to SU 2018-08
+END-IF
+INCLUDE CMRDC
+IF #TRACING
+  COMPRESS 'Start Scanning' #SPOOL ';node=' +NOD-CURRENT-NODE
+    +NOD-LOCAL-NAME TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS *PROGRAM 'cataloged at' #CATDATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+CALLNAT 'N-MONERR' #MAX-RETRIES #RETRY-INTERVAL /*get monitor defaults
+*
+IF +NOD-CURRENT-CLASSES (1) NE ' '
+  NOM12-MODE := TRUE
+  PERFORM PROCESS-SPOOL-QUEUE
+  IF G-NATRP-ERC NE 0
+    RESET G-NATRP-ERC G-NATRP-ERT
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+RESET NOM12-MODE
+*
+IF +NOD-CURRENT-JES3-CLASSES (1) NE ' '
+AND +NOD-CURRENT-TEMP-CLASS NE ' '                                    /*
+  PERFORM PROCESS-RETRY-SPOOL-ORDERS
+  IF G-NATRP-ERC NE 0
+    RESET G-NATRP-ERC G-NATRP-ERT
+    ESCAPE ROUTINE
+  END-IF
+  IF #TRACING
+    COMPRESS 'Spool type:' +SPOOL-PARM TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  DECIDE ON FIRST VALUE OF +SPOOL-PARM
+    VALUE 'JES3'                        /* compatibility mode
+      PERFORM PROCESS-OUTPUT-QUEUE
+    NONE VALUE                          /* consistency mode
+      PERFORM PROCESS-OUTPUT-QUEUE-NEW
+  END-DECIDE
+  IF G-NATRP-ERC NE 0
+    RESET G-NATRP-ERC G-NATRP-ERT
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+#TYPE1 := 'jes3'
+#NP-TYPE := JES3
+PERFORM PROCESS-TRIGGER-QUEUE /*RMSC-C2
+*
+IF #TRACING
+  COMPRESS 'End of Scanning JES3. Found:' #COUNT
+    'err:' G-NATRP-ERC G-NATRP-ERT TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+RESET G-NATRP-ERC G-NATRP-ERT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-NOMPUT-QUEUE-SPEC
+************************************************************************
+#SOURCE-ATTRIBUTES := NP-ATTRIBUTES-IDENT
+#SOURCE-TYPE-BIN := #NP-TYPE
+CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES #SOURCE-TYPE-BIN
+IF #NP-TYPE = SEQUENTIAL-FILE-MVS
+  PERFORM PROCESS-NOMPUT-QUEUE-FMVS
+  ESCAPE ROUTINE
+END-IF
+/* #NP-TYPE = JES3
+#DO-TYPE-AL:= TRUE
+FNDSFNP. FIND SPOOL-FILE WITH JOB-NUMBER = #JES-JOB-NUMBER
+  AND NODE = #JES-NODE AND JOB-NAME = #JES-JOB-NAME                   /*
+  AND TYPE = #JES-TYPE AND DATA-SET-KEY = #JES-DATA-SET-KEY           /*
+  IF SPOOL-FILE.ERROR-CODE NE 0
+    COMPRESS #JES-NODE '/' #JES-JOB-NAME '/' #JES-JOB-NUMBER '/'
+      #JES-TYPE '/' #JES-DATA-SET-KEY TO LG-OBJECT-NAME LEAVING NO
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Unable to read Spool Files' LG-OBJECT-NAME
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      SPOOL-FILE.ERROR-TEXT
+    G-NATRP-ERC := 0005
+    COMPRESS SPOOL-FILE.ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM
+      '/' *LINE TO G-NATRP-ERT
+    PERFORM WRITE-ERROR-LOG /*RMSC-C
+    ESCAPE BOTTOM (FNDSFNP.)
+  END-IF
+*
+  RESET #ATTRIBUTES #SOURCE-ATTRIBUTES
+*
+  #CONTROL-FLAG         := 'X'
+  #SOURCE-TYPE          := JES3-QUEUE-ENTRY
+  #JES-QUEUE-NODE       := SPOOL-FILE.NODE
+  #JES-QUEUE-JOB-NAME   := SPOOL-FILE.JOB-NAME
+  #JES-QUEUE-JOB-NUMBER := ABS(SPOOL-FILE.JOB-NUMBER)
+*
+  FIND (1) SPOOL-QUEUE WITH NODE = SPOOL-FILE.NODE
+    AND  JOB-NAME   = SPOOL-FILE.JOB-NAME                             /*
+    AND  JOB-NUMBER = SPOOL-FILE.JOB-NUMBER AND QUEUE = 'OUT'         /*
+    IF SPOOL-QUEUE.ERROR-CODE NE 0
+      COMPRESS SPOOL-QUEUE.NODE '/' SPOOL-QUEUE.JOB-NAME '/'
+        SPOOL-QUEUE.JOB-NUMBER TO LG-OBJECT-NAME LEAVING NO
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Unable to read Spool Queue' LG-OBJECT-NAME
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        SPOOL-QUEUE.ERROR-TEXT
+      G-NATRP-ERC := 0005
+      COMPRESS SPOOL-QUEUE.ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM
+        '/' *LINE TO G-NATRP-ERT
+      PERFORM WRITE-ERROR-LOG /*RMSC-C
+      ESCAPE BOTTOM (FNDSFNP.)
+    END-IF
+*
+    #JES-QUEUE-GROUP-ID := '*'
+    #CONTROL-TYPE       := JES3-QUEUE-ENTRY
+    #CONTROL-IDENT      := #JES-QUEUE-IDENT
+*
+    FNDNP. FIND SOURCE WITH SR-CONTROL = #CONTROL
+      IF NO RECORDS FOUND
+        PERFORM CREATE-SOURCE-RECORD
+      END-NOREC
+      IF G-NATRP-ERC = 0
+        #QUEUE-ID := SOURCE.SR-ID
+        PERFORM PROCESS-SPOOL-FILE
+      END-IF
+    END-FIND
+  END-FIND
+END-FIND
+*
+END-SUBROUTINE /* PROCESS-NOMPUT-QUEUE-SPEC
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-NOMPUT-QUEUE-FMVS
+************************************************************************
+#DO-TYPE-AL := FALSE
+#SOURCE-ATTRIBUTES := NP-ATTRIBUTES-IDENT
+RMSCCD-SOURCE-TYPE := NP-TYPE
+RMSCCD-NODE        := #FMVS-NODE
+RMSCCD-DSN         := #FMVS-DSNAME
+#IDENT-FILE        := #FMVS-DSNAME
+CALLNAT 'RMSCCD-N' RMSCCD-PARMS G-NATRP-ERC G-NATRP-ERT
+IF #TRACING
+  COMPRESS 'Rmsccd attributes:' 'RC:' G-NATRP-ERC-A G-NATRP-ERT
+    'RMSCCD-ATTRIBUTES:'      RMSCCD-ATTRIBUTES
+    'RMSCCD-CC-TYPE:'         RMSCCD-CC-TYPE
+    'RMSCCD-NUMBER-OF-LINES:' RMSCCD-NUMBER-OF-LINES
+    'RMSCCD-RECORD-LENGTH:'   RMSCCD-RECORD-LENGTH TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+RESET #ATTRIBUTES
+IF G-NATRP-ERC = 0
+  #SOURCE-ATTRIBUTES := RMSCCD-ATTRIBUTES
+  #CONTROL-TYPE      := SEQUENTIAL-FILE-MVS
+  #CONTROL-IDENT     := #FMVS-IDENT
+  #SOURCE-TYPE       := SEQUENTIAL-FILE-MVS
+  #CC-TYPE           := RMSCCD-CC-TYPE
+  #NUMBER-OF-LINES   := RMSCCD-NUMBER-OF-LINES
+  #RECORD-LENGTH     := RMSCCD-RECORD-LENGTH
+  #CONTROL-FLAG      := 'X'
+  #SPOOL-ATTRIBUTES  := NP-SPOOL-ATTRIBUTES
+  CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+  #JOB-NAME          := #SPOOL-JES-JOB-NAME
+  #DESTINATION       := #SPOOL-JES-DESTINATION
+  IF #TRACING
+    COMPRESS '#CONTROL:' #CONTROL '#JOB-NAME:' #JOB-NAME
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  FNDSRCFMVS. FIND NUMBER SOURCE WITH SR-CONTROL = #CONTROL
+  IF *NUMBER (FNDSRCFMVS.) = 0
+    PERFORM CREATE-SOURCE-RECORD
+    IF G-NATRP-ERC = 0
+      SOURCE-RECORD-CREATED := TRUE
+      PERFORM CREATE-ORDER-RECORDS
+    END-IF
+  END-IF
+ELSE
+  COMPRESS #FMVS-DSNAME TO LG-OBJECT-NAME
+  COMPRESS #FMVS-DSNAME TO G-NATRP-ERT
+  PERFORM WRITE-ERROR-LOG /*RMSC-C
+END-IF
+*
+END-SUBROUTINE /* PROCESS-NOMPUT-QUEUE-FMVS
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-SPOOL-QUEUE
+************************************************************************
+IF #TRACING
+  G-TRACE-MSG := 'Process spool queue'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+JES. FIND SPOOL-QUEUE WITH NODE = +NOD-CURRENT-NODE AND QUEUE = 'OUT'
+AND CLASS=+NOD-CURRENT-CLASSES(01) OR=+NOD-CURRENT-CLASSES(02)        /*
+OR=+NOD-CURRENT-CLASSES(03) OR=+NOD-CURRENT-CLASSES(04)               /*
+OR=+NOD-CURRENT-CLASSES(05) OR=+NOD-CURRENT-CLASSES(06)               /*
+OR=+NOD-CURRENT-CLASSES(07) OR=+NOD-CURRENT-CLASSES(08)               /*
+OR=+NOD-CURRENT-CLASSES(09) OR=+NOD-CURRENT-CLASSES(10)               /*
+OR=+NOD-CURRENT-CLASSES(11) OR=+NOD-CURRENT-CLASSES(12)               /*
+OR=+NOD-CURRENT-CLASSES(13) OR=+NOD-CURRENT-CLASSES(14)               /*
+OR=+NOD-CURRENT-CLASSES(15) OR=+NOD-CURRENT-CLASSES(16)               /*
+  RESET G-NATRP-ERC G-NATRP-ERT
+  IF SPOOL-QUEUE.ERROR-CODE NE 0
+    COMPRESS G-MONITOR-ID '/' +NOD-CURRENT-NODE  '/' *PROGRAM
+      TO LG-OBJECT-NAME LEAVING NO
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Unable to read Spool Queue' LG-OBJECT-NAME
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      SPOOL-QUEUE.ERROR-TEXT
+    G-NATRP-ERC := 0005
+    COMPRESS SPOOL-QUEUE.ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM
+      '/' *LINE TO G-NATRP-ERT
+    PERFORM WRITE-ERROR-LOG /*RMSC-C
+    ESCAPE BOTTOM (JES.)
+  END-IF
+*
+  RESET #ATTRIBUTES #SOURCE-ATTRIBUTES #SPOOL-ATTRIBUTES
+*
+  #CONTROL-FLAG         := 'X'
+  #SOURCE-TYPE          := JES3-QUEUE-ENTRY
+  #JES-QUEUE-NODE       := NODE (JES.)
+  #JES-QUEUE-JOB-NAME   := JOB-NAME (JES.)
+  #JES-QUEUE-JOB-NUMBER := ABS(JOB-NUMBER (JES.))
+  #JES-QUEUE-GROUP-ID   := '*'
+  #CONTROL-TYPE         := JES3-QUEUE-ENTRY
+  #CONTROL-IDENT        := #JES-QUEUE-IDENT
+*
+  FNDP. FIND NUMBER SOURCE WITH SR-CONTROL = #CONTROL
+  IF *NUMBER (FNDP.) = 0
+    #PREP-INDEX := 1
+    PERFORM PREP-SOURCE
+    IF G-NATRP-ERC = 0
+      #QUEUE-ID := SOURCE.SR-ID
+      PERFORM PROCESS-QUEUE-ENTRIES
+    END-IF
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* PROCESS-SPOOL-QUEUE
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-OUTPUT-QUEUE
+************************************************************************
+IF #TRACING
+  G-TRACE-MSG := 'Process output queue'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+JESFOR. FOR Q = 1 TO 16
+  IF +NOD-CURRENT-JES3-CLASSES (Q) = ' '
+    ESCAPE ROUTINE
+  END-IF
+  #END-OF-SPOOL-QUEUE := FALSE
+  REPEAT UNTIL #END-OF-SPOOL-QUEUE
+    JESO. FIND SPOOL-QUEUE WITH  NODE = G-MONITOR-NODE
+    AND  NOM-SYSOUT-CLASS = +NOD-CURRENT-JES3-CLASSES (Q)             /*
+      IF NO RECORDS FOUND
+        #END-OF-SPOOL-QUEUE := TRUE
+        ESCAPE BOTTOM
+      END-NOREC
+      RESET G-NATRP-ERC G-NATRP-ERT
+      IF SPOOL-QUEUE.ERROR-CODE NE 0
+        COMPRESS G-MONITOR-ID '/' +NOD-CURRENT-NODE '/'
+          +NOD-CURRENT-JES3-CLASSES (Q) *PROGRAM
+          TO LG-OBJECT-NAME LEAVING NO
+        WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+          'Unable to read Output Class' LG-OBJECT-NAME
+        WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+          SPOOL-QUEUE.ERROR-TEXT
+        G-NATRP-ERC := 0005
+        COMPRESS SPOOL-QUEUE.ERROR-TEXT '/' +NOD-CURRENT-NAME
+          '/' *PROGRAM '/' *LINE TO G-NATRP-ERT
+        PERFORM WRITE-ERROR-LOG /*RMSC-C
+        ESCAPE BOTTOM (JESFOR.)
+      END-IF
+      RESET #ATTRIBUTES #SOURCE-ATTRIBUTES #SPOOL-ATTRIBUTES
+      #CONTROL-FLAG         := 'X'
+      #SOURCE-TYPE          := JES3-QUEUE-ENTRY
+      #JES-QUEUE-NODE       := NODE (JESO.)
+      #JES-QUEUE-JOB-NAME   := JOB-NAME (JESO.)
+      #JES-QUEUE-JOB-NUMBER := ABS(JOB-NUMBER (JESO.))
+      #JES-QUEUE-GROUP-ID   := '*'
+      #CONTROL-TYPE         := JES3-QUEUE-ENTRY
+      #CONTROL-IDENT        := #JES-QUEUE-IDENT
+      #NEW-JOB := FALSE  /* ASSUME NOT NEW JOB
+      FNDPO. FIND NUMBER SOURCE WITH SR-CONTROL = #CONTROL
+      IF *NUMBER (FNDPO.) = 0
+        #PREP-INDEX := 1
+        PERFORM PREP-SOURCE
+        #NEW-JOB := TRUE                /* JOB NOT PROCESSED BEFORE
+        #DO-TYPE-AL := TRUE
+      END-IF              /* ALWAYS PROCESS TEMP CLASS ENTRIES EVEN FOR
+      IF G-NATRP-ERC = 0
+        #QUEUE-ID := SOURCE.SR-ID
+        RESET #PROCESS-SI-AND-JL
+        PERFORM PROCESS-TEMP-CLASS-ENTRIES
+        IF #NEW-JOB AND #PROCESS-SI-AND-JL
+          RESET #PROCESS-SI-AND-JL
+          PERFORM PROCESS-SI-AND-JL-ENTRIES
+        END-IF
+      END-IF
+*
+    END-FIND
+  END-REPEAT
+*
+END-FOR
+*
+END-SUBROUTINE /* PROCESS-OUTPUT-QUEUE
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-OUTPUT-QUEUE-NEW
+************************************************************************
+IF #TRACING
+  G-TRACE-MSG := 'Process output queue new'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+NEWFOR. FOR Q = 1 TO 16
+  IF +NOD-CURRENT-JES3-CLASSES (Q) = ' '
+    ESCAPE ROUTINE
+  END-IF
+  NEWO. FIND SPOOL-QUEUE WITH  NODE = G-MONITOR-NODE
+  AND CLASS = +NOD-CURRENT-JES3-CLASSES (Q)                           /*
+    RESET G-NATRP-ERC G-NATRP-ERT
+    IF SPOOL-QUEUE.ERROR-CODE NE 0
+      COMPRESS G-MONITOR-NODE '/' +NOD-CURRENT-NODE '/'
+        +NOD-CURRENT-JES3-CLASSES (Q) *PROGRAM
+        TO LG-OBJECT-NAME LEAVING NO
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Unable to read Output Class' LG-OBJECT-NAME
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        SPOOL-QUEUE.ERROR-TEXT
+      G-NATRP-ERC := 0005
+      COMPRESS SPOOL-QUEUE.ERROR-TEXT
+        '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE TO G-NATRP-ERT
+      PERFORM WRITE-ERROR-LOG /*RMSC-C
+      ESCAPE BOTTOM (NEWFOR.)
+    END-IF
+    RESET #ATTRIBUTES #SOURCE-ATTRIBUTES #SPOOL-ATTRIBUTES
+    #CONTROL-FLAG         := 'X'
+    #SOURCE-TYPE          := JES3-QUEUE-ENTRY
+    #JES-QUEUE-NODE       := NODE (NEWO.)
+    #JES-QUEUE-JOB-NAME   := JOB-NAME (NEWO.)
+    #JES-QUEUE-JOB-NUMBER := ABS(JOB-NUMBER (NEWO.))
+    #JES-QUEUE-GROUP-ID   := '*'
+    #CONTROL-TYPE         := JES3-QUEUE-ENTRY
+    #CONTROL-IDENT        := #JES-QUEUE-IDENT
+    #NEW-JOB:= FALSE /* ASSUME NOT NEW JOB
+    NEWPO. FIND NUMBER SOURCE WITH SR-CONTROL = #CONTROL
+    IF *NUMBER (NEWPO.) = 0
+      #PREP-INDEX := 1
+      PERFORM PREP-SOURCE
+      #NEW-JOB:= TRUE                /* JOB NOT PROCESSED BEFORE
+      #DO-TYPE-AL:= TRUE
+    END-IF              /* ALWAYS PROCESS TEMP CLASS ENTRIES EVEN FOR
+    IF G-NATRP-ERC = 0
+      #QUEUE-ID := SOURCE.SR-ID
+      RESET #PROCESS-SI-AND-JL
+      PERFORM PROCESS-TEMP-CLASS-ENTRIES
+      IF #NEW-JOB AND #PROCESS-SI-AND-JL
+        RESET #PROCESS-SI-AND-JL
+        PERFORM PROCESS-SI-AND-JL-ENTRIES
+      END-IF
+    END-IF
+*
+  END-FIND
+*
+END-FOR
+*
+END-SUBROUTINE /* PROCESS-OUTPUT-QUEUE-NEW
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-SI-AND-JL-ENTRIES
+************************************************************************
+IF #TRACING
+  COMPRESS 'si and jl entry' SPOOL-QUEUE.JOB-NAME SPOOL-QUEUE.JOB-NUMBER
+    TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+FIND SPOOL-FILE WITH JOB-NUMBER = SPOOL-QUEUE.JOB-NUMBER
+AND JOB-NAME = SPOOL-QUEUE.JOB-NAME AND NODE = SPOOL-QUEUE.NODE       /*
+AND TYPE = 'SI' OR = 'JL'                                             /*
+  IF NO RECORDS FOUND
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY-MM-DD' 'HH:II:SS)
+      'no JL/SI datasets for' SPOOL-QUEUE.JOB-NAME
+      SPOOL-QUEUE.JOB-NUMBER
+    ESCAPE BOTTOM
+  END-NOREC
+  IF SPOOL-FILE.ERROR-CODE NE 0
+    COMPRESS SPOOL-QUEUE.JOB-NAME   '/' SPOOL-QUEUE.JOB-NUMBER '/'
+      'SI-JL' TO LG-OBJECT-NAME LEAVING NO
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Unable to read Spool Files' LG-OBJECT-NAME
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      SPOOL-FILE.ERROR-TEXT
+    G-NATRP-ERC := 0005
+    COMPRESS SPOOL-FILE.ERROR-TEXT
+      '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE TO G-NATRP-ERT
+    PERFORM WRITE-ERROR-LOG /*RMSC-C
+    ESCAPE BOTTOM
+  END-IF
+  PERFORM PROCESS-SPOOL-FILE
+*
+END-FIND
+*
+END-SUBROUTINE /* PROCESS-SI-AND-JL-ENTRIES
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-TEMP-CLASS-ENTRIES
+************************************************************************
+IF #TRACING
+  COMPRESS 'temp class entry' SPOOL-QUEUE.JOB-NAME
+    SPOOL-QUEUE.JOB-NUMBER TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+IF SPOOL-QUEUE.TYPE EQ 'JOB' AND (SPOOL-QUEUE.QUEUE = 'XEQ' OR='IN')
+  PERFORM RETRY-SPOOL-LATER
+  ESCAPE ROUTINE
+END-IF
+FNDSFT. FIND SPOOL-FILE WITH JOB-NUMBER = SPOOL-QUEUE.JOB-NUMBER
+AND JOB-NAME = SPOOL-QUEUE.JOB-NAME AND NODE = SPOOL-QUEUE.NODE       /*
+AND CLASS      = +NOD-CURRENT-JES3-CLASSES (Q)                        /*
+AND FUNCTION   = 'CHANGE' AND NEW-CLASS  = +NOD-CURRENT-TEMP-CLASS    /*
+  IF NO RECORDS FOUND
+    PERFORM RETRY-SPOOL-LATER
+    ESCAPE BOTTOM
+  END-NOREC
+  IF SPOOL-FILE.ERROR-CODE NE 0
+    COMPRESS SPOOL-QUEUE.JOB-NAME '/' SPOOL-QUEUE.JOB-NUMBER '/'
+      +NOD-CURRENT-JES3-CLASSES (Q) TO LG-OBJECT-NAME LEAVING NO
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Unable to read Spool Files' LG-OBJECT-NAME
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      SPOOL-FILE.ERROR-TEXT
+    G-NATRP-ERC := 0005
+    COMPRESS SPOOL-FILE.ERROR-TEXT
+      '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE
+      TO G-NATRP-ERT
+    PERFORM WRITE-ERROR-LOG /*RMSC-C
+    ESCAPE BOTTOM (FNDSFT.)
+  END-IF
+*
+  IF TYPE = 'SM'
+    #PROCESS-SI-AND-JL:= TRUE
+  END-IF
+  IF RECORD-COUNT > 0 OR (SPOOL-FILE.TYPE = 'JL' OR = 'SI')
+    PERFORM PROCESS-SPOOL-FILE
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* PROCESS-TEMP-CLASS-ENTRIES
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-QUEUE-ENTRIES
+************************************************************************
+FNDSF. FIND SPOOL-FILE WITH JOB-NUMBER = SPOOL-QUEUE.JOB-NUMBER
+AND JOB-NAME = SPOOL-QUEUE.JOB-NAME AND NODE = SPOOL-QUEUE.NODE       /*
+  IF SPOOL-FILE.ERROR-CODE NE 0
+    COMPRESS SPOOL-QUEUE.JOB-NAME '/' SPOOL-QUEUE.JOB-NUMBER '/'
+      SPOOL-QUEUE.GROUP-ID TO LG-OBJECT-NAME LEAVING NO
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Unable to read Spool Files' LG-OBJECT-NAME
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      SPOOL-FILE.ERROR-TEXT
+    G-NATRP-ERC := 0005
+    COMPRESS SPOOL-FILE.ERROR-TEXT
+      '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE TO G-NATRP-ERT
+    PERFORM WRITE-ERROR-LOG /*RMSC-C
+    ESCAPE BOTTOM (FNDSF.)
+  END-IF
+  IF RECORD-COUNT > 0 OR (SPOOL-FILE.TYPE = 'JL' OR = 'SI')
+    PERFORM PROCESS-SPOOL-FILE
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* PROCESS-QUEUE-ENTRIES
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-SPOOL-FILE
+************************************************************************
+IF #TRACING
+  COMPRESS 'Process spool file' SPOOL-FILE.JOB-NAME
+    SPOOL-FILE.JOB-NUMBER SPOOL-FILE.TYPE SPOOL-FILE.DATA-SET
+    TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+RESET #SOURCE-ATTRIBUTES #SPOOL-ATTRIBUTES #ATTRIBUTES RMSCTR-PARMS
+*
+#SOURCE-TYPE := JES3
+*
+IF SPOOL-FILE.TYPE = 'SO' OR = 'SM' AND SPOOL-FILE.HOLD = 'YES'
+  #CONTROL-FLAG := 'X'
+END-IF
+*
+IF NOT (SPOOL-FILE.TYPE = 'JL' OR = 'SI')
+  PERFORM GET-DEST
+END-IF
+#JOB-NAME         := SPOOL-FILE.JOB-NAME
+#WRITER           := SPOOL-FILE.WRITER
+#FORM             := SPOOL-FILE.FORM
+#JES-NODE         := SPOOL-FILE.NODE
+#JES-JOB-NAME     := SPOOL-FILE.JOB-NAME
+#JES-JOB-NUMBER   := ABS(SPOOL-FILE.JOB-NUMBER)
+#JES-TYPE         := SPOOL-FILE.TYPE
+#JES-DATA-SET-KEY := ABS(SPOOL-FILE.DATA-SET-KEY)
+#JES-PROCNAME     := SPOOL-FILE.PROCNAME
+#JES-STEPNAME     := SPOOL-FILE.STEPNAME
+#JES-DDNAME       := SPOOL-FILE.DDNAME
+#JES-DATA-SET     := SPOOL-FILE.DATA-SET
+*
+EXAMINE SPOOL-FILE.CHARS FOR '*' REPLACE WITH ' '
+EXAMINE SPOOL-FILE.FLASH FOR '*' REPLACE WITH ' '
+EXAMINE SPOOL-FILE.FCB   FOR '*' REPLACE WITH ' '
+EXAMINE SPOOL-FILE.UCS   FOR '*' REPLACE WITH ' '
+EXAMINE SPOOL-FILE.CHARS FOR H'00' REPLACE WITH ' '
+EXAMINE SPOOL-FILE.UCS   FOR H'00' REPLACE WITH ' '
+*
+#SPOOL-TYPE            := JES3
+#SPOOL-JES-NODE        := SPOOL-FILE.NODE
+#SPOOL-JES-JOB-NAME    := SPOOL-FILE.JOB-NAME
+#SPOOL-JES-JOB-NUMBER  := SPOOL-FILE.JOB-NUMBER
+#SPOOL-JES-DSTYPE      := SPOOL-FILE.TYPE
+#SPOOL-JES-DSNO        := SPOOL-FILE.DATA-SET
+#SPOOL-JES-DATASET-KEY := SPOOL-FILE.DATA-SET-KEY
+#SPOOL-JES-GROUP-ID    := SPOOL-FILE.GROUP-ID
+#SPOOL-JES-PROCNAME    := SPOOL-FILE.PROCNAME
+#SPOOL-JES-STEPNAME    := SPOOL-FILE.STEPNAME
+#SPOOL-JES-DDNAME      := SPOOL-FILE.DDNAME
+#SPOOL-JES-CHARS       := SPOOL-FILE.CHARS
+#SPOOL-JES-FCB         := SPOOL-FILE.FCB
+#SPOOL-JES-FLASH       := SPOOL-FILE.FLASH
+#SPOOL-JES-FORM        := SPOOL-FILE.FORM
+IF SPOOL-FILE.TRC = MASK ('NO'.)
+  #SPOOL-JES-TRC := 'NO'
+ELSE
+  #SPOOL-JES-TRC := SPOOL-FILE.TRC
+END-IF
+#SPOOL-JES-DESTINATION := #DESTINATION
+#SPOOL-JES-RECFM       := SPOOL-FILE.RECFM
+#SPOOL-JES-UCS         := SPOOL-FILE.UCS
+#SPOOL-JES-BURST       := SPOOL-FILE.BURST
+#SPOOL-JES-LINECT      := SPOOL-FILE.LINECT
+#SPOOL-JES-COMPACT     := SPOOL-FILE.COMPACT
+EXAMINE SPOOL-FILE.PAGEDEF FOR H'00' REPLACE ' '
+EXAMINE SPOOL-FILE.FORMDEF FOR H'00' REPLACE ' '
+#SPOOL-JES-PAGEDEF     := SPOOL-FILE.PAGEDEF
+#SPOOL-JES-FORMDEF     := SPOOL-FILE.FORMDEF
+*
+IF SPOOL-FILE.COPIES > 99
+  #SPOOL-JES-COPIES := 99
+ELSE
+  #SPOOL-JES-COPIES := SPOOL-FILE.COPIES
+END-IF
+*
+#NUMBER-OF-LINES       := SPOOL-FILE.RECORD-COUNT
+#RECORD-LENGTH         := SPOOL-FILE.LRECL
+*
+DECIDE FOR FIRST CONDITION
+  WHEN SPOOL-FILE.RECFM = SCAN 'M'  #CC-TYPE := MACHINE-CODE
+  WHEN SPOOL-FILE.RECFM = SCAN 'A'  #CC-TYPE := ASA-CODE
+  WHEN NONE                         #CC-TYPE := NO-CC
+END-DECIDE
+*
+IF #CC-TYPE = MACHINE-CODE OR #NUMBER-OF-LINES EQ 0
+  CALLNAT 'RMRECN-N' #SOURCE-TYPE #SOURCE-ATTRIBUTES #NUMBER-OF-RECORDS
+    G-NATRP-ERC G-NATRP-ERT
+  IF G-NATRP-ERC = 0
+    #NUMBER-OF-LINES := #NUMBER-OF-RECORDS
+  ELSE
+    RESET G-NATRP-ERC G-NATRP-ERT
+  END-IF
+END-IF
+*
+RESET #IDENT-FILE
+#PROCNAME := #JES-PROCNAME
+#STEPNAME := #JES-STEPNAME
+#DDNAME   := #JES-DDNAME
+#DSTYPE   := #JES-TYPE
+#DSNO     := #JES-DATA-SET
+*
+IF #NEW-JOB        /* ONLY DO TRIGGER/DEST PROCESSING FOR NEW JOBS
+  PERFORM CHECK-IF-LOAD
+  IF SPOOL-FILE.STEPNAME = 'NOMDSN' AND SPOOL-FILE.TYPE = 'SO'
+    PERFORM CHECK-IF-TRIGGER
+  END-IF
+END-IF
+*
+IF G-NATRP-ERC = 0
+  #CONTROL-TYPE  := #SOURCE-TYPE
+  #CONTROL-IDENT := #JES-IDENT
+  FNDSRC. FIND NUMBER SOURCE WITH SR-CONTROL = #CONTROL
+  IF *NUMBER (FNDSRC.) = 0
+    RESET SOURCE-RECORD-CREATED
+    IF NOT NOM12-MODE
+      #PREP-INDEX := 2
+      PERFORM PREP-SOURCE
+      SOURCE-RECORD-CREATED := TRUE
+    END-IF
+    IF G-NATRP-ERC = 0
+      PERFORM CREATE-ORDER-RECORDS
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* PROCESS-SPOOL-FILE
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-IF-TRIGGER
+************************************************************************
+IF #TRACING
+  G-TRACE-MSG := 'check if trigger'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+RESET RMSCTR-PARMS
+RMSCTR-IN-SOURCE-TYPE := JES3
+RMSCTR-IN-ATTRIBUTES  := #SOURCE-ATTRIBUTES
+*
+CALLNAT 'RMSCTR-N' RMSCTR-PARMS G-NATRP-ERC G-NATRP-ERT
+*
+IF #TRACING
+  COMPRESS 'check if trigger' G-NATRP-ERC-A G-NATRP-ERT TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+IF G-NATRP-ERC NE 0
+  COMPRESS #JES-NODE '/' #JES-JOB-NAME '/' #JES-JOB-NUMBER '/'
+    #JES-TYPE '/' #JES-DATA-SET-KEY TO LG-OBJECT-NAME LEAVING NO
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Error from trigger interface' G-NATRP-ERC LG-OBJECT-NAME
+  PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    G-NATRP-ERT /*SU6 (AL=70)
+  PERFORM WRITE-ERROR-LOG /*RMSC-C
+  ESCAPE ROUTINE
+END-IF
+*
+IF RMSCTR-IS-TRIGGER
+  IF #TRACING
+    COMPRESS 'is trigger' #JES-JOB-NAME #JES-JOB-NUMBER #JES-TYPE
+      #JES-DATA-SET-KEY TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  #SOURCE-ATTRIBUTES        := RMSCTR-OUT-ATTRIBUTES
+  RMSCCD-SOURCE-TYPE        := RMSCTR-OUT-SOURCE-TYPE
+  RMSCCD-NODE               := #FMVS-NODE
+  RMSCCD-DSN                := #FMVS-DSNAME
+  #IDENT-FILE               := #FMVS-DSNAME
+  #SPOOL-JES-TRIGGER-DSNAME := #FMVS-DSNAME
+  IF #TRACING
+    COMPRESS 'rename file' #FMVS-DSNAME TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  CALLNAT 'RMSCCD-N' RMSCCD-PARMS G-NATRP-ERC G-NATRP-ERT
+  IF #TRACING
+    COMPRESS 'new filename' RMSCCD-DSN TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  IF G-NATRP-ERC = 0
+    #SOURCE-ATTRIBUTES := RMSCCD-ATTRIBUTES
+    #CONTROL-TYPE      := SEQUENTIAL-FILE-MVS
+    #CONTROL-IDENT     := #FMVS-IDENT /*SU7 #FVSE-IDENT
+    #SOURCE-TYPE       := SEQUENTIAL-FILE-MVS
+    #CC-TYPE           := RMSCCD-CC-TYPE
+    #NUMBER-OF-LINES   := RMSCCD-NUMBER-OF-LINES
+    #RECORD-LENGTH     := RMSCCD-RECORD-LENGTH
+    #CONTROL-FLAG      := 'X'
+  ELSE
+    COMPRESS #JES-JOB-NUMBER '/' #JES-JOB-NAME TO LG-OBJECT-NAME
+      LEAVING NO
+    COMPRESS #JES-JOB-NUMBER '/' #JES-JOB-NAME '/' #FMVS-DSNAME
+      TO G-NATRP-ERT LEAVING NO
+    PERFORM WRITE-ERROR-LOG /*RMSC-C
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CHECK-IF-TRIGGER
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-SOURCE-RECORD
+************************************************************************
+REPEAT
+  CALLNAT 'RMSRID-N' SOURCE.SR-ID G-NATRP-ERC G-NATRP-ERT
+  UNTIL G-NATRP-ERC NE 3145
+END-REPEAT
+*
+IF G-NATRP-ERC NE 0
+  RESET LG-OBJECT-NAME
+  PERFORM WRITE-ERROR-LOG /*RMSC-C
+  ESCAPE ROUTINE
+END-IF
+*
+IF #SOURCE-TYPE = JES3-QUEUE-ENTRY OR = SEQUENTIAL-FILE-MVS
+  RESET SOURCE.SR-RELATED-ID
+ELSE
+  SOURCE.SR-RELATED-ID := #QUEUE-ID
+END-IF
+*
+IF +G-NOMEXIT-ACTIVE (2)
+  PERFORM CALL-NOM-EXIT-002 /*RMSC-C
+END-IF
+*
+#SPOOL-JES-NODE := +NOD-CURRENT-NODE
+*
+SOURCE.SR-CONTROL-FLAG     := #CONTROL-FLAG
+SOURCE.SR-TYPE             := #SOURCE-TYPE
+SOURCE.SR-ATTRIBUTES-IDENT := #SOURCE-ATTRIBUTES
+SOURCE.SR-SPOOL-ATTRIBUTES := #SPOOL-ATTRIBUTES
+SOURCE.SR-CC-TYPE          := #CC-TYPE
+SOURCE.SR-RECORD-LENGTH    := #RECORD-LENGTH
+SOURCE.SR-NUMBER-OF-LINES  := #NUMBER-OF-LINES
+SOURCE.SR-MONITOR-ID       := G-MONITOR-ID
+SOURCE.SR-REMOTE-CODEPAGE  := F#GETCP (<REPORT.R-REPNAME>)
+*
+IF #TRACING
+  COMPRESS 'Source' SOURCE.SR-CONTROL-FLAG SOURCE.SR-TYPE
+    SOURCE.SR-ATTRIBUTES-IDENT TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+SR-OBJECT-TYPE := 'SR'
+SR-OBJECT-TIME := *TIMX
+STORE SOURCE
+END OF TRANSACTION
+*
+END-SUBROUTINE /* CREATE-SOURCE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-IF-LOAD
+************************************************************************
+RESET LOAD-SOURCE #FOUND
+IF #DESTINATION NE ' '
+  EXAMINE FULL VALUE OF G-COPY-IDENT (*)
+    FOR FULL VALUE OF #DESTINATION
+    GIVING INDEX IN #FOUND
+  DECIDE FOR EVERY CONDITION
+    WHEN #FOUND > 0 OR G-COPY-IDENT (1) = '*'
+      LOAD-SOURCE := TRUE
+      MOVE EDITED LOAD-SOURCE (EM='no'/'yes') TO G-TRACE-MSG
+      IF #TRACING
+        COMPRESS 'Check if load' '#DESTINATION:' #DESTINATION
+          'G-COPY-IDENT:' G-COPY-IDENT (*) 'LOAD-SOURCE:' G-TRACE-MSG
+          TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+    WHEN G-COPY-IDENT (1) = '*'
+      #FOUND := 1 /* take definition from first line
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-IF
+IF +NOD-LOCAL-NODE NE +NOD-CURRENT-NODE
+  LOAD-SOURCE := TRUE
+END-IF
+*
+END-SUBROUTINE /* CHECK-IF-LOAD
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-ORDER-RECORDS
+************************************************************************
+IF #TRACING
+  COMPRESS 'create order' #JOB-NAME TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+/*Jobname:
+CALLNAT 'N-IDENT' #JOB-NAME #TJ REPORT-IDENT-JES-JOB-NAME
+  #IDENT-TYPE  (*) #IDENT-VALUE (*) #TRACING G-TRACE-MSG
+#IDENT-RTYPE (1:#TJ) := 'M' /*Master
+IF #WRITER NE ' '
+  ADD 1 TO #TJ
+  #IDENT-VALUE (#TJ) := #WRITER
+  #IDENT-TYPE  (#TJ) := REPORT-IDENT-JES-WRITER
+END-IF
+IF #DESTINATION NE ' '
+  ADD 1 TO #TJ
+  #IDENT-VALUE (#TJ) := #DESTINATION
+  #IDENT-TYPE  (#TJ) := REPORT-IDENT-JES-DESTINATION
+END-IF
+IF #FORM NE ' '
+  ADD 1 TO #TJ
+  #IDENT-VALUE (#TJ) := #FORM
+  #IDENT-TYPE  (#TJ) := REPORT-IDENT-JES-FORM
+END-IF
+IF #TRACING
+  COMPRESS G-TRACE-MSG '/writer:' #WRITER '/form:' #FORM
+    '/destination:' #DESTINATION TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+#IDENT-RTYPE (1:#TJ) := 'M' /*Master
+RESET #COUNT
+PERFORM MASTER-DEFINITIONS-GEN
+#DO-TYPE-AL:= FALSE
+RESET #TYPE-AL-SOURCE-ID
+IF #COUNT = 0
+  IF #ONLY-TYPE-AL
+    RESET #ONLY-TYPE-AL
+    PERFORM CREATE-DELAYED-SOURCES
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+IF #COUNT = 0 AND NOT NOM12-MODE
+  #IDENT-RTYPE (1:#TJ) := 'D'
+  PERFORM DEFAULT-DEFINITIONS-GEN
+END-IF
+IF #COUNT = 0
+  IF NOT NOM12-MODE
+    IF +G-NOMEXIT-ACTIVE (1)
+      PERFORM CALL-NOM-EXIT-001 /*RMSC-C
+      IF PROCESSED-BY-NOM
+        PERFORM CREATE-DELAYED-SOURCES
+      END-IF
+    ELSE
+      PERFORM WRITE-LOG-RECORD
+    END-IF
+  END-IF
+ELSE
+  PERFORM CREATE-DELAYED-SOURCES
+  IF LOAD-SOURCE = TRUE
+    PERFORM CREATE-LOAD-ORDER
+  END-IF
+  PERFORM START-FIRST-ORDER
+END-IF
+*
+END-SUBROUTINE /* CREATE-ORDER-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-IT-SPEC /*special
+************************************************************************
+IF NOT F#NODEMATCH (<REPORT.R-INTERNAL-NODE-ID>) /*SU3
+  ESCAPE TOP /*nodes different - ignore
+END-IF
+RESET #THIS-IS-TYPE-AL
+IF REPORT.C*R-IDENT-FILES > 0
+  IF REPORT.R-IDENT-FILES(1) = 'TYPE=AL'
+    IF NOT #DO-TYPE-AL
+      #ONLY-TYPE-AL:= TRUE
+      ESCAPE TOP
+    END-IF
+    #THIS-IS-TYPE-AL:= TRUE
+  ELSE
+    PERFORM IS-DATASET-DEFINED /*RMSC-C
+    IF NOT DATASET-FOUND
+      ESCAPE TOP
+    END-IF
+  END-IF
+END-IF
+ADD 1 TO #COUNT
+IF #THIS-IS-TYPE-AL
+  PERFORM WRITE-ORDER-RECORD-AL
+ELSE
+  PERFORM WRITE-ORDER-RECORD
+END-IF
+*
+END-SUBROUTINE /* HANDLE-IT-SPEC
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-ORDER-RECORD
+************************************************************************
+PERFORM CREATE-DELAYED-SOURCES
+IF NOT SOURCE-RECORD-CREATED
+  PERFORM CREATE-SOURCE-RECORD
+  IF G-NATRP-ERC NE 0
+    ESCAPE ROUTINE
+  END-IF
+  SOURCE-RECORD-CREATED := TRUE
+END-IF
+*
+REPEAT
+  CALLNAT 'RMODID-N' ORDER.OD-ID G-NATRP-ERC G-NATRP-ERT
+  UNTIL G-NATRP-ERC NE 3145
+END-REPEAT
+IF G-NATRP-ERC NE 0
+  RESET LG-OBJECT-NAME
+  PERFORM WRITE-ERROR-LOG /*RMSC-C
+  ESCAPE ROUTINE
+END-IF
+ORDER.OD-REPNAME        := REPORT.R-REPNAME
+ORDER.OD-TIME-SCHEDULED := *TIMX
+PERFORM WRITE-ORDER-RECORD-GEN /*RMSC-C
+#LAST-ORDER-ISN := #ISN
+*
+END-SUBROUTINE /* WRITE-ORDER-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-ORDER-RECORD-AL
+************************************************************************
+REPEAT
+  CALLNAT 'RMODID-N' ORDER.OD-ID G-NATRP-ERC G-NATRP-ERT
+  UNTIL G-NATRP-ERC NE 3145
+END-REPEAT
+*
+PERFORM CREATE-DELAYED-SOURCES
+IF #TRACING
+  COMPRESS 'Order type=al' SOURCE.SR-ID REPORT.R-REPNAME TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+IF G-NATRP-ERC NE 0
+  RESET LG-OBJECT-NAME
+  PERFORM WRITE-ERROR-LOG /*RMSC-C
+  ESCAPE ROUTINE
+END-IF
+IF #TYPE-AL-SOURCE-ID = 0
+  FIND SOURCE-AL WITH SR-ID = SOURCE.SR-ID
+  END-FIND
+  #SOURCE-ATTR-SAVE  := #SOURCE-ATTRIBUTES
+  #SPOOL-ATTR-SAVE   := #SPOOL-ATTRIBUTES
+  #SOURCE-ATTRIBUTES := SOURCE-AL.SR-ATTRIBUTES-IDENT
+  CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES SOURCE-AL.SR-TYPE
+  #SPOOL-ATTRIBUTES := SOURCE-AL.SR-SPOOL-ATTRIBUTES
+  CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+  #JES-TYPE := 'AL'
+  #SPOOL-JES-DSTYPE := 'AL'
+  SOURCE-AL.SR-SPOOL-ATTRIBUTES := #SPOOL-ATTRIBUTES
+  SOURCE-AL.SR-ATTRIBUTES-IDENT := #SOURCE-ATTRIBUTES
+  #SPOOL-ATTRIBUTES  := #SPOOL-ATTR-SAVE
+  #SOURCE-ATTRIBUTES := #SOURCE-ATTR-SAVE
+  RESET SOURCE-AL.SR-RECORD-LENGTH
+  SOURCE-AL.SR-CC-TYPE := NO-CC
+  /* lrecl and whether or not any file has carriage control.
+  FIND SPOOLF-AL WITH NODE = #SPOOL-JES-NODE AND TYPE = 'SM' OR = 'SO'
+  AND JOB-NAME =#SPOOL-JES-JOB-NAME AND JOB-NUMBER=#SPOOL-JES-JOB-NUMBER
+    IF SPOOLF-AL.ERROR-CODE NE 0
+      WRITE *PROGRAM *TIMX (EM=YYYY-MM-DD' 'HH:II:SS)
+        'Unable to determine TYPE=AL lrecl/recfm'
+        / 'Job:' #SPOOL-JES-JOB-NAME 'Num:' #SPOOL-JES-JOB-NUMBER
+        / SPOOLF-AL.ERROR-CODE SPOOLF-AL.ERROR-TEXT
+    END-IF
+    IF LRECL GT SOURCE-AL.SR-RECORD-LENGTH
+      SOURCE-AL.SR-RECORD-LENGTH:= LRECL
+    END-IF
+    IF RECFM = SCAN 'A' OR = SCAN 'M'
+      SOURCE-AL.SR-CC-TYPE:= ASA-CODE
+    END-IF
+  END-FIND
+  FIND (1) SYSOUT-AL WITH NODE = #SPOOL-JES-NODE
+  AND JOB-NAME =#SPOOL-JES-JOB-NAME AND JOB-NUMBER=#SPOOL-JES-JOB-NUMBER
+  AND TYPE = 'AL' AND RECORD-NUMBER GE -1                             /*
+    IF NO RECORDS FOUND
+      WRITE *PROGRAM *TIMX (EM=YYYY-MM-DD' 'HH:II:SS)
+        'Error reading TYPE=AL for' #SPOOL-JES-JOB-NAME
+        #SPOOL-JES-JOB-NUMBER
+        / 'no records found'
+      ESCAPE BOTTOM
+    END-NOREC
+    IF SYSOUT-AL.ERROR-CODE NE 0
+      WRITE *PROGRAM *TIMX (EM=YYYY-MM-DD' 'HH:II:SS)
+        'Error reading TYPE=AL for' #SPOOL-JES-JOB-NAME
+        #SPOOL-JES-JOB-NUMBER
+        / SYSOUT-AL.ERROR-CODE SYSOUT-AL.ERROR-TEXT
+      ESCAPE BOTTOM
+    END-IF
+    SOURCE-AL.SR-NUMBER-OF-LINES:= RECORD-NUMBER
+  END-FIND
+  REPEAT
+    CALLNAT 'RMSRID-N' SOURCE-AL.SR-ID G-NATRP-ERC G-NATRP-ERT
+    UNTIL G-NATRP-ERC NE 3145
+  END-REPEAT
+*
+  IF G-NATRP-ERC NE 0
+    WRITE *PROGRAM *TIMX (EM=YYYY-MM-DD' 'HH:II:SS)
+      'Unable to create new source record'
+    ESCAPE BOTTOM
+  END-IF
+  #TYPE-AL-SOURCE-ID:= SOURCE-AL.SR-ID
+  SOURCE-AL.SR-CONTROL-FLAG:= 'X'
+  STORE SOURCE-AL
+  END OF TRANSACTION
+  IF #TRACING
+    COMPRESS 'Create type=al source record with SR-'
+      'CONTROL-FLAG:'     SOURCE-AL.SR-CONTROL-FLAG
+      'TYPE:'             SOURCE-AL.SR-TYPE
+      'ATTRIBUTES-IDENT:' SOURCE-AL.SR-ATTRIBUTES-IDENT
+      'SPOOL-ATTRIBUTES:' SOURCE-AL.SR-SPOOL-ATTRIBUTES
+      'CC-TYPE:'          SOURCE-AL.SR-CC-TYPE
+      'RECORD-LENGTH:'    SOURCE-AL.SR-RECORD-LENGTH
+      'NUMBER-OF-LINES:'  SOURCE-AL.SR-NUMBER-OF-LINES
+      'MONITOR-ID.'       SOURCE-AL.SR-MONITOR-ID TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+END-IF
+RESET   ORDER.OD-PARAMETER (1)
+ORDER.OD-TYPE                       := OD-CREATE-AR
+ORDER.OD-MONITOR-ID                 := G-MONITOR-ID
+ORDER.OD-USER-ID                    := REPORT.R-USERID
+ORDER.OD-MASTER                     := REPORT.R-REPNAME
+ORDER.OD-SOURCE-ID                  := #TYPE-AL-SOURCE-ID
+ORDER.OD-TIME-CREATED               := *TIMX
+RESET   ORDER.OD-TIME-SCHEDULED
+ORDER.OD-MAX-RETRIES                := #MAX-RETRIES
+ORDER.OD-RETRY-INTERVAL             := #RETRY-INTERVAL
+ORDER.OD-INTERNAL-NODE-ID           := +NOD-CURRENT-INTERNAL-ID
+*
+IF #TRACING
+  COMPRESS 'Write type=al order record OD-'
+    'PARAMETER:'      ORDER.OD-PARAMETER (1)
+    'TYPE:'           ORDER.OD-TYPE
+    'MONITOR-ID:'     ORDER.OD-MONITOR-ID
+    'USER-ID:'        ORDER.OD-USER-ID
+    'MASTER:'         ORDER.OD-MASTER
+    'SOURCE-ID:'      ORDER.OD-SOURCE-ID
+    'TIME-CREATED:'   ORDER.OD-TIME-CREATED
+    'TIME-SCHEDULED:' ORDER.OD-TIME-SCHEDULED
+    'MAX-RETRIES:'    ORDER.OD-MAX-RETRIES
+    'RETRY-INTERVAL:' ORDER.OD-RETRY-INTERVAL TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+STOAL. STORE ORDER
+#LAST-TYPAL-ISN := *ISN (STOAL.)
+END OF TRANSACTION
+*
+END-SUBROUTINE /* WRITE-ORDER-RECORD-AL
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-LOAD-ORDER
+************************************************************************
+IF #TRACING
+  COMPRESS 'Create load order' 'SR-ID:' SOURCE.SR-ID TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+REPEAT
+  CALLNAT 'RMODID-N' ORDER.OD-ID G-NATRP-ERC G-NATRP-ERT
+  UNTIL G-NATRP-ERC NE 3145
+END-REPEAT
+*
+IF G-NATRP-ERC NE 0
+  RESET LG-OBJECT-NAME
+  PERFORM WRITE-ERROR-LOG /*RMSC-C
+  ESCAPE ROUTINE
+END-IF
+*
+RESET   ORDER.OD-PARAMETER (1)
+ORDER.OD-TYPE           := OD-LOAD-SOURCE
+ORDER.OD-MONITOR-ID     := G-MONITOR-ID
+ORDER.OD-USER-ID        := REPORT.R-USERID
+RESET ORDER.OD-DBID ORDER.OD-FNR
+IF #FOUND > 0 AND +NOD-LOCAL-NODE = +NOD-CURRENT-NODE
+  ORDER.OD-IDENT          := G-COPY-IDENT (#FOUND)
+  RESET ORDER.OD-REP-FORMAT
+  ORDER.OD-DBID-N5        := G-COPY-DBID  (#FOUND)
+  ORDER.OD-FNR-N5         := G-COPY-FNR   (#FOUND)
+ELSE
+  ORDER.OD-IDENT        := 'NOM'
+  ORDER.OD-DBID-N5      := G-SCAN-TRIGGER-DBID
+  ORDER.OD-FNR-N5       := G-SCAN-TRIGGER-FNR
+END-IF
+ORDER.OD-SOURCE-ID      := SOURCE.SR-ID
+ORDER.OD-TIME-CREATED   := *TIMX
+ORDER.OD-MAX-RETRIES    := #MAX-RETRIES
+ORDER.OD-RETRY-INTERVAL := #RETRY-INTERVAL
+ORDER.OD-INTERNAL-NODE-ID := +NOD-CURRENT-INTERNAL-ID
+*
+STOOD. STORE ORDER
+#LAST-ORDER-ISN := *ISN (STOOD.)
+END OF TRANSACTION
+*
+END-SUBROUTINE /* CREATE-LOAD-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE START-FIRST-ORDER
+************************************************************************
+IF #LAST-ORDER-ISN GT 0
+  PERFORM START-FIRST-ORDER-GEN1 /*RMSC-C
+END-IF
+IF #LAST-TYPAL-ISN GT 0
+  #LAST-ORDER-ISN := #LAST-TYPAL-ISN
+  PERFORM START-FIRST-ORDER-GEN1 /*RMSC-C
+END-IF
+RESET #LAST-ORDER-ISN #LAST-TYPAL-ISN G-CYCLE-WAS-IDLE
+CALLNAT 'N-WAKEUP' /*Wake up monitor to "create RP" + copy source
+*
+END-SUBROUTINE /* START-FIRST-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+COMPRESS SPOOL-FILE.NODE '/' SPOOL-FILE.JOB-NAME   '/'
+  SPOOL-FILE.JOB-NUMBER '/' SPOOL-FILE.TYPE '/'
+  SPOOL-FILE.DATA-SET TO LG-OBJECT-NAME LEAVING NO
+COMPRESS SPOOL-FILE.NODE '/' SPOOL-FILE.JOB-NAME '/'
+  SPOOL-FILE.JOB-NUMBER '/' SPOOL-FILE.TYPE '/'
+  SPOOL-FILE.DATA-SET TO LG-MSG LEAVING NO
+COMPRESS '1100' LG-MSG TO LG-MSG
+LG-USERID := G-LG-USERID
+LG-CODE   := 'NP'
+CALLNAT 'RLOG' PL-PARMS
+END OF TRANSACTION
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE PREP-SOURCE
+************************************************************************
+IF #TRACING
+  G-TRACE-MSG := 'Prepare source'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+#PREP-SOURCE-CREATE          (#PREP-INDEX) := TRUE
+#PREP-SOURCE-CONTROL-TYPE    (#PREP-INDEX) := #CONTROL-TYPE
+#PREP-SOURCE-CONTROL-IDENT   (#PREP-INDEX) := #CONTROL-IDENT
+#PREP-SOURCE-CONTROL-FLAG    (#PREP-INDEX) := #CONTROL-FLAG
+#PREP-SOURCE-TYPE            (#PREP-INDEX) := #SOURCE-TYPE
+#PREP-SOURCE-ATTR-IDENT      (#PREP-INDEX) := #SOURCE-ATTRIBUTES
+#PREP-SOURCE-SPOOL-ATTR      (#PREP-INDEX) := #SPOOL-ATTRIBUTES
+#PREP-SOURCE-CC-TYPE         (#PREP-INDEX) := #CC-TYPE
+#PREP-SOURCE-RECORD-LENGTH   (#PREP-INDEX) := #RECORD-LENGTH
+#PREP-SOURCE-NUMBER-OF-LINES (#PREP-INDEX) := #NUMBER-OF-LINES
+#PREP-SOURCE-MONITOR-ID      (#PREP-INDEX) := G-MONITOR-ID
+*
+END-SUBROUTINE /* PREP-SOURCE
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-DELAYED-SOURCES
+************************************************************************
+IF #TRACING
+  G-TRACE-MSG := 'Create delayed sources'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+FOR #PREP-INDEX 1 2
+  IF NOT #PREP-SOURCE-CREATE (#PREP-INDEX)
+    ESCAPE TOP
+  END-IF
+  IF #TRACING
+    COMPRESS 'Create delayed sources, index:' #PREP-INDEX
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  #CONTROL-TYPE      := #PREP-SOURCE-CONTROL-TYPE    (#PREP-INDEX)
+  #CONTROL-IDENT     := #PREP-SOURCE-CONTROL-IDENT   (#PREP-INDEX)
+  #CONTROL-FLAG      := #PREP-SOURCE-CONTROL-FLAG    (#PREP-INDEX)
+  #SOURCE-TYPE       := #PREP-SOURCE-TYPE            (#PREP-INDEX)
+  #SOURCE-ATTRIBUTES := #PREP-SOURCE-ATTR-IDENT      (#PREP-INDEX)
+  #SPOOL-ATTRIBUTES  := #PREP-SOURCE-SPOOL-ATTR      (#PREP-INDEX)
+  #CC-TYPE           := #PREP-SOURCE-CC-TYPE         (#PREP-INDEX)
+  #RECORD-LENGTH     := #PREP-SOURCE-RECORD-LENGTH   (#PREP-INDEX)
+  #NUMBER-OF-LINES   := #PREP-SOURCE-NUMBER-OF-LINES (#PREP-INDEX)
+  G-MONITOR-ID       := #PREP-SOURCE-MONITOR-ID      (#PREP-INDEX)
+  IF #PREP-INDEX = 2
+    #QUEUE-ID := #PREP-QUEUE-ID
+  END-IF
+  PERFORM CREATE-SOURCE-RECORD
+  IF #PREP-INDEX = 1
+    #PREP-QUEUE-ID := SOURCE.SR-ID
+  END-IF
+  #PREP-SOURCE-CREATE (#PREP-INDEX) := FALSE
+END-FOR
+*
+END-SUBROUTINE /* CREATE-DELAYED-SOURCES
+*
+************************************************************************
+DEFINE SUBROUTINE RETRY-SPOOL-LATER
+************************************************************************
+IF #TRACING
+  IF #NEW-JOB
+    COMPRESS 'order for process' SPOOL-QUEUE.JOB-NAME
+      SPOOL-QUEUE.JOB-NUMBER '#NEW-JOB=yes' TO G-TRACE-MSG
+  ELSE
+    COMPRESS 'order for process' SPOOL-QUEUE.JOB-NAME
+      SPOOL-QUEUE.JOB-NUMBER '#NEW-JOB=no' TO G-TRACE-MSG
+  END-IF
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+IF #NEW-JOB              /* job not yet processed
+  PERFORM CREATE-DELAYED-SOURCES
+  PERFORM WRITE-JOBQUEUE-ORDER
+END-IF
+#DO-NOT-DELETE-ORDER := TRUE
+*
+END-SUBROUTINE /* RETRY-SPOOL-LATER
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-JOBQUEUE-ORDER
+************************************************************************
+REPEAT
+  CALLNAT 'RMODID-N' ORDER.OD-ID G-NATRP-ERC G-NATRP-ERT
+  UNTIL G-NATRP-ERC NE 3145
+END-REPEAT
+IF #TRACING
+  COMPRESS 'Jobqueue order' SOURCE.SR-ID ORDER.OD-ID TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+IF G-NATRP-ERC NE 0
+  RESET LG-OBJECT-NAME
+  PERFORM WRITE-ERROR-LOG /*RMSC-C
+  ESCAPE ROUTINE
+END-IF
+RESET   ORDER.OD-PARAMETER (1)
+ORDER.OD-TYPE           := OD-JES3-RETRY-SPOOL
+ORDER.OD-MONITOR-ID     := G-MONITOR-ID
+ORDER.OD-SOURCE-ID      := #PREP-QUEUE-ID
+ORDER.OD-TIME-CREATED   := *TIMX
+ORDER.OD-TIME-SCHEDULED := *TIMX
+ORDER.OD-MAX-RETRIES    := #MAX-RETRIES
+ORDER.OD-RETRY-INTERVAL := #RETRY-INTERVAL
+ORDER.OD-INTERNAL-NODE-ID := +NOD-CURRENT-INTERNAL-ID
+STOLOT. STORE ORDER
+#LAST-ORDER-ISN := *ISN (STOLOT.)
+END OF TRANSACTION
+*
+END-SUBROUTINE /* WRITE-JOBQUEUE-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-RETRY-SPOOL-ORDERS
+************************************************************************
+IF #TRACING
+  G-TRACE-MSG := 'Start retry spool'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+#NEW-JOB := FALSE
+RETRY. REPEAT
+  RESET G-NATRP-ERC G-NATRP-ERT G-ORDER-ID G-ORDER-ISN
+  PERFORM GET-NEXT-ORDER
+  IF NOT ORDER-FOUND
+    ESCAPE BOTTOM (RETRY.)
+  END-IF
+  #PREP-QUEUE-ID :=  ORDER.OD-SOURCE-ID
+  DECIDE FOR EVERY CONDITION
+    WHEN G-NATRP-ERC = 0
+      PERFORM READ-SOURCE-ATTRIBUTES
+    WHEN G-NATRP-ERC = 0
+      DECIDE ON FIRST VALUE OF +SPOOL-PARM
+        VALUE 'JES3'
+          PERFORM RETRY-SPOOL-QUEUE
+        NONE VALUE
+          PERFORM RETRY-SPOOL-QUEUE-NEW
+      END-DECIDE
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+  PERFORM UPDATE-CURRENT-ORDER
+  IF G-NATRP-ERC NE 0
+    PERFORM WRITE-ERROR-LOG /*RMSC-C
+  END-IF
+END-REPEAT
+IF #TRACING
+  G-TRACE-MSG := 'End retry spool'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* PROCESS-RETRY-SPOOL-ORDERS
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-CURRENT-ORDER
+************************************************************************
+UPDOD. GET ORDER G-ORDER-ISN
+DECIDE FOR FIRST CONDITION
+  WHEN G-NATRP-ERC = 0 AND NOT #DO-NOT-DELETE-ORDER
+    DELETE (UPDOD.)
+    CALLNAT 'RMPRGOS' OD-ID
+  WHEN #SOURCE-DOES-NOT-EXIST AND NOT #DO-NOT-DELETE-ORDER
+    DELETE (UPDOD.)
+    CALLNAT 'RMPRGOS' OD-ID
+  WHEN NONE
+    OD-TIME-SCHEDULED := *TIMX + #RETRY-TIME
+    UPDATE (UPDOD.)
+END-DECIDE
+END OF TRANSACTION
+*
+END-SUBROUTINE /* UPDATE-CURRENT-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE RETRY-SPOOL-QUEUE
+************************************************************************
+IF #TRACING
+  COMPRESS 'Retry Job: ' #JES-QUEUE-NODE #JES-QUEUE-JOB-NAME
+    #JES-QUEUE-JOB-NUMBER TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+FOR Q = 1 TO 16
+  IF +NOD-CURRENT-JES3-CLASSES (Q) = ' '
+    ESCAPE ROUTINE
+  END-IF
+  FIND SPOOL-QUEUE WITH NODE = #JES-QUEUE-NODE
+  AND JOB-NAME =#JES-QUEUE-JOB-NAME AND JOB-NUMBER=#JES-QUEUE-JOB-NUMBER
+  AND NOM-SYSOUT-CLASS = +NOD-CURRENT-JES3-CLASSES (Q)                /*
+    RESET G-NATRP-ERC G-NATRP-ERT
+    IF SPOOL-QUEUE.ERROR-CODE NE 0
+      COMPRESS #JES-QUEUE-NODE '/' #JES-QUEUE-JOB-NAME '/'
+        #JES-QUEUE-JOB-NUMBER *PROGRAM TO LG-OBJECT-NAME LEAVING NO
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Unable to retry  Job ' LG-OBJECT-NAME
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        SPOOL-QUEUE.ERROR-TEXT
+      G-NATRP-ERC := 0005
+      COMPRESS SPOOL-QUEUE.ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM
+        '/' *LINE TO G-NATRP-ERT
+      PERFORM WRITE-ERROR-LOG /*RMSC-C
+      ESCAPE BOTTOM
+    END-IF
+    IF G-NATRP-ERC = 0
+      #QUEUE-ID := SOURCE.SR-ID
+      PERFORM PROCESS-TEMP-CLASS-ENTRIES
+      ESCAPE BOTTOM
+    END-IF
+  END-FIND
+END-FOR
+*
+END-SUBROUTINE /* RETRY-SPOOL-QUEUE
+*
+************************************************************************
+DEFINE SUBROUTINE RETRY-SPOOL-QUEUE-NEW
+************************************************************************
+IF #TRACING
+  COMPRESS 'Retry Job: ' #JES-QUEUE-NODE #JES-QUEUE-JOB-NAME
+    #JES-QUEUE-JOB-NUMBER TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+FOR Q = 1 TO 16
+  IF +NOD-CURRENT-JES3-CLASSES (Q) = ' '
+    ESCAPE ROUTINE
+  END-IF
+  FIND SPOOL-QUEUE WITH  NODE = #JES-QUEUE-NODE
+  AND JOB-NAME =#JES-QUEUE-JOB-NAME AND JOB-NUMBER=#JES-QUEUE-JOB-NUMBER
+  AND CLASS    = +NOD-CURRENT-JES3-CLASSES (Q)                        /*
+    RESET G-NATRP-ERC G-NATRP-ERT
+    IF SPOOL-QUEUE.ERROR-CODE NE 0
+      COMPRESS #JES-QUEUE-NODE '/' #JES-QUEUE-JOB-NAME '/'
+        #JES-QUEUE-JOB-NUMBER *PROGRAM TO LG-OBJECT-NAME LEAVING NO
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Unable to retry  Job ' LG-OBJECT-NAME
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        SPOOL-QUEUE.ERROR-TEXT
+      G-NATRP-ERC := 0005
+      COMPRESS SPOOL-QUEUE.ERROR-TEXT '/' +NOD-CURRENT-NAME '/'
+        *PROGRAM '/' *LINE TO G-NATRP-ERT
+      PERFORM WRITE-ERROR-LOG /*RMSC-C
+      ESCAPE BOTTOM
+    END-IF
+    IF G-NATRP-ERC = 0
+      #QUEUE-ID := SOURCE.SR-ID
+      PERFORM PROCESS-TEMP-CLASS-ENTRIES
+      ESCAPE BOTTOM
+    END-IF
+  END-FIND
+END-FOR
+*
+END-SUBROUTINE /* RETRY-SPOOL-QUEUE-NEW
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NEXT-ORDER
+************************************************************************
+RESET ORDER-FOUND
+#DO-NOT-DELETE-ORDER := FALSE
+#OD-TYPE             := OD-JES3-RETRY-SPOOL
+RESET #OD-TIME
+*
+FNDOD. READ ORDER BY OD-TYPE-TIME = #OD-TYPE-TIME
+  IF #TRACING
+    COMPRESS 'reading order ---> OD-' 'Source-ID:' OD-TYPE OD-SOURCE-ID
+      'Monitor ID:'     OD-ID OD-MONITOR-ID
+      'Time scheduled:' OD-TIME-SCHEDULED TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  IF OD-TYPE NE #OD-TYPE OR OD-TIME-SCHEDULED  > *TIMX
+    ESCAPE BOTTOM
+  END-IF
+  G-ORDER-ID    := OD-ID
+  G-ORDER-ISN   := *ISN (FNDOD.)
+/*SU 2018-10-11  G-SOURCE-ID   := OD-SOURCE-ID
+  OD-TYPE       := OD-JES3-RETRY-SPOOL-IN-PROCESS
+  OD-MONITOR-ID := G-MONITOR-ID
+  ORDER-FOUND   := TRUE
+  ESCAPE BOTTOM (FNDOD.)
+END-READ
+*
+END-SUBROUTINE /* GET-NEXT-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SOURCE-ATTRIBUTES
+************************************************************************
+RESET #SOURCE-DOES-NOT-EXIST
+FNDSR. FIND SOURCE WITH SR-ID = ORDER.OD-SOURCE-ID
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 0005
+    COMPRESS 'Source not defined for Order' G-ORDER-ID TO G-NATRP-ERT
+    #SOURCE-DOES-NOT-EXIST:= TRUE
+    ESCAPE BOTTOM (FNDSR.)
+  END-NOREC
+  #SOURCE-ATTRIBUTES := SOURCE.SR-ATTRIBUTES-IDENT
+END-FIND
+CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES SOURCE.SR-TYPE
+*
+END-SUBROUTINE /* READ-SOURCE-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE GET-DEST
+************************************************************************
+IF #TRACING
+  COMPRESS 'GD' *DATX *TIMX 'for Job' SPOOL-FILE.JOB-NAME
+    SPOOL-FILE.JOB-NUMBER 'and DS-Key' SPOOL-FILE.DATA-SET-KEY
+    'Destination:' SPOOL-FILE.DESTINATION TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+IF SPOOL-FILE.DESTINATION  NE ' '
+  #DESTINATION := SPOOL-FILE.DESTINATION
+  ESCAPE ROUTINE
+END-IF
+*
+RESET #DESTINATION #RECORD-SUM-SF #RECORD-SUM-SQ
+*
+IF #TRACING
+  COMPRESS 'GD SPOOLF-DEST protocol for' SPOOL-FILE.JOB-NUMBER
+    'and DS-Key' SPOOL-FILE.DATA-SET-KEY TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+FDSPFL. FIND SPOOLF-DEST WITH NODE = SPOOL-FILE.NODE
+AND JOB-NAME   = SPOOL-FILE.JOB-NAME AND CLASS = G-TEMP-CLASS         /*
+AND JOB-NUMBER = SPOOL-FILE.JOB-NUMBER                                /*
+  IF SPOOLF-DEST.ERROR-CODE NE 0 /*SU6
+    PRINT NOTITLE
+      *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T) *LINE
+      SPOOLF-DEST.ERROR-CODE SPOOLF-DEST.ERROR-TEXT
+  END-IF
+  IF SPOOLF-DEST.TYPE = 'JL' OR = 'SI'
+    ESCAPE TOP
+  END-IF
+  #RECORD-SUM-SF := #RECORD-SUM-SF + RECORD-COUNT
+  IF #TRACING
+    COMPRESS SPOOLF-DEST.STEPNAME SPOOLF-DEST.DDNAME
+      SPOOLF-DEST.DATA-SET-KEY SPOOLF-DEST.CLASS
+      'Records:' SPOOLF-DEST.RECORD-COUNT 'Sum:' #RECORD-SUM-SF
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  IF SPOOLF-DEST.DATA-SET-KEY = SPOOL-FILE.DATA-SET-KEY
+    ESCAPE BOTTOM (FDSPFL.)
+  END-IF
+END-FIND
+IF #RECORD-SUM-SF = 0
+  IF #TRACING
+    COMPRESS 'GD SPOOLF-DEST for' SPOOL-FILE.JOB-NUMBER 'not found.'
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  ESCAPE ROUTINE /* nothing found
+END-IF
+IF #TRACING
+  COMPRESS 'GD SPOOLQ-DEST protocol for' SPOOL-FILE.JOB-NUMBER
+    'and DS-Key' SPOOL-FILE.DATA-SET-KEY TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+FDSPQ. FIND SPOOLQ-DEST WITH NODE=SPOOL-FILE.NODE AND CLASS=G-TEMP-CLASS
+AND JOB-NAME = SPOOL-FILE.JOB-NAME AND JOB-NUMBER =SPOOL-FILE.JOB-NUMBER
+  IF SPOOLQ-DEST.ERROR-CODE NE 0 /*SU6
+    PRINT NOTITLE
+      *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T) *LINE
+      SPOOLQ-DEST.ERROR-CODE SPOOLQ-DEST.ERROR-TEXT
+  END-IF
+  #RECORD-SUM-SQ := #RECORD-SUM-SQ + RECORD-COUNT
+  IF #TRACING
+    COMPRESS 'Class:' SPOOLQ-DEST.CLASS 'Dest:' SPOOLQ-DEST.DESTINATION
+      'Records:' SPOOLQ-DEST.RECORD-COUNT 'Sum:' #RECORD-SUM-SQ
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  IF #RECORD-SUM-SQ GE #RECORD-SUM-SF
+    #DESTINATION := SPOOLQ-DEST.DESTINATION
+    IF #TRACING
+      COMPRESS 'GD result for' SPOOL-FILE.JOB-NUMBER
+        'and DS-Key' SPOOL-FILE.DATA-SET-KEY
+        'GD Since rs-sq=' #RECORD-SUM-SQ 'and rs-sf='
+        #RECORD-SUM-SF 'destination is' #DESTINATION TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+    ESCAPE BOTTOM (FDSPQ.)
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* GET-DEST
+*
+INCLUDE RMSC-C ' ' ' ' 'PERFORM HANDLE-IT-SPEC'
+INCLUDE RMSC-C2 /*PROCESS-TRIGGER-QUEUE,PROCESS-NOMPUT-QUEUE
+*
+END

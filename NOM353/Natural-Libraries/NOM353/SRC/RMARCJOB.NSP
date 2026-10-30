@@ -1,0 +1,789 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMARCJOB - Submit Archive Job
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-06-18 s(999999) rewritten
+* mrs 93-06-18 s(999999) old version saved, various modificatins (MVS)
+* mrs 94-05-24 s(999999) BS2000
+* gw  94-10-24 s(999999) log message when no job-number at CLOSE submit
+* gw  95-12-04 s(237389) avoid loop when member doesn't exist
+* gw  96-08-12 s(246571) pass ESYUSER to RJGETVOL
+* gw  96-09-03 s(253511) new var &DAT-YYYY for VSE
+* gw  96-10-22 s(240399) compress '$' G-BS2-USERID to arcdsn if BS2
+* mwi 97-01-27 s(260578) more info if submit fails
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* sju    00-03-02 p(192639) RJARCHIV CMSYNIN card truncated at column 72
+* sju    2000-03-24 p(191368) monitor multitasking
+* xsisgg 00-09-06 CE7265 additional parameters for RMCHKARN to schedule
+*                        archive task from NOP
+* sju     2001-02-20 p(206182) NOMEX008
+* sju     2001-06-11 p(206490) Trace archive errors
+* xsetggr 2001-10-18 p(206311) write NPR error code into error log
+* sju     2002-04-02 p(205358) Archive to disk without volsers
+* fhi     2002-06-13 s(225125) Add email notificaton, NOMEX010
+* sju     2002-08-07 NOM221    User defined archive types
+* fhi     2002-10-30 fhi101    switch on optimizer compiler
+* sju     2004-12-07 NOM31     Tracing
+* sju     2005-02-04 NOM31     NAT00021 instead of CMQ
+* fhi     2005-04-14 NOM3107   Added Support for 7 byte jobnumbers
+* fhi     2005-06-23 p(266530) Make Monitor NPR Mainframe independent
+* xsetggr 2007-05-04 NOM3201   Support 5 byte node number
+* splildav2010-03-10 NOM33    No Submit error if Jobname is set
+* fhi     2010-08-25 NOMALL-853 Monitor Multitasking under Unix
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* fhi     2010-11-05 NOMALL-97  Extend tracing for Unix                 STEM
+* fhi     2010-11-08 NOMALL-95  Improve names of log files              STEM
+* fhi     2010-12-02 NOMALL-929 END TRANSACTION for Unix layer RMSTX--N STEM
+* raya    2011-07-18 NOMALL-981 includ ET for tracing in write-error-log
+* fhi     2011-12-02 NOMALL-1073 Correct condensing for Unix            STEM
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* fhi     2014-03-03 NOMALL-1363 Get cat cate into trace messages
+* SU2     2015-08-20 NOMALL-1690 no changes/only restructured
+* SU3     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* fhi     2016-11-10 NOMALL-1917 use correct node number
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* BLI     2017-09-14 NOMALL-1477 z/OS archive w/o predefined volsers
+* fhi     2018-03-08 NOMALL-1918 Get it on Unix / Correct NPR Logons
+* SU4     2020-04-27 NOMALL-2349 error handling (NPR) + use N-ESYLG
+* SU5     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU6     2024-03-07 ES-34613    NOM 3.6 Remove power / BS2
+* ----------------------------------------------------------------------
+*
+DEFINE DATA GLOBAL USING MONIT-GL
+* *****
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE (L/1:20)
+1 +CMRDC            (A1)
+* *****
+/*SU5 LOCAL USING VMONIT-L
+/*SU5 LOCAL USING VMONITUL
+LOCAL USING VARCIV-L
+LOCAL USING RMJBST-P
+LOCAL USING RMJBSK-A
+LOCAL USING RLOG-L
+LOCAL USING RMDASD-P
+LOCAL USING RMSTX--P
+LOCAL USING VUSARC-L
+* ----------------------------------------------------------------------
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR
+  2 M-MONITOR-ID             (A20)
+  2 M-NATRPT-DBID-N5         (N5)
+  2 M-NATRPT-FNR-N5          (N5)
+1 MF-NODE VIEW OF NRM-MF-NODES
+  2 MF-TYPE                  (A1)
+  2 MF-SYSTEM-TYPE           (A8)
+  2 MF-MONITOR-ID            (A20)
+1 SUBMIT VIEW OF SUBMIT
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 JOB-NUMBER
+  2 JOB-ID
+  2 JOB-NAME
+*
+1 RMCHKARN-PARMS
+  2 P-ARCHIVE-INFO           (1:10)
+    3 P-EXPIRATION-DATE      (A8)
+    3 P-EXPIRATION-DATE-D    (D)
+    3 P-EXPIRATION-DATE-J    (A8)
+    3 P-ARCHIVED             (P10)
+    3 P-ARCHIVE-MARKED       (P10)
+    3 P-ARCHIVE-ERRORS       (P10)
+    3 P-ARCHIVE-IN-USE       (P10)
+  2 P-SCHEDULE-FROM-NOP      (L)
+  2 P-SYSTEM-TYPE            (A8)
+  2 P-NODE                   (N5)
+  2 P-TRACE                  (L)
+1 #LOGON-LINE                (A50)
+1 #JOBCARD                   (A72/1:3)
+1 #DBID                      (N5)
+1 REDEFINE #DBID
+  2 #DBID-A                  (A5)
+1 #FNR                       (N5)
+1 REDEFINE #FNR
+  2 #FNR-A                   (A5)
+1 #CRUN                      (N4)
+1 REDEFINE #CRUN
+  2 #CRUN-A                  (A4)
+1 #PRUN                      (N4)
+1 REDEFINE #PRUN
+  2 #PRUN-A                  (A4)
+1 #SYSNR                     (N3)
+1 REDEFINE #SYSNR
+  2 #SYSNR-A                 (A3)
+1 #DATE                      (A6)
+1 #DATE-YYYY                 (A8)
+1 #EXPDATE                   (A8)
+1 #DSNAME                    (A54)
+1 REDEFINE #DSNAME
+  2 #DSNAME-TAPE             (A17)
+1 #JOB-NUMBER                (A7)
+1 #JOB-NAME                  (A8)
+1 REDEFINE #JOB-NAME
+  2 #J-N                     (A1/1:8)
+1 #JOB-NAME-ENTRY            (I2)
+1 #TEMP-LINE                 (A90)
+1 REDEFINE #TEMP-LINE
+  2 #TEMP-L                  (A1/1:90)
+1 #F                         (P2)
+1 #I                         (P2)
+1 #NODE                      (N5)
+1 REDEFINE #NODE
+  2 #NODE-A                  (A5)
+1 LINE-SUBMITTED             (L)
+1 #STEP                      (I2)
+1 #N                         (I2)
+1 #NCARDS1                   (I2) CONST <5>
+1 #NATCARDS1                 (A72/1:#NCARDS1) INIT
+  (01) <'&NATLOGON                                           '>
+  (02) <'SETNRMLF &DBID &FNR                                 '>
+  (03) <'RJARCHIV &JOBNAME &ESYUSER &NODE &CRUN &PRUN &DSNAME'>
+  (04) <'&EXPDATE &EXIT8 &ARCTYPE'>
+  (05) <'FIN                                                 '>
+*
+1 #NCARDS2                   (I2) CONST <4>
+1 #NATCARDS2                 (A72/1:#NCARDS2) INIT
+  (01) <'&NATLOGON                                           '>
+  (02) <'SETNRMLF &DBID &FNR                                 '>
+  (03) <'RJGETVOL &DSNAME &NODE &ESYUSER &ARCTYPE            '>
+  (04) <'FIN                                                 '>
+1 #LINE-CNT                  (I4)
+/*SU6 1 #DAYS (N10) 1 #L1  (I1) 1 #L2  (I1)
+1 #NOMEX008                  (A1)      INIT <'N'>
+1 DEVICE-NAMES VIEW OF DEVICE-NAMES
+  2 ADDRESS
+  2 ERROR-CODE
+  2 ERROR-TEXT
+1 UNIT-ATTRIBUTES VIEW OF UNIT-ATTRIBUTES
+  2 CLASS
+  2 ERROR-CODE
+  2 ERROR-TEXT
+1 #ARCHIVE-DASD-NOVOLS       (L)
+1 #ARCTYPE-INDEX             (N2)
+1 #USERARC-ID                (A10)  INIT <'USERARC00'>
+1 REDEFINE #USERARC-ID
+  2 #USERARC-FIXED           (A8)
+  2 #USERARC-NUMBER          (N1)
+1 I                          (N3)
+1 #ARCHIVE-EXISTS            (L)
+1 #ARCHIVE-NAME              (A8)   INIT <'Standard'>
+1 #G-NPR-USERID              (A8)
+1 #TRACING                   (L)
+1 #CATDATE                   (A19)
+1 #LIBRARY-ID                (A8)
+1 #CALLER                    (A8) INIT <*PROGRAM>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT (0) LS=133 PS=60
+*
+IF G-TRACE GE *LEVEL
+  #TRACING := TRUE
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS 'Start' *PROGRAM 'cataloged at'  #CATDATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+INCLUDE CMRDC
+RESET G-NATRP-ERC G-NATRP-ERT
+IF +G-NOMEXIT-ACTIVE(8)
+  #NOMEX008:= 'Y'
+END-IF
+*
+SET CONTROL 'Z'                /* clear source area
+#NODE := G-MONITOR-NODE
+PERFORM CHECK-NATURAL-SECURITY
+*
+PERFORM READ-MONITOR-DEFINITION
+IF G-NATRP-ERC NE 0
+  PERFORM WRITE-ERROR-LOG
+  ESCAPE ROUTINE
+END-IF
+/*SU6 -> IF SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN 'BS2'
+/* AND G-NPR-CURRENT-USERID NE G-BS2-USERID
+/*G-NPR-CURRENT-USERID := G-BS2-USERID PERFORM LOGON-TO-ESY
+/*IF G-NATRP-ERC NE 0 PERFORM WRITE-ERROR-LOG
+/*  G-NPR-CURRENT-USERID := G-NPR-USERID PERFORM LOGON-TO-ESY
+/*SU6 <-  ESCAPE ROUTINE END-IF END-IF
+PERFORM GET-EXPIRATION-DATE
+FOR #ARCTYPE-INDEX = 1 TO 10
+  RESET G-NATRP-ERC G-NATRP-ERT #JOBCARD(*) #DSNAME
+  MOVE EDITED P-EXPIRATION-DATE-D(#ARCTYPE-INDEX)
+    (EM=YY'/'JJJ) TO #DATE
+  MOVE EDITED P-EXPIRATION-DATE-D(#ARCTYPE-INDEX)
+    (EM=YYYYMMDD) TO #EXPDATE
+  MOVE EDITED P-EXPIRATION-DATE-D(#ARCTYPE-INDEX)
+    (EM=YYYY'/'JJJ) TO #DATE-YYYY
+  #USERARC-NUMBER:= #ARCTYPE-INDEX - 1
+  #ARCHIVE-EXISTS:= TRUE
+  IF #USERARC-NUMBER GT 0
+    FIND NRM-USER-DEFINED-ARCHIVE WITH M-MONITOR-ID = #USERARC-ID
+      IF NO RECORDS FOUND
+        IF P-ARCHIVED(#ARCTYPE-INDEX) GT 0
+          WRITE NOTITLE NOHDR *PROGRAM
+            *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+            'User defined archive number' #USERARC-NUMBER 'not defined'
+          G-NATRP-ERC:= 0448
+          PERFORM WRITE-ERROR-LOG
+        END-IF
+        RESET P-ARCHIVED(#ARCTYPE-INDEX) #ARCHIVE-EXISTS
+        ESCAPE BOTTOM
+      END-NOREC
+      #ARCHIVE-NAME:= M-USERARC-NAME
+      #JOBCARD(1:3):= M-USERARC-ARCHIVE-JOBCARDS(1:3)
+    END-FIND
+  END-IF
+  IF P-ARCHIVED(#ARCTYPE-INDEX) = 0 AND #ARCHIVE-EXISTS
+    PERFORM LOG-STATISTICS
+    ESCAPE TOP
+  END-IF
+  IF NOT #ARCHIVE-EXISTS
+    ESCAPE TOP
+  END-IF
+  PERFORM READ-ARCHIVE-DEFINITION
+  IF G-NATRP-ERC NE 0
+    BACKOUT TRANSACTION
+    PERFORM WRITE-ERROR-LOG
+    ESCAPE ROUTINE
+  ELSE
+    END TRANSACTION
+  END-IF
+  IF *MACHINE-CLASS = 'MAINFRAME'
+    PERFORM SUBMIT-ARCHIVE-JOB
+    IF LINE-SUBMITTED AND G-NATRP-ERC = 0
+      PERFORM CLOSE-SUBMIT
+    END-IF
+  ELSE
+    PERFORM START-ARCHIVE-SCRIPT
+  END-IF
+  SET CONTROL 'Z'                /* clear source area
+  IF G-NATRP-ERC = 0
+    PERFORM WRITE-LOG-RECORDS
+    END OF TRANSACTION
+  ELSE
+    BACKOUT TRANSACTION
+    PERFORM WRITE-ERROR-LOG
+  END-IF
+END-FOR
+IF G-NPR-CURRENT-USERID NE G-NPR-USERID
+  G-NPR-CURRENT-USERID := G-NPR-USERID
+  PERFORM LOGON-TO-ESY
+END-IF
+IF #TRACING
+  G-TRACE-MSG := 'End'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SUBMIT-ARCHIVE-JOB /*Mainframe only
+************************************************************************
+RMJBST-ENTRIES := 1
+RMJBST-VAR  (RMJBST-ENTRIES) := '&JOBCARD01'
+RMJBST-TEXT (RMJBST-ENTRIES) := #JOBCARD (1)
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&JOBCARD02'
+RMJBST-TEXT (RMJBST-ENTRIES) := #JOBCARD (2)
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&JOBCARD03'
+RMJBST-TEXT (RMJBST-ENTRIES) := #JOBCARD (3)
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&NODE'
+RMJBST-TEXT (RMJBST-ENTRIES) := #NODE-A
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&DBID'
+RMJBST-TEXT (RMJBST-ENTRIES) := #DBID-A
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&FNR'
+RMJBST-TEXT (RMJBST-ENTRIES) := #FNR-A
+ADD 1 TO RMJBST-ENTRIES
+DECIDE FOR FIRST CONDITION
+  WHEN MF-SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP'
+    RMJBST-TEXT (RMJBST-ENTRIES) :=
+      P-EXPIRATION-DATE-J(#ARCTYPE-INDEX)
+    RMJBST-VAR         (RMJBST-ENTRIES) := '&DATE'
+    PERFORM CHECK-UNIT-TYPE
+/*SU6 ->  WHEN MF-SYSTEM-TYPE = SCAN 'VSE' OR = SCAN 'DOS'
+/*  RMJBST-TEXT (RMJBST-ENTRIES) := #DATE
+/*  RMJBST-VAR         (RMJBST-ENTRIES) := '&DATE'
+/*  RMJBST-ENTRIES := RMJBST-ENTRIES + 1
+/*  RMJBST-TEXT (RMJBST-ENTRIES) := #DATE-YYYY
+/*  RMJBST-VAR         (RMJBST-ENTRIES) := '&DAT-YYYY'
+/*  WHEN MF-SYSTEM-TYPE = SCAN 'BS2'
+/*  #DAYS := P-EXPIRATION-DATE-D(#ARCTYPE-INDEX) - *DATX
+/*  RMJBST-TEXT (RMJBST-ENTRIES) := ABS(#DAYS)
+/*SU6 <-    RMJBST-VAR         (RMJBST-ENTRIES) := '&RETPD'
+  WHEN NONE
+    IGNORE
+END-DECIDE
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&EXPDATE'
+RMJBST-TEXT (RMJBST-ENTRIES) := #EXPDATE
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&SYSNR'
+RMJBST-TEXT (RMJBST-ENTRIES) := #SYSNR-A
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&CRUN'
+RMJBST-TEXT (RMJBST-ENTRIES) := #CRUN-A
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR         (RMJBST-ENTRIES) := '&PRUN'
+RMJBST-TEXT (RMJBST-ENTRIES) := #PRUN-A
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&JOBNAME'
+RMJBST-TEXT (RMJBST-ENTRIES) := 'NOMARC'
+#JOB-NAME-ENTRY := RMJBST-ENTRIES
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&ESYUSER'
+RMJBST-TEXT (RMJBST-ENTRIES) := G-NPR-USERID
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&NATLOGON'
+RMJBST-TEXT (RMJBST-ENTRIES) := #LOGON-LINE
+*
+DECIDE FOR FIRST CONDITION
+  WHEN ARCHIVE-TASK.M-ARCHIVE-STORAGE-CLASS NE ' '
+    ADD 1 TO RMJBST-ENTRIES
+    RMJBST-VAR  (RMJBST-ENTRIES) := '&STORCLAS'
+    RMJBST-TEXT (RMJBST-ENTRIES) := ARCHIVE-TASK.M-ARCHIVE-STORAGE-CLASS
+* BLI 2017-09-14 NOMALL-1477 comment next line
+**  WHEN ARCHIVE-TASK.M-ARCHIVE-VOLSERS (*) NE ' ' OR
+  WHEN ARCHIVE-TASK.M-GDG = 'Y' OR #ARCHIVE-DASD-NOVOLS
+    PERFORM ARCHIVE-TO-DISK
+    IF G-NATRP-ERC NE 0
+      ESCAPE ROUTINE
+    END-IF
+    ADD 1 TO RMJBST-ENTRIES
+    RMJBST-VAR  (RMJBST-ENTRIES) := '&VOLSERS'
+    RMJBST-TEXT (RMJBST-ENTRIES) := RMDASD-VOLSER-STRING
+    ADD 1 TO RMJBST-ENTRIES
+    RMJBST-VAR  (RMJBST-ENTRIES) := '&SPACE'
+    RMJBST-TEXT (RMJBST-ENTRIES) := RMDASD-SPACE-STRING
+    ADD 1 TO RMJBST-ENTRIES
+    RMJBST-VAR  (RMJBST-ENTRIES) := '&UNIT'
+    RMJBST-TEXT (RMJBST-ENTRIES) := ARCHIVE-TASK.M-TAPE-GENERIC
+  WHEN NONE
+    ADD 1 TO RMJBST-ENTRIES
+    RMJBST-VAR  (RMJBST-ENTRIES) := '&TAPE-DSNAME'
+    RMJBST-TEXT (RMJBST-ENTRIES) := #DSNAME-TAPE
+    ADD 1 TO RMJBST-ENTRIES
+    RMJBST-VAR  (RMJBST-ENTRIES) := '&UNIT'
+    RMJBST-TEXT (RMJBST-ENTRIES) := ARCHIVE-TASK.M-TAPE-GENERIC
+END-DECIDE
+*
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&DSNAME'
+RMJBST-TEXT (RMJBST-ENTRIES) := #DSNAME
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&EXIT8'
+RMJBST-TEXT (RMJBST-ENTRIES) := #NOMEX008
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&ARCTYPE'
+RMJBST-TEXT (RMJBST-ENTRIES) := #USERARC-NUMBER
+IF #USERARC-NUMBER GT 0
+  FOR I = 1 TO #MAX-SYMBOLS
+    IF M-USERARC-SYMBOLS(I) = ' '
+      ESCAPE BOTTOM
+    END-IF
+    ADD 1 TO RMJBST-ENTRIES
+    COMPRESS '&' M-USERARC-SYMBOL-NAME(I) TO
+      RMJBST-VAR (RMJBST-ENTRIES) LEAVING NO
+    RMJBST-TEXT(RMJBST-ENTRIES):= M-USERARC-SYMBOL-VALUE(I)
+  END-FOR
+END-IF
+*
+CALLNAT 'RGETLIB' #JCSK-LIBRARY
+COMPRESS #JCSK-LIBRARY 'U' TO #JCSK-LIBRARY LEAVING NO
+IF #ARCTYPE-INDEX = 1
+  #JCSK-MEMBER := 'JARCSKEL'
+ELSE
+  #JCSK-MEMBER := M-USERARC-ARCHIVE-SKEL
+END-IF
+*
+RESET #JCSK-EOF #JCSK-IN-SOURCE #LINE-CNT #STEP LINE-SUBMITTED
+REPEAT
+  ADD 1 TO #LINE-CNT
+  CALLNAT 'RMJBSK-N' #JCSK-PARMS   /* Process JCL Skeleton
+  IF #JCSK-EOF
+    IF #LINE-CNT = 1
+      G-NATRP-ERC := 429
+      PERFORM WRITE-ERROR-LOG
+      G-NATRP-ERC := 117
+    END-IF
+    ESCAPE BOTTOM
+  END-IF
+  IF #JCSK-CARD = SCAN '&EOMNATCARDS'
+    #STEP := #STEP + 1
+    DECIDE ON FIRST #STEP
+      VALUE 1
+        FOR #N = 1 TO #NCARDS1
+          #JCSK-CARD := #NATCARDS1 (#N)
+          PERFORM PROCESS-LINE
+        END-FOR
+      VALUE 2
+        FOR #N = 1 TO #NCARDS2
+          #JCSK-CARD := #NATCARDS2 (#N)
+          PERFORM PROCESS-LINE
+        END-FOR
+      NONE VALUE
+        IGNORE
+    END-DECIDE
+  ELSE
+    PERFORM PROCESS-LINE
+  END-IF
+END-REPEAT
+*
+END-SUBROUTINE /* SUBMIT-ARCHIVE-JOB
+*
+************************************************************************
+DEFINE SUBROUTINE START-ARCHIVE-SCRIPT /*Unix
+************************************************************************
+EXAMINE #DSNAME FOR '..' AND REPLACE WITH '.'
+#G-NPR-USERID := G-NPR-USERID
+IF #G-NPR-USERID = ' '
+  #G-NPR-USERID := 'N'
+END-IF
+RESET STX-TASK-NUMBER    /* NOMALL-853 in
+COMPRESS '$NOMDIR/$NOMVERS/nomarc.bsh' 'RJARCHIV'
+  'NOMARC' #G-NPR-USERID #NODE-A #CRUN-A #PRUN-A #DSNAME
+  #EXPDATE #NOMEX008 #USERARC-NUMBER TO STX-START-SCRIPT
+COMPRESS '$EOM_WORK/' 'nomarc.' #CRUN-A '.stdout' /*NOMALL-95 was '.log'
+  TO STX-LOGFILE  LEAVING NO
+STX-TASK-NAME := 'NOMARC'
+STX-FUNCTION := 'START'
+CALLNAT 'RMSTX--N' STX-PARMS G-TRACE
+END TRANSACTION
+IF STX-ERROR-CODE NE 0
+  PRINT *PROGRAM *DATX *TIMX STX-ERROR-TEXT /*SU4 (AL=70)
+  G-NATRP-ERT := STX-ERROR-CODE
+  G-NATRP-ERC := 1534
+ELSE
+  IF #TRACING
+    COMPRESS ' Archive task started for' #CRUN-A '/' #PRUN-A
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* START-ARCHIVE-SCRIPT
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-LINE
+************************************************************************
+CALLNAT 'RMJBST-N' RMJBST-PARMS #JCSK-CARD
+IF #JCSK-CARD = ' '
+  ESCAPE ROUTINE
+END-IF
+IF NOT LINE-SUBMITTED AND MF-SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP'
+  PERFORM EVALUATE-JOB-NAME
+END-IF
+*
+FIND (1) SUBMIT WITH NODE = G-MONITOR-NODE AND CARD = #JCSK-CARD
+  IF SUBMIT.ERROR-CODE > 0
+    G-NATRP-ERC := 0429
+    G-NATRP-ERT := SUBMIT.ERROR-TEXT
+  END-IF
+  LINE-SUBMITTED := TRUE
+END-FIND
+*
+END-SUBROUTINE /* PROCESS-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-SUBMIT
+************************************************************************
+FIND (1) SUBMIT WITH NODE = G-MONITOR-NODE AND FUNCTION = 'CLOSE'
+  IF SUBMIT.ERROR-CODE > 0 OR
+      (JOB-NUMBER =0 AND JOB-ID =' ' AND JOB-NAME =' ')
+    G-NATRP-ERC := 429
+    G-NATRP-ERT := SUBMIT.ERROR-TEXT
+    ESCAPE BOTTOM
+  END-IF
+/*SU6 IF SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN 'BS2' #JOB-NUMBER := JOB-ID
+/*SU6  ELSE
+  #JOB-NUMBER := JOB-NUMBER
+/*SU6  END-IF
+  IF #TRACING
+    COMPRESS #ARCHIVE-NAME 'archive job submitted:' #JOB-NUMBER
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* CLOSE-SUBMIT
+*
+************************************************************************
+DEFINE SUBROUTINE GET-EXPIRATION-DATE
+************************************************************************
+RESET  P-SCHEDULE-FROM-NOP
+P-SYSTEM-TYPE := SYSTEM-INFO-VIEW.SYSTEM-TYPE
+P-NODE        := G-MONITOR-NODE
+IF #TRACING
+  P-TRACE := TRUE
+ELSE
+  RESET P-TRACE
+END-IF
+CALLNAT 'RMCHKARN' RMCHKARN-PARMS
+*
+END-SUBROUTINE /* GET-EXPIRATION-DATE
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-NATURAL-SECURITY
+************************************************************************
+CALLNAT 'RGETLIB' #LIBRARY-ID
+IF G-NSC-ACTIVE
+  COMPRESS #LIBRARY-ID G-ARC-NSC-USERID G-ARC-NSC-PASSWORD
+    TO #LOGON-LINE
+ELSE
+  COMPRESS 'LOGON' #LIBRARY-ID TO #LOGON-LINE
+END-IF
+*
+END-SUBROUTINE /* CHECK-NATURAL-SECURITY
+*
+************************************************************************
+DEFINE SUBROUTINE READ-MONITOR-DEFINITION
+************************************************************************
+NRM-MONITOR.M-MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+FNDMO. FIND NRM-MONITOR WITH M-MONITOR-ID = NRM-MONITOR.M-MONITOR-ID
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 0448
+    ESCAPE ROUTINE
+  END-NOREC
+  #DBID := M-NATRPT-DBID-N5
+  #FNR  := M-NATRPT-FNR-N5
+END-FIND
+IF *MACHINE-CLASS = 'MAINFRAME'
+/*SU5  RESET NODE-SPOOL-DATA
+  READ(1) MF-NODE BY MF-TYPE-ID = 'MR-'
+  END-READ
+  IF MF-TYPE NE 'M' OR MF-MONITOR-ID NE MASK('R-')
+    G-NATRP-ERC := 0448
+    ESCAPE ROUTINE
+  END-IF
+/*SU5 MOVE BY NAME NODE-SPOOL-DATA TO NRM-MONITOR
+END-IF
+*
+END-SUBROUTINE /* READ-MONITOR-DEFINITION
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ARCHIVE-DEFINITION
+************************************************************************
+FNDAR. FIND ARCHIVE-TASK WITH M-MONITOR-ID = 'ARCHIVE'
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 0448
+    ESCAPE BOTTOM (FNDAR.)
+  END-NOREC
+  IF NOT (M-JOBCARD (*) NE ' ') AND *MACHINE-CLASS = 'MAINFRAME'
+    G-NATRP-ERC := 450
+    ESCAPE ROUTINE
+  END-IF
+*
+  #SYSNR := M-ARCHIVE-VSE-SYSNR
+*
+  IF #JOBCARD(1) = ' '
+    #JOBCARD (1:3) := M-JOBCARD (1:3)
+  END-IF
+*
+  #PRUN := M-LAST-ARCHIVE-NO
+  IF M-LAST-ARCHIVE-NO = 9999
+    RESET M-LAST-ARCHIVE-NO
+  END-IF
+  ADD 1 TO  M-LAST-ARCHIVE-NO
+  #CRUN := M-LAST-ARCHIVE-NO
+*
+  COMPRESS M-ARCHIVE-PREFIX '.' 'NOM' #CRUN-A TO #DSNAME LEAVING NO
+  IF #ARCTYPE-INDEX GT 1 AND M-USERARC-PREFIX NE ' '
+    COMPRESS M-USERARC-PREFIX '.' 'NOM' #CRUN-A TO #DSNAME LEAVING NO
+  END-IF
+/*SU6 ->  IF SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN 'BS2'
+/*  EXAMINE #DSNAME      FOR ' ' GIVING LENGTH #L1
+/*  EXAMINE G-BS2-USERID FOR ' ' GIVING LENGTH #L2
+/*  #L1 := #L1 + #L2 + 2
+/*  IF #L1 <= 44              /* length of AD-ARCHIVE-DSNAME
+/*    COMPRESS '$' G-BS2-USERID '.' #DSNAME TO #DSNAME LEAVING NO
+/*  END-IF
+/*Su6 <-  END-IF
+*
+  UPDATE
+END-FIND
+*
+END-SUBROUTINE /* READ-ARCHIVE-DEFINITION
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-ERROR-LOG
+************************************************************************
+LG-USERID := G-LG-USERID
+LG-CODE := 'MO'
+MOVE EDITED G-NATRP-ERC (EM=9999) TO LG-MSG
+DECIDE ON FIRST VALUE OF G-NATRP-ERC
+  VALUE 0429 COMPRESS LG-MSG #ARCHIVE-NAME G-NATRP-ERT TO LG-MSG
+  VALUE 0448 COMPRESS LG-MSG #ARCHIVE-NAME TO LG-MSG
+  NONE VALUE COMPRESS LG-MSG G-NATRP-ERT TO LG-MSG
+END-DECIDE
+CALLNAT 'RLOG' PL-PARMS
+IF #TRACING
+  COMPRESS 'Error  --->' G-NATRP-ERC-A LG-MSG TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+END TRANSACTION
+*
+END-SUBROUTINE /* WRITE-ERROR-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORDS
+************************************************************************
+COMPRESS '(' P-EXPIRATION-DATE-J(#ARCTYPE-INDEX) ')'
+  TO LG-MSG LEAVING NO
+COMPRESS P-EXPIRATION-DATE(#ARCTYPE-INDEX) LG-MSG TO LG-MSG
+COMPRESS #ARCHIVE-NAME LG-MSG TO LG-MSG
+COMPRESS '0447' LG-MSG TO LG-MSG
+LG-USERID := G-LG-USERID
+LG-CODE := 'MO'
+CALLNAT 'RLOG' PL-PARMS
+*
+COMPRESS '0419' #JOB-NUMBER #ARCHIVE-NAME TO LG-MSG
+LG-USERID := G-LG-USERID
+LG-CODE := 'MO'
+CALLNAT 'RLOG' PL-PARMS
+END OF TRANSACTION
+*
+RESET G-NATRP-ERC G-NATRP-ERT
+*
+END-SUBROUTINE /* WRITE-LOG-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE LOG-STATISTICS
+************************************************************************
+LG-USERID := G-MONITOR-ID
+LG-CODE := 'MO'
+COMPRESS '0446' #ARCHIVE-NAME TO LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+*
+LG-USERID := G-LG-USERID
+LG-CODE := 'MO'
+COMPRESS '0432' P-ARCHIVE-MARKED(#ARCTYPE-INDEX) #ARCHIVE-NAME TO LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+*
+IF P-ARCHIVE-IN-USE(#ARCTYPE-INDEX) > 0
+  LG-USERID := G-LG-USERID
+  LG-CODE := 'MO'
+  COMPRESS '0434' P-ARCHIVE-IN-USE(#ARCTYPE-INDEX) #ARCHIVE-NAME
+    TO LG-MSG
+  CALLNAT 'RLOG' PL-PARMS
+END-IF
+IF P-ARCHIVE-ERRORS(#ARCTYPE-INDEX) > 0
+  LG-USERID := G-LG-USERID
+  LG-CODE := 'MO'
+  COMPRESS '0435' P-ARCHIVE-ERRORS(#ARCTYPE-INDEX) #ARCHIVE-NAME
+    TO LG-MSG
+  CALLNAT 'RLOG' PL-PARMS
+END-IF
+*
+END TRANSACTION
+*
+END-SUBROUTINE /* LOG-STATISTICS
+*
+************************************************************************
+DEFINE SUBROUTINE EVALUATE-JOB-NAME
+************************************************************************
+#TEMP-LINE := #JCSK-CARD
+IF #TEMP-LINE = MASK ('//')
+  RESET #TEMP-L (1:2)
+END-IF
+MOVE LEFT #TEMP-LINE TO #TEMP-LINE
+#F := #I := 1
+REPEAT UNTIL #I > 8 OR #TEMP-L (#F) = ' ' OR = ','
+  #J-N (#I) := #TEMP-L (#F)
+  ADD 1 TO #I
+  ADD 1 TO #F
+END-REPEAT
+*
+RMJBST-TEXT (#JOB-NAME-ENTRY) := #JOB-NAME
+*
+END-SUBROUTINE /* EVALUATE-JOB-NAME
+*
+************************************************************************
+DEFINE SUBROUTINE ARCHIVE-TO-DISK /*Mainframe only
+************************************************************************
+RMDASD-GENERIC-NAME    := ARCHIVE-TASK.M-TAPE-GENERIC
+RMDASD-NODE            := G-MONITOR-NODE
+RMDASD-ARCHIVE-PREFIX  := ARCHIVE-TASK.M-ARCHIVE-PREFIX
+RMDASD-LAST-ARCHIVE-NO := #CRUN
+RMDASD-GDG             := ARCHIVE-TASK.M-GDG
+* BLI 2017-09-14 NOMALL-1477 comment next line
+** RMDASD-VOLSERS (1:6)   := ARCHIVE-TASK.M-ARCHIVE-VOLSERS (1:6)
+RMDASD-FULLDSNAME      := #DSNAME
+*
+CALLNAT 'RMDASD-N' RMDASD-PARMS
+*
+IF RMDASD-ERC = 0
+  #DSNAME := RMDASD-FULLDSNAME
+ELSE
+  G-NATRP-ERC := RMDASD-ERC
+  COMPRESS 'ARCHIVE-' RMDASD-ERT TO G-NATRP-ERT LEAVING NO
+  EXAMINE G-NATRP-ERT FOR ' ' REPLACE H'00' /* so variable replacement
+/* includes the whole message, not just the message code
+END-IF
+*
+END-SUBROUTINE /* ARCHIVE-TO-DISK
+*
+************************************************************************
+DEFINE SUBROUTINE LOGON-TO-ESY
+************************************************************************
+IF G-MONITOR-NODE = 0
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'N-ESYLG' 1X G-MONITOR-NODE G-NPR-CURRENT-USERID #CALLER
+  G-NATRP-ERC G-NATRP-ERT 1X
+PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG /*???? SU4
+IF G-NATRP-ERC NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Error logging on to ESY ' G-NPR-CURRENT-USERID G-NATRP-ERC
+  G-NATRP-ERC := 1534 /*SAT error :1: occured.
+  RESET G-NPR-CURRENT-USERID
+END-IF
+*
+END-SUBROUTINE /* LOGON-TO-ESY
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-UNIT-TYPE /*Mainframe only
+************************************************************************
+RESET #ARCHIVE-DASD-NOVOLS
+IF ARCHIVE-TASK.M-ARCHIVE-STORAGE-CLASS NE ' '
+* BLI 2017-09-14 NOMALL-1477 comment next line
+**  OR ARCHIVE-TASK.M-ARCHIVE-VOLSERS (*) NE ' '
+OR ARCHIVE-TASK.M-GDG = 'Y'                                           /*
+  ESCAPE ROUTINE
+END-IF
+DN. FIND (1) DEVICE-NAMES WITH NODE = G-MONITOR-NODE
+AND NAME = ARCHIVE-TASK.M-TAPE-GENERIC                                /*
+  IF DN.ERROR-CODE NE 0 /*SU4
+    PRINT (AD=L) *PROGRAM *LINE DN.ERROR-CODE DN.ERROR-TEXT
+      'node=' G-MONITOR-NODE 'name=' ARCHIVE-TASK.M-TAPE-GENERIC      /*
+  END-IF
+  UA. FIND (1) UNIT-ATTRIBUTES WITH NODE = G-MONITOR-NODE
+  AND UNIT-HEX = DEVICE-NAMES.ADDRESS                                 /*
+    IF UA.ERROR-CODE NE 0 /*SU4
+      PRINT (AD=L) *PROGRAM *LINE UA.ERROR-CODE UA.ERROR-TEXT
+      'node=' G-MONITOR-NODE 'name=' ARCHIVE-TASK.M-TAPE-GENERIC      /*
+    END-IF
+    IF UNIT-ATTRIBUTES.CLASS = 'DASD'
+      #ARCHIVE-DASD-NOVOLS:= TRUE
+    END-IF
+  END-FIND
+END-FIND
+*
+END-SUBROUTINE /* CHECK-UNIT-TYPE
+*
+END

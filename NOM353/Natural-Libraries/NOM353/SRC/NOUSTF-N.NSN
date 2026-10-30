@@ -1,0 +1,322 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOUSTF-N - NOM API TRansfer bundles to target environment
+* Input keys: ES-KEY-PARM(1) - transfer parameters
+*
+* Maintenance:
+* XSETGGR 2005-01-29 created
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* xsetggr 2008-10-30 p(309496) err msg if target env not initialized
+* xsetggr 2012-08-16 NOMALL-1145 correct header
+* xsetggr 2012-11-15 NOMALL-89 add grants for default folder
+* CF1     2014-11-12 NOMALL-1528 Improve error stability
+* ------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOXXTF-A
+************************************************************************
+LOCAL USING NOXXTF-L
+LOCAL USING VUSERS-L     /* nrm-users
+LOCAL USING VTUSER-L     /* nrm-migrate-users
+LOCAL USING VTGRAN-L
+LOCAL USING NOUSSL-A
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL                                                      /* CF1 +
+1 NAT23008-PARA
+  2 LFILE-NR           (B1)
+  2 FUNCTION           (A1)     /* 'S'=Set, 'R'=Reset
+  2 DBID               (B2)
+  2 FNR                (B2)
+  2 PASSWORD           (A8)
+  2 CIPHER             (A8)
+  2 VSAM-NAME          (A8)
+  2 DB-TYPE            (A1)
+  2 LFILE-IS-SET       (L)
+  2 RET_CODE           (I4)                               /* CF1 -
+LOCAL
+1 MIGRATE-FOLDER VIEW OF NRM-MIGRATE-FOLDER
+  2 FO-ID
+  2 FO-NAME
+  2 FO-USER-ID
+  2 FO-DESC
+  2 FO-MAP-LAYOUT
+  2 FO-LINKED-FO-ID
+1 MIGRATE-REPORTS VIEW OF NRM-MIGRATE-REPORTS
+1 #LFILE-FIELDS
+  2 LFILE                   (L)
+  2 #LFILE-RC               (I4)             /*  error-code
+  2 #LFILE-OLDDBID          (N5)             /*  old DBID
+  2 #LFILE-OLDFILE          (N5)             /*  old File-Number
+  2 #LFILE-NEWDBID          (N5)             /*  new DBID
+  2 #LFILE-NEWFILE          (N5)             /*  new File-Number
+1 #I2                       (I4)
+1 #IMAX                     (I4)
+1 #E-USER                   (A8)
+1 #USER-S                   (A8)
+1 #FOLDER-NAME              (A70)
+1 #FO-USER-FO-ID            (A10)
+1 REDEFINE #FO-USER-FO-ID
+  2 #FO-USER                (A8)
+  2 #FO-ID                  (B2)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+1 #ES-MSG-TXT               (A58)
+1 #EXIST                    (L)
+1 #ALLOWED                  (L)
+1 #FO-ID-N                  (N5)
+1 REDEFINE #FO-ID-N
+  2 #FO-ID-A                (A5)
+1 #MESSAGE                  (A250)
+1 #MSG-TEXT                 (A79)
+1 #ERRORNUMBER              (N4)
+1 #LANGCODE                 (I1)
+1 #RESPCODE                 (N1)
+1 #FUNC                     (A1)
+1 #LFILE                    (N5) INIT<158>
+/*                                                         /* CF1 -
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+/*COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT/* CF1 +
+  #ERRORNUMBER := *ERROR-NR
+  CALLNAT 'NAT00020' #ERRORNUMBER #LANGCODE #MSG-TEXT #RESPCODE
+  IF #RESPCODE NE 0
+    COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ELSE
+    COMPRESS #ERRORNUMBER #MSG-TEXT TO ES-MSG-TXT
+ END-IF                                                         /* CF1 -
+  ESCAPE ROUTINE /*stop error processing
+*
+END-ERROR
+*
+RESET ES-RC
+#NOUSSL := ES-SELECT
+NOTF-PARM-1 := ES-KEY-PARM(1)
+*
+* Verify input parameters and switch LFILE 158 to target values
+PERFORM SET-LOGICAL-FILE
+/*
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ES-RC := 1
+  ES-MSG-FIELD := #ES-MSG-FIELD
+  COMPRESS '<#ERRORNUMBER' #ERRORNUMBER ':' #MESSAGE '>' TO ES-WORK
+ELSE
+/* Check appropriate objects and perform copy
+  PERFORM LIST
+  RESET #ES-MSG-NR
+  /* Switch LFILE 158 back to former values
+  PERFORM SWITCH-BACK-LFILE
+  IF #ES-MSG-NR NE 0
+    PERFORM GET-MSG-TXT
+    ES-RC := 2
+  END-IF
+END-IF                                                     /* CF1 -
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE LIST
+************************************************************************
+RESET ES-NUMBER ES-OPTION-COUNT ES-STARTINDEX ES-SORTKEY ES-SORTORDER
+  ES-EXPAND NOTF2-LIST(*)
+ES-EOF := 'X'
+#IMAX := 265
+ES-FIELD-COUNT := 2
+IF #NOUSSL.#USER-ID NE ' '
+  EXAMINE #NOUSSL.#USER-ID FOR '*' DELETE
+  COMPRESS #NOUSSL.#USER-ID H'FF' TO #E-USER LEAVING NO
+ELSE
+  #E-USER := H'FF'
+END-IF
+IF ES-NEXT-KEY-PARM(1) > #NOUSSL.#USER-ID
+  #USER-S := ES-NEXT-KEY-PARM(1)
+ELSE
+  #USER-S := #NOUSSL.#USER-ID
+  ES-STARTINDEX := 1
+/* get header texts
+  #ES-MSG-NR := 6115
+  PERFORM GET-MSG-TXT              /* User ID
+  NOTF2-HEADER(1) := LONG-MSG(1)
+  #ES-MSG-NR := 6102
+  PERFORM GET-MSG-TXT              /* message
+  NOTF2-HEADER(2) := LONG-MSG(13)
+END-IF
+R. READ USERS WITH USER-ID STARTING FROM #USER-S ENDING AT #E-USER
+  IF USER-ID > #E-USER
+    ESCAPE BOTTOM(R.)
+  END-IF
+  REJECT IF USER-ID = 'DEFAULT'
+  T. FIND NUMBER MIGRATE-USERS WITH USER-ID = USERS.USER-ID
+  IF *NUMBER(T.) > 0 AND NOTF-OWERWR NE 'Y'
+    #I2 := #I2 + 1
+    IF #I2 > #IMAX
+      ES-NEXT-KEY-PARM(1) := USER-ID
+      ES-NUMBER := #IMAX
+      RESET ES-EOF
+      ESCAPE BOTTOM(R.)
+    ELSE
+      #ES-MSG-NR := 8855                   /* exist
+      PERFORM GET-MSG-TXT
+      NOTF2-MSG(#I2) := SHORT-MSG
+      NOTF2-OBJECT(#I2)    := USERS.USER-ID
+      ES-NUMBER := #I2
+    END-IF
+  ELSE
+    PERFORM COPY-USER
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* LIST
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LOGICAL-FILE                         /* CF1 +
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN NOTF-DBID-TO < 1
+    #ES-MSG-NR := 0635                      /* Invalid DBID
+    #ES-MSG-FIELD-NAME := 'DBID-TO'
+  WHEN NOTF-FNR-TO < 1
+    #ES-MSG-NR :=0636                       /* Invalid FNR
+    #ES-MSG-FIELD-NAME := 'FNR-TO'
+  WHEN NOTF-FNR-TO  = NOTF-FNR-FROM AND
+      NOTF-DBID-TO = NOTF-DBID-FROM
+    #ES-MSG-NR := 4004   /* Source and Target env must be different
+    #ES-MSG-FIELD-NAME := 'DBID-TO'
+  WHEN NONE
+    /*
+    /* Verify if NOM DBID/FNR are valid
+    #FUNC := 'S'
+    #LFILE-NEWDBID := NOTF-DBID-TO
+    #LFILE-NEWFILE := NOTF-FNR-TO
+    CALLNAT 'XXVNOM-N' #FUNC #LFILE #LFILE-NEWDBID #LFILE-NEWFILE
+      #LFILE-OLDDBID #LFILE-OLDFILE
+      #MESSAGE #ERRORNUMBER
+    IF #ERRORNUMBER NE 0
+      #ES-MSG-NR := 4005        /* Specified File is not a NOM-File
+      #ES-MSG-FIELD-NAME := 'DBID-TO'
+      IF #ERRORNUMBER = 3 OR= 4  /* LFILE was switched
+        PERFORM SWITCH-BACK-LFILE
+      END-IF
+    ELSE
+      CALLNAT 'RMIGCHKU' ES-USER #ES-MSG-NR
+      IF #ES-MSG-NR NE 0
+        #ES-MSG-TXT := ES-USER
+        PERFORM SWITCH-BACK-LFILE
+      END-IF
+    END-IF
+END-DECIDE
+*
+END-SUBROUTINE /* SET-LOGICAL-FILE
+*
+************************************************************************
+DEFINE SUBROUTINE SWITCH-BACK-LFILE
+************************************************************************
+IF *MACHINE-CLASS NE 'PC'
+  /* Set LFILE to former values (OLD...)
+  IF #LFILE-OLDDBID = 0 AND #LFILE-OLDFILE = 0
+    NAT23008-PARA.FUNCTION := 'R'    /* Reset LFILE
+  ELSE
+    NAT23008-PARA.FUNCTION := 'S'    /* Set back to former values
+  END-IF
+  /*
+  NAT23008-PARA.LFILE-NR := 158
+  NAT23008-PARA.DBID     := #LFILE-OLDDBID
+  NAT23008-PARA.FNR      := #LFILE-OLDFILE
+  CALLNAT 'NAT23008' NAT23008-PARA
+  /*
+  IF NAT23008-PARA.RET_CODE NE 0
+    COMPRESS 'NAT23008 response code:' NAT23008-PARA.RET_CODE
+      TO #MESSAGE
+    #ES-MSG-NR := 4008       /* Refresh LFile error occured
+    #ES-MSG-TXT := NAT23008-PARA.RET_CODE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SWITCH-BACK-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-USER
+************************************************************************
+FNDT. FIND MIGRATE-USERS WITH USER-ID = USERS.USER-ID
+  IF NO RECORDS FOUND
+    ENTER
+  END-NOREC
+  MOVE BY NAME USERS TO MIGRATE-USERS
+  IF *NUMBER (FNDT.) = 0
+    STORE MIGRATE-USERS
+  ELSE
+    IF NOTF-OWERWR = 'Y'
+      UPDATE (FNDT.)
+    ELSE
+      BACKOUT TRANSACTION
+      ESCAPE BOTTOM(FNDT.)
+    END-IF
+  END-IF
+/* add folder
+  #ES-MSG-NR := 8834      /* Inbasket text
+  PERFORM GET-MSG-TXT
+  #FOLDER-NAME := SHORT-MSG
+  #FO-USER     := USERS.USER-ID
+  #FO-ID       := 1
+  FNDFO. FIND MIGRATE-FOLDER WITH FO-USER-FO-ID = #FO-USER-FO-ID
+    IF NO RECORDS FOUND
+      FO-USER-ID := USERS.USER-ID
+      FO-ID      := 1
+      FO-NAME    := #FOLDER-NAME
+      STORE MIGRATE-FOLDER
+      #FO-ID-N       := 1
+      COMPRESS FO-USER-ID #FO-ID-A TO GR-OBJECT-NAME LEAVING NO
+      GR-OBJECT-TYPE := 'F'
+      GR-USERID      := FO-USER-ID
+      GR-OPTION(*)   := 'Y'
+      STORE MIGRATE-GRANTS
+    END-NOREC
+  END-FIND
+END-FIND
+END TRANSACTION
+*
+END-SUBROUTINE /* COPY-USER
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-TXT   := SHORT-MSG
+ES-MSG-NR    := #ES-MSG-NR
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+END

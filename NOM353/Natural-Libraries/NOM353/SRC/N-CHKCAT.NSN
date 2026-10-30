@@ -1,0 +1,74 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Program  N-CHKCAT
+* Function Check cat-date of given exit against GDA MONIT-GL
+* NOTE: with NOM341 in RJARCUX and RJCONDNS the check on cat-date is
+*       deactivated and NOMCHCKP-CHECK-PROG is used instead to check
+*       existence of exit (see: /*raya nomall-1214 out). No reason
+*       found. So we decided to use the same check for all RJ* programs.
+*
+* Version  3.5
+*
+* MAINTENANCE:
+* User ID yyyy-mm-dd itrac       Comment
+* ------- ---------- ----------- ---------------------------------------
+* SU      2020-05-18 NOMALL-2349 Created from local rout. CHECK-CAT-DATE
+************************************************************************
+*
+DEFINE DATA
+PARAMETER
+1 ERR-NR      (N4)   /*out
+1 ERR-TXT     (A250) /*out
+1 PGM         (A8)   /*in
+1 LIB         (A8)   /*in
+1 CALLER      (A8)   /*in program name of the caller
+1 #CAT-DATE-1 (A10)  /*in/out cat date of GDA -performance
+1 #CAT-DATE-2 (A10)  /*in/out cat date of printer exit pgm - performance
+1 #NO-ET      (A1)   OPTIONAL /*in: NE ' ' means no ET
+************************************************************************
+LOCAL USING XXNATD-L
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ERR-NR ERR-TXT
+IF #CAT-DATE-1 = ' '
+  CALLNAT 'RGETLIB' P-LIBRARY
+/*2020-06-012  LIB := P-LIBRARY /*remember for next call
+  P-MODULE  := 'MONIT-GL'
+  PERFORM XXNATDIR-GETDIR XXNATDIR
+  IF P-ERC EQ 0
+    #CAT-DATE-1 := M-CA-DATE
+  ELSE /*error getting GDA timestamp
+    *ERROR := 999 /*fatal error: MONIT-GL not found -> STOP here
+  END-IF
+END-IF
+IF #CAT-DATE-2 EQ ' '
+  P-LIBRARY := LIB
+  P-MODULE  := PGM
+  PERFORM XXNATDIR-GETDIR XXNATDIR
+  IF P-ERC EQ 0
+    #CAT-DATE-2 := M-CA-DATE
+  ELSE
+    ERR-NR  := 1592 /*User exit :1: not found. To be called by :2:
+    ERR-TXT := PGM
+  END-IF
+  IF ERR-NR = 0 AND #CAT-DATE-1 GT #CAT-DATE-2
+    ERR-NR := 1591 /*User exit :1: must be cataloged.Called by :2:
+  END-IF
+  IF ERR-NR NE 0
+    COMPRESS ERR-NR PGM CALLER TO ERR-TXT
+    PERFORM XXRLOG-WRITE-LOG 'W' ERR-TXT
+    IF (#NO-ET SPECIFIED AND #NO-ET =' ') OR #NO-ET NOT SPECIFIED
+      END TRANSACTION
+    END-IF
+  END-IF
+END-IF
+*
+END

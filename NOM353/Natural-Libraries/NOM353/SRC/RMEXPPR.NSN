@@ -1,0 +1,316 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+************************************************************************
+* RMEXPPR - Export (logical) PRinter
+*
+* Maintenance
+* User  yyyy-mm-dd Issue       Remark
+* ----- ---------------------- -----------------------------------------
+*       2019-02-22 generated   Created from RMXML2LD
+* SU1   2015-09-15 NOMALL-1693 NAT00059(A80)->NAT41002(A253)
+* fhi   2019-02-19 NOMALL-2215 Export not complete
+* BLI   2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU2   2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU3   2021-02-18 NOMALL-2443 restruct+MSG
+* SU4   2021-06-08 NOMALL-2454 remove P-NODE
+* GGS01 2021-07-06 NOMALL-2474 RECAT since RMEXP-C changed
+* SU5   2021-08-18 NOMALL-2467 RMEXPPRL
+*******************************************************************************
+DEFINE DATA
+PARAMETER USING XXUX---P
+PARAMETER USING RMEXP-A
+PARAMETER
+1 #TRACING               (L)
+1 #ID                    (A250) BY VALUE OPTIONAL
+/***********************************************************************
+INDEPENDENT
+1 +ID                    (A/*) DYNAMIC
+1 +ID-INDEX              (I2)
+/***********************************************************************
+/*SU5 LOCAL USING RMEXPPRL
+LOCAL USING RMBAS64P
+LOCAL USING VUXDEF-L
+/*SU2 LOCAL USING VMONITUL /* NOMALL-2215 fhi in
+LOCAL USING N-41002L /*SU1
+/***********************************************************************
+LOCAL
+1 PR VIEW OF NRM-PRINTERS /*SU5 was RMEXPPRL
+  2 P-OBJECT-TYPE       (A10)
+  2 P-OBJECT-TIME       (T)
+  2 P-ID                (A8)
+  2 P-NAME              (A30)
+  2 P-PHYSICAL-NAME     (A8)
+  2 P-LOCATION          (A50)
+  2 P-EXITMEM           (A8)
+  2 P-EXITLIB           (A8)
+  2 P-COPIES            (N3)
+  2 P-PRIORITY          (N3)
+  2 P-JOBCARD           (A72/1:3)
+  2 P-ATTRIBUTES        (A95/1:25)
+  2 REDEFINE P-ATTRIBUTES
+    3 P-ATTR            (1:25)
+      4 P-ATTR-IDENT    (I1)
+      4 P-ATTR-LENGTH   (N2)
+      4 P-ATTR-PROMPT   (N4)
+      4 P-ATTR-VAR      (A16)
+      4 P-ATTR-VALUE    (A72)
+  2 P-CHARS             (A60)
+  2 P-CLASS             (A1)
+  2 P-FORM              (A4)
+  2 P-WRITER            (A8)
+  2 P-DESTINATION       (A8)
+  2 P-FLASH             (A8)
+  2 P-FCB               (A8)
+  2 P-PAGEDEF           (A8)
+  2 P-FORMDEF           (A8)
+  2 P-DSNAME            (A44)
+  2 P-MEMBER            (A8)
+  2 P-VOLSER            (A6)
+  2 P-DISP              (A3)
+  2 P-TAPE-GENERIC      (A8)
+  2 P-JOBNAME           (A72)
+  2 P-LABEL             (A40/1:1)
+  2 P-DCB               (A60/1:2)
+  2 P-LAST-UPDATE       (T)
+  2 P-LAST-UPDATE-USER  (A16)
+1 WRITE-FILE VIEW OF WRITE-FILE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+*
+1 #FIELD                 (A32)
+1 #VALUE                 (A300)
+1 #LEN                   (I4)
+1 #WORK-LINE             (A250)
+1 #FUNCTION              (A10)
+1 #I                     (I4)
+1 #J                     (I4)
+1 #K                     (I4)
+1 #L                     (I4)
+1 #PROGRAM               (A8) INIT <*PROGRAM>
+1 REDEFINE #PROGRAM
+  2 FILLER               5X /*RMEXP
+  2 #TYPE                (A2)
+1 #KEY                   (A100)
+1 #KEY-FROM              (A100)
+1 #KEY-TO                (A100) INIT FULL LENGTH <H'FF'>
+1 #KEY-MASK              (A25)
+/*SU5 1 #KEY-LEN               (I2)
+1 #KEY-LEN2              (I2) CONST <8> /*full len P-ID SU5
+1 #TRACE-MSG             (A250)
+1 #IND                   (I4)
+1 #POS                   (I4)
+1 #DEP                   (A5)
+1 #NODE                  (N5)
+1 #ID-MEMBER             (A) DYNAMIC
+1 #EXPORT-PROG           (A8)
+1 #MASK                  (A300) INIT FULL LENGTH <'P'>
+1 #PRINTABLE             (A300)
+1 #P-OBJECT-TIME         (A21)
+1 #P-LAST-UPDATE         (A21)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM #START
+READ PR BY P-ID = #KEY-FROM THRU #KEY-TO
+  #KEY := P-ID
+  PERFORM HANDLE-MASK
+* Get depending objects:
+  INCLUDE RMLD2XC1 'P-PHYSICAL-NAME' '''RMEXPPH'''
+  INCLUDE RMLD2XC3 'P-ID' '''P''' /*RMEXPGR
+  COMPRESS '<PR depending="' #DEP '">' TO #WORK-LINE LEAVING NO
+  PERFORM WRITE-XML
+  IF #OD-LOG = 'Y'
+    IF #ID SPECIFIED
+      COMPRESS 'Exported: PR */' P-ID TO #TRACE-MSG
+    ELSE
+      COMPRESS 'Exported: PR /' P-ID TO #TRACE-MSG
+    END-IF
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+  MOVE EDITED PR.P-OBJECT-TIME (EM=YYYY'-'MM'-'DD'-'HH':'II':'SS'.'T)
+    TO #P-OBJECT-TIME
+  MOVE EDITED PR.P-LAST-UPDATE (EM=YYYY'-'MM'-'DD'-'HH':'II':'SS'.'T)
+    TO #P-LAST-UPDATE
+  #FIELD := 'P-OBJECT-TYPE'
+  #VALUE :=  PR.P-OBJECT-TYPE
+  PERFORM CONVERT-XML
+  #FIELD := 'P-OBJECT-TIME'
+  #VALUE :=  #P-OBJECT-TIME
+  PERFORM CONVERT-XML
+  #FIELD := 'P-ID'
+  #VALUE :=  PR.P-ID
+  PERFORM CONVERT-XML
+  #FIELD := 'P-NAME'
+  #VALUE :=  PR.P-NAME
+  PERFORM CONVERT-XML
+  #FIELD := 'P-PHYSICAL-NAME'
+  #VALUE :=  PR.P-PHYSICAL-NAME
+  PERFORM CONVERT-XML
+  #FIELD := 'P-LOCATION'
+  #VALUE :=  PR.P-LOCATION
+  PERFORM CONVERT-XML
+  #FIELD := 'P-EXITMEM'
+  #VALUE :=  PR.P-EXITMEM
+  PERFORM CONVERT-XML
+  #FIELD := 'P-EXITLIB'
+  #VALUE :=  PR.P-EXITLIB
+  PERFORM CONVERT-XML
+  #FIELD := 'P-COPIES'
+  #VALUE :=  PR.P-COPIES
+  MOVE LEFT #VALUE TO #VALUE
+  PERFORM CONVERT-XML
+  #FIELD := 'P-PRIORITY'
+  #VALUE :=  PR.P-PRIORITY
+  MOVE LEFT #VALUE TO #VALUE
+  PERFORM CONVERT-XML
+  FOR #L := 3 TO 1 STEP -1
+    IF PR.P-JOBCARD (#L) NE ' '
+      ESCAPE BOTTOM
+    END-IF
+  END-FOR
+  FOR #I = 1 TO #L
+    #FIELD := 'P-JOBCARD'
+    #VALUE :=  PR.P-JOBCARD(#I)
+    PERFORM CONVERT-XML1
+  END-FOR
+  FOR #L := 25 TO 1 STEP -1
+    IF PR.P-ATTR-IDENT (#L) NE 0
+      ESCAPE BOTTOM
+    END-IF
+  END-FOR
+  FOR #I = 1 TO #L
+    #FIELD := 'P-ATTR-IDENT'
+    #VALUE :=  PR.P-ATTR-IDENT(#I)
+    PERFORM CONVERT-XML1
+  END-FOR
+  FOR #L := 25 TO 1 STEP -1
+    IF PR.P-ATTR-LENGTH (#L) NE 0
+      ESCAPE BOTTOM
+    END-IF
+  END-FOR
+  FOR #I = 1 TO #L
+    #FIELD := 'P-ATTR-LENGTH'
+    #VALUE :=  PR.P-ATTR-LENGTH(#I)
+    MOVE LEFT #VALUE TO #VALUE
+    PERFORM CONVERT-XML1
+  END-FOR
+  FOR #L := 25 TO 1 STEP -1
+    IF PR.P-ATTR-PROMPT (#L) NE 0
+      ESCAPE BOTTOM
+    END-IF
+  END-FOR
+  FOR #I = 1 TO #L
+    #FIELD := 'P-ATTR-PROMPT'
+    #VALUE :=  PR.P-ATTR-PROMPT(#I)
+    MOVE LEFT #VALUE TO #VALUE
+    PERFORM CONVERT-XML1
+  END-FOR
+  FOR #L := 25 TO 1 STEP -1
+    IF PR.P-ATTR-VAR (#L) NE ' '
+      ESCAPE BOTTOM
+    END-IF
+  END-FOR
+  FOR #I = 1 TO #L
+    #FIELD := 'P-ATTR-VAR'
+    #VALUE :=  PR.P-ATTR-VAR(#I)
+    PERFORM CONVERT-XML1
+  END-FOR
+  FOR #L := 25 TO 1 STEP -1
+    IF PR.P-ATTR-VALUE (#L) NE ' '
+      ESCAPE BOTTOM
+    END-IF
+  END-FOR
+  FOR #I = 1 TO #L
+    #FIELD := 'P-ATTR-VALUE'
+    #VALUE :=  PR.P-ATTR-VALUE(#I)
+    PERFORM CONVERT-XML1
+  END-FOR
+/*SU4 #FIELD := 'P-NODE' #VALUE :=  PR.P-NODE MOVE LEFT #VALUE TO #VALUE
+/*SU4  PERFORM CONVERT-XML
+  #FIELD := 'P-CHARS'
+  #VALUE :=  PR.P-CHARS
+  PERFORM CONVERT-XML
+  #FIELD := 'P-CLASS'
+  #VALUE :=  PR.P-CLASS
+  PERFORM CONVERT-XML
+  #FIELD := 'P-FORM'
+  #VALUE :=  PR.P-FORM
+  PERFORM CONVERT-XML
+  #FIELD := 'P-WRITER'
+  #VALUE :=  PR.P-WRITER
+  PERFORM CONVERT-XML
+  #FIELD := 'P-DESTINATION'
+  #VALUE :=  PR.P-DESTINATION
+  PERFORM CONVERT-XML
+  #FIELD := 'P-FLASH'
+  #VALUE :=  PR.P-FLASH
+  PERFORM CONVERT-XML
+  #FIELD := 'P-FCB'
+  #VALUE :=  PR.P-FCB
+  PERFORM CONVERT-XML
+  #FIELD := 'P-PAGEDEF'
+  #VALUE :=  PR.P-PAGEDEF
+  PERFORM CONVERT-XML
+  #FIELD := 'P-FORMDEF'
+  #VALUE :=  PR.P-FORMDEF
+  PERFORM CONVERT-XML
+  #FIELD := 'P-DSNAME'
+  #VALUE :=  PR.P-DSNAME
+  PERFORM CONVERT-XML
+  #FIELD := 'P-MEMBER'
+  #VALUE :=  PR.P-MEMBER
+  PERFORM CONVERT-XML
+  #FIELD := 'P-VOLSER'
+  #VALUE :=  PR.P-VOLSER
+  PERFORM CONVERT-XML
+  #FIELD := 'P-DISP'
+  #VALUE :=  PR.P-DISP
+  PERFORM CONVERT-XML
+  #FIELD := 'P-TAPE-GENERIC'
+  #VALUE :=  PR.P-TAPE-GENERIC
+  PERFORM CONVERT-XML
+  #FIELD := 'P-JOBNAME'
+  #VALUE :=  PR.P-JOBNAME
+  PERFORM CONVERT-XML
+  FOR #L := 1 TO 1 STEP -1
+    IF PR.P-LABEL (#L) NE ' '
+      ESCAPE BOTTOM
+    END-IF
+  END-FOR
+  FOR #I = 1 TO #L
+    #FIELD := 'P-LABEL'
+    #VALUE :=  PR.P-LABEL(#I)
+    PERFORM CONVERT-XML1
+  END-FOR
+  FOR #L := 2 TO 1 STEP -1
+    IF PR.P-DCB (#L) NE ' '
+      ESCAPE BOTTOM
+    END-IF
+  END-FOR
+  FOR #I = 1 TO #L
+    #FIELD := 'P-DCB'
+    #VALUE :=  PR.P-DCB(#I)
+    PERFORM CONVERT-XML1
+  END-FOR
+  #FIELD := 'P-LAST-UPDATE'
+  #VALUE :=  #P-LAST-UPDATE
+  PERFORM CONVERT-XML
+  #FIELD := 'P-LAST-UPDATE-USER'
+  #VALUE :=  PR.P-LAST-UPDATE-USER
+  PERFORM CONVERT-XML
+*
+  PERFORM #END-OBJ
+END-READ
+PERFORM #END
+*
+INCLUDE RMEXP-C /*CALL-NPR, WRITE-XML, OPEN-XML, CLOSE-XML, WRITE-XML
+*
+END

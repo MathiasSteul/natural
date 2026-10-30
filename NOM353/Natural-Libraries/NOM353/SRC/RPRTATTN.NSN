@@ -1,0 +1,189 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RPRTATTN - Return value for PO-ATTRIBUTES (n)
+*
+*
+* Creation and Maintenance History
+* uuu yy-mm-dd s(999999) ...
+* gw  93-11-08 s(999999) created
+* gw  94-05-11 s(999999) BS2 attributes
+* gw  94-06-14 s(999999) don't use variables because of sort attributes
+* gw  94-06-24 s(999999) CMASPOOL added
+* mrs 95-08-14 s(230569) lends attribute 'COPIES' from CMASPOOL source
+* mrs 95-09-07 s(231392) make JOB-NAME available for POWER
+* gw  96-05-03 s(240266) NAF copies and various BS2 attributes
+* gw  96-05-07 s(999999) BS2 copies
+* gw  96-07-01 s(999999) NAF form
+* gw  96-07-12 s(999999) POWER Destination
+* gw  96-07-18 s(999999) extended spool attributes bs2
+* JWO 97-05-07 P(162258) set correct SPACE parameter for BS2000
+* mwi 97-06-10 p(162737) spool-attr account-number
+* jvd 99-05-26 p(182583) recat due to changed EOMPHVRE
+* sju     2003-05-20 p(240452) restow for changed EOMPHVRE
+* sju 05-03-16 NOM31     NAT AM=NOM
+* fhi 05-04-21 NOM3107  Support 7-byte job numbers
+* xsetggr 2008-05-05 p(304350) restow due to changes in rmspl--l
+* fhi     2008-03-19 P303121 Don't overlay spool attributes of binary stuff
+* fhi     2009-05-20 N3463   Extend metadata
+* fhi     2010-10-08 NOMALL-97 Use dynamic memory handling
+* xsetggr 2010-11-15 NOMALL-865 restow due to changes in RMFL---P
+* SUÜ     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #SPOOL-ATTR     (A250)
+1 #SPOOL-ATTR-EXT (A750)
+1 #VAR            (A16)
+1 #VALUE          (A72)
+1 #CC-TYPE        (B2)
+************************************************************************
+LOCAL USING RMSPL--L
+LOCAL USING RMSPLA-L
+LOCAL USING RMSR---E
+LOCAL  USING RCCTYP-E
+LOCAL
+1 #I              (I4)
+1 #CHARS          (A16)
+1 REDEFINE #CHARS
+  2 #CHARS-A4     (A4/1:4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#SPOOL-ATTRIBUTES := #SPOOL-ATTR
+IF #SPOOL-TYPE = DIRECT-INPUT
+  ESCAPE ROUTINE
+END-IF
+* fhi 05-04-21 NOM3107 start inserting
+CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+#SPOOL-ATTRIBUTES-EXT     := #SPOOL-ATTR-EXT
+*
+DECIDE ON FIRST VALUE #SPOOL-TYPE
+  VALUE NAF, NAT            PERFORM NAF-ATTRIBUTES
+  VALUE CMASPOOL            PERFORM CMASPOOL-ATTRIBUTES
+  VALUE JES2, JES3          PERFORM JES-ATTRIBUTES
+  VALUE SEQUENTIAL-FILE-BS2 PERFORM BS2000-ATTRIBUTES
+/*SU1  VALUE POWER               PERFORM POWER-ATTRIBUTES
+  NONE  VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE NAF-ATTRIBUTES
+************************************************************************
+DECIDE ON FIRST VALUE #VAR
+  VALUE 'COPIES'             #VALUE := #SPOOL-NAF-COPIES
+  VALUE 'FOR','FORM','FORMS' #VALUE := #SPOOL-NAF-FORM
+  NONE  IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* NAF-ATTRIBUTES
+*
+/*SU1 DEFINE SUBROUTINE POWER-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE CMASPOOL-ATTRIBUTES
+************************************************************************
+DECIDE ON FIRST VALUE #VAR
+  VALUE 'FOR','FORM','FORMS' #VALUE := #SPOOL-CMA-FORMS
+  VALUE 'COPIES' #VALUE := #SPOOL-CMA-COPYS
+  VALUE 'CLA'    #VALUE := #SPOOL-CMA-CLASS
+  VALUE 'FCB'    #VALUE := #SPOOL-CMA-FCB
+  VALUE 'ESF'    #VALUE := #SPOOL-CMA-SID
+  VALUE 'RET'    #VALUE := #SPOOL-CMA-RETAN
+  VALUE 'CHR'    #VALUE := #SPOOL-CMA-CHARS
+  VALUE 'FDF'    #VALUE := #SPOOL-CMA-FORMD
+  VALUE 'LCT'    #VALUE := #SPOOL-CMA-LINCT
+  VALUE 'PDF'    #VALUE := #SPOOL-CMA-PAGED
+  VALUE 'PRM'    #VALUE := #SPOOL-CMA-PRMOD
+  VALUE 'TRC'    #VALUE := #SPOOL-CMA-TRC
+  VALUE 'WTR'    #VALUE := #SPOOL-CMA-WTRNM
+  NONE  IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CMASPOOL-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE JES-ATTRIBUTES
+************************************************************************
+DECIDE ON FIRST VALUE #VAR
+  VALUE 'CHARS'
+    #CHARS := #SPOOL-JES-CHARS
+    IF #CHARS NE ' '
+      #VALUE := '('
+      FOR #I 1 4
+        IF #CHARS-A4 (#I) NE ' '
+          IF #I > 1
+            COMPRESS #VALUE ',' TO #VALUE LEAVING NO
+          END-IF
+          COMPRESS #VALUE #CHARS-A4 (#I) TO #VALUE LEAVING NO
+        END-IF
+      END-FOR
+      COMPRESS #VALUE ')' TO #VALUE LEAVING NO
+    END-IF
+  VALUE 'FOR','FORM','FORMS' #VALUE := #SPOOL-JES-FORM
+  VALUE 'COPIES'             #VALUE := #SPOOL-JES-COPIES
+  VALUE 'JOBNAME'            #VALUE := #SPOOL-JES-JOB-NAME
+  VALUE 'FCB'                #VALUE := #SPOOL-JES-FCB
+  VALUE 'FLASH'              #VALUE := #SPOOL-JES-FLASH
+  VALUE 'FORMDEF'            #VALUE := #SPOOL-JES-FORMDEF
+  VALUE 'PAGEDEF'            #VALUE := #SPOOL-JES-PAGEDEF
+  VALUE 'RECFM'              #VALUE := #SPOOL-JES-RECFM
+  VALUE 'TRC'                #VALUE := #SPOOL-JES-TRC
+  VALUE 'DEST','DESTINATION' #VALUE := #SPOOL-JES-DESTINATION
+  NONE  IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* JES-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE BS2000-ATTRIBUTES
+************************************************************************
+DECIDE ON FIRST VALUE #VAR
+  VALUE 'SPACE'
+    DECIDE ON FIRST VALUE OF #CC-TYPE
+      VALUE BS2000-CC    #VALUE := 'E'
+      VALUE ASA-CODE     #VALUE := 'A'
+      VALUE MACHINE-CODE #VALUE := 'I'
+      VALUE NO-CC        #VALUE := '1'
+      NONE VALUE            /* old logic just in case
+        DECIDE FOR FIRST CONDITION
+          WHEN #SPOOL-BS2-RECFM = SCAN 'A'
+            #VALUE := 'A'          /* asa
+          WHEN #SPOOL-BS2-RECFM = SCAN 'M'
+            #VALUE := 'E'          /* ebcdic
+          WHEN NONE
+            #VALUE := '1'          /* no cc
+        END-DECIDE
+    END-DECIDE
+  VALUE 'ACCOUNT-NUMBER'     #VALUE := #SPOOL-BS2-ACCOUNT-NUMBER
+  VALUE 'COPIES'             #VALUE := #SPOOL-BS2-COPIES
+  VALUE 'CONTROL'            #VALUE := #SPOOL-BS2-CONTROL-OPTION
+  VALUE 'DESTINATION'        #VALUE := #SPOOL-BS2-DESTINATION
+  VALUE 'DIA'                #VALUE := #SPOOL-BS2-DIA
+  VALUE 'FOR','FORM','FORMS' #VALUE := #SPOOL-BS2-FORM
+  VALUE 'ROTATION'           #VALUE := #SPOOL-BS2-ROTATION
+  VALUE 'HEADER'             #VALUE := #SPOOL-BS2-HEADER-LINE
+  VALUE 'PNAME'              #VALUE := #SPOOL-BS2-JOB-NAME
+  VALUE 'TEXT'               #VALUE := #SPOOL-BS2-HEADER-PAGE-TEXT
+  VALUE 'LOOP'               #VALUE := #SPOOL-BS2-LOOP-NAME
+  VALUE 'CHARS'              #VALUE := #SPOOL-BS2-CHAR-SETS
+  VALUE 'FOB'                #VALUE := #SPOOL-BS2-FORM-OVERLAY-BUFFER
+  VALUE 'LINES' MOVE LEFT JUSTIFIED #SPOOL-BS2-LINES-PER-PAGE TO #VALUE
+  VALUE 'CLASS' MOVE LEFT JUSTIFIED #SPOOL-BS2-CLASS          TO #VALUE
+  VALUE 'SHIFT' MOVE LEFT JUSTIFIED #SPOOL-BS2-LEFT-MARGIN    TO #VALUE
+  VALUE 'TRAY'  MOVE LEFT JUSTIFIED #SPOOL-BS2-INPUT-TRAY     TO #VALUE
+  NONE  IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* BS2000-ATTRIBUTES
+*
+END

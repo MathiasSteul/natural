@@ -1,0 +1,647 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    EOMARM-N
+* Version   1.3
+* Function  Maintenance of EOM Object >>> Active Report <<<
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-06-28           created
+* mrs 97-05-27 p(162705) recompiled (changes in eomarm-p)
+* mrs 97-05-27 p(162737) recompiled (changes in eomarm-p)
+* xsetoba 2002-08-14 (CE7553) Default Profile non-defined users
+* xsetggr 2002-10-14          Restore xsetoba changes
+* sju     2002-11-13 p(231843) mail wrong if run number wraps round
+* xsetggr 2003-07-25 p(240465) prevent validation of non-defined userid
+* xsetggr 2003-08-12 p(204583) log deleting of active report
+* xsetggr 2007-05-03 NOM3201   support P11 format run numbers
+* xsetggr 2007-06-06 p(294775) add function read-next, readhold-next
+* xsetggr 2008-05-05 p(304350) restow due to changes in eomarm-p
+* fhi     2009-05-20 N3463     Extend metadata
+* xsetggr 2009-06-17 P318926   do not lose value of EOM-USER
+* xsetggr 2010-02-22 P321493   do not use NOM2119 more
+* xsetggr 2011-10-17 NOMALL-970 implement report flag - print just once
+* xsetggr 2012-06-19 NOMALL-1163 correct validation of retentions
+* xsetggr 2012-06-19 NOMALL-1163 correct validation of retentions
+* fhi     2012-08-22 NOMALL-1004 Add formatting attributes
+* xsetggr 2013-01-22 NOMALL-970 implementation cancelled
+* CF1     2015-07-08 NOMALL-1669 Set unique log types
+* BLI     2016-02-23 NOMALL-1829 Check flags A R L
+* fhi     2016-08-01 NOMALL-1748 Backout Report Formatting
+* SU1     2017-03-07 NOM 3.5: remove unused code
+* SU2     2017-09-26 NOMALL-1823 NOM 3.5: remove CONNECT
+************************************************************************
+DEFINE DATA
+PARAMETER USING EOM----P
+PARAMETER USING EOMARM-P
+PARAMETER USING EOMMSG-P
+* ----------------------------------------------------------------------
+LOCAL USING EOMARM-E
+LOCAL USING EOM----E
+LOCAL USING RLOG-L
+*
+LOCAL
+1 USERS VIEW OF NRM-USERS
+  2 USER-PROFILE
+  2 REDEFINE USER-PROFILE
+    3 PROF-TYPE   (A1)
+1 ACTIVE-REPORT  VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-REPORT-RNB
+  2 AR-CURRENT-LOCATION
+  2 AR-SOURCE-ID
+  2 AR-REVIVE
+  2 AR-ARCHIVE
+  2 AR-REVIVE-EXPIRATION
+  2 AR-EXPIRATION
+1 PRINTERS VIEW OF NRM-PRINTERS
+  2 P-DISP
+1 DR VIEW OF NRM-DATASET-REPORT
+  2 DR-EXPIRATION-DATE
+*
+1 #NOF                       (I2) CONST <5>
+1 #FUNCTION                  (A3/1:#NOF)
+  INIT <'PAC','MAC','ARC','REV','DAC'>
+1 ALLOWED                    (L)
+1 EXIST                      (L)
+1 I                          (I2)
+1 OT                         (I2)
+1 OJ                         (I2)
+1 #GRANTS                    (A1/1:6)
+1 #USER-ID                   (A8)
+1 #OBJECT-NAME               (A25)
+1 #DATE-A8                   (A8)
+*
+1 #AR-REP-RNB                (A31)
+1 REDEFINE #AR-REP-RNB
+  2 #AR-REPNAME              (A25)
+  2 #AR-RNB                  (P11)
+1 SOURCE-EXIST               (L)
+1 #CURRENT-DATE              (A8)
+1 #MSG-NR                    (N4)
+1 #MSG-TXT                   (A250)
+1 GRANTED                    (L)
+1 #ERC                       (N4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET EOMMSG-PARMS
+PERFORM SECURITY-CHECK
+IF EOMMSG-NR NE 0 OR EOMARM-EOF = 'X'
+  ESCAPE ROUTINE
+END-IF
+*
+PERFORM LOGGING-CHECK
+*
+IF EOM-FUNCTION NE EOM-SECURITY-CHECK
+  EOMARM-I-CHECK-FUNCTION := EOM-FUNCTION
+  PERFORM FUNCTION-SECURITY
+  IF EOMMSG-NR NE 0
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-SECURITY-CHECK
+    PERFORM FUNCTION-SECURITY
+  VALUE EOM-READ, EOM-READHOLD, EOM-READ-NEXT, EOM-READHOLD-NEXT
+    PERFORM READ-ACTIVE-REPORT
+  VALUE EOM-DELETE
+    PERFORM DELETE-ACTIVE-REPORT
+  VALUE EOM-MODIFY
+    PERFORM MODIFY-ACTIVE-REPORT-ATTRIBUTES
+  VALUE EOM-PRINT
+    PERFORM PRINT-ACTIVE-REPORT
+  VALUE EOM-COMMIT
+    RESET EOM-LOG-FUNCTION
+    RESET EOM-LOG-OBJECT-NAME
+    END OF TRANSACTION
+  VALUE EOM-BACKOUT
+    RESET EOM-LOG-FUNCTION
+    RESET EOM-LOG-OBJECT-NAME
+    BACKOUT TRANSACTION
+  NONE VALUE
+    EOMMSG-NR := 2600
+END-DECIDE
+IF EOM-LOG AND EOMMSG-NR = 0 AND EOM-FUNCTION = EOM-DELETE
+  EOM-LOG-FUNCTION           := EOM-FUNCTION
+  RESET  EOM-LOG-OBJECT-NAME
+  LG-USERID  := EOM-USER
+  /*LG-CODE  := 'AD'                              /* CF1
+  LG-CODE    := 'AR'                                /* CF1
+  COMPRESS EOMARM-I-NAME '-' EOMARM-I-RNB TO LG-OBJECT-NAME LEAVING NO
+  COMPRESS '2121' LG-OBJECT-NAME TO LG-MSG
+  LG-REPNAME := EOMARM-I-NAME
+  LG-REPRNB  := EOMARM-I-RNB
+  CALLNAT 'RLOG' PL-PARMS
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE LOGGING-CHECK
+************************************************************************
+IF EOM-LOG-OBJTYP = 'AC'
+  ESCAPE ROUTINE
+END-IF
+EOM-OBJTYP := 'AC'
+*
+RESET  EOM-LOGGING
+EOM-LOG-OBJTYP := 'AC'
+IF EOM-LOG-TYPES (*) = 'R'
+  EOM-LOG := TRUE
+END-IF
+*
+END-SUBROUTINE /* LOGGING-CHECK
+*
+************************************************************************
+DEFINE SUBROUTINE SECURITY-CHECK
+************************************************************************
+IF EOM-OBJTYP NE 'AC'
+  IF EOM-USER = ' ' AND EOM-USER-TYPE NE 'A'
+    EOMMSG-NR := 48
+    EOMMSG-FIELD-NAME := 'EOM-USER'
+    ESCAPE ROUTINE
+  END-IF
+  IF EOM-USER-TYPE NE 'A'
+    FNDUS. FIND USERS WITH USER-ID = EOM-USER
+      IF NO RECORDS FOUND
+        IF EOM-DEF-USER NE 'Y'
+          EOMMSG-NR := 2
+          EOMMSG-TOKEN(1) := EOM-USER
+          EOMMSG-FIELD-NAME := 'EOM-USER'
+          ESCAPE ROUTINE
+        ELSE
+          FIND USERS WITH USER-ID = 'DEFAULT'
+            EOM-USER-PROFILE := USER-PROFILE
+            EOM-USER-TYPE := PROF-TYPE
+          END-FIND
+          ESCAPE BOTTOM (FNDUS.)
+        END-IF
+      END-NOREC
+      EOM-USER-PROFILE := USER-PROFILE
+      EOM-USER-TYPE := PROF-TYPE
+    END-FIND
+  END-IF
+  EOM-OBJTYP := 'AC'
+  IF EOM-USER-TYPE = 'A'
+    EOM-OBJTYP-SECURITY (*) := 'Y'
+  ELSE
+    EOM-OBJTYP-SECURITY (*) := 'N'
+    FOR I = 1 TO #NOF
+      CALLNAT 'NARPSEC' EOM-USER-PROFILE #FUNCTION (I) ALLOWED
+      IF ALLOWED
+        EOM-OBJTYP-SECURITY (I) := 'Y'
+        ESCAPE BOTTOM
+      END-IF
+    END-FOR
+  END-IF
+END-IF
+*
+IF NOT (EOM-OBJTYP-SECURITY (*) = 'Y')
+  EOMMSG-NR := 0020
+  ESCAPE ROUTINE
+END-IF
+*
+RESET EOMARM-EOF
+IF EOM-FUNCTION = EOM-READ-NEXT OR = EOM-READHOLD-NEXT
+  IF EOM-FUNCTION = EOM-READ-NEXT AND
+      NOT (EOM-OBJTYP-SECURITY(1:4) = 'Y') OR
+      EOM-FUNCTION = EOM-READHOLD-NEXT AND
+      NOT (EOM-OBJTYP-SECURITY(1:3) = 'Y')
+    EOMMSG-NR := 0020
+    ESCAPE ROUTINE
+  END-IF
+  RESET EOM-OBJECT-NAME EOM-OBJECT-RUN-NUMBER
+  EOMARM-EOF  := 'X'
+  #AR-REPNAME := EOMARM-I-NAME
+  #AR-RNB     := EOMARM-I-RNB
+  ADD 1 TO #AR-RNB
+  READ (1) ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REP-RNB
+    IF EOM-USER-TYPE = 'A'
+      EOM-OBJECT-SECURITY (*) := 'Y'
+    END-IF
+    RESET EOMARM-EOF
+    EOM-OBJECT-NAME := EOMARM-I-NAME := AR-REPNAME
+    EOM-OBJECT-RUN-NUMBER := EOMARM-I-RNB := AR-REPRNB
+    ESCAPE BOTTOM
+  END-READ
+END-IF
+IF EOM-OBJECT-NAME NE EOMARM-I-NAME AND EOMARM-EOF = ' '
+  EOM-OBJECT-NAME := EOMARM-I-NAME
+  EOM-OBJECT-RUN-NUMBER := EOMARM-I-RNB
+  IF EOM-USER-TYPE = 'A'
+    EOM-OBJECT-SECURITY (*) := 'Y'
+  ELSE
+    EOM-OBJECT-SECURITY (*) := EOM-OBJTYP-SECURITY (*)
+  END-IF
+END-IF
+*
+IF EOM-USER-TYPE = 'A' AND EOMARM-EOF = ' '
+  EOM-OBJECT-SECURITY (*) := EOM-OBJTYP-SECURITY (*)
+END-IF
+IF NOT (EOM-OBJECT-SECURITY (*) = 'Y') AND EOMARM-EOF = ' '
+    AND EOMARM-I-NAME NE ' '
+  EOMMSG-NR := 0020
+END-IF
+*
+END-SUBROUTINE /* SECURITY-CHECK
+*
+************************************************************************
+DEFINE SUBROUTINE FUNCTION-SECURITY
+************************************************************************
+EXAMINE EOM-OBJECT-SECURITY (*) FOR 'Y' GIVING INDEX IN OJ
+EXAMINE EOM-OBJTYP-SECURITY (*) FOR 'Y' GIVING INDEX IN OT
+*
+DECIDE ON FIRST EOMARM-I-CHECK-FUNCTION
+  VALUE EOM-SECURITY-CHECK, EOM-COMMIT, EOM-BACKOUT, EOM-PRINT
+    IGNORE
+  VALUE EOM-READHOLD, EOM-READHOLD-NEXT, EOM-MODIFY
+    DECIDE ON FIRST EOMARM-I-ATTRIBUTE-TYPE
+      VALUE ACTIVE-REPORT-ARCHIVE-ATTRIBUTES
+        IF OJ > 3 OR OT > 3
+          EOMMSG-NR := 0020
+        END-IF
+      VALUE ACTIVE-REPORT-REVIVE-ATTRIBUTES
+        IF OJ > 4 OR OT > 4
+          EOMMSG-NR := 0020
+        END-IF
+      NONE VALUE
+        IF OJ > 2 OR OT > 2
+          EOMMSG-NR := 0020
+        END-IF
+    END-DECIDE
+  VALUE EOM-READ, EOM-READ-NEXT
+    IF OJ > 5 OR OT > 5
+      EOMMSG-NR := 0020
+    END-IF
+  VALUE EOM-DELETE
+    IF OJ > 1 OR OT > 1
+      EOMMSG-NR := 0020
+    END-IF
+  NONE VALUE
+    EOMMSG-NR := 2600
+END-DECIDE
+*
+END-SUBROUTINE /* FUNCTION-SECURITY
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-ACTIVE-REPORT-ATTRIBUTES
+************************************************************************
+PERFORM VALIDATE-KEY
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+PERFORM VALIDATION
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+PERFORM ACTIVE-REPORT-ATTRIBUTE-INTERFACE
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* MODIFY-ACTIVE-REPORT-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ACTIVE-REPORT
+************************************************************************
+PERFORM VALIDATE-KEY
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+PERFORM ACTIVE-REPORT-ATTRIBUTE-INTERFACE
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* READ-ACTIVE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-KEY
+************************************************************************
+IF EOMARM-I-NAME = ' '
+  EOMMSG-NR := 0305
+  EOMMSG-FIELD-NAME := 'EOMRPM-I-NAME'
+  ESCAPE ROUTINE
+END-IF
+*
+MOVE LEFT JUSTIFIED EOMARM-I-NAME TO EOMARM-I-NAME
+IF EOMARM-I-NAME NE MASK (P................)
+  EOMMSG-NR := 0019
+  EOMMSG-FIELD-NAME := 'EOMARM-I-NAME'
+  ESCAPE ROUTINE
+END-IF
+*
+IF EOMARM-I-RNB NE MASK(99999)
+  EOMMSG-NR := 0308              /* Enter right run number
+  EOMMSG-FIELD-NAME := 'EOMARM-I-RNB'
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+DECIDE ON FIRST EOMARM-I-ATTRIBUTE-TYPE
+  VALUE ACTIVE-REPORT-GENERAL-ATTRIBUTES
+    PERFORM VALIDATE-GENERAL-ATTRIBUTES
+  VALUE ACTIVE-REPORT-REVIVE-ATTRIBUTES
+    PERFORM VALIDATE-REVIVE-ATTRIBUTES
+  VALUE ACTIVE-REPORT-ARCHIVE-ATTRIBUTES
+    PERFORM VALIDATE-ARCHIVE-ATTRIBUTES
+  NONE  IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-GENERAL-ATTRIBUTES
+************************************************************************
+IF EOMARM-MASTER-OWNER = ' '
+  EOMMSG-NR := 0002
+  EOMMSG-TOKEN (1) := EOMARM-MASTER-OWNER
+  EOMMSG-FIELD-NAME := 'EOMARM-MASTER-OWNER'
+  ESCAPE ROUTINE
+END-IF
+IF EOMARM-I-DEF-OWNER NE 'Y'
+  CALLNAT 'RCHKUS' EOMARM-MASTER-OWNER EXIST
+  IF NOT EXIST
+    EOMMSG-NR := 0002
+    EOMMSG-TOKEN (1) := EOMARM-MASTER-OWNER
+    EOMMSG-FIELD-NAME := 'EOMARM-MASTER-OWNER'
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+IF EOMARM-RET-NUMBER = 0
+AND ( EOMARM-RET-FACTOR NE ' ' OR EOMARM-RET-CALENDAR NE ' ' )        /*
+  EOMMSG-NR := 0415           /* enter ret period
+  EOMMSG-FIELD-NAME := 'EOMARM-RET-NUMBER'
+  ESCAPE ROUTINE
+END-IF
+IF EOMARM-RET-NUMBER > 0
+  CALLNAT 'RCHKRETU' EOMARM-RET-FACTOR #ERC
+  IF #ERC NE 0
+    EOMMSG-NR := 0634    /* invalid retention period
+    EOMMSG-FIELD-NAME := 'EOMARM-RET-FACTOR'
+    ESCAPE ROUTINE
+  END-IF
+  IF EOMARM-RET-CALENDAR > ' '
+    CALLNAT 'RCHKCA' EOMARM-RET-CALENDAR EXIST
+    IF NOT EXIST
+      EOMMSG-NR := 2004
+      EOMMSG-FIELD-NAME := 'EOMARM-RET-CALENDAR'
+      ESCAPE ROUTINE
+    END-IF
+    EOMARM-RET-FACTOR := 'W'
+  END-IF
+  IF NOT (EOMARM-RET-FACTOR = 'W' OR = 'A' OR = 'V' OR = 'M')
+    EOMMSG-NR := 0634                  /* invalid retention period
+    EOMMSG-FIELD-NAME := 'EOMARM-RET-FACTOR'
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+IF EOMARM-RET-FACTOR = 'W'
+  IF EOMARM-RET-CALENDAR = ' '
+    EOMMSG-NR := 2003
+    EOMMSG-FIELD-NAME := 'EOMARM-RET-CALENDAR'
+    ESCAPE ROUTINE
+  END-IF
+ELSE
+  RESET EOMARM-RET-CALENDAR
+END-IF
+*
+IF EOMARM-RET-ACTION = ' ' OR EOMARM-CURRENT-LOCATION = 'A'
+  RESET EOMARM-EXPIRATION-DATE EOMARM-RET-ACTION
+ELSE
+  IF NOT (EOMARM-RET-ACTION = ' ' OR = 'A' OR = 'P')
+    EOMMSG-NR := 1088
+    EOMMSG-FIELD-NAME := 'EOMARM-RET-ACTION'
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+IF EOMARM-EXPIRATION-DATE NE ' '
+  CALLNAT 'IODATE-N' 'V' 'L' #DATE-A8 EOMARM-EXPIRATION-DATE
+    EOM-DATE-FORMAT EOMMSG-NR EOMMSG-TEXT
+  IF EOMMSG-NR NE 0
+    EOMMSG-TOKEN (1) := EOMMSG-TEXT
+    RESET  EOMMSG-TEXT
+    EOMMSG-FIELD-NAME := 'EOMARM-EXPIRATION-DATE'
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* FUNCTION-SECURITY
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-ARCHIVE-ATTRIBUTES
+************************************************************************
+IF EOMARM-ARC-NUMBER = 0 AND EOMARM-ARC-FACTOR NE ' '
+  EOMMSG-NR := 0415           /* enter ret period
+  EOMMSG-FIELD-NAME := 'EOMARM-ARC-NUMBER'
+  ESCAPE ROUTINE
+END-IF
+*
+IF EOMARM-ARC-NUMBER > 0
+  IF NOT (EOMARM-ARC-FACTOR = 'D' OR = 'W' OR = 'M' OR = 'Y')
+    EOMMSG-NR := 1083
+    EOMMSG-FIELD-NAME := 'EOMARM-ARC-FACTOR'
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-ARCHIVE-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-REVIVE-ATTRIBUTES
+************************************************************************
+IF EOMARM-REVIVE = '*'
+  CALLNAT 'IODATE-N' 'V' 'L' #DATE-A8 EOMARM-REV-EXPIRATION
+    EOM-DATE-FORMAT EOMMSG-NR EOMMSG-TEXT
+  IF EOMMSG-NR NE 0
+    EOMMSG-TOKEN (1) := EOMMSG-TEXT
+    RESET  EOMMSG-TEXT
+    EOMMSG-FIELD-NAME := 'EOMARM-REV-EXPIRATION'
+    ESCAPE ROUTINE
+  END-IF
+ELSE
+  RESET EOMARM-REV-EXPIRATION
+END-IF
+*
+/*SU2 IF NOT (EOMARM-REVIVE =' ' OR='*' OR='S' OR='D' OR='C')
+IF NOT (EOMARM-REVIVE =' ' OR='*' OR='S' OR='D') /*SU2
+  EOMMSG-NR := 0465
+  EOMMSG-FIELD-NAME := 'EOMARM-REVIVE'
+  ESCAPE ROUTINE
+END-IF
+*
+IF EOMARM-REV-NUMBER = 0
+AND ( EOMARM-REV-FACTOR NE ' ' OR EOMARM-REV-CALENDAR NE ' ' )        /*
+  EOMMSG-NR := 0415           /* enter ret period
+  EOMMSG-FIELD-NAME := 'EOMARM-REV-NUMBER'
+  ESCAPE ROUTINE
+END-IF
+IF EOMARM-REV-NUMBER > 0
+  CALLNAT 'RCHKRETU' EOMARM-REV-FACTOR #ERC
+  IF #ERC NE 0
+    EOMMSG-NR := 0634    /* invalid retention period
+    EOMMSG-FIELD-NAME := 'EOMARM-REV-FACTOR'
+    ESCAPE ROUTINE
+  END-IF
+  IF EOMARM-REV-CALENDAR > ' '
+    CALLNAT 'RCHKCA' EOMARM-REV-CALENDAR EXIST
+    IF NOT EXIST
+      EOMMSG-NR := 2004
+      EOMMSG-FIELD-NAME := 'EOMARM-REV-CALENDAR'
+      ESCAPE ROUTINE
+    END-IF
+    EOMARM-REV-FACTOR := 'W'
+  END-IF
+  IF NOT (EOMARM-REV-FACTOR = 'W' OR = 'A' OR = 'V' OR = 'M')
+    EOMMSG-NR := 0634
+    EOMMSG-FIELD-NAME := 'EOMARM-REV-FACTOR'
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+IF EOMARM-REV-FACTOR = 'W'
+  IF EOMARM-REV-CALENDAR = ' '
+    EOMMSG-NR := 2003
+    EOMMSG-FIELD-NAME := 'EOMARM-REV-CALENDAR'
+    ESCAPE ROUTINE
+  END-IF
+ELSE
+  RESET EOMARM-REV-CALENDAR
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-REVIVE-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-ACTIVE-REPORT
+************************************************************************
+#AR-REPNAME := EOMARM-I-NAME
+#AR-RNB     := EOMARM-I-RNB
+*
+PERFORM VALIDATE-PRINTER
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+FNDAR. FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REP-RNB
+  SOURCE-EXIST := TRUE
+  IF AR-CURRENT-LOCATION = 'A'               /* BLI NOMALL-1829 start
+    RESET SOURCE-EXIST
+    EOMMSG-NR := 0441                        /* Report already archived.
+    ESCAPE BOTTOM(FNDAR.)
+  ELSE                                       /* BLI NOMALL-1829 end
+    PERFORM CHECK-SOURCE
+    IF NOT SOURCE-EXIST
+      EOMMSG-NR := 0426                /* Report contents not available.
+      ESCAPE BOTTOM(FNDAR.)
+    END-IF
+  END-IF
+END-FIND
+*
+IF EOMMSG-NR = 0
+  CALLNAT 'EOMARMVN' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+END-IF
+*
+END-SUBROUTINE /* PRINT-ACTIVE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-PRINTER
+************************************************************************
+RESET GRANTED
+FNDRP. FIND PRINTERS WITH P-ID = EOMARM-I-PRINTER
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0108
+    EOMMSG-FIELD-NAME := 'EOMARM-I-PRINTER'
+    ESCAPE BOTTOM (FNDRP.)
+  END-NOREC
+END-FIND
+IF EOM-USER-TYPE = 'A'
+  GRANTED := TRUE
+ELSE
+  #OBJECT-NAME := EOMARM-I-PRINTER
+  #USER-ID     := EOM-USER
+  CALLNAT 'RGRANT-N' #USER-ID 'P' #OBJECT-NAME GRANTED #GRANTS(*)
+  IF GRANTED AND PRINTERS.P-DISP = 'Y' AND NOT #GRANTS(*) = 'Y'
+    RESET GRANTED /*restr. usage
+  END-IF
+END-IF
+*
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+IF NOT GRANTED
+  EOMMSG-NR := 1090 /* You are not authorized to use this Printer.
+  EOMMSG-FIELD-NAME := 'EOMARM-I-PRINTER'
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-SOURCE
+************************************************************************
+IF AR-SOURCE-ID = 0
+  ESCAPE ROUTINE
+END-IF
+*
+FIND DR WITH DR-REPORT-RNB = #AR-REP-RNB
+END-FIND
+MOVE EDITED *TIMX (EM=YYYYMMDD) TO #CURRENT-DATE
+IF (AR-REVIVE = '*' AND AR-REVIVE-EXPIRATION > ' '
+AND #CURRENT-DATE > AR-REVIVE-EXPIRATION AND AR-CURRENT-LOCATION = 'D' )
+OR ((AR-ARCHIVE = 'R' OR = 'I') AND DR-EXPIRATION-DATE > ' '          /*
+AND #CURRENT-DATE > DR-EXPIRATION-DATE)                               /*
+OR (AR-EXPIRATION > ' ' AND #CURRENT-DATE > AR-EXPIRATION)            /*
+  RESET SOURCE-EXIST
+END-IF
+*
+RESET SOURCE-EXIST
+CALLNAT 'RMSRCK-N' #MSG-NR #MSG-TXT AR-SOURCE-ID SOURCE-EXIST
+*
+END-SUBROUTINE /* CHECK-SOURCE
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-ACTIVE-REPORT
+************************************************************************
+CALLNAT 'EOMARMVN' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+*
+END-SUBROUTINE /* DELETE-ACTIVE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE ACTIVE-REPORT-ATTRIBUTE-INTERFACE
+************************************************************************
+DECIDE ON FIRST EOMARM-I-ATTRIBUTE-TYPE
+  VALUE ACTIVE-REPORT-GENERAL-ATTRIBUTES
+    CALLNAT 'EOMARMGN' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+  VALUE ACTIVE-REPORT-ARCHIVE-ATTRIBUTES
+    CALLNAT 'EOMARMAN' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+  VALUE ACTIVE-REPORT-REVIVE-ATTRIBUTES
+    CALLNAT 'EOMARMRN' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+  VALUE ACTIVE-REPORT-SPOOL-ATTRIBUTES
+    CALLNAT 'EOMARMSN' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+  NONE  IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* ACTIVE-REPORT-ATTRIBUTE-INTERFACE
+*
+END

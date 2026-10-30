@@ -1,0 +1,175 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RTRARID   check if sysout data set is defined for a report (RMISDEFN)
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* SU1     2020-02-03 NOMALL-2379 Unix files A26 -> A50
+* -------------------------------------------- parameter ---------------
+DEFINE DATA PARAMETER
+1 #P-DATASET-FOUND      (L)
+1 #P-IDENT-FILES        (A/1:10) DYNAMIC BY VALUE RESULT /*SU1 was A26
+1 #P-JOBDSTYPE          (A2)
+1 #P-JOBDSNO            (N5)
+1 #P-JOBDDNAME          (A8)
+1 #P-JOBSTEPNAME        (A8)
+1 #P-JOBPROCNAME        (A8)
+* -------------------------------------------- local -------------------
+LOCAL
+1 I                    (N3)
+1 #DS-SELECTION
+  2 #TDSTYPE          (A30)
+  2 REDEFINE #TDSTYPE
+    3 #TDSTYPE-V      (A1/30)
+  2 #FROM-DSNO        (A5)
+  2 #TO-DSNO          (A5)
+  2 #F-DSNO           (N3/10)
+  2 #T-DSNO           (N3/10)
+  2 #DSTYPES          (A2/10)
+  2 #NOS              (N3)
+  2 #DDNAME-NO        (N3)
+  2 #F-PROC           (A8/10)
+  2 #T-PROC           (A8/10)
+  2 #F-STEP           (A8/10)
+  2 #T-STEP           (A8/10)
+  2 #F-DDNAME         (A8/10)
+  2 #T-DDNAME         (A8/10)
+  2 #FROM-PROC        (A8)
+  2 REDEFINE #FROM-PROC
+    3 #FROM-PROC-V    (A1/8)
+  2 #TO-PROC          (A8)
+  2 REDEFINE #TO-PROC
+    3 #TO-PROC-V      (A1/8)
+  2 #FROM-STEP        (A8)
+  2 REDEFINE #FROM-STEP
+    3 #FROM-STEP-V    (A1/8)
+  2 #TO-STEP          (A8)
+  2 REDEFINE #TO-STEP
+    3 #TO-STEP-V      (A1/8)
+  2 #FROM-DDNAME      (A8)
+  2 REDEFINE #FROM-DDNAME
+    3 #FROM-DDNAME-V  (A1/8)
+  2 #TO-DDNAME        (A8)
+  2 REDEFINE #TO-DDNAME
+    3 #TO-DDNAME-V    (A1/8)
+  2 #NOT              (N3)
+  2 #POS              (N3)
+1 #TN                   (P3)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #DS-SELECTION  #P-DATASET-FOUND
+FOR I 1 TO 10
+  IF #P-IDENT-FILES (I) = ' '
+    ESCAPE BOTTOM
+  END-IF
+  SEPARATE #P-IDENT-FILES(I) LEFT INTO #TDSTYPE #FROM-DSNO #TO-DSNO
+    WITH DELIMITER ' ' GIVING NUMBER IN #NOT
+  IF NOT(#TDSTYPE = 'SM' OR ='SO' OR ='JL' OR ='CC' OR = 'SI')
+    #FROM-DDNAME :=  #TDSTYPE
+    SEPARATE #P-IDENT-FILES(I) LEFT INTO #FROM-PROC #FROM-STEP
+      #FROM-DDNAME WITH DELIMITER '.' GIVING NUMBER IN #TN
+    DECIDE ON FIRST VALUE OF #TN
+      VALUE 1 #FROM-DDNAME := #FROM-PROC
+        #FROM-PROC := #FROM-STEP := '*'
+      VALUE 2 #FROM-DDNAME := #FROM-STEP
+        #FROM-STEP := #FROM-PROC
+        #FROM-PROC := '*'
+      NONE    IGNORE
+    END-DECIDE
+    EXAMINE #FROM-PROC    FOR '*'  GIVING POSITION  IN #POS
+    IF #POS > 0
+      #FROM-PROC-V(#POS : 8) := ' '
+      #TO-PROC := #FROM-PROC
+      #TO-PROC-V(#POS : 8) := H'FF'
+    ELSE
+      #TO-PROC := #FROM-PROC
+    END-IF
+    EXAMINE #FROM-STEP    FOR '*'  GIVING POSITION  IN #POS
+    IF #POS > 0
+      #FROM-STEP-V(#POS : 8) := ' '
+      #TO-STEP := #FROM-STEP
+      #TO-STEP-V(#POS : 8) := H'FF'
+    ELSE
+      #TO-STEP := #FROM-STEP
+    END-IF
+    EXAMINE #FROM-DDNAME  FOR '*'  GIVING POSITION  IN #POS
+    IF #POS > 0
+      #FROM-DDNAME-V(#POS : 8) := ' '
+      #TO-DDNAME := #FROM-DDNAME
+      #TO-DDNAME-V(#POS : 8) := H'FF'
+    ELSE
+      #TO-DDNAME := #FROM-DDNAME
+    END-IF
+    ADD 1 TO #DDNAME-NO
+    #F-PROC(#DDNAME-NO) := #FROM-PROC
+    #T-PROC(#DDNAME-NO) := #TO-PROC
+    #F-STEP(#DDNAME-NO) := #FROM-STEP
+    #T-STEP(#DDNAME-NO) := #TO-STEP
+    #F-DDNAME(#DDNAME-NO) := #FROM-DDNAME
+    #T-DDNAME(#DDNAME-NO) := #TO-DDNAME
+  ELSE
+    ADD 1 TO #NOS
+    DECIDE ON FIRST VALUE OF #NOT
+      VALUE 1
+        #F-DSNO(#NOS) := 1
+        #T-DSNO(#NOS) := 99
+      VALUE 2
+        IF #FROM-DSNO IS (N2)
+          #F-DSNO(#NOS) := VAL(#FROM-DSNO)
+          #T-DSNO(#NOS) := #F-DSNO(#NOS)
+        ELSE
+          #F-DSNO(#NOS) := 1
+          #T-DSNO(#NOS) := 99
+        END-IF
+      VALUE 3
+        IF #FROM-DSNO IS (N2) AND #TO-DSNO IS (N2)
+          #F-DSNO(#NOS) := VAL(#FROM-DSNO)
+          #T-DSNO(#NOS) := VAL(#TO-DSNO)
+        ELSE
+          #F-DSNO(#NOS) := 1
+          #T-DSNO(#NOS) := 99
+        END-IF
+      NONE
+        #F-DSNO(#NOS) := 1
+        #T-DSNO(#NOS) := 99
+    END-DECIDE
+    #DSTYPES(#NOS) := #TDSTYPE
+  END-IF
+END-FOR
+IF #NOS = 0 AND #DDNAME-NO = 0           /* NO SELECTION PROVIDED
+  #DSTYPES(1) := 'SM'
+  #DSTYPES(2) := 'SO'
+  #NOS := 2
+  #F-DSNO(1:2) := 1
+  #T-DSNO(1:2) := 99
+END-IF
+#P-DATASET-FOUND := FALSE
+FOR I 1 TO 10
+  IF #DSTYPES(I) = ' '
+    ESCAPE BOTTOM
+  END-IF
+  IF #P-JOBDSTYPE =#DSTYPES(I) AND #P-JOBDSNO=#F-DSNO(I) THRU #T-DSNO(I)
+    #P-DATASET-FOUND := TRUE
+    ESCAPE ROUTINE
+  END-IF
+END-FOR
+FOR I 1 TO 10
+  IF #T-DDNAME(I) = ' '
+    ESCAPE BOTTOM
+  END-IF
+  IF #P-JOBDDNAME = #F-DDNAME(I) THRU #T-DDNAME(I)
+  AND #P-JOBPROCNAME = #F-PROC(I) THRU #T-PROC(I)                     /*
+  AND #P-JOBSTEPNAME = #F-STEP(I) THRU #T-STEP(I)                     /*
+    #P-DATASET-FOUND := TRUE
+    ESCAPE ROUTINE
+  END-IF
+END-FOR
+END

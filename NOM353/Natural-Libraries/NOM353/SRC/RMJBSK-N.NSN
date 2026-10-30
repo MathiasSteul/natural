@@ -1,0 +1,229 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member       RMJBSK-N
+* Version      1.3
+* Function     Process JCL Skeleton
+*
+*              JCL skeleton is read from text member and written
+*              to the source area.
+*              From there it is retrieved as whole or in part.
+*
+* Creation and Maintenance History
+* uuu yy-mm-dd s(999999) ...
+* gw  93-02-22           created
+* gw  95-12-04 s(237389) avoid loop when member doesn't exist
+* jvd 99-07-15 s(184155) after get first always do a get next
+* HH 04-12-13 use callnat NATA1100 instead of SYSTEM-FNAT/SYSTEM-FUSER
+* sju 05-02-04 NOM31     NAT00021 instead of CMQ
+* xsetggr 2006-10-20 p(280966) NAT42021 FOR Natural 4.2 and above
+* bli     2012-19-19 NOMALL-94 delete old version checks
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER USING RMJBSK-A
+*
+LOCAL USING NAD-MSG   /* Data for message exchange
+LOCAL USING NAD-FLD   /* Description of the field in error
+*
+LOCAL
+1 NADA1100
+  2 OBJEKT-KEY
+    3 DBID           (N5)
+    3 FNR            (N5)
+    3 PASSWORD       (A8)
+    3 CIPHERCODE     (N8)
+    3 OBJECT-CLASS   (I1)
+    3 LIBRARY        (A8)
+    3 OBJECT-NAME    (A32)
+    3 OBJECT-TYPE    (A2)
+    3 OBJECT-KIND    (A1)
+*
+  2 INPUTS
+    3 OPT-ACCESS     (A1)
+    3 OPT-ET         (L)
+    3 OPT-REPLACE    (A1)
+    3 OPT-LINE-NUM   (A1)
+    3 OPT-STEPLIBS   (L)
+    3 OPT-REDEF-DIR  (L)
+    3 OPT-STREAM     (A1)
+    3 OPT-AMOUNT     (I2)
+    3 OPT-LINESIZE   (I2)
+/*
+  2 INPUT-OUTPUTS
+    3 INT-HANDLE     (I4)
+    3 NEXT-SEQ       (I4)
+    3 NEXT-NUM       (I2)
+/*
+  2 OUTPUTS                        /* Output for READ, input for WRITE
+    3 RETURNED       (I2)
+    3 SRC-NUM        (I2/1:20)
+    3 SRC-TEXT       (A1/1:20,1:92)
+    3 REDEFINE SRC-TEXT
+      4 SRC-GROUP    (1:20)
+        5 SRC-LINE   (A92)
+    3 SRC-SEQ        (I4/1:20)
+    3 SRC-LONG       (A1/1:20)
+*
+1 NATA1100
+  2 VERSION          (I01)     INIT <1>
+  2 V1-NSC-CHECK     (A01)  /* Check against NSC
+1 REDEFINE NATA1100
+  2 EXTENDED-PARMS
+    3 EXTENDED-DATA  (A01/1:2)
+*
+1 #S-SRCID           (A18)
+1 REDEFINE #S-SRCID
+  2 #S-LIB           (A8)
+  2 #S-MEMBER        (A8)
+  2 #S-SEQ           (B2)
+*
+1 #E-SRCID           (A18)
+1 REDEFINE #E-SRCID
+  2 #E-LIB           (A8)
+  2 #E-MEMBER        (A8)
+  2 #E-SEQ           (B2)
+*
+1 #WORK-LINE         (A249)
+1 I                  (P3)
+*
+*  PARMS FOR NAT42021
+1 NAT42021-FUNCTION           (A1)
+1 NAT42021-LINE-START         (N5)
+1 NAT42021-LINE-NUMBER        (N2)
+1 NAT42021-SRC-LENGTH         (N3)
+1 NAT42021-SRC-SIZE           (N2)
+1 NAT42021-SRC-RSP            (I4)
+1 NAT42021-SRC-FOUND          (N2)
+1 NAT42021-SRC-LINES          (A1/1,1:250)
+1 REDEFINE NAT42021-SRC-LINES
+  2 NAT42021-SRC-GROUP        (1:1)
+    3 LINE-NUMBERS-42         (B2)
+    3 NAT42021-SOURCE-LINES   (A248)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF NOT #JCSK-IN-SOURCE
+  PERFORM INIT
+  PERFORM WRITE-SKELETON-TO-SOURCE-AREA
+  #JCSK-IN-SOURCE := TRUE
+END-IF
+*
+PERFORM GET-LINE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT
+************************************************************************
+FORMAT (2) LS=250
+DEFINE PRINTER (2) OUTPUT 'SOURCE'
+*
+#S-LIB    := #JCSK-LIBRARY
+#S-MEMBER := #JCSK-LIBRARY
+#S-SEQ    := H'0000'
+#E-SRCID  := #S-SRCID
+#E-SEQ    := H'FFFF'
+*
+SET CONTROL 'Z'
+RESET #JCSK-LINE-NUMBER
+*
+IF #JCSK-START = ' '
+  #JCSK-ACCEPT := TRUE
+END-IF
+*
+LIBRARY       := #JCSK-LIBRARY
+OBJECT-NAME   := #JCSK-MEMBER
+OPT-LINE-NUM  := 'Y'
+OPT-AMOUNT    := 20
+OPT-LINESIZE  := 79
+OPT-STREAM    := 'B'
+V1-NSC-CHECK  := 'Y'
+OPT-ACCESS   := 'O'
+*
+END-SUBROUTINE /* INIT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-SKELETON-TO-SOURCE-AREA
+************************************************************************
+REPEAT
+  CALLNAT 'NATA1100' NADA1100 NATA1100.EXTENDED-PARMS NAD-MSG NAD-FLD
+  OPT-ACCESS := 'R'
+  DECIDE ON FIRST VALUE OF NAD-MSG.MSG-NR
+    VALUE 0, 100   IGNORE
+    NONE VALUE
+      ESCAPE BOTTOM
+  END-DECIDE
+  FOR I = 1 TO RETURNED
+    IF SRC-NUM(I) > 0
+      #WORK-LINE := SRC-LINE (I)
+      WRITE (2) NOTITLE #WORK-LINE
+    END-IF
+  END-FOR
+*
+  IF NAD-MSG.MSG-NR = 100
+    OPT-ACCESS := 'C'
+    CALLNAT 'NATA1100' NADA1100 NATA1100.EXTENDED-PARMS NAD-MSG NAD-FLD
+    ESCAPE BOTTOM    /* EOF
+  END-IF
+END-REPEAT
+*
+END-SUBROUTINE /* WRITE-SKELETON-TO-SOURCE-AREA
+*
+************************************************************************
+DEFINE SUBROUTINE GET-LINE
+************************************************************************
+RESET #JCSK-CARD
+*
+PERFORM READ-SOURCE-42
+*
+END-SUBROUTINE /* GET-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SOURCE-42
+************************************************************************
+NAT42021-FUNCTION    := 'R'
+NAT42021-LINE-NUMBER := 1
+NAT42021-SRC-LENGTH  := 250
+NAT42021-SRC-SIZE    := 1
+REPEAT
+  #JCSK-LINE-NUMBER:= #JCSK-LINE-NUMBER + 1
+  CALLNAT 'NAT42021' NAT42021-FUNCTION #JCSK-LINE-NUMBER
+    NAT42021-LINE-NUMBER NAT42021-SRC-LENGTH NAT42021-SRC-SIZE
+    NAT42021-SRC-RSP NAT42021-SRC-FOUND NAT42021-SRC-LINES(*,*)
+  DECIDE FOR EVERY CONDITION
+    WHEN NAT42021-SRC-RSP = 2
+      #JCSK-EOF := TRUE
+      ESCAPE ROUTINE
+    WHEN NAT42021-SOURCE-LINES(1) = '*/'
+      ESCAPE TOP
+    WHEN NAT42021-SOURCE-LINES(1) = #JCSK-START
+      #JCSK-ACCEPT := TRUE
+      ESCAPE TOP
+    WHEN NAT42021-SOURCE-LINES(1) = #JCSK-END
+      #JCSK-EOF    := TRUE
+      #JCSK-ACCEPT := FALSE
+      #JCSK-LINE-NUMBER:= #JCSK-LINE-NUMBER - 1
+* START AGAIN NEXT TIME FROM THIS RECORD
+      ESCAPE ROUTINE
+    WHEN #JCSK-ACCEPT
+      #JCSK-CARD := NAT42021-SOURCE-LINES(1)
+      ESCAPE ROUTINE
+    WHEN NONE
+      ESCAPE TOP
+  END-DECIDE
+  ESCAPE ROUTINE
+*
+END-REPEAT
+*
+END-SUBROUTINE /* READ-SOURCE-42
+*
+END

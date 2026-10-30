@@ -1,0 +1,773 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RJCONDNS - Condense archive data sets
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  93-11-30 s(999999) cleaned up, old version saved
+* mrs 94-01-05 s(161550) terminate with condition code
+* gw  95-12-12 s(237654) Invalid Volser Info w/Archive DSN              e
+* gw  97-01-13 s(260138) condense returns ESY5510
+* gw  97-02-07 s(260138) use im=f to suppress newpage each input
+* jvd 98-09-14 p(164220) NAT23ÖNOM141
+* jvd 99-06-02 p(182769) increase number of volsers to 20
+* fhi 99-11-12 S(188796) Without NSC steplibs are not set.
+* ws  00-06-15 CE 7588   More information for Archive Data Sets
+* xsisgg 00-07-05 p(195864) add SYSEXT as steplib if NSC is not activ
+* fhi    00-07-26 QA01      add SYSNOMS as steplib if NSC is not active
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* sju     2000-10-16 p(191368) Work with old archive datasets
+* sju 00-11-21 s(999999) Check setting of lfile 131 (SAT log file)
+* xsetggr 2001-12-19 p(209875) add missing steplibs if NSC not active
+* sju     2002-02-25 NOM221    New lfile for active data
+* sju     2002-08-12 NOM221    User defined archive types
+* xsetggr 2003-04-04 p(207596) fill AD-ORIGINAL-REPORT-COUNT
+* sju     2003-06-06 p(241158) Condense doesn't work on VSE
+* fhi     2003-07-23 p(242064) Unify steplib concatentation
+* xsetggr 2003-11-27 p(246658) correct existance check of steplib
+* sju     2005-01-05 p(260660) Nat1305 if more than 32767 reports
+* fhi     2005-06-23 p(266530) Make Monitor NPR Mainframe independent
+* xsetggr 2006-03-07 p(275615) react to ESY5999 error
+* fhi     2007-02-21 FHI211    Get Revive work under Unix
+* xsetggr 2007-05-07 NOM3201   Support 5 byte node numbers
+* fhi     2007-05-30 P297047   Replace RSTEPLIB, old comments deleted
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2007-08-29 NOM3201   Support P11 format run numbers
+* xsetggr 2007-11-19 NRT2766   Correct adding of steplib for userarc
+* fhi     2008-05-07 p(304334) Start of Condense fails under Unix
+* xsetggr 2009-02-24 P300323   make steplib handling unix compliant
+* fhi     2009-02-27 P300323 Rename RGETSTEP to NOMGSTEP deliv.in SYSTEM
+* xsetggr 2010-01-25 P322358 correct record length for id-records
+* fhi     2010-04-16 FHI266  Catall could not stow this moduleÜ
+* fhi     2010-08-31 NOMALL-93 Introduce trace levels
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2011-06-09 NATOS-5134  Avoid NAT0900 at cataloging
+* fhi     2011-11-21 NOMALL-1073 Change READ WORK to decompress 010A
+* fhi     2011-12-02 NOMALL-1073 Correct condensing
+* fhi     2011-12-06 NOMALL-1059 Limit condensing for large archives
+*                                to avoid multivolume datasets. Will be
+*                                an undocumented feature: Enter
+*                                CONDMAX=nnnnnn into a jobcard line of
+*                                the archive defaults definition 8.1.5
+*                                For mainframes only.
+*                                Solution of NOMALL-930 applied partly.
+* raya    2011-12-27 NOMALL-98 check member to avoid err 82
+* raya    2012-02-15 NOMALL-98 remove error 1079 as double
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-07-11 NOMALL-1279 fill fields for Adabas Vista
+* SU3     2014-11-05 NOMALL-1450 fill fields for Adabas Vista
+* SU4     2016-01-18 NOMALL-1802 do not update Adabas Vista fields
+* BLI     2016-04-19 NOMALL-1844 Difference logic-physic expiration
+* BLI     2016-04-27 NOMALL-1844 Sequence in-/out mainframe, Unix
+* SU5     2016-08-10 NOMALL-1814(NOM3.5) remove AdaVista fields
+* BLI     2018-03-20 adapt FHI Design changes: RMTASKID vs. RMGTNODE
+* SU6     2019-11-13 NOMALL-2348 do not cut msg
+* BLI     2020-01-08 NOMALL-2369 physic expiration
+* BLI     2020-03-19 NOMALL-2285 correct AD-ORIGINAL..., no VISTA at all
+* SU7     2020-05-22 NOMALL-2349 several changes
+* SU8     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* BLI1    2022-08-12 NOMALL-2566 correct logical expiration date
+* SU9     2024-03-07 ES-34613    NOM 3.6 Remove power / BS2
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  MONIT-GL
+*
+INDEPENDENT
+LOCAL USING RJ-L
+LOCAL USING VARDSN-L
+LOCAL USING VDSNRP-L
+LOCAL USING RLOG-L
+LOCAL USING CONST-L
+LOCAL USING VARCIV-L
+LOCAL USING SATLGV1P
+LOCAL USING RACTLF-A
+LOCAL USING VUSARC-L
+LOCAL USING NOMUDA-P
+LOCAL USING SAT00009
+LOCAL USING RIDREC-L
+*
+LOCAL
+1 ENVIRONMENT    VIEW  OF  NRM-MONITOR
+/*SU8  2 M-SYSTEM-TYPE
+  2 M-JOBCARD                  (3)
+1 MF-MONITOR-NODE VIEW OF NRM-MF-NODES /*SU8
+/*SU9  2 MF-SYSTEM-TYPE            (A8)
+1 ACT-REP    VIEW  OF  NRM-ACTIVE-REPORTS
+  2 AR-ARCHIVE-DATA-SET
+  2 AR-ARCHIVE-VOLSER          (1:2)
+** 1 AD-VISTA VIEW OF NRM-ARCHIVE-DATASET /*SU5  BLI-NOMALL-2285
+**  2 AD-OBJECT-TYPE
+**  2 AD-OBJECT-TIME
+* *****
+1 #RECORD                      (A253)
+1 REDEFINE    #RECORD
+  2 #I-RECORD-TYPE             (A1) /* 'I' IDENT RECORD, 'T' TEXT       RECORD
+  2 #ARCHIVED-FROM             (A1) /* 'S' SPOOL, 'D' DATABASE
+  2 #DR-REP-RNB-KEY            (A31)
+  2 REDEFINE    #DR-REP-RNB-KEY
+    3 #REPNAME                 (A25)
+    3 #REPRNB                  (P11)
+1 REDEFINE    #RECORD
+  2 #RECORD-V                  (A1/1:252)
+1 #V32-ID-RECORD               (A146)
+1 REDEFINE #V32-ID-RECORD
+  2 #V32-RECORD-TYPE           (A1)
+  2 #V32-ARCHIVED-FROM         (A1)
+  2 #V32-REPNAME               (A25)
+  2 #V32-REPRNB                (P11)
+  2 #V32-JOBNAME               (A8)
+  2 #V32-JOBNO                 (N7)
+  2 #V32-NODE                  (N5)
+  2 #V32-REST                  (A93)
+*
+1 #COPY-IT                     (L) INIT <FALSE>
+1 #EXPIRED                     (I4)
+1 #REP-NO                      (I4)
+* BLI 2016-04-27 NOMALL-1844 added below comments and rename vars
+** 1 #CONDENSE-DSNAME             (A54) /* archive 'source' to be cond.
+** 1 #ARC-DSNAME                  (A44) /* new 'target' archive
+1 #SOURCE-DSNAME               (A54) /* archive 'source' to be condensed
+1 #TARGET-DSNAME               (A44) /* new 'target' archive
+*
+1 #RECLEN                      (I4)
+1 #OLD-DR-REP-RNB-KEY          (A31)
+1 #COUNTER                     (I4)
+1 EOMSYSNR                     (B2)
+/*SU9 1 EOMVOLI (I4) 1 EOMVOLID-LUBS (I4) CONST <40>
+/*SU9 1 EOMVOLID-DATA (A12/1:EOMVOLID-LUBS) 1 REDEFINE EOMVOLID-DATA
+/*SU9   2 EOMVOLID-TAB               (1:EOMVOLID-LUBS)
+/*SU9    3 EOMVOLID-SYSNR           (B2) 3 EOMVOLID-VOLSER          (A6)
+/*SU9    3 EOMVOLID-UNIT-NUMBER     (B2) 3 EOMVOLID-DEVICE-TYPE     (B1)
+/*SU9     3 EOMVOLID-MODE (B1) 1 EOMLUBS (I4)
+/*SU9 1 EOMTFT-LINK (A8) INIT <'W01'> 1 EOMTFT-VSN  (A6)
+1 #FIRST-VOLSER                (A6)
+1 #LAST-VOLSER                 (A6)
+1 #VOLI                        (P2)
+1 #VOLSERS                     (A6/1:20)
+1 #TAPE-DDNAME                 (A8) INIT <'CMWKF01'>
+1 #PHYSICAL-EXPIRATION-DATE    (A8)
+1 #USERARC-ID                  (A10)  INIT <'USERARC00'>
+1 REDEFINE #USERARC-ID
+  2 #USERARC-FIXED             (A8)
+  2 #USERARC-NUMBER            (N1)
+1 #ARCHIVE-NAME                (A8)   INIT <'Standard'>
+1 #ORIG-REP                    (P7)
+1 #UPDATE                      (L)
+1 #CONDNS-RC                   (N4)
+1 #ERROR-CODE                  (N4)
+1 #REPMAX                      (I4)
+1 #SKIP                        (I4)
+1 #OLD-SKIP                    (I4)
+1 #REPMAX-A                    (A50)
+1 #POS                         (I4)
+1 #IND                         (I1)
+1 #TRACING                     (L)
+1 #TRACE-SET                   (A250)
+1 #MONIT-ID                    (A16)
+1 #UPD-ISN                     (P10)   /* BLI-NOMALL-2285
+1 #FUNCTION                    (A10) CONST <'Condenser'>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+* BLI 2016-04-27 NOMALL-1844 use clear names
+* #SOURCE-DSNAME = #CONDENSE-DSNAME = &DSNAMEIN = to be condensed
+* #TARGET-DSNAME = #ARC-DSNAME = &DSNAMEOUT = new 'target' archive ds
+*
+IF *MACHINE-CLASS = 'MAINFRAME'
+  INPUT G-MONITOR-JOBNAME / G-MONITOR-NODE
+**  / #CONDENSE-DSNAME / #ARC-DSNAME   /* BLI 2016-04-27 NOMALL-1844 out
+    / #SOURCE-DSNAME / #TARGET-DSNAME  /* BLI 2016-04-27 NOMALL-1844 in
+    / #PHYSICAL-EXPIRATION-DATE / G-NPR-USERID / #USERARC-NUMBER
+ELSE
+  INPUT G-MONITOR-JOBNAME / G-MONITOR-NODE
+* BLI 2016-04-27 NOMALL-1844 due to nomcdn.bsh script we have to use
+* the different sequence as for mainframe: first target, then source
+    / #TARGET-DSNAME / #SOURCE-DSNAME
+    / #PHYSICAL-EXPIRATION-DATE / G-NPR-USERID / #USERARC-NUMBER
+  FETCH 'RJCONDUX' G-MONITOR-JOBNAME G-MONITOR-NODE
+**  #CONDENSE-DSNAME #ARC-DSNAME #PHYSICAL-EXPIRATION-DATE
+* BLI 2016-04-27 NOMALL-1844 above out, below in, no physic for Unix
+* now we can use the usual sequence: first source then target
+    #SOURCE-DSNAME #TARGET-DSNAME
+    G-NPR-USERID #USERARC-NUMBER
+END-IF
+G-MONITOR-ID:= #_ARCHIVE
+#REPMAX := 0
+FIND ARCHIVE-TASK WITH M-MONITOR-ID = G-MONITOR-ID
+  EOMSYSNR:= M-ARCHIVE-VSE-SYSNR
+  EXAMINE M-JOBCARD (*) FOR 'CONDMAX=' GIVING POSITION #POS INDEX #IND
+  IF #POS > 0
+    SEPARATE SUBSTR(M-JOBCARD (#IND),#POS) INTO #REPMAX-A #REPMAX-A
+    IGNORE WITH DELIMITERS '='
+    IF #REPMAX-A IS (N6)
+      #REPMAX := VAL (#REPMAX-A)
+    END-IF
+  END-IF
+END-FIND
+IF G-TRACE < 2
+  CALLNAT 'NOMGSTEP' '*' G-NATRP-ERC
+ELSE
+  CALLNAT 'NOMGSTEP' '*' G-NATRP-ERC G-TRACE
+END-IF
+CALLNAT 'SATLGFVN' SATLGV-PARMS
+IF SATLGV-RC NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    SATLGV-ERROR-TEXT
+  IF SATLGV-LOG-DBID NE 0 OR SATLGV-LOG-FNR NE 0
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Dbid:' SATLGV-LOG-DBID 'Fnr:' SATLGV-LOG-FNR
+  END-IF
+  TERMINATE 50
+END-IF
+IF #USERARC-NUMBER GT 0
+  FIND NRM-USER-DEFINED-ARCHIVE WITH M-MONITOR-ID = #USERARC-ID
+    IF NO RECORDS FOUND
+      COMPRESS '0458' 'Condense' #USERARC-ID TO LG-MSG /*user def. arch.
+      PERFORM #RLOG
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'User defined archive' #USERARC-ID 'not defined'
+      TERMINATE 50
+    END-NOREC
+    #ARCHIVE-NAME:= M-USERARC-NAME
+    #NATLIB:= M-USERARC-EXITLIB
+    #NATMEM:= M-USERARC-EXITMEM
+    IF #NATLIB NE ' ' AND #NATMEM NE ' '
+      PERFORM ADD-STEPLIB
+      NOMUDA-API-VERSION:= 02
+      NOMUDA-FUNCTION:= 'C'
+**    NOMUDA-DATA-SET-NAME-1:= #CONDENSE-DSNAME
+**    NOMUDA-DATA-SET-NAME-2:= #ARC-DSNAME
+* BLI 2016-04-27 NOMALL-1844 above out, below in
+      NOMUDA-DATA-SET-NAME-1:= #SOURCE-DSNAME
+      NOMUDA-DATA-SET-NAME-2:= #TARGET-DSNAME
+      NOMUDA-ARCHIVE-NAME:= M-USERARC-NAME
+      NOMUDA-ARCHIVE-NUMBER:= #USERARC-NUMBER
+      NOMUDA-EXPIRY-DATE:= #PHYSICAL-EXPIRATION-DATE
+      NOMUDA-ESY-USERID:= G-NPR-USERID
+      NOMUDA-ESY-NODE:= G-MONITOR-NODE
+    END-IF
+  END-FIND
+END-IF
+IF #NATLIB NE ' ' AND #NATMEM NE ' '
+  IF G-NATRP-ERC EQ 0                /*steplib is ok
+    PERFORM NOMCHCKP-CHECK-PROG #NATMEM G-NATRP-ERC G-NATRP-ERT #NATLIB
+  END-IF
+  IF G-NATRP-ERC NE 0
+    IF #STEPLIB-ADDED
+      PERFORM REMOVE-STEPLIB
+    END-IF
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Member ' #NATMEM' not defined in lib' #NATLIB
+    TERMINATE 50
+  END-IF
+END-IF
+RESET RACTLF-LOGGING
+RACTLF-ERROR-LOGGING:= TRUE
+RACTLF-LOG-USERID := 'CONDENSE'
+RACTLF-LOG-CODE := 'MO'
+RACTLF-LFILE-1:= 91
+RACTLF-LFILE-2:= 206
+CALLNAT 'RACTLF-N' RACTLF-PARMS
+IF RACTLF-ERROR-CODE NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    RACTLF-ERROR-CODE RACTLF-ERROR-TEXT
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Dbid1:' RACTLF-DBID-1 'Fnr1:' RACTLF-FNR-1
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Dbid2:' RACTLF-DBID-2 'Fnr2:' RACTLF-FNR-2
+  TERMINATE 50
+END-IF
+G-NPR-CURRENT-USERID := G-NPR-USERID
+CALLNAT 'N-ESYLG' 1X G-MONITOR-NODE G-NPR-CURRENT-USERID #CALLER
+  G-NATRP-ERC G-NATRP-ERT 1X 'x' /*err:terminate
+*
+PERFORM GET-ENVIRONMENT-INFORMATION
+*
+* COMPRESS '0467' #ARC-DSNAME #CONDENSE-DSNAME TO LG-MSG
+* BLI   2016-04-27 NOMALL-1844 above out, next in, sequence corrected
+COMPRESS '0467' #SOURCE-DSNAME #TARGET-DSNAME TO LG-MSG
+PERFORM #RLOG
+*
+IF #NATLIB NE ' ' AND #NATMEM NE ' '
+  PERFORM CONDENSE-VIA-USEREXIT
+ELSE
+  PERFORM READ-CONTROL-INFO   /* NOMALL-1059 in
+  WRK. READ WORK FILE 2 #RECORD GIVING LENGTH #RECLEN
+    IF #RECORD.#I-RECORD-TYPE = 'I'
+      IF #SKIP < 0
+        RESET #COPY-IT
+        ADD 1 TO #SKIP
+        ESCAPE TOP
+      END-IF
+      IF #REPMAX > 0  AND #REP-NO >= #REPMAX
+        ESCAPE BOTTOM (WRK.)
+      END-IF
+      ADD 1 TO #ORIG-REP
+      IF #COPY-IT                          /* update previous report
+        PERFORM GET-CURRENT-VOLSER
+        PERFORM UPDATE-REPORT-CONTROL-INFO
+      END-IF
+      PERFORM CONVERT-RECORD
+      #COPY-IT := TRUE
+      FIND-ARC. FIND DATASET-REPORT WITH DR-REPORT-RNB = #DR-REP-RNB-KEY
+        IF NO
+          DR-STATUS := 'D'
+        END-NOREC
+        IF DR-STATUS = 'D'   /* will be deleted at midnight
+          #COPY-IT := FALSE  /* by expiration date
+          ADD 1 TO #EXPIRED
+        END-IF
+**      IF DR-ARCHIVE-DSNAME NE #CONDENSE-DSNAME
+* BLI 2016-04-27 NOMALL-1844 above out, below in
+        IF DR-ARCHIVE-DSNAME NE #SOURCE-DSNAME
+          #COPY-IT := FALSE  /* must be an abended archive
+        END-IF
+        #OLD-DR-REP-RNB-KEY := #DR-REP-RNB-KEY
+      END-FIND
+    END-IF
+    IF #COPY-IT
+      WRITE WORK FILE 1 VARIABLE #RECORD-V (1:#RECLEN)
+      IF #RECORD.#I-RECORD-TYPE = 'I'
+        ADD 1 TO #REP-NO
+        PERFORM GET-CURRENT-VOLSER
+        #FIRST-VOLSER := #LAST-VOLSER
+        PERFORM UPDATE-TARGET-CONTROL-INFO
+      END-IF
+    END-IF
+  END-WORK
+END-IF
+*
+IF #COPY-IT
+  PERFORM UPDATE-REPORT-CONTROL-INFO
+END-IF
+#UPDATE := TRUE
+PERFORM UPDATE-TARGET-CONTROL-INFO
+PERFORM UPDATE-SOURCE-CONTROL-INFO
+*
+COMPRESS '0468' #REP-NO TO LG-MSG
+PERFORM #RLOG
+COMPRESS '0469' #EXPIRED TO LG-MSG
+PERFORM #RLOG
+IF #STEPLIB-ADDED
+  PERFORM REMOVE-STEPLIB
+END-IF
+IF #CONDNS-RC = 4
+  TERMINATE 4
+END-IF
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'Condenser terminated normally'
+TERMINATE 0
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CONVERT-RECORD
+************************************************************************
+#ID-RECORD := #RECORD
+IF #RECLEN < 146                 /* no NOM32 format
+  DECIDE FOR FIRST CONDITION
+    WHEN #RECLEN = 132
+      #V32-RECORD-TYPE   := #I-RECORD-TYPE3
+      #V32-ARCHIVED-FROM := #ARCHIVE-FROM3
+      #V32-REPNAME := #REPNAME3
+      #V32-REPRNB  := #REPRNB3
+      #V32-JOBNAME := #JOBNAME3
+      #V32-JOBNO   := #JOBNO3
+      #V32-NODE    := #NODE3
+      #V32-REST    := #REST3
+      #RECLEN      := #RECLEN + 14   /* 8 repname,2 jobno,2 rnb,2 node
+    WHEN #RECLEN = 133 THRU 140
+      #V32-RECORD-TYPE   := #I-RECORD-TYPE1
+      #V32-ARCHIVED-FROM := #ARCHIVE-FROM1
+      #V32-REPNAME := #REPNAME1
+      #V32-REPRNB  := #REPRNB1
+      #V32-JOBNAME := #JOBNAME1
+      #V32-JOBNO   := #JOBNO1
+      #V32-NODE    := #NODE1
+      #V32-REST    := #REST1
+      #RECLEN      := #RECLEN + 6    /* 2 jobno,2 rnb,2 node
+    WHEN #RECLEN = 141 THRU 142
+      #V32-RECORD-TYPE   := #I-RECORD-TYPE2
+      #V32-ARCHIVED-FROM := #ARCHIVE-FROM2
+      #V32-REPNAME := #REPNAME2
+      #V32-REPRNB  := #REPRNB2
+      #V32-JOBNAME := #JOBNAME2
+      #V32-JOBNO   := #JOBNO2
+      #V32-NODE    := #NODE2
+      #V32-REST    := #REST2
+      #RECLEN      := #RECLEN + 4          /* 2 rnb,2 node
+    WHEN NONE IGNORE
+  END-DECIDE
+  #RECORD      := #V32-ID-RECORD
+END-IF
+*
+END-SUBROUTINE /* CONVERT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-REPORT-CONTROL-INFO
+************************************************************************
+FIND DATASET-REPORT WITH DR-REPORT-RNB = #OLD-DR-REP-RNB-KEY
+** DATASET-REPORT.DR-ARCHIVE-DSNAME := #ARC-DSNAME
+* BLI 2016-04-27 NOMALL-1844 above out, below in
+  DATASET-REPORT.DR-ARCHIVE-DSNAME := #TARGET-DSNAME
+  UPDATE
+END-FIND
+*
+FIND-ACT. FIND ACT-REP WITH AR-REPORT-RNB = #OLD-DR-REP-RNB-KEY
+**  AR-ARCHIVE-DATA-SET   := #ARC-DSNAME
+* BLI 2016-04-27 NOMALL-1844 above out, below in
+  AR-ARCHIVE-DATA-SET   := #TARGET-DSNAME
+  AR-ARCHIVE-VOLSER (1) := #FIRST-VOLSER
+  AR-ARCHIVE-VOLSER (2) := #LAST-VOLSER
+  UPDATE
+END-FIND
+*
+END TRANSACTION
+*
+END-SUBROUTINE /* UPDATE-REPORT-CONTROL-INFO
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-TARGET-CONTROL-INFO
+************************************************************************
+IF DATASET-REPORT.DR-EXPIRATION-DATE
+    <= ARCHIVE-DATASET.AD-EXPIRATION-DATE
+    AND ARCHIVE-DATASET.AD-VOLSERS (*) = #LAST-VOLSER AND NOT #UPDATE
+    AND #UPD-ISN NE 0  /* BLI1 to be sure to compare the target
+  ESCAPE ROUTINE
+END-IF
+*
+FNDTAR. FIND ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = #TARGET-DSNAME
+  IF NO
+    ARCHIVE-DATASET.AD-EXPIRATION-DATE :=
+      DATASET-REPORT.DR-EXPIRATION-DATE
+* BLI NOMALL-2369 2020-01-08 phys. exp. date
+    IF #PHYSICAL-EXPIRATION-DATE > ARCHIVE-DATASET.AD-EXPIRATION-DATE
+      ARCHIVE-DATASET.AD-EXPIRATION-DATE-PHYS :=
+        #PHYSICAL-EXPIRATION-DATE
+    ELSE
+      ARCHIVE-DATASET.AD-EXPIRATION-DATE-PHYS :=
+        ARCHIVE-DATASET.AD-EXPIRATION-DATE
+    END-IF
+    ARCHIVE-DATASET.AD-ARCHIVE-DSNAME := #TARGET-DSNAME
+    ARCHIVE-DATASET.AD-CREATED := *TIMX
+    ARCHIVE-DATASET.AD-CREATED-INV :=
+      #CONST-INV-TIME - ARCHIVE-DATASET.AD-CREATED-P12
+    IF #NATLIB NE ' ' AND #NATMEM NE ' '
+      #VOLSERS(1):= 'NOMUDA'
+    ELSE
+      ARCHIVE-DATASET.AD-VOLSERS(1:20) := #VOLSERS(1:20)
+    END-IF
+    ARCHIVE-DATASET.AD-CONDENSE-OUTPUT := 'Y'
+    ARCHIVE-DATASET.AD-ARCHIVE-TYPE:= #USERARC-NUMBER
+    IF #CONDNS-RC = 4 AND AD-MARK-FOR-CONDENSE NE 'X'
+      AD-MARK-FOR-CONDENSE := 'X'   /* to repair VOLSER=UNKNOWN
+    END-IF
+    STOTAR. STORE ARCHIVE-DATASET
+    #UPD-ISN := *ISN (STOTAR.) /* BLI-NOMALL-2285
+  END-NOREC
+*
+  IF *NUMBER = 1
+    IF DATASET-REPORT.DR-EXPIRATION-DATE >
+        ARCHIVE-DATASET.AD-EXPIRATION-DATE
+      ARCHIVE-DATASET.AD-EXPIRATION-DATE :=
+        DATASET-REPORT.DR-EXPIRATION-DATE
+    END-IF
+* BLI NOMALL-2369 2020-01-08 next IF in to fill
+* logigal and physical expiration date
+    IF ARCHIVE-DATASET.AD-EXPIRATION-DATE >
+        ARCHIVE-DATASET.AD-EXPIRATION-DATE-PHYS
+      ARCHIVE-DATASET.AD-EXPIRATION-DATE-PHYS :=
+        ARCHIVE-DATASET.AD-EXPIRATION-DATE
+    END-IF
+    IF #NATLIB NE ' ' AND #NATMEM NE ' '
+      #VOLSERS(1):= 'NOMUDA'
+    ELSE
+      ARCHIVE-DATASET.AD-VOLSERS(1:20) := #VOLSERS (1:20)
+    END-IF
+    ARCHIVE-DATASET.AD-CONDENSE-OUTPUT := 'Y'
+    IF #CONDNS-RC = 4 AND AD-MARK-FOR-CONDENSE NE 'X'
+      AD-MARK-FOR-CONDENSE := 'X'   /* to repair VOLSER=UNKNOWN
+    END-IF
+    #UPD-ISN := *ISN (FNDTAR.)      /* BLI-NOMALL-2285
+    UPDATE
+  END-IF
+*
+  IF #UPDATE   /* BLI-NOMALL-2285 do it for just and before stored AD
+    CNT. GET ARCHIVE-DATASET #UPD-ISN
+    ARCHIVE-DATASET.AD-ORIGINAL-REPORT-COUNT :=
+      ARCHIVE-DATASET.AD-ORIGINAL-REPORT-COUNT + #REP-NO
+    UPDATE (CNT.)
+  END-IF
+*
+END-FIND
+*
+END TRANSACTION
+*
+WRITE ' update archive-dataset'
+*
+END-SUBROUTINE /* UPDATE-TARGET-CONTROL-INFO
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-SOURCE-CONTROL-INFO
+************************************************************************
+** FIND ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = #CONDENSE-DSNAME
+* BLI 2016-04-27 NOMALL-1844 above out, below in
+FIND ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = #SOURCE-DSNAME
+  IF #UPDATE AND #REPMAX > 0  AND #REP-NO >= #REPMAX
+**  ARCHIVE-DATASET.AD-ORIGINAL-REPORT-COUNT := - #REP-NO - #OLD-SKIP
+* BLI NOMALL-1844 2016-04-19 above out, next in skip all read records
+    ARCHIVE-DATASET.AD-ORIGINAL-REPORT-COUNT := - #ORIG-REP - #OLD-SKIP
+    IF #TRACING
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+        '---> Report Count:' ARCHIVE-DATASET.AD-ORIGINAL-REPORT-COUNT /
+        32T 'of dataset ' #SOURCE-DSNAME
+    END-IF
+    UPDATE
+  ELSE
+    IF *NUMBER = 1
+      RESET AD-MARK-FOR-CONDENSE
+      IF ARCHIVE-DATASET.AD-ORIGINAL-REPORT-COUNT < 0
+        RESET ARCHIVE-DATASET.AD-ORIGINAL-REPORT-COUNT
+      END-IF
+      UPDATE
+    END-IF
+  END-IF
+END-FIND
+IF #UPDATE AND #REPMAX > 0  AND #REP-NO >= #REPMAX
+** COMPRESS '0487' #ARC-DSNAME TO LG-MSG
+* BLI 2016-04-27 NOMALL-1844 above out, below in
+  COMPRESS '0487' #TARGET-DSNAME TO LG-MSG
+  PERFORM #RLOG
+END-IF
+*
+END TRANSACTION
+*
+END-SUBROUTINE /* UPDATE-SOURCE-CONTROL-INFO
+*
+************************************************************************
+DEFINE SUBROUTINE READ-CONTROL-INFO
+************************************************************************
+** FIND ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = #CONDENSE-DSNAME
+* BLI 2016-04-27 NOMALL-1844 above out, below in
+FIND ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = #SOURCE-DSNAME
+  RESET #SKIP #OLD-SKIP
+  IF ARCHIVE-DATASET.AD-ORIGINAL-REPORT-COUNT < 0
+    #SKIP     := ARCHIVE-DATASET.AD-ORIGINAL-REPORT-COUNT
+    #OLD-SKIP := -#SKIP
+    IF #TRACING
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+        '---> Skip calculated:' #SKIP '=' #OLD-SKIP
+    END-IF
+  END-IF
+END-FIND
+*
+IF #REPMAX > 0
+**  FIND ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = #ARC-DSNAME
+* BLI 2016-04-27 NOMALL-1844 above out, below in
+  FIND ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = #TARGET-DSNAME
+    #REPMAX   := #REPMAX - ARCHIVE-DATASET.AD-ORIGINAL-REPORT-COUNT
+  END-FIND
+END-IF
+IF #TRACING
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    '---> Repmax calculated:' #REPMAX
+END-IF
+*
+END-SUBROUTINE /* READ-CONTROL-INFO
+*
+************************************************************************
+DEFINE SUBROUTINE GET-ENVIRONMENT-INFORMATION
+************************************************************************
+** CALLNAT 'RMGTNODE'                 /* BLI 2018-03-20 start
+#MONIT-ID := F#MONITOR-TASK-ID1 (<>)
+FIND ENVIRONMENT WITH M-MONITOR-ID = #MONIT-ID
+  IF NO RECORDS FOUND
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Environment Definitions not found'
+    STOP
+  END-NOREC
+  COMPRESS M-JOBCARD(1:3) TO #TRACE-SET LEAVING NO
+  EXAMINE #TRACE-SET TRANSLATE INTO UPPER
+  PRINT *PROGRAM '=' #TRACE-SET
+  DECIDE FOR EVERY CONDITION
+    WHEN #POS = 0
+      EXAMINE #TRACE-SET FOR 'TRACE=OFF' GIVING POSITION IN #POS
+    WHEN #POS > 0
+      RESET #TRACING #TRACE-SET
+    WHEN #POS = 0
+      EXAMINE #TRACE-SET FOR 'TRACE=ON' GIVING POSITION IN #POS
+    WHEN #POS > 0
+      #TRACING    := TRUE
+      RESET #TRACE-SET
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-FIND
+FIND MF-MONITOR-NODE WITH MF-TYPE-ID ='MR-'-H'00' THRU 'MR-'-H'FF' /*SU8
+  IF NO RECORDS FOUND
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Monitor Node Definitions not found'
+    STOP
+  END-NOREC
+END-FIND
+*
+END-SUBROUTINE /* GET-ENVIRONMENT-INFORMATION
+*
+************************************************************************
+DEFINE SUBROUTINE GET-CURRENT-VOLSER
+************************************************************************
+IF G-MONITOR-NODE = 0
+  RESET #VOLSERS(*)
+  #VOLSERS(1):= #FIRST-VOLSER := #LAST-VOLSER := 'FILSYS'
+  ESCAPE ROUTINE
+END-IF
+RESET #COUNTER
+*
+/*SU9 -> DECIDE FOR FIRST CONDITION
+/*  WHEN MF-SYSTEM-TYPE = SCAN 'VSE' OR = SCAN 'DOS' /*SU8
+/*  EOMLUBS := EOMVOLID-LUBS RESET  #LAST-VOLSER
+/*  CALL 'EOMVOLID' EOMLUBS EOMVOLID-DATA (*)
+/*  IF EOMLUBS > EOMVOLID-LUBS EOMLUBS := EOMVOLID-LUBS END-IF
+/*  VOLFOR. FOR EOMVOLI = 1 TO EOMLUBS
+/*    IF EOMVOLID-SYSNR (EOMVOLI) = EOMSYSNR
+/*      #LAST-VOLSER := EOMVOLID-VOLSER (EOMVOLI)
+/*      IF #LAST-VOLSER = ' ' OR = H'000000000000'
+/*        #LAST-VOLSER := 'UNKNWN' END-IF ESCAPE BOTTOM (VOLFOR.)
+/*    END-IF END-FOR IF #VOLI = 0 OR #VOLSERS (#VOLI) NE #LAST-VOLSER
+/*    ADD 1 TO #VOLI #VOLSERS (#VOLI) := #LAST-VOLSER END-IF
+/*WHEN MF-SYSTEM-TYPE = SCAN 'BS2' /*SU8
+/*  CALL 'EOMTFT' EOMTFT-LINK EOMTFT-VSN
+/*  IF EOMTFT-VSN = ' ' OR = H'000000000000' #LAST-VOLSER := 'UNKNWN'
+/*  ELSE #LAST-VOLSER := EOMTFT-VSN END-IF
+/*  IF #VOLI = 0 OR #VOLSERS (#VOLI) NE #LAST-VOLSER ADD 1 TO #VOLI
+/*  #VOLSERS (#VOLI) := #LAST-VOLSER END-IF
+/*SU9 <-  WHEN NONE
+CALLNAT 'RMGETVOL' #TAPE-DDNAME G-MONITOR-JOBNAME G-MONITOR-NODE
+**    #LAST-VOLSER #ARC-DSNAME G-NATRP-ERC G-NATRP-ERT
+* BLI 2016-04-27 NOMALL-1844 above out, below in
+  #LAST-VOLSER #TARGET-DSNAME G-NATRP-ERC G-NATRP-ERT
+IF G-NATRP-ERC NE 0
+  #ERROR-CODE := G-NATRP-ERC
+  PERFORM CHECK-FATAL-ERROR
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Error from get VOLSER routine' G-NATRP-ERC
+  PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    G-NATRP-ERT /*SU7 (AL=70)
+  RESET G-NATRP-ERC G-NATRP-ERT
+END-IF
+IF #LAST-VOLSER = ' ' OR = H'000000000000'
+  #LAST-VOLSER := 'UNKNWN'
+END-IF
+IF #VOLI = 0 OR #VOLSERS (#VOLI) NE #LAST-VOLSER
+  ADD 1 TO #VOLI
+  #VOLSERS (#VOLI) := #LAST-VOLSER
+END-IF
+*
+/*SU9 END-DECIDE
+*
+END-SUBROUTINE /* GET-CURRENT-VOLSER
+*
+************************************************************************
+DEFINE SUBROUTINE CONDENSE-VIA-USEREXIT
+************************************************************************
+#FIRST-VOLSER:= #LAST-VOLSER:= 'NOMUDA'
+REPEAT
+* call exit to read an input record
+  NOMUDA-SUBFUNC:= 'R'
+  CALLNAT #NATMEM NOMUDA-API-VERSION NOMUDA-PARMS(*)
+  IF NOMUDA-RC NE 0
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Error:' NOMUDA-RC 'from' #NATMEM / NOMUDA-RT
+    TERMINATE 50
+  END-IF
+  IF NOMUDA-END-OF-DATA = 'YES'
+    ESCAPE BOTTOM
+  END-IF
+  #RECORD:= NOMUDA-RECORD
+  #RECLEN:= NOMUDA-RECORD-LENGTH
+  IF #RECORD.#I-RECORD-TYPE = 'I'
+    ADD 1 TO #ORIG-REP
+    IF #COPY-IT                          /* update previous report
+      PERFORM UPDATE-REPORT-CONTROL-INFO
+    END-IF
+    IF #RECLEN < 146
+      PERFORM CONVERT-RECORD
+      NOMUDA-RECORD:= #RECORD
+      NOMUDA-RECORD-LENGTH:= #RECLEN
+    END-IF
+    #COPY-IT := TRUE
+    FIND-ARC2. FIND DATASET-REPORT WITH DR-REPORT-RNB = #DR-REP-RNB-KEY
+      IF NO
+        DR-STATUS := 'D'
+      END-NOREC
+      IF DR-STATUS = 'D'                 /* will be deleted at midnight
+        #COPY-IT := FALSE /* by expiration date
+        ADD 1 TO #EXPIRED
+      END-IF
+**    IF DR-ARCHIVE-DSNAME NE #CONDENSE-DSNAME
+* BLI 2016-04-27 NOMALL-1844 above out, below in
+      IF DR-ARCHIVE-DSNAME NE #SOURCE-DSNAME
+        #COPY-IT := FALSE /* must be an abended archive
+      END-IF
+      #OLD-DR-REP-RNB-KEY := #DR-REP-RNB-KEY
+    END-FIND
+  END-IF
+  IF #COPY-IT
+    NOMUDA-CONDENSE-ACTION:= 'C'
+    IF #RECORD.#I-RECORD-TYPE = 'I'
+      ADD 1 TO #REP-NO
+      PERFORM UPDATE-TARGET-CONTROL-INFO
+    END-IF
+  ELSE
+    NOMUDA-CONDENSE-ACTION:= 'S'
+  END-IF
+* call exit to write (or suppress) an output record
+  NOMUDA-SUBFUNC:= 'W'
+  CALLNAT #NATMEM NOMUDA-API-VERSION NOMUDA-PARMS(*)
+  IF NOMUDA-RC NE 0
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Error:' NOMUDA-RC 'from' #NATMEM / NOMUDA-RT
+    TERMINATE 50
+  END-IF
+END-REPEAT
+* call exit to indicate that we have finished
+NOMUDA-SUBFUNC:= 'F'
+CALLNAT #NATMEM NOMUDA-API-VERSION NOMUDA-PARMS(*)
+IF NOMUDA-RC NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Error:' NOMUDA-RC 'from' #NATMEM / NOMUDA-RT
+  TERMINATE 50
+END-IF
+*
+END-SUBROUTINE /* CONDENSE-VIA-USEREXIT
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-FATAL-ERROR
+************************************************************************
+IF #ERROR-CODE = 999
+  BACKOUT TRANSACTION
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Natural Process Node not active'
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Archiver abnormal termination'
+  LG-MSG    := 5501 /* abnormal termination
+  PERFORM #RLOG
+  LG-MSG := 7102 /* node not active
+  PERFORM #RLOG
+  #CONDNS-RC := 4
+END-IF
+*
+END-SUBROUTINE /* CHECK-FATAL-ERROR
+*
+INCLUDE RJ-C ''' ''' /*ON ERROR
+*
+END

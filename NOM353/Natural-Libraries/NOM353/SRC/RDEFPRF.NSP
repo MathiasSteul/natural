@@ -1,0 +1,196 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDEFPRF - Personal profile definition
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 97-06-04 p(162804) created
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* sju    2003-05-22 (P240729) restricted use printers
+* xsetggr 2003-08-21 p(240465) allow profile for nondefine userid
+* xsetggr 2009-09-02 P314431 allow only NATUNIX&DISKUNIX printers for
+*                    unix systems, UNIXLP printers only for mainframe
+* xsetggr 2010-11-03 NOMALL-865 restow due to changes in EOMPHTYE
+* SU1     2013-09-16 NOMALL-1281 last update user+date
+* SU2     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* ----------------------------------------------------------------------
+*
+DEFINE DATA GLOBAL USING  NRM-GL
+*
+LOCAL USING RPFK---L
+LOCAL USING VUSERS-L
+LOCAL USING EOMPHTYE
+*
+LOCAL
+1 PRINTERS VIEW OF NRM-PRINTERS
+  2 P-DISP
+  2 P-PHYSICAL-NAME
+1 PHYSICAL VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-PRINTER-TYPE
+*
+1 #AUTODEF               (A1)
+1 #FUNC                  (A1)
+1 #USER                  (A8)
+1 CV-MAP                 (C) INIT < (AD=I CD=NE)>
+1 L-HEADER               (A78)
+1 READ-RECORD            (L)
+1 #FATHER-PROG           (A8) INIT <'RMENU'>
+1 #LANGUAGE              (I1)
+*
+1 PRINTER-EXISTS         (L)
+1 #OBJECT-NAME           (A25)
+1 ALLOWED                (L)
+1 #GRANTS                (A1/1:6)
+1 #READ-PRINTER          (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET G-COMMIT G-LINECOM(*)
+*
+#FUNC := 'M'
+#USER := G-USERID
+#AUTODEF := F#MONITOR-USER-AUTODEF (<>)
+MAIN-LOOP. REPEAT
+  FIND-LOOP. FIND USERS WITH USER-ID = #USER
+    IF NO RECORDS FOUND
+      IF #AUTODEF ='Y' OR='P'
+        FIND USERS WITH USER-ID = 'DEFAULT'
+        END-FIND
+      ELSE
+        G-NATRP-ERC := 0602
+        INCLUDE C-ESCAPE
+      END-IF
+    END-NOREC
+    G-USER-PROFILE := USER-PROFILE
+    G-HOLD-TIME := *TIMX
+    SCREEN-LOOP. REPEAT
+      IF #LANGUAGE NE *LANGUAGE
+        #LANGUAGE := *LANGUAGE
+        PERFORM INIT-PFKEYS
+        PERFORM SET-PFKEYS
+      END-IF
+      IF #FUNC NE 'D'
+        INCLUDE C-HOLD
+      END-IF
+      PERFORM FLIP-DISPLAY
+      SET CONTROL 'L'
+      SET CONTROL 'WB'
+      CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDEFRPM&'
+      RESET G-MAP-MODIFIED
+*
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+        USING MAP 'RDEFPRF&'
+      RESET G-NATRP-ERC G-NATRP-ERT
+      INCLUDE RPFKVA-C
+      INCLUDE C-DIRECT
+      INCLUDE RPFKED-C
+      RESET READ-RECORD
+*
+      IF (CV-MAP MODIFIED OR G-MAP-MODIFIED)
+        PERFORM CHECK-ACTIVE-HELP
+        PERFORM VALIDATE-INPUT
+        US-LAST-UPDATE      := *TIMX
+        US-LAST-UPDATE-USER := G-USERID
+        UPDATE (FIND-LOOP.) /* always modify */
+        G-NATRP-ERC := 32
+        INCLUDE C-COMMIT
+      END-IF
+*
+      INCLUDE REXDO--C
+*
+      IF READ-RECORD
+        ESCAPE BOTTOM (FIND-LOOP.)
+      END-IF
+*
+    END-REPEAT
+*
+  END-FIND
+*
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-ACTIVE-HELP
+************************************************************************
+IF PROF-PRINTER = SCAN '*'
+  REINPUT USING HELP MARK *PROF-PRINTER
+END-IF
+*
+END-SUBROUTINE /* CHECK-ACTIVE-HELP
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+IF USERS.PROF-PRINTER NE ' '
+  CALLNAT 'RCHKPRT' USERS.PROF-PRINTER PRINTER-EXISTS
+  IF NOT PRINTER-EXISTS
+    REINPUT *0108 MARK *USERS.PROF-PRINTER
+  END-IF
+  IF G-USER-TYPE NE 'A'
+    #OBJECT-NAME := USERS.PROF-PRINTER
+    CALLNAT 'RGRANT-N' #USER 'P' #OBJECT-NAME ALLOWED #GRANTS (*)
+    IF ALLOWED AND NOT #GRANTS(*) = 'Y'
+      FIND PRINTERS WITH P-ID = #OBJECT-NAME
+        IF P-DISP = 'Y'
+          RESET ALLOWED
+          #READ-PRINTER := TRUE
+        END-IF
+      END-FIND
+    END-IF
+    IF NOT ALLOWED
+      REINPUT *1090, USERS.PROF-PRINTER MARK *USERS.PROF-PRINTER
+    END-IF
+    PERFORM CHECK-PRINTER-TYPE  /* xsetggr 2009-09-01 P314431 in
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-PRINTER-TYPE
+************************************************************************
+IF NOT #READ-PRINTER
+  FIND PRINTERS WITH P-ID = USERS.PROF-PRINTER
+  END-FIND
+END-IF
+FIND PHYSICAL WITH PH-VTAMID = PRINTERS.P-PHYSICAL-NAME
+  IF *MACHINE-CLASS = 'MAINFRAME'
+    IF PH-PRINTER-TYPE = ##PHYS-NATUNIX
+      REINPUT * 130,USERS.PROF-PRINTER MARK *USERS.PROF-PRINTER
+    END-IF
+  ELSE
+    IF NOT(PH-PRINTER-TYPE = ##PHYS-DISKUNIX OR = ##PHYS-NATUNIX)
+      REINPUT * 131,USERS.PROF-PRINTER MARK *USERS.PROF-PRINTER
+    END-IF
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* CHECK-PRINTER-TYPE
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+RESET G-PF
+*
+INCLUDE RPFSTD-C
+INCLUDE RPFCOM-C
+*
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+INCLUDE RPFSET-C /*set-pfkeys
+*
+END

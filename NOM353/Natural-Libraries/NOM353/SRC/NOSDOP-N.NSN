@@ -1,0 +1,2728 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 2
+* <Natural Source Header
+* NOSDOP-N - NOM System defaults * (system,monitor,report,bundle,
+*     archiving,reviving,NAF,CMA Spool, API) /*SU10 ,SAP Spool defaults)
+*        use ES-KEY-PARM(1) 'Y'/'N' bs2-copy modifiable/not mod.
+*            ES-KEY-PARM(2) 'Y'/'N' bs2-rename modifiable/not mod.
+* Maintenance:
+* XSETGGR 2004-06-03 created
+* XSETGGR 2005-05-11 NOM31 long records for all spool types
+* XSETGGR 2005-06-27 reset flush-time in bundle defaults when store
+*                    nrm-monitor record
+* XSETGGR 2005-07-06 p(266530) Make mointor NPR mainframe independent
+* XSETGGR 2007-03-22 replace call of ES...-N to direct call of module
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2007-09-11 NOM3201   Support 5 byte node numbers
+* xsetggr 2008-09-09 p(308591) add steplibs
+* XSETHZ  2008-11-21 p(309614) new nomexit
+* fhi     2009-02-20 P300323   Use RGETSTEP to get steplibs
+* fhi     2009-02-27 P300323 Rename RGETSTEP to NOMGSTEP delivered in SYSTEM
+* fhi     2010-05-26 P325613 Enhance node number validation
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* XSETHZ  2010-10-21 NOMALL-895 new nomexit014
+* raya    2012-01-11 NOMALL-1096 add error-code/text to nomex007
+* xsetggr 2012-05-17 NOMALL-1136 improve validation of printers
+* xsetggr 2012-06-19 NOMALL-1163 correct validation of retention
+* xsetggr 2012-08-04 NOMALL-78   disabled maintenance of long records
+* bli     2012-09-25 NOMALL-94   delete old version check
+* raya     2012-11-29 NOMALL-1214 check cat date of nomex*
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2013-03-26 NOMALL-82 V34:monitor defaults: new class: error
+* SU3     2013-03-26 NOMALL-1260 V34: CMA Spool -> CA Spool
+* SU4     2014-06-23 NOMALL-1281 show last update user
+* CF1     2014-06-24 NOMALL-1284 Hold retention for printout
+* SU5     2014-06-27 NOMALL-1281 let it work for CLEANUP,REVIVE
+* CF2     2014-08-22 NOMALL-1474 Enable system defaults for NGC internal
+* SU6     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU7     2015-02-09 NOMALL-1450 'ST'->'SI'
+* fhi     2015-06-30 NOMALL-1655 Leave copies field as entered
+* SU8     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* SU9     2016-09-29 NOM3.5 use N-NONE+N-SEPME2
+* fhi     2016-11-10 NOMALL-1917 Use correct node number
+* fhi     2016-11-11 NOMALL-1961 Duplicate monitor copy task
+* BLI     2017-10-06 NOMALL-1477 z/OS archive w/o predefined volsers
+* fhi     2017-10-09 NOMALL-1920 Use BS2000 Spool correctly
+* CF3     2017-10-26 NOMALL-2050 Adapt Monitor Defaults to 3.5. struct.
+*                                (rebuilt for the Monitor Defaults area)
+* SU10     2018-04-27 NOMALL-1823 remove SAP
+* CF4     2018-06-21 NOMALL-2050 Flag error if no Monitor record exists.
+* CF5     2018-07-02 NOMALL-2050 Use new task ID also for DS, DR, DB.
+* CF6     2018-07-04 NOMALL-2050 Provide next Cleanup date (funct. DS).
+* CF7     2018-07-16 NOMALL-2123 Handle non-printable chars (BS2000).
+* CF8     2018-11-14 NOMALL-2050 Add emergency emails to Monitor Def.
+* CF9     2018-12-10 NOMALL-2189 Correct User Exit number and entries
+* SU11    2019-02-05 NOMALL-2142 remove predefined volsers(def arc)
+* CF10    2019-08-07 NOMALL-2300 Send (a) for emails on server to client
+* SU12    2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU13    2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* SU14    2022-03-16 ES-32029    Spool Class "SYSOUT" optional
+* SU15    2022-10-19 NOMALL-2583 check trigger DBID/FNR
+* SU16    2024-03-07 ES-34613    NOM 3.6 Remove power / BS2 / SAP
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER
+1 NOSD-PARMS
+  2 NOSD-PARM-AREA          (A253/1:20)
+************************************************************************
+LOCAL USING NODSOP-A
+LOCAL USING NODMOP-A
+LOCAL USING NODROP-A
+LOCAL USING NODBOP-A
+LOCAL USING NODAPP-A
+LOCAL USING NODVOP-A
+LOCAL USING NODCOP-A
+LOCAL USING NODOOP-A
+LOCAL USING NODNOP-A
+LOCAL USING NODEOP-A
+LOCAL USING NOMODE-A
+/*SU12 LOCAL USING VMONIT-L LOCAL USING VMONITUL
+LOCAL USING VARCIV-L
+LOCAL USING VSUBT-L
+LOCAL USING SATLF02P
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RMTASK-P
+* *****
+LOCAL
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU12 was VMONITUL
+  2 MF-LAST-UPDATE          (T)
+  2 MF-LAST-UPDATE-USER     (A16)
+  2 MF-TIME-SCHEDULE        (A1)
+  2 MF-SPOOL-TYPE           (A8)
+  2 MF-SYSTEM-TYPE          (A8)
+  2 MF-MONITOR-ID           (A20)
+  2 MF-MONITOR-NODE         (N5)
+  2 MF-TEMP-CLASS           (A4)
+  2 MF-PRINT-CLASS          (A1)
+  2 MF-CLASSES              (A1/1:20)
+  2 MF-JES3-OUTPUT-CLASSES  (A1/1:20)
+  2 MF-BS2-DEST             (A8/1:4)
+  2 MF-ERR-CLASS            (A1)
+1 NRM-MONITOR VIEW OF NRM-MONITOR /*SU12 was VMONIT-l
+  2 M-TIME-SCHEDULE         (A1) /*NAF Interface active/...
+  2 M-MONITOR-TASKS         (A36)
+  2 REDEFINE M-MONITOR-TASKS
+    3 M-TASK-NUMBER         (N3/1:12)
+  2 C*M-COPY-FILES-V141
+  2 M-COPY-FILES-V141       (A26/1:20)
+  2 REDEFINE M-COPY-FILES-V141
+    3 M-CP-TAB              (1:20)
+      4 M-CP-DBID           (N5)
+      4 M-CP-FNR            (N5)
+      4 M-CP-IDENT          (A16)
+      4 REDEFINE M-CP-IDENT
+        5 M-CP-IDENT-B      (A1/1:16)
+/*SU12  2 M-MONITOR-NODE          (N5)
+  2 M-EMAIL-RECIPIENTS      (A250/1:2)
+  2 M-HOLD-RETENTION        (A5)
+  2 M-LAST-UPDATE           (T)
+  2 M-LAST-UPDATE-USER      (A16)
+  2 M-MAX-RETRIES           (N3)
+  2 M-RETRY-INTERVAL        (N5)
+  2 M-MONITOR-ID            (A20)
+  2 M-USE-OWNER             (A1)
+  2 M-SUPPORT-LONG-NAMES    (A1)
+  2 M-LAST-ACTIVE           (T)
+  2 M-WAIT-MINIMUM          (P9)
+  2 M-WAIT-MAXIMUM          (N9)
+  2 M-WAIT-INCREMENT        (N3)
+  2 M-BATCH-MODULE          (A8)
+  2 M-VERSION               (A60)
+  2 M-XCOM-JOBNAME          (A8)
+  2 M-NATRPT-DBID-N5        (N5)
+  2 M-NATRPT-FNR-N5         (N5)
+  2 M-PRT-TASK-NO           (N2)
+  2 M-NTDB-PROCESS          (N3)
+  2 M-DATE-FORMAT           (A1)
+  2 M-LOG-RETENTION         (A5)
+  2 M-LOG-TYPES             (A1/1:10)
+  2 M-ARCHIVE-TIME          (T)
+  2 M-DEFAULT-PRINTER       (A8)
+  2 M-REPORT-DEFAULTS       (A253)
+  2 M-BUNDLE-DEFAULTS       (A250)
+  2 M-USER-DEFAULTS         (A100)
+  2 REDEFINE M-USER-DEFAULTS
+    3 M-NOMEXIT-ACTIVE      (A1/1:20)
+  2 M-PO-RETENTION          (A5)
+  2 M-PO-TYPES              (A1/1:3)
+  2 M-JOBCARD               (A72/1:3)
+  2 M-CUSTOM-APPL           (A250/1:5)
+  2 M-USER-AUTODEF          (A1)
+  2 M-NGC-PARMS             (A250)
+1 SYSTEM-INFO VIEW OF SYSTEM-INFO
+  2 SYSTEM-TYPE
+  2 SPOOL-TYPE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+1 US VIEW OF NRM-USERS
+1 UX-NODES  VIEW OF NRM-UX-NODES                           /* CF3 ->
+  2 UX-NODE-NAME            (A16)
+  2 UX-NODE-SUSPEND         (A1)
+/*SU16 1 USER-EXITS VIEW OF NRM-MONITOR 2 M-USER-DEFAULTS
+/*SU16 2 REDEFINE M-USER-DEFAULTS 3 M-NOMEXIT-ACTIVE(A1/1:20) /*CF3 <-
+*
+1 #REPORT-DEFAULTS          (A253)
+1 REDEFINE #REPORT-DEFAULTS
+  2 #REPDEF
+    3 R-STORE-NATRPT        (A1)
+    3 R-ARCHIVE             (A1)
+    3 R-RETENTION-PERIOD    (A12)
+    3 REDEFINE R-RETENTION-PERIOD
+      4 R-RETENTION-NUM     (N3)
+      4 R-RETENTION-UNIT    (A1)
+      4 R-RETENTION-CALENDAR(A8)
+    3 R-RETENTION-ACTION    (A1)
+    3 R-PRINT-DEFAULTS
+      4 R-SEPSTART          (A8)
+      4 R-SEPEND            (A8)
+      4 R-SEPNO             (N3)
+      4 R-PRINT-JOBCARD     (A72/1:3)
+    3 R-CREATE-DEFINITION   (A1)
+    3 R-REPORT-DEFAULTS-SPARE (A2)
+1 #BUNDLE-DEFAULTS          (A250)
+1 REDEFINE #BUNDLE-DEFAULTS
+  2 #BUNDDEF
+    3 B-RETENTION-PERIOD    (A12)
+    3 REDEFINE B-RETENTION-PERIOD
+      4 B-RETENTION-NUM     (N3)
+      4 B-RETENTION-UNIT    (A1)
+      4 B-RETENTION-CALENDAR (A8)
+    3 B-RETENTION-ACTION    (A1)    /*13
+    3 B-OLD-FILLER          (A8)    /*21
+    3 B-SEPSTART            (A8)    /*29
+    3 B-SEPEND              (A8)    /*37
+    3 B-SEPNO               (N3)    /*40
+    3 B-FLUSH-TIME          (T)     /*53
+    3 B-FLAG-REPSEP         (A1)    /*54
+    3 B-HOLD                (A1)    /*55
+    3 B-JOBNAME             (A72)   /*127
+    3 B-PRINT-LIST          (A11/1:5)/*182
+    3 REDEFINE B-PRINT-LIST
+      4 B-PRINT-LIST1       (1:5)
+        5 B-PRINTER         (A8)
+        5 B-PRINTER-COPIES  (N3)
+    3 B-FILLER              (A68)
+* *****
+1 #LFILE-ACTIVE             (N5)    CONST <91>
+1 #MONIT-ID                 (A16)                          /* CF3
+/*SU16 1 #K (I2) #G-NOMEXIT-ACTIVE (L/1:20)                       /* CF3
+1 #LIBRARY-ID               (A8)
+1 #ES-CONTROL               (A250)
+1 #ES-INPUT-AREA            (A253/1:3)
+1 #ES-MSG-PREF              (A7)    INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+1 #ES-MSG-TXT               (A250)
+1 #DATE-A8                  (A8)
+1 #ARCHIVE-RETENTION        (A5)
+1 REDEFINE #ARCHIVE-RETENTION
+  2  #ARET                  (A1/1:5)
+1 #TIME-F                   (A5) /* formatted with ':'
+1 #TIME                     (A4)
+1 #TIME-END                 (A4)
+1 #TT                       (T)
+1 #CURRENT-TIME             (T)
+/*SU16 1 NOMEX007-FIELD-MODIFIABLE (A1)
+/*SU16 1 NOMEX007-FIELD-VALUE      (A54)
+/*SU16 1 #FUNC(I2) /* for nomex007 /*01-copy; 02-rename
+1 #J                        (P3)
+1 #I                        (I2)
+1 #LEN                      (P2)
+1 #L                        (P2)
+1 #PROFILE                  (A100)
+1 #DEF-COPIES               (N1)  CONST <1>
+1 #MAX-TASKS                (I1)  CONST <59>
+1 #FROM                     (A16)
+1 #DATN8                    (N8)
+1 REDEFINE #DATN8
+  2 #YEAR                   (A4)
+1 #CALENDAR-ID              (A12)
+1 REDEFINE #CALENDAR-ID
+  2 #CA-ID                  (A8)
+  2 #CA-YEAR                (A4)
+1 #ADAY                     (A3)
+1 #NDAY                     (N3)
+* for  RCHKGDGN
+1 P-FOUND                   (L)
+1 P-LIMIT                   (N4)
+1 P-CURRENT                 (N4)
+1 P-DEVICE-CHANGE           (L)
+1 #MAIL-ADDRESS              (A250)                        /* CF8 ->
+1 #ARRAY                    (A16/1:5)
+1 #NOMEXIT-NAME             (A8)  INIT <'NOMEX'>
+1 REDEFINE #NOMEXIT-NAME
+  2 #PREFIX                 (A5)
+  2 #EXIT-NUMBER            (N3)
+1 #ERC                      (N4)
+1 #ERT                      (A250)
+1 #I-LANGUAGE               (I1)
+1 #LI                       (I4)
+1 #F                        (I2)
+1 #SUBTASK-TYPE             (I1)                           /* CF3 ->
+1 #II                       (I1)
+1 #TST-WAIT-MIN             (N9)
+1 #TST-WAIT-MAX             (N9)
+1 #TST-WAIT-INC             (N3)                           /* CF3 <-
+/*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+NOMOD-PARMS := ES-SELECT
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+*
+#DATN8 := *DATN
+#CA-YEAR := #YEAR
+#LIBRARY-ID := ES-APP-SERVER-LIBRARY
+DECIDE ON FIRST VALUE OF ES-ORIG-OBJECT
+  VALUE 'DA'  #MONIT-ID := 'ARCHIVE'
+  VALUE 'DV'  #MONIT-ID := 'REVIVE'
+  VALUE 'DC'  #MONIT-ID := 'CLEANUP'
+  VALUE 'DN'  #MONIT-ID := 'NAF'
+  VALUE 'DO'  #MONIT-ID := 'CMASPOOL'
+  VALUE 'DE'  #MONIT-ID := 'API-DEFS'
+  VALUE 'DM'  #MONIT-ID := F#MONITOR-TASK-ID1 (<>) /* CF3
+  VALUE 'DR'  #MONIT-ID := F#MONITOR-TASK-ID1 (<>) /* CF5 ->
+  VALUE 'DB'  #MONIT-ID := F#MONITOR-TASK-ID1 (<>)
+  VALUE 'DS'  #MONIT-ID := F#MONITOR-TASK-ID1 (<>) /* CF5 <-
+  NONE VALUE  #MONIT-ID := #LIBRARY-ID /* for ??
+END-DECIDE
+ES-RC := 0
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+  VALUE 'UPD'
+    PERFORM UPDATE-RECORD
+    IF ES-RC = 0
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  VALUE ' '
+    PERFORM READ-RECORD
+  VALUE  'CHK'
+    PERFORM CHECK
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-RECORD
+************************************************************************
+RESET NOSD-PARMS
+IF ES-ORIG-OBJECT='DS' OR='DM' OR='DR' OR='DB' OR='DO' OR='DE' OR='DN'
+  FNDR. FIND NRM-MONITOR WITH M-MONITOR-ID = #MONIT-ID
+    IF NO RECORDS FOUND
+      DECIDE ON FIRST VALUE OF ES-ORIG-OBJECT
+        VALUE 'DO'
+          NRM-MONITOR.M-MONITOR-ID := #MONIT-ID
+          NRM-MONITOR.M-VERSION    := '90'
+*         VALUE 'DM'   /* Initiate the Monitor Defaults /* CF3 CF4 ->
+*           NRM-MONITOR.M-MONITOR-ID := #MONIT-ID
+*           NRM-MONITOR.M-LOG-RETENTION := '10D'
+*           NRM-MONITOR.M-ARCHIVE-RETENTION := '10D'    /* CF3 <-
+        VALUE 'DM'      /* Monitor Defaults
+          /* - - - - - - - - - - - - - - - - - - - - - - - -
+          /* Per definition since NOM350, the Monitor record
+          /* is created once at system installation time
+          /* So, no other routines may create (STORE) a
+          /* Monitor record.
+          /* If the Monitor record is missing nevertheless,
+          /* this is a severe error.
+          ES-MSG-NR := 0114
+          COMPRESS 'Monitor record >> ' #MONIT-ID ' << not found'
+            TO ES-MSG-TXT
+          ES-RC := 1
+          ESCAPE BOTTOM (FNDR.)                             /* CF4 <-
+          /* - - - - - - - - - - - - - - - - - - - - - - - -
+        VALUE 'DE','DS','DM','DR','DB','DN'
+          NRM-MONITOR.M-MONITOR-ID := #MONIT-ID
+        ANY VALUE
+          RESET B-FLUSH-TIME
+          NRM-MONITOR.M-BUNDLE-DEFAULTS := #BUNDLE-DEFAULTS
+          RESET NRM-MONITOR.M-LAST-ACTIVE NRM-MONITOR.M-ARCHIVE-TIME
+        NONE VALUE IGNORE
+      END-DECIDE
+      NRM-MONITOR.M-LAST-UPDATE      := *TIMX
+      NRM-MONITOR.M-LAST-UPDATE-USER := *USER
+      STORE NRM-MONITOR
+      END TRANSACTION
+    END-NOREC
+    DECIDE ON FIRST VALUE OF ES-ORIG-OBJECT
+      VALUE 'DS'               /* system defaults
+        RESET NODS-PARMS
+        PERFORM READ-SYSTEM-DEFAULTS
+        NOSD-PARM-AREA(*) := NODS-PARM-AREA(*)
+      VALUE 'DM'               /* monitor defaults
+        RESET NODM-PARMS
+        PERFORM READ-MONITOR-DEFAULTS
+        NOSD-PARM-AREA(*) := NODM-PARM-AREA(*)
+      VALUE 'DR'               /* report processing defaults
+        RESET NODR-PARMS #REPORT-DEFAULTS
+        PERFORM READ-REPORT-DEFAULTS
+        NOSD-PARM-AREA(*) := NODR-PARM-AREA(*)
+      VALUE 'DB'              /* bundle processing defaults
+        RESET NODB-PARMS #BUNDLE-DEFAULTS
+        PERFORM READ-BUNDLE-DEFAULTS
+        NOSD-PARM-AREA(*) := NODB-PARM-AREA(*)
+      VALUE 'DO'
+        RESET NODO-PARMS
+        PERFORM READ-CMA-DEFAULTS
+        NOSD-PARM-AREA(*) := NODO-PARM-AREA(*)
+      VALUE 'DN'
+        RESET NODN-PARMS
+        PERFORM READ-NAF-DEFAULTS
+        NOSD-PARM-AREA(*) := NODN-PARM-AREA(*)
+      VALUE 'DE'
+        RESET NODE-PARMS
+        PERFORM READ-API-DEFAULTS
+        NOSD-PARM-AREA(*) := NODE-PARM-AREA(*)
+      NONE VALUE IGNORE
+    END-DECIDE
+  END-FIND
+END-IF
+IF ES-ORIG-OBJECT = 'DA' OR = 'DV' OR = 'DC'
+  FNDAR. FIND ARCHIVE-TASK WITH M-MONITOR-ID = #MONIT-ID
+    IF NO RECORDS FOUND
+      DECIDE ON FIRST VALUE OF ES-ORIG-OBJECT
+        VALUE 'DA'
+          ARCHIVE-TASK.M-MONITOR-ID := #MONIT-ID
+        VALUE 'DV' , 'DC'
+          ARCHIVE-TASK.M-MONITOR-ID := #MONIT-ID
+          ARCHIVE-TASK.M-ARCHIVE-TIME-INT := '0000'
+          ARCHIVE-TASK.M-ARCHIVE-TIME-END := '0000'
+        ANY VALUE
+          RESET ARCHIVE-TASK.M-PLAN-ARC-TIME
+            ARCHIVE-TASK.M-ARCHIVE-TIME
+        NONE VALUE IGNORE
+      END-DECIDE
+      STORE ARCHIVE-TASK
+      END TRANSACTION
+    END-NOREC
+    DECIDE ON FIRST VALUE OF ES-ORIG-OBJECT
+      VALUE 'DA'             /* archiving  defaults
+        RESET NODA-PARMS
+        PERFORM READ-ARCHIVE-DEFAULTS
+        NOSD-PARM-AREA(*) := NODA-PARM-AREA(*)
+      VALUE 'DV'            /* reviving defaults
+        RESET NODV-PARMS
+        PERFORM READ-REVIVE-DEFAULTS
+        NOSD-PARM-AREA(*) := NODV-PARM-AREA(*)
+      VALUE 'DC'            /* cleanup defaults
+        RESET NODC-PARMS
+        PERFORM READ-CLEANUP-DEFAULTS
+        NOSD-PARM-AREA(*) := NODC-PARM-AREA(*)
+      NONE VALUE IGNORE
+    END-DECIDE
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* READ-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SYSTEM-DEFAULTS
+************************************************************************
+RESET #TT #DATE-A8
+NODS-NOM-DATA-DBID      := NRM-MONITOR.M-NATRPT-DBID-N5
+NODS-NOM-DATA-FNR       := NRM-MONITOR.M-NATRPT-FNR-N5
+NODS-USE-OWNER          := NRM-MONITOR.M-USE-OWNER
+NODS-DATE-FORMAT        := NRM-MONITOR.M-DATE-FORMAT
+NODS-SUPPORT-LONG-NAMES := NRM-MONITOR.M-SUPPORT-LONG-NAMES
+NODS-USER-AUTODEF       := NRM-MONITOR.M-USER-AUTODEF
+NODS-NGC-PARMS          := NRM-MONITOR.M-NGC-PARMS         /* CF2
+NODS-LAST-UPDATE-USER   := NRM-MONITOR.M-LAST-UPDATE-USER
+IF NRM-MONITOR.M-LAST-UPDATE NE 0
+  MOVE EDITED NRM-MONITOR.M-LAST-UPDATE (EM=YYYYMMDDHHIISST)
+    TO NODS-LAST-UPDATE
+END-IF
+* read active data dbid,fnr
+IF *MACHINE-CLASS NE 'PC'
+  SATLF-SATVERS  := 21
+  SATLF-FUNCTION := 'GET'
+  SATLF-LFILE    := #LFILE-ACTIVE           /* = 91
+  CALLNAT 'SATLF02N' SATLF-SATVERS SATLF-PARMS (*)
+  IF SATLF-ERROR-CODE = 0 AND SATLF-DBID-N5 NE 0 AND SATLF-FNR-N5 NE 0
+    NODS-ACTIVE-DATA-DBID:= SATLF-DBID-N5
+    NODS-ACTIVE-DATA-FNR := SATLF-FNR-N5
+  END-IF
+ELSE
+  RESET NODS-ACTIVE-DATA-DBID NODS-ACTIVE-DATA-FNR
+END-IF
+IF NRM-MONITOR.M-ARCHIVE-TIME = #TT
+  NODS-CLEANUP-ARCH-TIME := '00:00'
+ELSE
+  MOVE EDITED NRM-MONITOR.M-ARCHIVE-TIME(EM=HH':'II)
+    TO NODS-CLEANUP-ARCH-TIME
+END-IF
+* read from daily-cleanup-task
+FIND ARCHIVE-TASK WITH M-MONITOR-ID = #MONIT-ID
+  IF ARCHIVE-TASK.M-PLAN-ARC-TIME = #TT
+    RESET NODS-CLEANUP-PLAN-SCHED-DATE
+  ELSE
+    /* ------->                                  /* CF6 ->
+    /* With this new coding, the next Cleanup date is provided
+    /* (as the field description on CUI/GUI states)
+    /*
+    #CURRENT-TIME := *TIMX
+    MOVE EDITED ARCHIVE-TASK.M-ARCHIVE-TIME (EM=HHII)
+      TO #TIME
+    IF #TIME = '0000'
+      #TIME := '0001'
+    END-IF
+    /*
+    CALLNAT 'RSCHED-N' #CURRENT-TIME
+      #TIME
+      '0001' /* Time interval
+      #TIME
+      ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS (1:7)
+      ARCHIVE-TASK.M-ARCHIVE-DAYS (1:30)
+      ARCHIVE-TASK.M-ARCHIVE-CALENDAR
+      ARCHIVE-TASK.M-ARCHIVE-BEFORE-AFTER
+      ARCHIVE-TASK.M-PLAN-ARC-TIME
+    /* <-------                                  /* CF6 <-
+    MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME (EM=HH':'II)
+      TO NODS-CLEANUP-PLAN-SCHED-TIME
+    MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME (EM=YYYYMMDD)
+      TO #DATE-A8
+    CALLNAT 'IODATE-N' 'M' 'L' #DATE-A8 NODS-CLEANUP-PLAN-SCHED-DAT
+      ES-DATE-FORMAT #ERC #ERT
+  END-IF
+END-FIND
+NODS-LOG-TYPES(1:10)   := NRM-MONITOR.M-LOG-TYPES(1:10)
+IF NRM-MONITOR.M-LOG-RETENTION = ' '
+  RESET NODS-LOG-RET-NUMBER NODS-LOG-RET-FACTOR
+ELSE
+  #ARCHIVE-RETENTION := NRM-MONITOR.M-LOG-RETENTION
+  IF #ARCHIVE-RETENTION IS (N4)
+    NODS-LOG-RET-FACTOR := 'D'
+  ELSE
+    EXAMINE #ARCHIVE-RETENTION FOR 'X' GIVING LENGTH IN #I
+    NODS-LOG-RET-FACTOR := #ARET(#I)
+    RESET  #ARET (#I)
+  END-IF
+  IF #ARCHIVE-RETENTION IS (N4)
+    NODS-LOG-RET-NUMBER := VAL (#ARCHIVE-RETENTION)
+  ELSE
+    RESET  NODS-LOG-RET-NUMBER
+  END-IF
+END-IF
+NODS-PO-TYPES(1:3)    := NRM-MONITOR.M-PO-TYPES(1:3)
+IF NRM-MONITOR.M-PO-RETENTION = ' '
+  RESET NODS-PO-RET-NUMBER NODS-PO-RET-FACTOR
+ELSE
+  #ARCHIVE-RETENTION := NRM-MONITOR.M-PO-RETENTION
+  IF #ARCHIVE-RETENTION IS (N4)
+    NODS-PO-RET-FACTOR := 'D'
+  ELSE
+    EXAMINE #ARCHIVE-RETENTION FOR 'X' GIVING LENGTH IN #I
+    NODS-PO-RET-FACTOR := #ARET(#I)
+    RESET  #ARET (#I)
+  END-IF
+  IF #ARCHIVE-RETENTION IS (N4)
+    NODS-PO-RET-NUMBER := VAL (#ARCHIVE-RETENTION)
+  ELSE
+    RESET  NODS-PO-RET-NUMBER
+  END-IF
+END-IF
+IF NRM-MONITOR.M-HOLD-RETENTION = ' '                      /* CF1 ->
+  RESET NODS-HOLD-RET-NUMBER NODS-HOLD-RET-FACTOR
+ELSE
+  #ARCHIVE-RETENTION := NRM-MONITOR.M-HOLD-RETENTION
+  IF #ARCHIVE-RETENTION IS (N4)
+    NODS-HOLD-RET-FACTOR := 'D'
+  ELSE
+    EXAMINE #ARCHIVE-RETENTION FOR 'X' GIVING LENGTH IN #I
+    NODS-HOLD-RET-FACTOR := #ARET(#I)
+    RESET  #ARET (#I)
+  END-IF
+  IF #ARCHIVE-RETENTION IS (N4)
+    NODS-HOLD-RET-NUMBER := VAL (#ARCHIVE-RETENTION)
+  ELSE
+    RESET  NODS-HOLD-RET-NUMBER
+  END-IF
+END-IF                                                     /* CF1 <-
+NODS-CUSTOM-APPL(*) := NRM-MONITOR.M-CUSTOM-APPL(*)
+*
+END-SUBROUTINE /* READ-SYSTEM-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-MONITOR-DEFAULTS
+************************************************************************
+/* Get specific data from the current Monitor Node
+IF *MACHINE-CLASS = 'MAINFRAME'
+  RMD-MF. FIND MF-NODE WITH MF-TYPE-ID='MR-'-H'00' THRU 'MR-'-H'FF'
+    NODM-MONITOR-ID     := SUBSTR(MF-MONITOR-ID,3,16)
+    NODM-MONITOR-NODE   := MF-MONITOR-NODE
+    NODM-SPOOL-TYPE     := MF-SPOOL-TYPE
+    NODM-SYSTEM-TYPE    := MF-SYSTEM-TYPE
+    /* For BS2000/SPOOL spool types:
+/*SU16 -> IF MF-SPOOL-TYPE = 'SPOOL' OR MF-SYSTEM-TYPE = SCAN 'BS2'
+/*    NODM-SPOOL-TYPE   := 'SPOOL' NODM-BS2-DEST(*)  := MF-BS2-DEST(*)
+/*    EXAMINE FULL VALUE OF NODM-BS2-DEST (*)
+/*      FOR FULL VALUE OF H'FFFFFFFFFFFFFFFF' REPLACE WITH '        '
+/*    /* M-TIME-SCHEDULE can be K = copy, Y = rename, N = nothing
+/*    IF MF-TIME-SCHEDULE ='K' NODM-BS2-COPY:='Y' NODM-BS2-RENAME :='N'
+/*    ELSE NODM-BS2-RENAME:=MF-TIME-SCHEDULE NODM-BS2-COPY:='N' END-IF
+/*    /* Get BS2-COPY and BS2-RENAME values from user exit
+/*    PERFORM STEPLIBS PERFORM GET-USEREXIT-GRANDS
+/*    IF #G-NOMEXIT-ACTIVE(7) #FUNC := 0002 /* rename
+/*      RESET NOMEX007-FIELD-MODIFIABLE
+/*      CALLNAT 'NOMEX007' #FUNC
+/*        NOMEX007-FIELD-MODIFIABLE NOMEX007-FIELD-VALUE #ERC #ERT
+/*      DECIDE ON EVERY VALUE OF NOMEX007-FIELD-MODIFIABLE
+/*        VALUE 'Y' , ' ' ES-KEY-PARM(2)  := 'Y'
+/*        VALUE 'Y' , 'N' NODM-BS2-RENAME := NOMEX007-FIELD-VALUE
+/*        VALUE 'N' ES-KEY-PARM(2)   := 'N'  /* not modifiable
+/*        NONE IGNORE END-DECIDE #FUNC := 0001 /*copy
+/*      RESET NOMEX007-FIELD-MODIFIABLE
+/*      CALLNAT 'NOMEX007' #FUNC
+/*        NOMEX007-FIELD-MODIFIABLE NOMEX007-FIELD-VALUE #ERC #ERT
+/*      DECIDE ON EVERY VALUE OF NOMEX007-FIELD-MODIFIABLE
+/*        VALUE 'Y', ' ' ES-KEY-PARM(1) := 'Y'
+/*        VALUE 'Y' , 'N' NODM-BS2-COPY  := NOMEX007-FIELD-VALUE
+/*        VALUE 'N' ES-KEY-PARM(1) := 'N' /* not modifiable
+/*        NONE IGNORE END-DECIDE
+/*SU16 <- END-IF ELSE /* For JES2, JES3, POWR spool types:
+/* For JES2, JES3 spool types:
+    NODM-BATCH-MODULE     := NRM-MONITOR.M-BATCH-MODULE
+    NODM-JOBNAME          := NRM-MONITOR.M-XCOM-JOBNAME
+    NODM-TEMP-CLASS       := MF-TEMP-CLASS
+    NODM-PRINT-CLASS      := MF-PRINT-CLASS
+    NODM-CLASSES(*)       := MF-CLASSES(*)
+    NODM-ERROR-CLASS      := MF-ERR-CLASS
+    IF MF-SPOOL-TYPE = 'JES3'
+      NODM-JES3-OUTPUT-CLASSES(*) := MF-JES3-OUTPUT-CLASSES(*)
+    END-IF
+/*SU16  END-IF
+  END-FIND
+ELSE /* *MACHINE-CLASS = 'UNIX'     (? 'PC', 'VMS' ?)
+  /* Possible Monitor identifier: L = Local(none-RPC), M = Monitor(RPC)
+  RMD-UX. FIND UX-NODES WITH UX-SUSP-NAME = 'L'-H'00' THRU 'M'-H'FF'
+    NODM-MONITOR-ID     := UX-NODES.UX-NODE-NAME
+    NODM-MONITOR-TYPE   := UX-NODES.UX-NODE-SUSPEND
+    NODM-MONITOR-NODE   := 0
+    NODM-SPOOL-TYPE     := 'UNIX'
+    NODM-SYSTEM-TYPE    := *OS
+    IF NODM-SYSTEM-TYPE = ' '
+      NODM-SYSTEM-TYPE  := *MACHINE-CLASS
+    END-IF
+  END-FIND
+END-IF
+/* Get the current Monitor data
+NODM-NTDB-PROCESS     := NRM-MONITOR.M-NTDB-PROCESS
+NODM-JOBCARD(*)       := NRM-MONITOR.M-JOBCARD(*)
+NODM-MAX-RETRIES      := NRM-MONITOR.M-MAX-RETRIES
+NODM-RETRY-INT        := NRM-MONITOR.M-RETRY-INTERVAL
+NODM-PRT-TASK-NO      := NRM-MONITOR.M-PRT-TASK-NO
+* IF NODM-SPOOL-TYPE NE 'UNIX'                        /* CF8 -> CF10 ->
+*   EXAMINE NRM-MONITOR.M-EMAIL-RECIPIENTS(*) FOR '(a)' REPLACE '§'
+* END-IF                                                     /* CF10 <-
+NODM-EMERGENCY-EMAILS(*) := NRM-MONITOR.M-EMAIL-RECIPIENTS(*) /* CF8 <-
+NODM-LAST-UPDATE-USER := NRM-MONITOR.M-LAST-UPDATE-USER
+IF NRM-MONITOR.M-LAST-UPDATE NE 0
+  MOVE EDITED NRM-MONITOR.M-LAST-UPDATE (EM=YYYYMMDDHHIISST)
+    TO NODM-LAST-UPDATE
+END-IF
+/*
+IF NRM-MONITOR.M-WAIT-MAXIMUM = 0
+  NODM-WAIT-MAXIMUM   := 300
+ELSE
+  NODM-WAIT-MAXIMUM := NRM-MONITOR.M-WAIT-MAXIMUM
+END-IF
+IF NRM-MONITOR.M-WAIT-MINIMUM = 0
+  NODM-WAIT-MINIMUM   := 60
+ELSE
+  NODM-WAIT-MINIMUM := NRM-MONITOR.M-WAIT-MINIMUM
+END-IF
+IF NRM-MONITOR.M-WAIT-INCREMENT = 0
+  NODM-WAIT-INCREMENT := 5
+ELSE
+  NODM-WAIT-INCREMENT := NRM-MONITOR.M-WAIT-INCREMENT
+END-IF
+/*
+IF NRM-MONITOR.C*M-COPY-FILES-V141 > 0
+  FOR #I = 1 TO 20
+    IF NRM-MONITOR.M-COPY-FILES-V141(#I) = ' '
+      RESET NODM-CP-FILES (#I)
+    ELSE
+      NODM-CP-DBID(#I)  := NRM-MONITOR.M-CP-DBID (#I)
+      NODM-CP-FNR (#I)  := NRM-MONITOR.M-CP-FNR (#I)
+      NODM-CP-IDENT(#I) := NRM-MONITOR.M-CP-IDENT (#I)
+    END-IF
+  END-FOR
+END-IF
+/* Read monitor subtask information
+NODM-SUBT-NUMBER(1:12):= NRM-MONITOR.M-TASK-NUMBER(1:12)
+/* The position in the array defines the Subtask type:
+/*    (1)      contains the number of the Scan Queues Subtask
+/*    (2 : 10) contains the numbers of the Copy Source Subtasks
+/*    (11)     contains the number of the Create Reports Subtask
+/*    (12)     contains the number of the Manage Printouts Subtask
+/* The Subtask numbers can be 1 (the monitor task)
+/* or 21:29, 31:39, 41:49 or 51:59 (a separate subtask)
+RMTASK-P.FUNCTION       := 'S'
+RMTASK-P.SUBTASK-NUMBER := 21
+CALLNAT 'RMTASKID' RMTASK-P
+#FROM := RMTASK-P.TASK-ID
+RMTASK-P.SUBTASK-NUMBER := #MAX-TASKS
+CALLNAT 'RMTASKID' RMTASK-P
+RESET NODM-SUBT(*)
+FSUBT. FIND NRM-SUBTASK-INFO
+    WITH ST-SUBTASK-ID = #FROM THRU RMTASK-P.TASK-ID
+  ACCEPT IF ST-SUBTASK-ID = MASK('NOM'NNNNNNNNNN'-'NN)
+  RMTASK-P.FUNCTION       := 'G'
+  RMTASK-P.TASK-ID        := ST-SUBTASK-ID
+  CALLNAT 'RMTASKID' RMTASK-P
+  IF ST-EXEC-TYPE NE 'N'
+    FOR #II = 1 TO 12
+      IF RMTASK-P.SUBTASK-NUMBER = NODM-SUBT-NUMBER(#II)
+        DECIDE ON FIRST VALUE #II
+          VALUE   1       #SUBTASK-TYPE := 1  /* Scan Queues
+          VALUE   2 : 10  #SUBTASK-TYPE := 2  /* Copy Source
+          VALUE  11       #SUBTASK-TYPE := 3  /* Create Reports
+          VALUE  12       #SUBTASK-TYPE := 4  /* Manage Printouts
+          ANY
+              NODM-SUBT-WAIT-INCR(#SUBTASK-TYPE)
+              := ST-WAIT-INCREMENT(FSUBT.)
+              NODM-SUBT-WAIT-MIN(#SUBTASK-TYPE)
+              := ST-WAIT-MINIMUM(FSUBT.)
+              NODM-SUBT-WAIT-MAX(#SUBTASK-TYPE)
+              := ST-WAIT-MAXIMUM(FSUBT.)
+          NONE IGNORE
+        END-DECIDE
+      END-IF
+    END-FOR
+  END-IF
+END-FIND
+/* - Rebuilt -                                             /* CF3 <-
+END-SUBROUTINE /* READ-MONITOR-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-REPORT-DEFAULTS
+************************************************************************
+NODR-MONITOR-ID        := NRM-MONITOR.M-MONITOR-ID
+#REPORT-DEFAULTS       := NRM-MONITOR.M-REPORT-DEFAULTS
+NODR-STORE-NATRPT      := #REPORT-DEFAULTS.R-STORE-NATRPT
+NODR-ARCHIVE           := #REPORT-DEFAULTS.R-ARCHIVE
+NODR-CREATE-DEFINITION := #REPORT-DEFAULTS.R-CREATE-DEFINITION
+NODR-SEPARATOR-COPIES  := #REPORT-DEFAULTS.R-SEPNO
+NODR-JOBCARD (1:3)     := #REPORT-DEFAULTS.R-PRINT-JOBCARD(1:3)
+NODR-RETENTION-ACTION  := #REPORT-DEFAULTS.R-RETENTION-ACTION
+NODR-SEP-START         := #REPORT-DEFAULTS.R-SEPSTART
+NODR-SEP-END           := #REPORT-DEFAULTS.R-SEPEND
+NODR-LAST-UPDATE-USER  := NRM-MONITOR.M-LAST-UPDATE-USER
+IF NRM-MONITOR.M-LAST-UPDATE NE 0
+  MOVE EDITED NRM-MONITOR.M-LAST-UPDATE (EM=YYYYMMDDHHIISST)
+    TO NODR-LAST-UPDATE
+END-IF
+IF #REPORT-DEFAULTS.R-RETENTION-PERIOD = ' '
+  RESET NODR-RETENTION-NUMBER NODR-RETENTION-FACTOR
+    NODR-RETENTION-CALENDAR
+ELSE
+  NODR-RETENTION-NUMBER   := #REPORT-DEFAULTS.R-RETENTION-NUM
+  NODR-RETENTION-FACTOR   := #REPORT-DEFAULTS.R-RETENTION-UNIT
+  NODR-RETENTION-CALENDAR := #REPORT-DEFAULTS.R-RETENTION-CALENDAR
+END-IF
+CALLNAT 'N-NONE' NODR-SEP-START NODR-SEP-END
+*
+END-SUBROUTINE /* READ-REPORT-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-BUNDLE-DEFAULTS
+************************************************************************
+RESET #I
+#BUNDLE-DEFAULTS := NRM-MONITOR.M-BUNDLE-DEFAULTS
+IF #BUNDLE-DEFAULTS.B-RETENTION-PERIOD = ' '
+  RESET NODB-RETENTION-NUMBER NODB-RETENTION-FACTOR
+    NODB-RETENTION-CALENDAR
+ELSE
+  NODB-RETENTION-NUMBER   := #BUNDLE-DEFAULTS.B-RETENTION-NUM
+  NODB-RETENTION-FACTOR   := #BUNDLE-DEFAULTS.B-RETENTION-UNIT
+  NODB-RETENTION-CALENDAR := #BUNDLE-DEFAULTS.B-RETENTION-CALENDAR
+END-IF
+NODB-SEP-START := #BUNDLE-DEFAULTS.B-SEPSTART
+NODB-SEP-END   := #BUNDLE-DEFAULTS.B-SEPEND
+CALLNAT 'N-NONE' NODB-SEP-START NODB-SEP-END
+NODB-SEP-COPIES       := #BUNDLE-DEFAULTS.B-SEPNO
+NODB-FLAG-REPSEP      := #BUNDLE-DEFAULTS.B-FLAG-REPSEP
+NODB-HOLD-PRINT       := #BUNDLE-DEFAULTS.B-HOLD
+NODB-PRINT-JOBCARD    := #BUNDLE-DEFAULTS.B-JOBNAME
+NODB-LAST-UPDATE-USER := NRM-MONITOR.M-LAST-UPDATE-USER
+IF NRM-MONITOR.M-LAST-UPDATE NE 0
+  MOVE EDITED NRM-MONITOR.M-LAST-UPDATE (EM=YYYYMMDDHHIISST)
+    TO NODB-LAST-UPDATE
+END-IF
+FOR #I = 1 TO 5
+  IF #BUNDLE-DEFAULTS.B-PRINT-LIST(#I) = ' '
+    RESET NODB-PRINT-LIST1 (#I)
+  ELSE
+    NODB-PRINTER (#I) := #BUNDLE-DEFAULTS.B-PRINTER (#I)
+    NODB-PRINT-COPIES (#I) := #BUNDLE-DEFAULTS.B-PRINTER-COPIES (#I)
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* READ-BUNDLE-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ARCHIVE-DEFAULTS
+************************************************************************
+RESET #TT #DATE-A8 #L
+NODA-TIME-SCHEDULE := ARCHIVE-TASK.M-TIME-SCHEDULE
+IF ARCHIVE-TASK.M-TIME-SCHEDULE NE 'Y' OR
+    ARCHIVE-TASK.M-PLAN-ARC-TIME = #TT
+  RESET NODA-PLAN-SCHED-DAT NODA-PLAN-SCHED-TIME
+ELSE
+  MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME (EM=HH':'II) TO
+    NODA-PLAN-SCHED-TIME
+  MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME (EM=YYYYMMDD)
+    TO #DATE-A8
+  CALLNAT 'IODATE-N' 'M' 'L' #DATE-A8 NODA-PLAN-SCHED-DAT
+    ES-DATE-FORMAT #ERC #ERT
+  NODA-WEEKDAYS(*)  := ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS(*)
+  NODA-DAYS(*)      := ARCHIVE-TASK.M-ARCHIVE-DAYS(*)
+  NODA-CALENDAR     := ARCHIVE-TASK.M-ARCHIVE-CALENDAR
+  NODA-BEFORE-AFTER := ARCHIVE-TASK.M-ARCHIVE-BEFORE-AFTER
+END-IF
+IF ARCHIVE-TASK.M-ARCHIVE-RETENTION = ' '
+  RESET NODA-RET-NUMBER NODA-RET-FACTOR
+ELSE
+  #ARCHIVE-RETENTION := ARCHIVE-TASK.M-ARCHIVE-RETENTION
+  IF #ARCHIVE-RETENTION IS (N4)
+    NODA-RET-FACTOR := 'D'
+  ELSE
+    EXAMINE #ARCHIVE-RETENTION FOR 'X' GIVING LENGTH IN #L
+    NODA-RET-FACTOR := #ARET (#L)
+    RESET  #ARET (#L)
+  END-IF
+  IF #ARCHIVE-RETENTION IS (N4)
+    NODA-RET-NUMBER := VAL (#ARCHIVE-RETENTION)
+  ELSE
+    RESET NODA-RET-NUMBER
+  END-IF
+END-IF
+NODA-SKELETON := 'JARCSKEL'
+NODA-ARCHIVE-PREFIX     := ARCHIVE-TASK.M-ARCHIVE-PREFIX
+NODA-CONDENSE-PREFIX    := ARCHIVE-TASK.M-CONDENSE-PREFIX
+NODA-RET-PERIOD         := ARCHIVE-TASK.M-LAST-VOLSER
+NODA-CONDENSE-THRESHOLD := ARCHIVE-TASK.M-CONDENSE-THRESHOLD
+NODA-ARCHIVE-DELETE     := ARCHIVE-TASK.M-ARCHIVE-DELETE
+NODA-JOBCARD(*)         := ARCHIVE-TASK.M-JOBCARD(*)
+IF ARCHIVE-TASK.M-ARCHIVE-TIME = #TT
+  NODA-ARCHIVE-TIME := '00:00'
+ELSE
+  MOVE EDITED ARCHIVE-TASK.M-ARCHIVE-TIME(EM=HH':'II)
+    TO NODA-ARCHIVE-TIME
+END-IF
+DECIDE FOR FIRST CONDITION
+  WHEN NOMOD-SYSTEM-TYPE = SCAN 'DOS' OR = SCAN 'VSE'
+    NODA-VSE-SYSNR := ARCHIVE-TASK.M-ARCHIVE-VSE-SYSNR
+  WHEN NOMOD-SYSTEM-TYPE = SCAN 'BS2'
+    IGNORE
+  WHEN  NONE
+    NODA-TAPE-GENERIC := ARCHIVE-TASK.M-TAPE-GENERIC
+    NODA-ARCHIVE-STORAGE-CLASS := ARCHIVE-TASK.M-ARCHIVE-STORAGE-CLASS
+    NODA-GDG := ARCHIVE-TASK.M-GDG
+    NODA-MAX-GENERATIONS :=
+      ARCHIVE-TASK.M-GDG-NUMBER-OF-GENERATIONS
+END-DECIDE
+*
+END-SUBROUTINE /* READ-ARCHIVE-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-REVIVE-DEFAULTS
+************************************************************************
+RESET #TT #DATE-A8
+NODV-SKELETON := 'JREVSKEL'
+NODV-TIME-SCHEDULE := ARCHIVE-TASK.M-TIME-SCHEDULE
+IF ARCHIVE-TASK.M-TIME-SCHEDULE NE 'Y' OR
+    ARCHIVE-TASK.M-PLAN-ARC-TIME = #TT
+  RESET NODV-PLAN-SCHED-DATE
+ELSE
+  MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME (EM=HH':'II)
+    TO NODV-PLAN-SCHED-TIME
+  MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME (EM=YYYYMMDD)
+    TO #DATE-A8
+  CALLNAT 'IODATE-N' 'M' 'L' #DATE-A8  /* mask date / short format
+    NODV-PLAN-SCHED-DAT ES-DATE-FORMAT #ERC #ERT
+END-IF
+IF ARCHIVE-TASK.M-ARCHIVE-TIME = #TT
+  NODV-ARCHIVE-TIME := '00:00'
+ELSE
+  MOVE EDITED ARCHIVE-TASK.M-ARCHIVE-TIME (EM=HH':'II) TO
+    NODV-ARCHIVE-TIME
+END-IF
+IF ARCHIVE-TASK.M-ARCHIVE-TIME-INT = ' '
+  NODV-ARCHIVE-TIME-INT := '00:00'
+ELSE
+  MOVE EDITED ARCHIVE-TASK.M-ARCHIVE-TIME-INT (EM=XX':'XX) TO
+    NODV-ARCHIVE-TIME-INT
+END-IF
+IF ARCHIVE-TASK.M-ARCHIVE-TIME-END = ' '
+  NODV-ARCHIVE-TIME-END := '00:00'
+ELSE
+  MOVE EDITED ARCHIVE-TASK.M-ARCHIVE-TIME-END (EM=XX':'XX) TO
+    NODV-ARCHIVE-TIME-END
+END-IF
+NODV-WEEKDAYS(*)  := ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS(*)
+NODV-DAYS(*)      := ARCHIVE-TASK.M-ARCHIVE-DAYS(*)
+NODV-CALENDAR     := ARCHIVE-TASK.M-ARCHIVE-CALENDAR
+NODV-BEFORE-AFTER := ARCHIVE-TASK.M-ARCHIVE-BEFORE-AFTER
+NODV-JOBCARD (*)  := ARCHIVE-TASK.M-JOBCARD (*)
+NODV-LAST-UPDATE-USER   := ARCHIVE-TASK.M-LAST-UPDATE-USER
+IF ARCHIVE-TASK.M-LAST-UPDATE NE 0
+  MOVE EDITED ARCHIVE-TASK.M-LAST-UPDATE (EM=YYYYMMDDHHIISST)
+    TO NODV-LAST-UPDATE
+END-IF
+*
+END-SUBROUTINE /* READ-REVIVE-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-CLEANUP-DEFAULTS
+************************************************************************
+RESET #TT #DATE-A8
+NODC-CLEANUP-SPOOL   := ARCHIVE-TASK.M-CLEANUP-SPOOL
+NODC-CLEANUP-REPORTS := ARCHIVE-TASK.M-CLEANUP-REPORTS
+NODC-TIME-SCHEDULE    := ARCHIVE-TASK.M-TIME-SCHEDULE
+NODC-LAST-UPDATE-USER := ARCHIVE-TASK.M-LAST-UPDATE-USER
+IF ARCHIVE-TASK.M-LAST-UPDATE NE 0
+  MOVE EDITED ARCHIVE-TASK.M-LAST-UPDATE (EM=YYYYMMDDHHIISST)
+    TO NODC-LAST-UPDATE
+END-IF
+IF ARCHIVE-TASK.M-ARCHIVE-TIME = #TT
+  NODC-ARCHIVE-TIME := '00:00'
+ELSE
+  MOVE EDITED ARCHIVE-TASK.M-ARCHIVE-TIME (EM=HH':'II) TO
+    NODC-ARCHIVE-TIME
+END-IF
+IF ARCHIVE-TASK.M-ARCHIVE-TIME-INT = ' '
+  NODC-ARCHIVE-TIME-INT := '00:00'
+ELSE
+  MOVE EDITED ARCHIVE-TASK.M-ARCHIVE-TIME-INT (EM=XX':'XX) TO
+    NODC-ARCHIVE-TIME-INT
+END-IF
+IF ARCHIVE-TASK.M-ARCHIVE-TIME-END = ' '
+  NODC-ARCHIVE-TIME-END := '00:00'
+ELSE
+  MOVE EDITED ARCHIVE-TASK.M-ARCHIVE-TIME-END (EM=XX':'XX) TO
+    NODC-ARCHIVE-TIME-END
+END-IF
+NODC-WEEKDAYS(*)  := ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS(*)
+NODC-DAYS(*)      := ARCHIVE-TASK.M-ARCHIVE-DAYS(*)
+NODC-CALENDAR     := ARCHIVE-TASK.M-ARCHIVE-CALENDAR
+NODC-BEFORE-AFTER := ARCHIVE-TASK.M-ARCHIVE-BEFORE-AFTER
+IF ARCHIVE-TASK.M-TIME-SCHEDULE NE 'Y'
+    OR ARCHIVE-TASK.M-PLAN-ARC-TIME = #TT
+  RESET NODC-PLAN-SCHED-DATE
+ELSE
+  MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME (EM=HH':'II) TO
+    NODC-PLAN-SCHED-TIME
+  MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME (EM=YYYYMMDD) TO
+    #DATE-A8
+  CALLNAT 'IODATE-N' 'M' 'L' #DATE-A8 NODC-PLAN-SCHED-DAT
+    ES-DATE-FORMAT #ERC #ERT
+END-IF
+*
+END-SUBROUTINE /* READ-CLEANUP-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-NAF-DEFAULTS
+************************************************************************
+RESET #I #L
+NODN-NAF-INTERFACE-ACTIVE := NRM-MONITOR.M-TIME-SCHEDULE
+NODN-TIME-LIMIT           := NRM-MONITOR.M-WAIT-INCREMENT
+NODN-LAST-UPDATE-USER   := NRM-MONITOR.M-LAST-UPDATE-USER
+IF NRM-MONITOR.M-LAST-UPDATE NE 0
+  MOVE EDITED NRM-MONITOR.M-LAST-UPDATE (EM=YYYYMMDDHHIISST)
+    TO NODN-LAST-UPDATE
+END-IF
+FOR #I = 1 TO 20
+  IF NRM-MONITOR.M-COPY-FILES-V141(#I) > ' '
+    NODN-CONT-DBID(#I) := NRM-MONITOR.M-CP-DBID(#I)
+    NODN-CONT-FNR(#I)  := NRM-MONITOR.M-CP-FNR(#I)
+    IF NRM-MONITOR.M-CP-IDENT (#I) = MASK ('FS=('............)
+      EXAMINE NRM-MONITOR.M-CP-IDENT (#I)
+        FOR 'x' GIVING LENGTH IN #L
+      IF #L > 0 AND NRM-MONITOR.M-CP-IDENT-B(#I,#L) = ')'
+        SEPARATE NRM-MONITOR.M-CP-IDENT (#I)
+          LEFT INTO #ARRAY (*) WITH DELIMITER ' ,()' IGNORE
+        IF #ARRAY (2) IS (N5) AND  #ARRAY (3) IS (N5)
+          NODN-SPOOL-DBID (#I) := VAL (#ARRAY (2))
+          NODN-SPOOL-FNR  (#I) := VAL (#ARRAY (3))
+        END-IF
+      END-IF
+    END-IF
+  ELSE
+    RESET NODN-CONT-DBID(#I)  NODN-CONT-FNR(#I)
+      NODN-SPOOL-DBID(#I) NODN-SPOOL-FNR(#I)
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* READ-NAF-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-API-DEFAULTS
+************************************************************************
+RESET #L
+NODE-SCAN-TRIGGER-QUEUE := NRM-MONITOR.M-TIME-SCHEDULE
+NODE-DBID := NRM-MONITOR.M-NATRPT-DBID-N5
+NODE-FNR  := NRM-MONITOR.M-NATRPT-FNR-N5
+/*NODE-NOMEXIT-COUNT := #MAX-NOMEXIT      /* active nom exits = 12 CF9
+NODE-LAST-UPDATE-USER   := NRM-MONITOR.M-LAST-UPDATE-USER
+IF NRM-MONITOR.M-LAST-UPDATE NE 0
+  MOVE EDITED NRM-MONITOR.M-LAST-UPDATE (EM=YYYYMMDDHHIISST)
+    TO NODE-LAST-UPDATE
+END-IF
+#ES-MSG-NR := 6121                      /* nomexit texts
+PERFORM GET-MSG-TXT
+RESET ES-RC ES-MSG-TXT ES-MSG-TXT ES-MSG-FIELD
+/* Note:user exit flags are continuous used from 1 to 11   /* CF9 ->
+/* for user exits with same number.
+/* 12 -> 13/13 not used (not clear why these exeptions exist...)
+NODE-NOMEXIT-COUNT := 13   /* Number of output entries
+FOR #L = 1 TO 11
+  NODE-NOMEXIT-TEXT(#L) := LONG-MSG(#L)
+  #EXIT-NUMBER := #L
+  NODE-NOMEXIT-NAME(#L) := #NOMEXIT-NAME
+  #LI := #L
+  IF NRM-MONITOR.M-NOMEXIT-ACTIVE(#LI) NE 'Y'
+    NODE-NOMEXIT-ACTIVE(#L) := 'N'
+  ELSE
+    NODE-NOMEXIT-ACTIVE(#L) := NRM-MONITOR.M-NOMEXIT-ACTIVE(#LI)
+  END-IF
+END-FOR
+/* Exception: user exit flag 12 is mapped as NOMEX013
+NODE-NOMEXIT-TEXT(12) := LONG-MSG(12)
+#EXIT-NUMBER := 13
+NODE-NOMEXIT-NAME(12) := #NOMEXIT-NAME
+IF NRM-MONITOR.M-NOMEXIT-ACTIVE(12) NE 'Y'
+  NODE-NOMEXIT-ACTIVE(12) := 'N'
+ELSE
+  NODE-NOMEXIT-ACTIVE(12) := NRM-MONITOR.M-NOMEXIT-ACTIVE(12)
+END-IF
+/* Exception: user exit flag 14 is the 13th list entry
+NODE-NOMEXIT-TEXT(13) := LONG-MSG(13)
+#EXIT-NUMBER := 14
+NODE-NOMEXIT-NAME(13) := #NOMEXIT-NAME
+IF NRM-MONITOR.M-NOMEXIT-ACTIVE(14) NE 'Y'
+  NODE-NOMEXIT-ACTIVE(13) := 'N'
+ELSE
+  NODE-NOMEXIT-ACTIVE(13) := NRM-MONITOR.M-NOMEXIT-ACTIVE(14)
+END-IF
+/*                                                         /* CF9 <-
+END-SUBROUTINE /* READ-API-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-CMA-DEFAULTS
+************************************************************************
+NODO-TIME-SCHEDULE     := NRM-MONITOR.M-TIME-SCHEDULE
+NODO-INTERFACE-VERSION := NRM-MONITOR.M-VERSION
+NODO-CMASPOOL-VERSION  := NRM-MONITOR.M-BATCH-MODULE
+NODO-TEMP-DESTINATION  := NRM-MONITOR.M-DEFAULT-PRINTER
+NODO-TIME-LIMIT        := NRM-MONITOR.M-WAIT-INCREMENT
+NODO-LAST-UPDATE-USER   := NRM-MONITOR.M-LAST-UPDATE-USER
+IF NRM-MONITOR.M-LAST-UPDATE NE 0
+  MOVE EDITED NRM-MONITOR.M-LAST-UPDATE (EM=YYYYMMDDHHIISST)
+    TO NODO-LAST-UPDATE
+END-IF
+FOR #I = 1 TO 20
+  IF NRM-MONITOR.M-COPY-FILES-V141 (#I) = ' '
+    RESET NODO-CP-TAB(#I)
+  ELSE
+    NODO-CP-DBID (#I)  := NRM-MONITOR.M-CP-DBID(#I)
+    NODO-CP-FNR (#I)   := NRM-MONITOR.M-CP-FNR (#I)
+    NODO-CP-IDENT(#I)  := NRM-MONITOR.M-CP-IDENT(#I)
+  END-IF
+END-FOR
+/*
+END-SUBROUTINE /* READ-CMA-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+IF ES-ORIG-OBJECT='DS' OR='DM' OR='DR' OR='DB' OR='DO' OR='DE' OR='DN'
+  FNDUPM. FIND NRM-MONITOR WITH M-MONITOR-ID = #MONIT-ID
+    IF NO RECORDS FOUND
+      ES-MSG-NR := 0114
+      COMPRESS 'Monitor record' #MONIT-ID 'not found' INTO ES-MSG-TXT
+      ES-RC := 1
+      ESCAPE BOTTOM (FNDUPM.)
+    END-NOREC
+    PERFORM VALIDATION-S
+    IF #ES-MSG-NR = 0
+      GETMM. GET NRM-MONITOR *ISN(FNDUPM.)
+      DECIDE ON FIRST VALUE OF ES-ORIG-OBJECT
+        VALUE 'DS'
+          PERFORM ASSIGN-SYSTEM-DEFAULTS
+          NOSD-PARM-AREA(*) := NODS-PARM-AREA(*)
+        VALUE 'DM'
+          PERFORM ASSIGN-MONITOR-DEFAULTS
+          NOSD-PARM-AREA(*) := NODM-PARM-AREA(*)
+        VALUE 'DR'
+          PERFORM ASSIGN-REPORT-DEFAULTS
+          NOSD-PARM-AREA(*) := NODR-PARM-AREA(*)
+        VALUE 'DB'
+          PERFORM ASSIGN-BUNDLE-DEFAULTS
+          NOSD-PARM-AREA(*) := NODB-PARM-AREA(*)
+        VALUE 'DN'
+          PERFORM ASSIGN-NAF-DEFAULTS
+          NOSD-PARM-AREA(*) := NODN-PARM-AREA(*)
+        VALUE 'DO'
+          PERFORM ASSIGN-CMA-DEFAULTS
+          NOSD-PARM-AREA(*) := NODO-PARM-AREA(*)
+        VALUE 'DE'
+          PERFORM ASSIGN-API-DEFAULTS
+          NOSD-PARM-AREA(*) := NODE-PARM-AREA(*)
+        NONE VALUE IGNORE
+      END-DECIDE
+    ELSE
+      PERFORM GET-MSG-TXT
+      ESCAPE BOTTOM(FNDUPM.)
+    END-IF
+    NRM-MONITOR.M-LAST-UPDATE      := *TIMX
+    NRM-MONITOR.M-LAST-UPDATE-USER := *USER
+    UPDATE (GETMM.)
+  END-FIND
+ELSE
+  FNDUPAR. FIND ARCHIVE-TASK WITH M-MONITOR-ID = #MONIT-ID
+    IF NO RECORDS FOUND
+      ES-MSG-NR := 0114
+      COMPRESS 'Archive task' #MONIT-ID 'not found' TO ES-MSG-TXT
+      ES-RC := 1
+      ESCAPE BOTTOM(FNDUPAR.)
+    END-NOREC
+    PERFORM VALIDATION-S
+    IF #ES-MSG-NR = 0
+      GARC. GET ARCHIVE-TASK *ISN(FNDUPAR.)
+      DECIDE ON FIRST VALUE OF ES-ORIG-OBJECT
+        VALUE 'DA'
+          PERFORM ASSIGN-ARCHIVE-DEFAULTS
+          NOSD-PARM-AREA(*) := NODA-PARM-AREA(*)
+        VALUE 'DV'
+          PERFORM ASSIGN-REVIVE-DEFAULTS
+          NOSD-PARM-AREA(*) := NODV-PARM-AREA(*)
+        VALUE 'DC'
+          PERFORM ASSIGN-CLEANUP-DEFAULTS
+          NOSD-PARM-AREA(*) := NODC-PARM-AREA(*)
+        NONE VALUE IGNORE
+      END-DECIDE
+    ELSE
+      PERFORM GET-MSG-TXT
+      ESCAPE BOTTOM(FNDUPAR.)
+    END-IF
+    ARCHIVE-TASK.M-LAST-UPDATE      := *TIMX
+    ARCHIVE-TASK.M-LAST-UPDATE-USER := *USER
+    UPDATE (GARC.)
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* UPDATE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-SYSTEM-DEFAULTS
+************************************************************************
+RESET #TIME-F #TIME
+NRM-MONITOR.M-NATRPT-DBID-N5     := NODS-NOM-DATA-DBID
+NRM-MONITOR.M-NATRPT-FNR-N5      := NODS-NOM-DATA-FNR
+NRM-MONITOR.M-USE-OWNER          := NODS-USE-OWNER
+NRM-MONITOR.M-DATE-FORMAT        := NODS-DATE-FORMAT
+ES-DATE-FORMAT                   := NODS-DATE-FORMAT
+NRM-MONITOR.M-SUPPORT-LONG-NAMES := NODS-SUPPORT-LONG-NAMES
+NRM-MONITOR.M-NGC-PARMS          := NODS-NGC-PARMS         /* CF2
+NODS-LAST-UPDATE-USER   := NRM-MONITOR.M-LAST-UPDATE-USER
+IF NRM-MONITOR.M-LAST-UPDATE NE 0
+  MOVE EDITED NRM-MONITOR.M-LAST-UPDATE (EM=YYYYMMDDHHIISST)
+    TO NODS-LAST-UPDATE
+END-IF
+NRM-MONITOR.M-USER-AUTODEF       := NODS-USER-AUTODEF
+* add or delete default user profile
+DECIDE ON FIRST VALUE OF NRM-MONITOR.M-USER-AUTODEF
+  VALUE 'N'
+    FNDUS. FIND US WITH USER-ID = 'DEFAULT'
+      DELETE
+    END-FIND
+  VALUE 'P', 'Y'
+    #I-LANGUAGE := ES-LANGUAGE
+    CALLNAT 'RDEFUS-N' 'DEFAULT ' #I-LANGUAGE #PROFILE ES-USER
+  NONE VALUE IGNORE
+END-DECIDE
+#TIME-F := NODS-CLEANUP-ARCH-TIME
+EXAMINE #TIME-F FOR ':' DELETE
+MOVE LEFT JUSTIFIED #TIME-F TO #TIME
+IF #TIME = '0000'
+  #TIME := '0001'
+END-IF
+MOVE EDITED #TIME TO NRM-MONITOR.M-ARCHIVE-TIME(EM=HHII)
+* archive-task values
+FNDTSK. FIND ARCHIVE-TASK WITH M-MONITOR-ID = #MONIT-ID
+  #CURRENT-TIME := *TIMX
+  ARCHIVE-TASK.M-ARCHIVE-TIME-INT := '0001'
+  ARCHIVE-TASK.M-ARCHIVE-TIME-END := #TIME
+  CALLNAT 'RSCHED-N' #CURRENT-TIME #TIME
+    ARCHIVE-TASK.M-ARCHIVE-TIME-INT ARCHIVE-TASK.M-ARCHIVE-TIME-END
+    ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS (1:7)
+    ARCHIVE-TASK.M-ARCHIVE-DAYS (1:30)
+    ARCHIVE-TASK.M-ARCHIVE-CALENDAR ARCHIVE-TASK.M-ARCHIVE-BEFORE-AFTER
+    ARCHIVE-TASK.M-PLAN-ARC-TIME
+* assign parameter value after change archive-time
+  IF ARCHIVE-TASK.M-PLAN-ARC-TIME = #TT
+    RESET NODS-CLEANUP-PLAN-SCHED-DATE
+  ELSE
+    MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME(EM=HH':'II)
+      TO NODS-CLEANUP-PLAN-SCHED-TIME
+    MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME(EM=YYYYMMDD) TO #DATE-A8
+    CALLNAT 'IODATE-N' 'M' 'L' #DATE-A8 NODS-CLEANUP-PLAN-SCHED-DAT
+      ES-DATE-FORMAT #ERC #ERT
+  END-IF
+*
+  UPDATE(FNDTSK.)
+END-FIND
+*
+NRM-MONITOR.M-LOG-TYPES (*)   := NODS-LOG-TYPES(*)
+IF NODS-LOG-RET-NUMBER = 0 AND NODS-LOG-RET-FACTOR = ' '
+  RESET NRM-MONITOR.M-LOG-RETENTION
+ELSE
+  COMPRESS NODS-LOG-RET-NUMBER NODS-LOG-RET-FACTOR TO
+    NRM-MONITOR.M-LOG-RETENTION LEAVING NO
+END-IF
+NRM-MONITOR.M-PO-TYPES(*)     := NODS-PO-TYPES(*)
+IF NODS-PO-RET-NUMBER = 0 AND NODS-PO-RET-FACTOR = ' '
+  RESET NRM-MONITOR.M-PO-RETENTION
+ELSE
+  COMPRESS NODS-PO-RET-NUMBER NODS-PO-RET-FACTOR TO
+    NRM-MONITOR.M-PO-RETENTION LEAVING NO
+END-IF
+IF NODS-HOLD-RET-NUMBER = 0 AND NODS-HOLD-RET-FACTOR = ' ' /* CF1 ->
+  RESET NRM-MONITOR.M-HOLD-RETENTION
+ELSE
+  COMPRESS NODS-HOLD-RET-NUMBER NODS-HOLD-RET-FACTOR TO
+    NRM-MONITOR.M-HOLD-RETENTION LEAVING NO
+END-IF                                                     /* CF1 <-
+RESET NODS-AP-FILLER(*)
+NRM-MONITOR.M-CUSTOM-APPL (*) := NODS-CUSTOM-APPL (*)
+*
+END-SUBROUTINE /* ASSIGN-SYSTEM-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-MONITOR-DEFAULTS
+************************************************************************
+/* - Rebuilt -                                             /* CF3 ->
+/* Get specific data from the current Monitor Node
+IF *MACHINE-CLASS = 'MAINFRAME'
+  UMD-MF. FIND MF-NODE WITH MF-TYPE-ID = 'MR-'-H'00' THRU 'MR-'-H'FF'
+    MF-MONITOR-NODE := NODM-MONITOR-NODE
+/*SU12 NRM-MONITOR.M-MONITOR-NODE     := NODM-MONITOR-NODE
+    /* For BS2000/SPOOL spool types:
+    IF NODM-SPOOL-TYPE = 'SPOOL' OR NODM-SYSTEM-TYPE = SCAN 'BS2'
+      FOR #I = 1 TO 4                                      /* CF7 ->
+        IF NODM-BS2-DEST(#I) = ' '
+          /* Set high value for empty null-supr. MU DB field
+          MF-BS2-DEST(#I) := H'FFFFFFFFFFFFFFFF'
+        ELSE
+          MF-BS2-DEST(#I) := NODM-BS2-DEST(#I)
+        END-IF
+      END-FOR                                              /* CF7 <-
+      /*
+      /* M-TIME-SCHEDULE can be K = copy, Y = rename, N = nothing
+      MF-TIME-SCHEDULE := NODM-BS2-RENAME
+      IF NODM-BS2-COPY = 'Y'
+        MF-TIME-SCHEDULE := 'K'
+      END-IF
+    ELSE /* For JES2, JES3 spool types:
+      NRM-MONITOR.M-XCOM-JOBNAME    := NODM-JOBNAME
+      NRM-MONITOR.M-BATCH-MODULE    := NODM-BATCH-MODULE
+      MF-TEMP-CLASS  := NODM-TEMP-CLASS
+      MF-PRINT-CLASS := NODM-PRINT-CLASS
+      MF-CLASSES(*)  := NODM-CLASSES(*)
+      MF-ERR-CLASS   := NODM-ERROR-CLASS
+      IF NODM-SPOOL-TYPE = 'JES3'
+        MF-JES3-OUTPUT-CLASSES(*) := NODM-JES3-OUTPUT-CLASSES(*)
+      END-IF
+    END-IF
+    MF-LAST-UPDATE      := *TIMX
+    MF-LAST-UPDATE-USER := *USER
+    UPDATE (UMD-MF.)
+  END-FIND
+ELSE /* *MACHINE-CLASS = 'UNIX'     (? 'PC', 'VMS' ?)
+  /* Note: As the monitor node name can't be changed currently,
+  /*       no update on UX-NODES is required
+  IGNORE
+  /* Possible Monitor types: L = Local(none-RPC), M = Monitor(RPC)
+END-IF
+/* Save the current Monitor data
+NRM-MONITOR.M-JOBCARD(*)     := NODM-JOBCARD(*)
+NRM-MONITOR.M-MAX-RETRIES    := NODM-MAX-RETRIES
+NRM-MONITOR.M-RETRY-INTERVAL := NODM-RETRY-INT
+NRM-MONITOR.M-PRT-TASK-NO    := NODM-PRT-TASK-NO
+NRM-MONITOR.M-EMAIL-RECIPIENTS(*) := NODM-EMERGENCY-EMAILS(*) /* CF8 ->
+FOR #II = 1 TO 2
+  #MAIL-ADDRESS := NRM-MONITOR.M-EMAIL-RECIPIENTS(#II)
+  PERFORM CLEAN-EMAIL-ADDRESS-LINE
+  NRM-MONITOR.M-EMAIL-RECIPIENTS(#II) := #MAIL-ADDRESS
+END-FOR                                                      /* CF10 <-
+IF NODM-WAIT-MINIMUM = 0
+  NRM-MONITOR.M-WAIT-MINIMUM := 60
+ELSE
+  NRM-MONITOR.M-WAIT-MINIMUM := NODM-WAIT-MINIMUM
+END-IF
+IF NODM-WAIT-MAXIMUM  = 0
+  NRM-MONITOR.M-WAIT-MAXIMUM := 300
+ELSE
+  NRM-MONITOR.M-WAIT-MAXIMUM := NODM-WAIT-MAXIMUM
+END-IF
+IF NODM-WAIT-INCREMENT  = 0
+  NRM-MONITOR.M-WAIT-INCREMENT := 5
+ELSE
+  NRM-MONITOR.M-WAIT-INCREMENT := NODM-WAIT-INCREMENT
+END-IF
+/* Assign attributes of container files
+FOR #I = 1 TO 20
+  IF NODM-CP-IDENT(#I) NE ' '
+    NRM-MONITOR.M-CP-DBID(#I) := NODM-CP-DBID(#I)
+    NRM-MONITOR.M-CP-FNR (#I) := NODM-CP-FNR (#I)
+    NRM-MONITOR.M-CP-IDENT(#I):= NODM-CP-IDENT(#I)
+  ELSE
+    RESET NRM-MONITOR.M-COPY-FILES-V141(#I)
+  END-IF
+END-FOR
+/* Savety check for un-assigned Sub-Tasks
+DECIDE FOR EVERY CONDITION
+  WHEN NODM-SUBT-NUMBER(1) = 0    /* Sub-Task Scan Queue
+    NODM-SUBT-NUMBER(1) := 1   /* ... assign to Monitor task
+  WHEN NODM-SUBT-NUMBER(2) = 0    /* Sub-Task Copy Source
+    NODM-SUBT-NUMBER(2) := 1   /* ... assign to Monitor task
+  WHEN NODM-SUBT-NUMBER(11) = 0   /* Sub-Task Create Reports
+    NODM-SUBT-NUMBER(11) := 1  /* ... assign to Monitor task
+  WHEN NODM-SUBT-NUMBER(12) = 0   /* Sub-Task Manage Printouts
+    NODM-SUBT-NUMBER(12) := 1  /* ... assign to Monitor task
+  WHEN NONE IGNORE
+END-DECIDE
+NRM-MONITOR.M-TASK-NUMBER(1:12) := NODM-SUBT-NUMBER(1:12)
+FOR #L = 21 TO #MAX-TASKS
+  /* Check if Subtask number is used
+  #SUBTASK-TYPE := 0
+  IF #L = NODM-SUBT-NUMBER(*)
+    FOR #II = 1 TO 12
+      IF NODM-SUBT-NUMBER(#II) = #L
+        DECIDE ON FIRST VALUE OF #II
+          VALUE  1       #SUBTASK-TYPE := 1   /* Scan Queues
+          VALUE  2 : 10  #SUBTASK-TYPE := 2   /* Copy Source
+          VALUE  11      #SUBTASK-TYPE := 3   /* Create Reports
+          VALUE  12      #SUBTASK-TYPE := 4   /* Manage Printouts
+          ANY  ESCAPE BOTTOM
+          NONE IGNORE
+        END-DECIDE
+      END-IF
+    END-FOR
+  END-IF
+  RMTASK-P.FUNCTION       := 'S'
+  RMTASK-P.SUBTASK-NUMBER := #L
+  CALLNAT 'RMTASKID' RMTASK-P
+  FNDSBT. FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = RMTASK-P.TASK-ID
+    /* Store new defined subtask
+    IF NO RECORDS FOUND
+      IF #SUBTASK-TYPE GT 0
+          NRM-SUBTASK-INFO.ST-WAIT-INCREMENT
+          := NODM-SUBT-WAIT-INCR(#SUBTASK-TYPE)
+          NRM-SUBTASK-INFO.ST-WAIT-MINIMUM
+          := NODM-SUBT-WAIT-MIN(#SUBTASK-TYPE)
+          NRM-SUBTASK-INFO.ST-WAIT-MAXIMUM
+          := NODM-SUBT-WAIT-MAX(#SUBTASK-TYPE)
+        NRM-SUBTASK-INFO.ST-SUBTASK-ID    := RMTASK-P.TASK-ID
+        NRM-SUBTASK-INFO.ST-OBJECT-TYPE := 'SI'
+        NRM-SUBTASK-INFO.ST-OBJECT-TIME := *TIMX
+        STORE NRM-SUBTASK-INFO
+      END-IF
+      ESCAPE BOTTOM (FNDSBT.)
+    END-NOREC
+    /* Update existing subtask
+    IF #SUBTASK-TYPE GT 0
+      RESET NRM-SUBTASK-INFO.ST-EXEC-TYPE
+        NRM-SUBTASK-INFO.ST-WAIT-INCREMENT
+        := NODM-SUBT-WAIT-INCR(#SUBTASK-TYPE)
+        NRM-SUBTASK-INFO.ST-WAIT-MINIMUM
+        := NODM-SUBT-WAIT-MIN(#SUBTASK-TYPE)
+        NRM-SUBTASK-INFO.ST-WAIT-MAXIMUM
+        := NODM-SUBT-WAIT-MAX (#SUBTASK-TYPE)
+      UPDATE (FNDSBT.)
+    ELSE
+      /* Delete removed subtask
+      DELETE (FNDSBT.)
+    END-IF
+  END-FIND
+END-FOR
+/* - Rebuilt -                                             /* CF3 <-
+END-SUBROUTINE /* ASSIGN-MONITOR-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-REPORT-DEFAULTS
+************************************************************************
+RESET #REPORT-DEFAULTS
+#REPORT-DEFAULTS.R-STORE-NATRPT       := NODR-STORE-NATRPT
+#REPORT-DEFAULTS.R-CREATE-DEFINITION  := NODR-CREATE-DEFINITION
+#REPORT-DEFAULTS.R-ARCHIVE            := NODR-ARCHIVE
+IF NODR-RETENTION-NUMBER = 0
+  RESET #REPORT-DEFAULTS.R-RETENTION-PERIOD
+ELSE
+  #REPORT-DEFAULTS.R-RETENTION-NUM      := NODR-RETENTION-NUMBER
+  #REPORT-DEFAULTS.R-RETENTION-UNIT     := NODR-RETENTION-FACTOR
+  #REPORT-DEFAULTS.R-RETENTION-CALENDAR := NODR-RETENTION-CALENDAR
+END-IF
+#REPORT-DEFAULTS.R-RETENTION-ACTION   := NODR-RETENTION-ACTION
+#REPORT-DEFAULTS.R-SEPSTART           := NODR-SEP-START
+#REPORT-DEFAULTS.R-SEPEND             := NODR-SEP-END
+#REPORT-DEFAULTS.R-SEPNO              := NODR-SEPARATOR-COPIES
+#REPORT-DEFAULTS.R-PRINT-JOBCARD(*)   := NODR-JOBCARD(*)
+RESET #REPORT-DEFAULTS.R-REPORT-DEFAULTS-SPARE
+NRM-MONITOR.M-REPORT-DEFAULTS := #REPORT-DEFAULTS
+*
+END-SUBROUTINE /* ASSIGN-REPORT-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-BUNDLE-DEFAULTS
+************************************************************************
+RESET #BUNDLE-DEFAULTS #I
+IF NODB-RETENTION-NUMBER = 0
+  RESET #BUNDLE-DEFAULTS.B-RETENTION-PERIOD
+ELSE
+  #BUNDLE-DEFAULTS.B-RETENTION-NUM      := NODB-RETENTION-NUMBER
+  #BUNDLE-DEFAULTS.B-RETENTION-UNIT     := NODB-RETENTION-FACTOR
+  #BUNDLE-DEFAULTS.B-RETENTION-CALENDAR := NODB-RETENTION-CALENDAR
+END-IF
+#BUNDLE-DEFAULTS.B-SEPSTART           := NODB-SEP-START
+#BUNDLE-DEFAULTS.B-SEPEND             := NODB-SEP-END
+#BUNDLE-DEFAULTS.B-SEPNO              := NODB-SEP-COPIES
+#BUNDLE-DEFAULTS.B-FLAG-REPSEP        := NODB-FLAG-REPSEP
+#BUNDLE-DEFAULTS.B-HOLD               := NODB-HOLD-PRINT
+#BUNDLE-DEFAULTS.B-JOBNAME            := NODB-PRINT-JOBCARD
+FOR #I = 1 TO 5
+  IF NODB-PRINTER(#I) = ' '
+    RESET #BUNDLE-DEFAULTS.B-PRINT-LIST(#I)
+  ELSE
+    #BUNDLE-DEFAULTS.B-PRINTER(#I)      := NODB-PRINTER(#I)
+    #BUNDLE-DEFAULTS.B-PRINTER-COPIES(#I) := NODB-PRINT-COPIES(#I)
+  END-IF
+END-FOR
+RESET #BUNDLE-DEFAULTS.B-FLUSH-TIME #BUNDLE-DEFAULTS.B-RETENTION-ACTION
+  #BUNDLE-DEFAULTS.B-OLD-FILLER #BUNDLE-DEFAULTS.B-FILLER
+NRM-MONITOR.M-BUNDLE-DEFAULTS := #BUNDLE-DEFAULTS
+*
+END-SUBROUTINE /* ASSIGN-BUNDLE-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-ARCHIVE-DEFAULTS
+************************************************************************
+RESET #TIME-F #TIME #CURRENT-TIME
+DECIDE ON FIRST VALUE OF NODA-TIME-SCHEDULE
+  VALUE 'N'
+    ARCHIVE-TASK.M-TIME-SCHEDULE := 'N'
+    RESET ARCHIVE-TASK.M-PLAN-ARC-TIME
+  VALUE 'Y'
+    ARCHIVE-TASK.M-TIME-SCHEDULE := 'Y'
+    #CURRENT-TIME := *TIMX
+    #TIME-F := NODA-ARCHIVE-TIME
+    EXAMINE #TIME-F FOR ':' DELETE
+    MOVE LEFT JUSTIFIED #TIME-F TO #TIME
+    IF #TIME = '0000'
+      #TIME := '0001'
+    END-IF
+    MOVE EDITED #TIME TO ARCHIVE-TASK.M-ARCHIVE-TIME(EM=HHII)
+    CALLNAT 'RSCHED-N' #CURRENT-TIME #TIME '0000' /* time interval
+      #TIME NODA-WEEKDAYS (1:7) NODA-DAYS (1:30) NODA-CALENDAR
+      NODA-BEFORE-AFTER ARCHIVE-TASK.M-PLAN-ARC-TIME
+*
+    ARCHIVE-TASK.M-ARCHIVE-DAYS(*) := NODA-DAYS(*)
+    ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS(*) := NODA-WEEKDAYS(*)
+    ARCHIVE-TASK.M-ARCHIVE-CALENDAR := NODA-CALENDAR
+    ARCHIVE-TASK.M-ARCHIVE-BEFORE-AFTER := NODA-BEFORE-AFTER
+  NONE VALUE IGNORE
+END-DECIDE
+IF NODA-RET-FACTOR = ' ' AND NODA-RET-NUMBER = 0
+  RESET ARCHIVE-TASK.M-ARCHIVE-RETENTION
+ELSE
+  COMPRESS NODA-RET-NUMBER NODA-RET-FACTOR TO
+    ARCHIVE-TASK.M-ARCHIVE-RETENTION LEAVING NO
+END-IF
+ARCHIVE-TASK.M-ARCHIVE-PREFIX     := NODA-ARCHIVE-PREFIX
+ARCHIVE-TASK.M-CONDENSE-PREFIX    := NODA-CONDENSE-PREFIX
+ARCHIVE-TASK.M-LAST-VOLSER        := NODA-RET-PERIOD
+ARCHIVE-TASK.M-CONDENSE-THRESHOLD := NODA-CONDENSE-THRESHOLD
+ARCHIVE-TASK.M-ARCHIVE-DELETE     := NODA-ARCHIVE-DELETE
+ARCHIVE-TASK.M-JOBCARD(*)         := NODA-JOBCARD(*)
+DECIDE FOR FIRST CONDITION
+  WHEN NOMOD-SYSTEM-TYPE = SCAN 'DOS' OR = SCAN 'VSE'
+    ARCHIVE-TASK.M-ARCHIVE-VSE-SYSNR := NODA-VSE-SYSNR
+    RESET ARCHIVE-TASK.M-TAPE-GENERIC
+      ARCHIVE-TASK.M-ARCHIVE-STORAGE-CLASS ARCHIVE-TASK.M-GDG
+      ARCHIVE-TASK.M-GDG-NUMBER-OF-GENERATIONS
+  WHEN NOMOD-SYSTEM-TYPE = SCAN 'BS2'
+    IGNORE
+  WHEN NONE
+    ARCHIVE-TASK.M-TAPE-GENERIC := NODA-TAPE-GENERIC
+    ARCHIVE-TASK.M-ARCHIVE-STORAGE-CLASS := NODA-ARCHIVE-STORAGE-CLASS
+    ARCHIVE-TASK.M-GDG := NODA-GDG
+    RESET ARCHIVE-TASK.M-ARCHIVE-VSE-SYSNR
+END-DECIDE
+*
+END-SUBROUTINE /* ASSIGN-ARCHIVE-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-REVIVE-DEFAULTS
+************************************************************************
+RESET #CURRENT-TIME #TIME-F #TIME
+#TIME-F := NODV-ARCHIVE-TIME-INT
+EXAMINE #TIME-F FOR ':' DELETE
+MOVE LEFT JUSTIFIED #TIME-F TO ARCHIVE-TASK.M-ARCHIVE-TIME-INT
+#TIME-F := NODV-ARCHIVE-TIME-END
+EXAMINE #TIME-F FOR ':' DELETE
+MOVE LEFT JUSTIFIED #TIME-F TO ARCHIVE-TASK.M-ARCHIVE-TIME-END
+DECIDE ON FIRST VALUE OF NODV-TIME-SCHEDULE
+  VALUE 'N'
+    ARCHIVE-TASK.M-TIME-SCHEDULE := 'N'
+    RESET ARCHIVE-TASK.M-PLAN-ARC-TIME
+  VALUE 'Y'
+    ARCHIVE-TASK.M-TIME-SCHEDULE := 'Y'
+* get next plan sched date
+    #CURRENT-TIME := *TIMX
+    #TIME-F := NODV-ARCHIVE-TIME
+    EXAMINE #TIME-F FOR ':' DELETE
+    MOVE LEFT JUSTIFIED #TIME-F TO #TIME
+    IF #TIME = '0000'
+      #TIME := '0001'
+    END-IF
+    MOVE EDITED #TIME TO ARCHIVE-TASK.M-ARCHIVE-TIME(EM=HHII)
+    CALLNAT 'RSCHED-N' #CURRENT-TIME #TIME
+      ARCHIVE-TASK.M-ARCHIVE-TIME-INT ARCHIVE-TASK.M-ARCHIVE-TIME-END
+      NODV-WEEKDAYS (1:7) NODV-DAYS (1:30) NODV-CALENDAR
+      NODV-BEFORE-AFTER ARCHIVE-TASK.M-PLAN-ARC-TIME
+*
+  NONE VALUE IGNORE
+END-DECIDE
+* assign parameter value after change times
+IF ARCHIVE-TASK.M-PLAN-ARC-TIME = #TT
+  RESET NODV-PLAN-SCHED-DATE
+ELSE
+  MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME (EM=HH':'II)
+    TO NODV-PLAN-SCHED-TIME
+  MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME (EM=YYYYMMDD) TO #DATE-A8
+  CALLNAT 'IODATE-N' 'M' 'L' #DATE-A8 NODV-PLAN-SCHED-DAT
+    ES-DATE-FORMAT #ERC #ERT
+END-IF
+*
+ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS(*) := NODV-WEEKDAYS(*)
+ARCHIVE-TASK.M-ARCHIVE-DAYS(*)      := NODV-DAYS(*)
+ARCHIVE-TASK.M-ARCHIVE-CALENDAR     := NODV-CALENDAR
+ARCHIVE-TASK.M-ARCHIVE-BEFORE-AFTER := NODV-BEFORE-AFTER
+ARCHIVE-TASK.M-JOBCARD(*)           := NODV-JOBCARD(*)
+*
+END-SUBROUTINE /* ASSIGN-REVIVE-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-CLEANUP-DEFAULTS
+************************************************************************
+RESET #TIME-F #TIME #CURRENT-TIME
+ARCHIVE-TASK.M-CLEANUP-SPOOL   := NODC-CLEANUP-SPOOL
+ARCHIVE-TASK.M-CLEANUP-REPORTS := NODC-CLEANUP-REPORTS
+#TIME-F := NODC-ARCHIVE-TIME-INT
+EXAMINE #TIME-F FOR ':' DELETE
+MOVE LEFT JUSTIFIED #TIME-F TO ARCHIVE-TASK.M-ARCHIVE-TIME-INT
+RESET #TIME-F
+#TIME-F := NODC-ARCHIVE-TIME-END
+EXAMINE #TIME-F FOR ':' DELETE
+MOVE LEFT JUSTIFIED #TIME-F TO ARCHIVE-TASK.M-ARCHIVE-TIME-END
+RESET #TIME-F
+DECIDE ON FIRST VALUE OF NODC-TIME-SCHEDULE
+  VALUE 'N'
+    ARCHIVE-TASK.M-TIME-SCHEDULE := 'N'
+    RESET ARCHIVE-TASK.M-PLAN-ARC-TIME
+  VALUE 'Y'
+    ARCHIVE-TASK.M-TIME-SCHEDULE := 'Y'
+* get next plan arc time
+    #CURRENT-TIME := *TIMX
+    #TIME-F := NODC-ARCHIVE-TIME
+    EXAMINE #TIME-F FOR ':' DELETE
+    MOVE LEFT JUSTIFIED #TIME-F TO #TIME
+    IF #TIME = '0000'
+      #TIME := '0001'
+    END-IF
+    MOVE EDITED #TIME TO ARCHIVE-TASK.M-ARCHIVE-TIME(EM=HHII)
+    CALLNAT 'RSCHED-N' #CURRENT-TIME #TIME
+      ARCHIVE-TASK.M-ARCHIVE-TIME-INT ARCHIVE-TASK.M-ARCHIVE-TIME-END
+      NODC-WEEKDAYS (1:7) NODC-DAYS (1:30) NODC-CALENDAR
+      NODC-BEFORE-AFTER ARCHIVE-TASK.M-PLAN-ARC-TIME
+  NONE VALUE IGNORE
+END-DECIDE
+* assign parameter value after change archive-time
+IF ARCHIVE-TASK.M-PLAN-ARC-TIME NE #TT
+  MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME (EM=HH':'II)
+    TO NODC-PLAN-SCHED-TIME
+  MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME (EM=YYYYMMDD) TO #DATE-A8
+  CALLNAT 'IODATE-N' 'M' 'L' #DATE-A8 NODC-PLAN-SCHED-DAT
+    ES-DATE-FORMAT #ERC #ERT
+ELSE
+  RESET NODC-PLAN-SCHED-DATE
+END-IF
+*
+ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS(*) := NODC-WEEKDAYS(*)
+ARCHIVE-TASK.M-ARCHIVE-DAYS(*)      := NODC-DAYS(*)
+ARCHIVE-TASK.M-ARCHIVE-CALENDAR     := NODC-CALENDAR
+ARCHIVE-TASK.M-ARCHIVE-BEFORE-AFTER := NODC-BEFORE-AFTER
+*
+END-SUBROUTINE /* ASSIGN-CLEANUP-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-CMA-DEFAULTS
+************************************************************************
+RESET #I
+NRM-MONITOR.M-TIME-SCHEDULE   := NODO-TIME-SCHEDULE
+NRM-MONITOR.M-VERSION         := NODO-INTERFACE-VERSION
+NRM-MONITOR.M-BATCH-MODULE    := NODO-CMASPOOL-VERSION
+NRM-MONITOR.M-DEFAULT-PRINTER := NODO-TEMP-DESTINATION
+NRM-MONITOR.M-WAIT-INCREMENT  := NODO-TIME-LIMIT
+FOR #I = 1 TO 20
+  IF NODO-CP-IDENT (#I) NE ' '
+    NRM-MONITOR.M-CP-DBID(#I) := NODO-CP-DBID(#I)
+    NRM-MONITOR.M-CP-FNR(#I)  := NODO-CP-FNR (#I)
+    NRM-MONITOR.M-CP-IDENT(#I):= NODO-CP-IDENT (#I)
+  ELSE
+    RESET NRM-MONITOR.M-COPY-FILES-V141(#I)
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* ASSIGN-CMA-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-NAF-DEFAULTS
+************************************************************************
+NRM-MONITOR.M-TIME-SCHEDULE  := NODN-NAF-INTERFACE-ACTIVE
+NRM-MONITOR.M-WAIT-INCREMENT := NODN-TIME-LIMIT
+FOR #I = 1 TO 20
+  IF (NODN-SPOOL-DBID(#I) NE 0 OR NODN-SPOOL-FNR(#I) NE 0) AND
+      (NODN-CONT-DBID(#I)  NE 0 OR NODN-CONT-FNR(#I) NE 0)
+    COMPRESS 'FS=(' NODN-SPOOL-DBID(#I) ',' NODN-SPOOL-FNR(#I) ')'
+      TO NRM-MONITOR.M-CP-IDENT(#I) LEAVING NO
+    NRM-MONITOR.M-CP-DBID(#I) := NODN-CONT-DBID(#I)
+    NRM-MONITOR.M-CP-FNR(#I)  := NODN-CONT-FNR(#I)
+  ELSE
+    RESET NRM-MONITOR.M-COPY-FILES-V141(#I)
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* ASSIGN-NAF-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-API-DEFAULTS
+************************************************************************
+NRM-MONITOR.M-TIME-SCHEDULE     := NODE-SCAN-TRIGGER-QUEUE
+NRM-MONITOR.M-NATRPT-DBID-N5    := NODE-DBID
+NRM-MONITOR.M-NATRPT-FNR-N5     := NODE-FNR
+/* Note: 12 -> 13. 13 not used                             /* CF9 ->
+NRM-MONITOR.M-NOMEXIT-ACTIVE(1:12) := NODE-NOMEXIT-ACTIVE(1:12)
+NRM-MONITOR.M-NOMEXIT-ACTIVE(14)   := NODE-NOMEXIT-ACTIVE(13)
+*
+END-SUBROUTINE /* ASSIGN-API-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION-S
+************************************************************************
+PERFORM VALIDATION
+ES-CONTROL := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+*
+END-SUBROUTINE /* VALIDATION-S
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+RESET #ES-MSG-NR #ES-MSG-FIELD
+DECIDE ON FIRST VALUE OF ES-ORIG-OBJECT
+  VALUE 'DS'
+    NODS-PARM-AREA(*) := NOSD-PARM-AREA(*)
+    PERFORM VALIDATE-SYSTEM-DEFAULTS
+  VALUE 'DM'
+    NODM-PARM-AREA(*) := NOSD-PARM-AREA(*)
+    PERFORM VALIDATE-MONITOR-DEFAULTS
+  VALUE 'DR'
+    NODR-PARM-AREA(*) := NOSD-PARM-AREA(*)
+    PERFORM VALIDATE-REPORT-DEFAULTS
+  VALUE 'DB'
+    NODB-PARM-AREA(*) := NOSD-PARM-AREA(*)
+    PERFORM VALIDATE-BUNDLE-DEFAULTS
+  VALUE 'DA'
+    NODA-PARM-AREA(*) := NOSD-PARM-AREA(*)
+    PERFORM VALIDATE-ARCHIVE-DEFAULTS
+  VALUE 'DV'
+    NODV-PARM-AREA(*) := NOSD-PARM-AREA(*)
+    PERFORM VALIDATE-REVIVE-DEFAULTS
+  VALUE 'DC'
+    NODC-PARM-AREA(*) := NOSD-PARM-AREA(*)
+    PERFORM VALIDATE-CLEANUP-DEFAULTS
+  VALUE 'DN'
+    NODN-PARM-AREA(*) := NOSD-PARM-AREA(*)
+    PERFORM VALIDATE-NAF-DEFAULTS
+  VALUE 'DE'
+    NODE-PARM-AREA(*) := NOSD-PARM-AREA(*)
+    PERFORM VALIDATE-API-DEFAULTS
+  VALUE 'DO'
+    NODO-PARM-AREA(*) := NOSD-PARM-AREA(*)
+    PERFORM VALIDATE-CMA-DEFAULTS
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-SYSTEM-DEFAULTS
+************************************************************************
+NODS-PARM-AREA(*) := NOSD-PARM-AREA(*)
+RESET  #I #TIME-F #TIME #LEN #L
+IF NODS-USER-AUTODEF = ' '
+  NODS-USER-AUTODEF := 'N'
+END-IF
+DECIDE FOR EVERY CONDITION
+  WHEN NOT (NODS-USE-OWNER = 'Y' OR = 'N')
+    #ES-MSG-NR := 1099            /* please enter 'Y' or 'N'
+    #ES-MSG-FIELD-NAME := 'USE-OWNER'
+    ESCAPE ROUTINE
+  WHEN NOT (NODS-DATE-FORMAT = 'G' OR = 'I' OR = 'A' OR = 'E'
+      OR = 'H' OR ='J' OR = 'B' OR ='F')
+    #ES-MSG-NR := 0633           /* invalid date format parameter
+    #ES-MSG-FIELD-NAME := 'DATE-FORMAT'
+    ESCAPE ROUTINE
+  WHEN NOT (NODS-SUPPORT-LONG-NAMES = 'Y' OR = 'N' )
+    #ES-MSG-NR := 1099           /* please enter 'Y' or 'N'
+    #ES-MSG-FIELD-NAME := 'SUPPORT-LONG-NAMES'
+    ESCAPE ROUTINE
+  WHEN NOT (NODS-USER-AUTODEF = 'Y' OR = 'N' OR = 'P')
+    #ES-MSG-NR := 1110           /* enter 'N', 'P' or 'Y'
+    #ES-MSG-FIELD-NAME := 'USER-AUTODEF'
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+#TIME-F := NODS-CLEANUP-ARCH-TIME
+EXAMINE #TIME-F FOR ':' DELETE
+MOVE LEFT JUSTIFIED #TIME-F TO #TIME
+IF #TIME NE MASK (00:2300:59)
+  #ES-MSG-NR := 0051      /* enter correct time
+  #ES-MSG-FIELD-NAME := 'CLEANUP-ARCH-TIME'
+  ESCAPE ROUTINE
+END-IF
+IF NODS-LOG-RET-NUMBER = 0 AND NODS-LOG-RET-FACTOR NE ' '
+  #ES-MSG-NR := 0415
+  #ES-MSG-FIELD-NAME := 'LOG-RETENTION'
+  ESCAPE ROUTINE
+END-IF
+IF NODS-LOG-RET-NUMBER > 0
+AND NOT (NODS-LOG-RET-FACTOR='D' OR='W' OR='M' OR=' ')                /*
+  #ES-MSG-NR := 0634     /* invalid retention period
+  #ES-MSG-FIELD-NAME := 'LOG-RETENTION'
+  ESCAPE ROUTINE
+END-IF
+IF NODS-LOG-TYPES(*) NE ' '
+  FOR #I 1 TO 10
+    IF NOT (NODS-LOG-TYPES (#I)='R' OR='B' OR='P' OR='D' OR='L' OR=' ')
+      #ES-MSG-NR := 2123  /* Please, enter valid log type (R,B,P,D,L)
+      #ES-MSG-FIELD-NAME := 'LOG-TYPES'
+      #ES-MSG-FIELD-INDEX := #I
+      ESCAPE ROUTINE
+    END-IF
+  END-FOR
+* default log retention, if log types specified
+  IF NODS-LOG-RET-NUMBER = 0
+    NODS-LOG-RET-NUMBER := 10
+    NODS-LOG-RET-FACTOR := 'D'
+  END-IF
+END-IF
+*
+IF NODS-PO-RET-NUMBER = 0 AND NODS-PO-RET-FACTOR NE ' '
+  #ES-MSG-NR := 0634
+  #ES-MSG-FIELD-NAME := 'PO-RETENTION'
+  ESCAPE ROUTINE
+END-IF
+*
+IF NODS-PO-RET-NUMBER > 0
+AND NOT (NODS-PO-RET-FACTOR = 'D' OR = 'W' OR = 'M' OR = ' ')         /*
+  #ES-MSG-NR := 0634
+  #ES-MSG-FIELD-NAME := 'PO-RETENTION'
+  ESCAPE ROUTINE
+END-IF
+IF NODS-PO-TYPES(*) NE ' '
+  FOR #L 1 TO 3
+    IF NOT (NODS-PO-TYPES(#L) = ' ' OR = 'D' OR = 'E' OR = 'F')
+* err msg should be added in SYSERR
+      #ES-MSG-NR := 2124  /* please, enter valid printout type (D,E,F)
+      #ES-MSG-FIELD-NAME := 'PO-TYPES'
+      #ES-MSG-FIELD-INDEX := #L
+      ESCAPE ROUTINE
+    END-IF
+  END-FOR
+END-IF
+*
+IF NODS-HOLD-RET-NUMBER = 0 AND NODS-HOLD-RET-FACTOR NE ' ' /* CF1 ->
+  #ES-MSG-NR := 2146
+  #ES-MSG-FIELD-NAME := 'HOLD-RETENTION'
+  ESCAPE ROUTINE
+END-IF
+IF NODS-HOLD-RET-NUMBER > 0
+AND NOT (NODS-HOLD-RET-FACTOR = 'D' OR = 'W' OR = 'M' OR = ' ')       /*
+  #ES-MSG-NR := 2146
+  #ES-MSG-FIELD-NAME := 'HOLD-RETENTION'
+  ESCAPE ROUTINE
+END-IF                                                     /* CF1 <-
+*
+END-SUBROUTINE /* VALIDATE-SYSTEM-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-MONITOR-DEFAULTS
+************************************************************************
+/* - Rebuilt -                                             /* CF3 ->
+NODM-PARM-AREA(*) := NOSD-PARM-AREA(*)
+RESET #I #L #J
+/*SU12 IF NODM-MONITOR-NODE NE NRM-MONITOR.M-MONITOR-NODE
+IF NODM-MONITOR-NODE NE MF-MONITOR-NODE /*SU12
+  PERFORM SYSTEM-INFO      /* check monitor node
+  IF #ES-MSG-NR NE 0
+    ESCAPE ROUTINE
+  END-IF
+  NODM-SYSTEM-TYPE := SYSTEM-INFO.SYSTEM-TYPE
+  NODM-SPOOL-TYPE  := SYSTEM-INFO.SPOOL-TYPE
+END-IF
+/*
+DECIDE FOR EVERY CONDITION
+    /* Monitor node number no longer modifiable in monitor defaults
+  WHEN NODM-NTDB-PROCESS = 0
+    NODM-NTDB-PROCESS := 148
+  WHEN NODM-PRT-TASK-NO > 32
+    #ES-MSG-NR := 1524  /* Number of Printer Tasks :1:
+    #ES-MSG-FIELD-NAME := 'PRT-TASK-NO'
+    #ES-MSG-TXT        := NODM-PRT-TASK-NO
+    ESCAPE ROUTINE
+  WHEN NODM-WAIT-MINIMUM < 1
+    #ES-MSG-NR := 0632  /* Min wait time must be at least 1
+    #ES-MSG-FIELD-NAME := 'WAIT-MINIMUM'
+    ESCAPE ROUTINE
+  WHEN NODM-WAIT-MAXIMUM < NODM-WAIT-MINIMUM
+    #ES-MSG-NR := 0628  /* Max wait time must be >= to min wait time
+    #ES-MSG-FIELD-NAME := 'WAIT-MAXIMUM'
+    ESCAPE ROUTINE
+  WHEN NODM-WAIT-MINIMUM + NODM-WAIT-INCREMENT > NODM-WAIT-MAXIMUM
+    #ES-MSG-NR := 0631  /* Increment should be < max wait time
+    #ES-MSG-FIELD-NAME := 'WAIT-INCREMENT'
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+/* Verify spooling parameters of mainframe monitor
+IF *MACHINE-CLASS = 'MAINFRAME'
+  DECIDE FOR FIRST CONDITION
+    WHEN NODM-SPOOL-TYPE = 'SPOOL' OR
+        NODM-SYSTEM-TYPE = SCAN 'BS2' OR
+        NODM-SPOOL-TYPE = SCAN 'BS2'
+      IF NOT (NODM-BS2-RENAME = 'Y' OR = 'N')
+        #ES-MSG-NR := 9206 /* Please enter 'Y' or 'N'
+        #ES-MSG-FIELD-NAME := 'BS2-RENAME'
+        ESCAPE ROUTINE
+      END-IF
+      IF NOT (NODM-BS2-COPY = 'Y' OR = 'N')
+        #ES-MSG-NR := 9206
+        #ES-MSG-FIELD-NAME := 'BS2-COPY'
+        ESCAPE ROUTINE
+      END-IF
+      IF NODM-BS2-RENAME = 'Y' AND NODM-BS2-COPY = 'Y'
+        #ES-MSG-NR := 9211 /* Please activate copy or rename only
+        #ES-MSG-FIELD-NAME := 'BS2-RENAME'
+        ESCAPE ROUTINE
+      END-IF
+      IF NODM-BS2-COPY = 'Y' AND
+          (NODM-CP-DBID(1) = 0 OR NODM-CP-FNR  (1) = 0)
+        #ES-MSG-NR := 9212 /* Please enter a container file for copy
+        #ES-MSG-FIELD-NAME := 'BS2-COPY'
+        ESCAPE ROUTINE
+      END-IF
+      RESET NODM-JES3-OUTPUT-CLASSES(*) NODM-BATCH-MODULE
+        NODM-CLASSES(*) NODM-PRINT-CLASS NODM-TEMP-CLASS NODM-JOBNAME
+        NODM-ERROR-CLASS
+    WHEN NODM-SPOOL-TYPE = 'JES3'
+      DECIDE FOR EVERY CONDITION
+/*SU14 -> WHEN NOT (NODM-CLASSES(*) NE ' ') AND
+/*          NOT (NODM-JES3-OUTPUT-CLASSES(*) NE ' ')
+/*        #ES-MSG-NR := 0629 /* At least one class must be assigned
+/*        #ES-MSG-FIELD-NAME  := 'CLASSES'
+/*        #ES-MSG-FIELD-INDEX := 1
+/*SU14 <- ESCAPE ROUTINE
+        WHEN NODM-TEMP-CLASS=' ' AND NODM-JES3-OUTPUT-CLASSES (*) NE ' '
+          #ES-MSG-NR := 0627 /* Temporary class must be specified
+          #ES-MSG-FIELD-NAME := 'TEMP-CLASS'
+          ESCAPE ROUTINE
+        WHEN NODM-TEMP-CLASS NE ' '   AND
+            (NODM-TEMP-CLASS = NODM-PRINT-CLASS OR
+            NODM-TEMP-CLASS = NODM-JES3-OUTPUT-CLASSES (*))
+          #ES-MSG-NR := 0626 /* temp class cannot be part of other
+          #ES-MSG-FIELD-NAME := 'TEMP-CLASS'
+          ESCAPE ROUTINE
+        WHEN NODM-PRINT-CLASS = ' '
+          #ES-MSG-NR:= 0622  /* print class must be specified
+          #ES-MSG-FIELD-NAME := 'PRINT-CLASS'
+          ESCAPE ROUTINE
+        WHEN NODM-PRINT-CLASS = NODM-JES3-OUTPUT-CLASSES (*)
+          #ES-MSG-NR := 0623 /* print class must be different
+          #ES-MSG-FIELD-NAME := 'PRINT-CLASS'
+          ESCAPE ROUTINE
+        WHEN NODM-ERROR-CLASS NE ' '  AND
+            (NODM-ERROR-CLASS = NODM-PRINT-CLASS
+            OR= NODM-JES3-OUTPUT-CLASSES (*))
+          #ES-MSG-NR := 0640
+          #ES-MSG-FIELD-NAME := 'ERROR-CLASS'
+          ESCAPE ROUTINE
+        WHEN NONE IGNORE
+      END-DECIDE
+      RESET NODM-BS2-RENAME NODM-BS2-RENAME NODM-BS2-DEST(*)
+    WHEN NONE /*JES2
+      DECIDE FOR EVERY CONDITION
+        WHEN NODM-BATCH-MODULE = ' '
+          #ES-MSG-NR := 0621   /* Please enter name of subtask module
+          #ES-MSG-FIELD-NAME := 'BATCH-MODULE'
+          ESCAPE ROUTINE
+/*SU14 -> WHEN NOT (NODM-CLASSES(*) NE ' ')
+/*        #ES-MSG-NR :=  0629  /* At least one class must be assigned
+/*        #ES-MSG-FIELD-NAME  := 'CLASSES'
+/*        #ES-MSG-FIELD-INDEX := 1
+/*SU14 <- ESCAPE ROUTINE
+        WHEN NODM-TEMP-CLASS = ' '
+          #ES-MSG-NR := 0627   /* Temp class must be specified
+          #ES-MSG-FIELD-NAME := 'TEMP-CLASS'
+          ESCAPE ROUTINE
+        WHEN NODM-TEMP-CLASS = NODM-CLASSES(*)
+          #ES-MSG-NR := 0626   /* temp class cannot be part of other
+          #ES-MSG-FIELD-NAME := 'TEMP-CLASS'
+          ESCAPE ROUTINE
+        WHEN NODM-PRINT-CLASS = ' '
+          #ES-MSG-NR := 0622   /* print class must be specified
+          #ES-MSG-FIELD-NAME := 'PRINT-CLASS'
+          ESCAPE ROUTINE
+        WHEN NODM-PRINT-CLASS = NODM-CLASSES (*) OR = NODM-TEMP-CLASS
+          #ES-MSG-NR := 0623   /* print class must be different
+          #ES-MSG-FIELD-NAME := 'PRINT-CLASS'
+          ESCAPE ROUTINE
+        WHEN NODM-ERROR-CLASS NE ' '  AND
+            (NODM-ERROR-CLASS = NODM-PRINT-CLASS OR= NODM-CLASSES (*))
+          #ES-MSG-NR := 0640
+          #ES-MSG-FIELD-NAME := 'ERROR-CLASS'
+          ESCAPE ROUTINE
+        WHEN NONE IGNORE
+      END-DECIDE
+      RESET NODM-JES3-OUTPUT-CLASSES(*)
+        NODM-BS2-RENAME NODM-BS2-COPY NODM-BS2-DEST(*)
+  END-DECIDE
+END-IF
+/* Validate container files
+FOR #I 1 20
+  IF NODM-CP-IDENT (#I) NE ' '
+    DECIDE FOR EVERY CONDITION
+      WHEN NOT NODM-CP-DBID (#I) > 0
+        IF #I LE 10
+          #J := (#I - 1) * 6 + 2
+        ELSE
+          #J := (#I - 11) * 6 + 5
+        END-IF
+        #ES-MSG-NR := 0638   /* invalid container file dbid :1:
+        #ES-MSG-TXT := NODM-CP-DBID(#I)
+        #ES-MSG-FIELD-NAME := 'COPY-FILES'
+        #ES-MSG-FIELD-INDEX := #J
+        ESCAPE ROUTINE
+      WHEN NOT NODM-CP-FNR (#I)  > 0
+        IF #I LE 10
+          #J := (#I - 1) * 6 + 3
+        ELSE
+          #J := (#I - 11) * 6 + 6
+        END-IF
+        #ES-MSG-NR := 0639   /* invalid container file fnr :1:
+        #ES-MSG-TXT := NODM-CP-FNR(#I)
+        #ES-MSG-FIELD-NAME := 'COPY-FILES'
+        #ES-MSG-FIELD-INDEX := #J
+        ESCAPE ROUTINE
+      WHEN NONE IGNORE
+    END-DECIDE
+  ELSE
+    RESET NODM-CP-FILES (#I)
+  END-IF
+END-FOR
+/* Validation of monitor subtasks parameters
+FOR #II = 1 TO 12
+  DECIDE ON FIRST VALUE OF #II
+    VALUE  1         /* Scan Queues
+      IF NODM-SUBT-NUMBER(#II) GT 20
+        #TST-WAIT-MIN := NODM-SUBT-WAIT-MIN(1)
+        #TST-WAIT-MAX := NODM-SUBT-WAIT-MAX(1)
+        #TST-WAIT-INC := NODM-SUBT-WAIT-INCR(1)
+      END-IF
+    VALUE  2         /* Copy Source (2 : 10)
+      IF NODM-SUBT-NUMBER(#II) GT 20
+        #TST-WAIT-MIN := NODM-SUBT-WAIT-MIN(2)
+        #TST-WAIT-MAX := NODM-SUBT-WAIT-MAX(2)
+        #TST-WAIT-INC := NODM-SUBT-WAIT-INCR(2)
+      END-IF
+    VALUE  11        /* Create Reports
+      IF NODM-SUBT-NUMBER(#II) GT 20
+        #TST-WAIT-MIN := NODM-SUBT-WAIT-MIN(3)
+        #TST-WAIT-MAX := NODM-SUBT-WAIT-MAX(3)
+        #TST-WAIT-INC := NODM-SUBT-WAIT-INCR(3)
+      END-IF
+    VALUE  12        /* Manage Printouts
+      IF NODM-SUBT-NUMBER(#II) GT 20
+        #TST-WAIT-MIN := NODM-SUBT-WAIT-MIN(4)
+        #TST-WAIT-MAX := NODM-SUBT-WAIT-MAX(4)
+        #TST-WAIT-INC := NODM-SUBT-WAIT-INCR(4)
+      END-IF
+    ANY
+      IF NODM-SUBT-NUMBER(#II) = 1  /* Monitor Task
+        #TST-WAIT-MIN := NODM-WAIT-MINIMUM
+        #TST-WAIT-MAX := NODM-WAIT-MAXIMUM
+        #TST-WAIT-INC := NODM-WAIT-INCREMENT
+      END-IF
+      IF #TST-WAIT-MIN GT #TST-WAIT-MAX
+        #ES-MSG-NR := 0628 /* Max wait time must be >= min wait time
+        #ES-MSG-FIELD-NAME := 'SUBTASK'
+        #ES-MSG-FIELD-INDEX := #II
+        ESCAPE ROUTINE
+      END-IF
+      IF #TST-WAIT-INC GT #TST-WAIT-MAX
+        #ES-MSG-NR := 0631  /* Increment should be < max wait time
+        #ES-MSG-FIELD-NAME := 'SUBTASK'
+        #ES-MSG-FIELD-INDEX := #II
+        ESCAPE ROUTINE
+      END-IF
+    NONE IGNORE
+  END-DECIDE
+END-FOR
+/* - Rebuilt -                                             /* CF3 <-
+END-SUBROUTINE /* VALIDATE-MONITOR-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-REPORT-DEFAULTS
+************************************************************************
+DECIDE FOR EVERY CONDITION
+  WHEN NOT (NODR-STORE-NATRPT  = 'Y' OR = 'N' OR = ' ')
+    #ES-MSG-NR := 1099      /* please enter 'Y' or 'N'
+    #ES-MSG-FIELD-NAME := 'STORE-NATRPT'
+    ESCAPE ROUTINE
+  WHEN NOT (NODR-ARCHIVE = 'Y' OR = 'N' OR = 'I' OR = ' ' )
+    #ES-MSG-NR := 1107     /* Invalid 'Archive Directly' option
+    #ES-MSG-FIELD-NAME := 'ARCHIVE'
+    ESCAPE ROUTINE
+  WHEN NOT (NODR-CREATE-DEFINITION  = 'Y' OR = 'N' OR = ' ')
+    #ES-MSG-NR := 1099
+    #ES-MSG-FIELD-NAME := 'CREATE-DEFINITION'
+    ESCAPE ROUTINE
+  WHEN NODR-RETENTION-NUMBER = 0 AND (NODR-RETENTION-FACTOR NE ' '
+      OR NODR-RETENTION-CALENDAR NE ' ')
+    #ES-MSG-NR := 0415
+    #ES-MSG-FIELD-NAME := 'RETENTION-NUMBER'
+    ESCAPE ROUTINE
+  WHEN NOT (NODR-RETENTION-ACTION = 'A' OR = 'P' OR = ' ')
+    #ES-MSG-NR := 1088
+    #ES-MSG-FIELD-NAME := 'RETENTION-ACTION'
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+IF NODR-RETENTION-NUMBER > 0
+  DECIDE FOR EVERY CONDITION
+    WHEN NOT (NODR-RETENTION-FACTOR ='W' OR='A' OR='V' OR='M' OR='G')
+      #ES-MSG-NR := 1087
+      #ES-MSG-FIELD-NAME := 'RETENTION-FACTOR'
+      ESCAPE ROUTINE
+    WHEN NODR-RETENTION-FACTOR = 'G'
+      RESET NODR-RETENTION-CALENDAR
+    WHEN NODR-RETENTION-FACTOR = 'W' AND NODR-RETENTION-CALENDAR = ' '
+      #ES-MSG-NR := 2003
+      #ES-MSG-FIELD-NAME := 'RETENTION-CALENDAR'
+      ESCAPE ROUTINE
+    WHEN NODR-RETENTION-CALENDAR NE ' '
+      NODR-RETENTION-FACTOR := 'W'
+      ES-OBJECT   := 'CA'
+      ES-FUNCTION := 'EX'
+      #CA-ID := NODR-RETENTION-CALENDAR
+      ES-KEY-PARM(1) := #CALENDAR-ID
+* check calendar existance
+      CALLNAT 'NOXXEX-N' ES-CONTROL ES-INPUT
+      IF ES-RC NE 0
+        #ES-MSG-NR := 2004   /* Calendar does not exist
+        #ES-MSG-FIELD-NAME := 'RETENTION-CALENDAR'
+        ESCAPE ROUTINE
+      END-IF
+    WHEN NONE IGNORE
+  END-DECIDE
+END-IF
+CALLNAT 'N-SEPME2' ES-CONTROL ES-INPUT NODR-SEP-START 1X
+  NODR-SEP-END 1X 'R' #ES-MSG-NR #ES-MSG-FIELD-NAME
+IF #ES-MSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-REPORT-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-BUNDLE-DEFAULTS
+************************************************************************
+RESET #I
+IF NODB-RETENTION-NUMBER = 0
+  IF NODB-RETENTION-FACTOR NE ' ' OR NODB-RETENTION-CALENDAR NE ' '
+    #ES-MSG-NR := 0415
+    #ES-MSG-FIELD-NAME := 'RETENTION-NUMBER'
+    ESCAPE ROUTINE
+  END-IF
+ELSE
+  IF NOT (NODB-RETENTION-FACTOR = 'W' OR ='A' OR ='V' OR ='M')
+    #ES-MSG-NR := 0634
+    #ES-MSG-FIELD-NAME := 'RETENTION-FACTOR'
+    ESCAPE ROUTINE
+  END-IF
+  IF NODB-RETENTION-FACTOR = 'W' AND NODB-RETENTION-NUMBER > 0 AND
+      NODB-RETENTION-CALENDAR = ' '
+    #ES-MSG-NR := 2003
+    #ES-MSG-FIELD-NAME := 'RETENTION-CALENDAR'
+    ESCAPE ROUTINE
+  END-IF
+* check calendar existance
+  IF NODB-RETENTION-CALENDAR NE ' '
+    NODB-RETENTION-FACTOR := 'W'
+    ES-OBJECT   := 'CA'
+    ES-FUNCTION := 'EX'
+    #CA-ID := NODB-RETENTION-CALENDAR
+    ES-KEY-PARM(1) := #CALENDAR-ID
+    CALLNAT 'NOXXEX-N' ES-CONTROL ES-INPUT
+    IF ES-RC NE 0
+      #ES-MSG-NR := 2004
+      #ES-MSG-FIELD-NAME := 'RETENTION-CALENDAR'
+      ESCAPE ROUTINE
+    END-IF
+    NODB-RETENTION-FACTOR := 'W'
+  ELSE                     /* ret-calendar = ' '
+    IF NODB-RETENTION-FACTOR = 'W'
+      RESET NODB-RETENTION-FACTOR
+      #ES-MSG-NR := 2003
+      #ES-MSG-FIELD-NAME := 'RETENTION-FACTOR'
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+END-IF
+CALLNAT 'N-SEPME2' ES-CONTROL ES-INPUT NODB-SEP-START 1X
+  NODB-SEP-END 1X 'B' #ES-MSG-NR #ES-MSG-FIELD-NAME
+IF #ES-MSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+IF NOT (NODB-FLAG-REPSEP = 'Y' OR = 'N' OR = ' ' )
+  #ES-MSG-NR := 1099
+  #ES-MSG-FIELD-NAME := 'FLAG-REPSEP'
+  ESCAPE ROUTINE
+END-IF
+IF NOT (NODB-HOLD-PRINT = 'Y' OR= 'N' OR = ' ' )
+  #ES-MSG-NR :=1099
+  #ES-MSG-FIELD-NAME := 'HOLD-PRINT'
+  ESCAPE ROUTINE
+END-IF
+FOR #I = 1 TO 5
+  IF NODB-PRINTER(#I) NE ' '
+    EXAMINE FULL NODB-PRINTER(*) FOR FULL VALUE OF NODB-PRINTER(#I)
+      GIVING NUMBER IN #F
+    IF #F > 1
+      #ES-MSG-NR := 0104   /* printer already defined
+      #ES-MSG-FIELD-NAME  := 'PRINT-LIST'
+      #ES-MSG-FIELD-INDEX := #I
+      ESCAPE ROUTINE
+    END-IF
+    ES-KEY-PARM(1) := NODB-PRINTER (#I)
+    ES-OBJECT   := 'PR'
+    ES-FUNCTION := 'EX'
+    CALLNAT 'NOXXEX-N' ES-CONTROL ES-INPUT
+    IF ES-RC NE 0
+      #ES-MSG-NR := 0108   /* printer not defined
+      #ES-MSG-FIELD-NAME  := 'PRINT-LIST'
+      #ES-MSG-FIELD-INDEX := #I
+      ESCAPE ROUTINE
+    END-IF
+    IF NODB-PRINT-COPIES(#I) = 0
+      NODB-PRINT-COPIES(#I) := #DEF-COPIES
+    END-IF
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* VALIDATE-BUNDLE-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-ARCHIVE-DEFAULTS
+************************************************************************
+RESET #TIME-F #TIME #I #L #LEN #ADAY
+* validation of common fields
+DECIDE FOR EVERY CONDITION
+  WHEN NODA-TIME-SCHEDULE = ' '
+    NODA-TIME-SCHEDULE := 'N'
+  WHEN NOT (NODA-TIME-SCHEDULE = 'Y' OR = 'N')
+    #ES-MSG-NR := 1099   /* enter 'Y' or 'N'
+    #ES-MSG-FIELD-NAME := 'TIME-SCHEDULE'
+  WHEN NOT (NODA-RET-PERIOD = 'Y' OR = 'N' OR = ' ')
+    #ES-MSG-NR := 1099
+    #ES-MSG-FIELD-NAME := 'RET-PERIOD'
+  WHEN NOT ( NODA-ARCHIVE-DELETE = 'Y' OR = 'N' OR = ' ')
+    #ES-MSG-NR := 1099
+    #ES-MSG-FIELD-NAME := 'ARCHIVE-DELETE'
+  WHEN ANY
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+IF NODA-RET-NUMBER = 0 AND NODA-RET-FACTOR NE ' '
+  #ES-MSG-NR := 0634
+  #ES-MSG-FIELD-NAME := 'RET-NUMBER'
+  ESCAPE ROUTINE
+END-IF
+IF NODA-RET-NUMBER > 0 AND
+    NOT (NODA-RET-FACTOR = 'D' OR = 'W' OR = 'M' OR = 'Y')
+  #ES-MSG-NR := 1083   /* invalid archive retention period
+  #ES-MSG-FIELD-NAME := 'RET-FACTOR'
+  ESCAPE ROUTINE
+END-IF
+* validation for mvs
+IF NOT(NOMOD-SYSTEM-TYPE = SCAN 'BS2' OR = SCAN 'DOS' OR = SCAN 'VSE')
+  DECIDE FOR EVERY CONDITION
+    WHEN NOT NODA-GDG = 'Y' OR = 'N'
+      #ES-MSG-NR := 950  /* enter 'Y'/'N' for generation data set
+      #ES-MSG-FIELD-NAME := 'GDG'
+      ESCAPE ROUTINE
+    WHEN NODA-GDG = 'Y'
+      IF NODA-TAPE-GENERIC = ' '
+        #ES-MSG-NR := 958
+        #ES-MSG-FIELD-NAME := 'TAPE-GENERIC'
+        ESCAPE ROUTINE
+      END-IF
+      IF *MACHINE-CLASS NE 'PC'
+/*SU12  CALLNAT 'RCHKGDGN' NRM-MONITOR.M-MONITOR-NODE NODA-TAPE-GENERIC
+        CALLNAT 'RCHKGDGN' MF-MONITOR-NODE NODA-TAPE-GENERIC /*SU12
+          NODA-ARCHIVE-PREFIX P-FOUND P-DEVICE-CHANGE P-LIMIT P-CURRENT
+          #ES-MSG-NR #ES-MSG-TXT
+        IF #ES-MSG-NR NE 0
+          #ES-MSG-FIELD-NAME := 'TAPE-GENERIC'
+          ESCAPE ROUTINE
+        END-IF
+        IF NOT P-FOUND
+          #ES-MSG-NR := 0951    /* GDG base not found
+          #ES-MSG-FIELD-NAME := 'ARCHIVE-PREFIX'
+          ESCAPE ROUTINE
+        END-IF
+        IF P-DEVICE-CHANGE
+          #ES-MSG-NR := 0952  /*  Not allowed to change device class
+          #ES-MSG-FIELD-NAME := 'TAPE-GENERIC'
+          ESCAPE ROUTINE
+        END-IF
+        NODA-MAX-GENERATIONS := P-LIMIT
+      END-IF
+    WHEN NODA-GDG NE 'Y'
+      RESET NODA-MAX-GENERATIONS
+    WHEN NODA-ARCHIVE-STORAGE-CLASS = ' ' AND NODA-TAPE-GENERIC = ' '
+      #ES-MSG-NR := 957  /* enter generic name or storage class
+      #ES-MSG-FIELD-NAME := 'TAPE-GENERIC'
+      ESCAPE ROUTINE
+    WHEN NODA-ARCHIVE-STORAGE-CLASS NE ' '
+        AND NODA-TAPE-GENERIC NE ' '
+      #ES-MSG-NR := 957  /* enter generic name or storage class
+      #ES-MSG-FIELD-NAME := 'ARCHIVE-STORAGE-CLASS'
+      ESCAPE ROUTINE
+    WHEN NONE IGNORE
+  END-DECIDE
+END-IF
+* validation of schedule
+#TIME-F := NODA-ARCHIVE-TIME
+EXAMINE #TIME-F FOR ':' DELETE
+MOVE LEFT JUSTIFIED #TIME-F TO #TIME
+IF #TIME NE MASK(00:2300:59)
+  #ES-MSG-NR := 0051           /* enter correct time
+  #ES-MSG-FIELD-NAME := 'ARCHIVE-TIME'
+  ESCAPE ROUTINE
+END-IF
+DECIDE FOR EVERY CONDITION
+  WHEN NODA-DAYS(*) NE ' ' AND NODA-WEEKDAYS(*) NE ' '
+    #ES-MSG-NR := 0630      /* don't specify weekly and monthly typ
+    #ES-MSG-FIELD-NAME := 'DAYS'
+    #ES-MSG-FIELD-INDEX := 1
+    ESCAPE ROUTINE
+  WHEN NODA-WEEKDAYS(*) NE ' '
+    FOR #I = 1 TO 7
+      IF NODA-WEEKDAYS(#I) > ' ' AND
+          NOT (NODA-WEEKDAYS(#I)= 'SA' OR ='SU' OR ='MO'
+          OR ='TU' OR ='WE' OR ='TH' OR ='FR')
+        #ES-MSG-NR := 0057             /* invalid week days
+        #ES-MSG-FIELD-NAME := 'WEEKDAYS'
+        #ES-MSG-FIELD-INDEX := #I
+        ESCAPE ROUTINE
+      END-IF
+    END-FOR
+  WHEN NODA-DAYS(*) NE ' '
+    FOR #L = 1 TO 31
+      IF NOT(NODA-DAYS(#L) = ' ' OR = 'ALL' OR = 'LD')
+        #ADAY := NODA-DAYS(#L)
+        IF NOT(#ADAY IS (N2) )
+          #ES-MSG-NR := 2102     /* enter valid monthly day
+          #ES-MSG-FIELD-NAME := 'DAYS'
+          #ES-MSG-FIELD-INDEX := #L
+          ESCAPE ROUTINE
+        END-IF
+        #NDAY := VAL(#ADAY)
+        IF NOT #NDAY = 1 THRU 31
+          #ES-MSG-NR := 2102
+          #ES-MSG-FIELD-NAME := 'DAYS'
+          #ES-MSG-FIELD-INDEX := #L
+          ESCAPE ROUTINE
+        END-IF
+      END-IF
+    END-FOR
+  WHEN NODA-CALENDAR > ' '
+    ES-OBJECT   := 'CA'
+    ES-FUNCTION := 'EX'
+    #CA-ID := NODA-CALENDAR
+    ES-KEY-PARM(1) := #CALENDAR-ID
+/* Check calendar existance
+    CALLNAT 'NOXXEX-N' ES-CONTROL ES-INPUT
+    IF ES-RC NE 0
+      #ES-MSG-NR := 2004
+      #ES-MSG-FIELD-NAME := 'CALENDAR'
+      ESCAPE ROUTINE
+    END-IF
+    IF NODA-BEFORE-AFTER = ' '
+      #ES-MSG-NR := 0061  /* Please, enter 'A' or 'B'
+      #ES-MSG-FIELD-NAME := 'BEFORE-AFTER'
+      ESCAPE ROUTINE
+    END-IF
+  WHEN NOT (NODA-BEFORE-AFTER = 'A' OR = 'B' OR = ' ')
+    #ES-MSG-NR := 0061         /*
+    #ES-MSG-FIELD-NAME := 'BEFORE-AFTER'
+    ESCAPE ROUTINE
+  WHEN NODA-BEFORE-AFTER > ' ' AND NODA-CALENDAR = ' '
+    #ES-MSG-NR := 2010         /* please enter calendar
+    #ES-MSG-FIELD-NAME := 'CALENDAR'
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATE-ARCHIVE-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-REVIVE-DEFAULTS
+************************************************************************
+RESET #TIME #I #TIME-F #ADAY #L #TIME-END
+IF NODV-TIME-SCHEDULE = ' '
+  NODV-TIME-SCHEDULE := 'N'
+END-IF
+IF NOT (NODV-TIME-SCHEDULE = 'Y' OR = 'N')
+  #ES-MSG-NR := 1099
+  #ES-MSG-FIELD-NAME := 'TIME-SCHEDULE'
+  ESCAPE ROUTINE
+END-IF
+IF NODV-ARCHIVE-TIME > ' '
+  #TIME-F := NODV-ARCHIVE-TIME
+  EXAMINE #TIME-F FOR ':' DELETE
+  MOVE LEFT JUSTIFIED #TIME-F TO #TIME
+  IF #TIME NOT = MASK (00:2300:59)
+    #ES-MSG-NR := 0051         /* Please enter correct time
+    #ES-MSG-FIELD-NAME := 'ARCHIVE-TIME'
+    ESCAPE ROUTINE
+  END-IF
+  #TIME-F := NODV-ARCHIVE-TIME
+  EXAMINE #TIME-F FOR ':' DELETE
+  MOVE LEFT JUSTIFIED #TIME-F TO #TIME-END
+  IF #TIME-END < #TIME
+    #ES-MSG-NR := 0052   /* must be greater or equal 'not before'-time
+    #ES-MSG-FIELD-NAME := 'ARCHIVE-TIME-END'
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+RESET #TIME-F #TIME
+#TIME-F := NODV-ARCHIVE-TIME-INT
+EXAMINE #TIME-F FOR ':' DELETE
+MOVE LEFT JUSTIFIED #TIME-F TO #TIME
+IF #TIME NOT = MASK (00:2300:59)
+  #ES-MSG-NR := 0051
+  #ES-MSG-FIELD-NAME := 'ARCHIVE-TIME-INT'
+  ESCAPE ROUTINE
+END-IF
+IF #TIME-END NOT = MASK (00:2300:59)
+  #ES-MSG-NR := 0051
+  #ES-MSG-FIELD-NAME := 'ARCHIVE-TIME-END'
+  ESCAPE ROUTINE
+END-IF
+DECIDE FOR EVERY CONDITION
+  WHEN NODV-DAYS(*) NE ' ' AND NODV-WEEKDAYS(*) NE ' '
+    #ES-MSG-NR := 0630 /* don't specify both weekly and monthly type
+    #ES-MSG-FIELD-NAME := 'DAYS'
+    #ES-MSG-FIELD-INDEX := 1
+    ESCAPE ROUTINE
+  WHEN NODV-WEEKDAYS(*) NE ' '
+    FOR #I = 1 TO 7
+      IF NODV-WEEKDAYS(#I) > ' ' AND
+          NOT (NODV-WEEKDAYS(#I)= 'SA' OR ='SU' OR ='MO'
+          OR ='TU' OR ='WE' OR ='TH' OR ='FR')
+        #ES-MSG-NR := 0057             /* invalid week days
+        #ES-MSG-FIELD-NAME := 'WEEKDAYS'
+        #ES-MSG-FIELD-INDEX := #I
+        ESCAPE ROUTINE
+      END-IF
+    END-FOR
+  WHEN NODV-DAYS(*) NE ' '
+    FOR #L = 1 TO 31
+      IF NOT(NODV-DAYS(#L) = ' ' OR = 'ALL' OR = 'LD')
+        #ADAY := NODV-DAYS(#L)
+        IF NOT(#ADAY IS (N2) )
+          #ES-MSG-NR := 2102     /* enter valid monthly day
+          #ES-MSG-FIELD-NAME := 'DAYS'
+          #ES-MSG-FIELD-INDEX := #L
+          ESCAPE ROUTINE
+        ELSE
+          #NDAY := VAL(#ADAY)
+          IF NOT #NDAY = 1 THRU 31
+            #ES-MSG-NR := 2102
+            #ES-MSG-FIELD-NAME := 'DAYS'
+            #ES-MSG-FIELD-INDEX := #L
+            ESCAPE ROUTINE
+          END-IF
+        END-IF
+      END-IF
+    END-FOR
+  WHEN NODV-CALENDAR > ' '
+    ES-OBJECT   := 'CA'
+    ES-FUNCTION := 'EX'
+    #CA-ID := NODV-CALENDAR
+    ES-KEY-PARM(1) := #CALENDAR-ID
+    /* Check calendar existance
+    CALLNAT 'NOXXEX-N' ES-CONTROL ES-INPUT
+    IF ES-RC NE 0
+      #ES-MSG-NR := 2004   /* calendar does not exist
+      #ES-MSG-FIELD-NAME := 'CALENDAR'
+      ESCAPE ROUTINE
+    END-IF
+    IF NODV-BEFORE-AFTER = ' '
+      #ES-MSG-NR := 0061  /* Please, enter 'A' or 'B'
+      #ES-MSG-FIELD-NAME := 'BEFORE-AFTER'
+      ESCAPE ROUTINE
+    END-IF
+  WHEN NOT (NODV-BEFORE-AFTER = 'A' OR = 'B' OR = ' ')
+    #ES-MSG-NR := 0061         /*
+    #ES-MSG-FIELD-NAME := 'BEFORE-AFTER'
+    ESCAPE ROUTINE
+  WHEN NODV-BEFORE-AFTER > ' ' AND NODV-CALENDAR = ' '
+    #ES-MSG-NR := 2010         /* please enter calendar
+    #ES-MSG-FIELD-NAME := 'CALENDAR'
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATE-REVIVE-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-CLEANUP-DEFAULTS
+************************************************************************
+RESET #TIME-F #TIME #I #L
+IF NODC-CLEANUP-SPOOL = ' '
+  NODC-CLEANUP-SPOOL := 'N'
+END-IF
+IF NODC-CLEANUP-REPORTS = ' '
+  NODC-CLEANUP-REPORTS := 'N'
+END-IF
+IF NODC-TIME-SCHEDULE = ' '
+  NODC-TIME-SCHEDULE := 'N'
+END-IF
+DECIDE FOR EVERY CONDITION
+  WHEN NOT (NODC-CLEANUP-SPOOL = 'Y' OR = 'N')
+    #ES-MSG-NR := 1099
+    #ES-MSG-FIELD-NAME := 'CLEANUP-SPOOL'
+  WHEN NOT (NODC-CLEANUP-REPORTS = 'Y' OR = 'N')
+    #ES-MSG-NR := 1099
+    #ES-MSG-FIELD-NAME := 'CLENUP-REPORTS'
+  WHEN NOT (NODC-TIME-SCHEDULE = 'Y' OR = 'N')
+    #ES-MSG-NR := 1099
+    #ES-MSG-FIELD-NAME := 'TIME-SCHEDULE'
+  WHEN ANY
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+#TIME-F := NODC-ARCHIVE-TIME
+EXAMINE #TIME-F FOR ':' DELETE
+MOVE LEFT JUSTIFIED #TIME-F TO #TIME
+IF #TIME NOT = MASK (00:2300:59)
+  #ES-MSG-NR := 0051             /* Please enter correct time
+  #ES-MSG-FIELD-NAME := 'ARCHIVE-TIME'
+  ESCAPE ROUTINE
+END-IF
+IF NODC-ARCHIVE-TIME-END < #TIME
+  #ES-MSG-NR := 0052 /* Time must be >= 'not before'-time
+  #ES-MSG-FIELD-NAME := 'ARCHIVE-TIME-END'
+  ESCAPE ROUTINE
+END-IF
+RESET #TIME-F #TIME
+#TIME-F := NODC-ARCHIVE-TIME-INT
+EXAMINE #TIME-F FOR ':' DELETE
+MOVE LEFT JUSTIFIED #TIME-F TO #TIME
+IF #TIME NOT = MASK (00:2300:59)
+  #ES-MSG-NR := 0051
+  #ES-MSG-FIELD-NAME := 'ARCHIVE-TIME-INT'
+  ESCAPE ROUTINE
+END-IF
+RESET #TIME-F #TIME
+#TIME-F := NODC-ARCHIVE-TIME-END
+EXAMINE #TIME-F FOR ':' DELETE
+MOVE LEFT JUSTIFIED #TIME-F TO #TIME
+IF #TIME NOT = MASK (00:2300:59)
+  #ES-MSG-NR := 0051
+  #ES-MSG-FIELD-NAME := 'ARCHIVE-TIME-END'
+  ESCAPE ROUTINE
+END-IF
+DECIDE FOR EVERY CONDITION
+  WHEN NODC-DAYS(*) NE ' ' AND NODC-WEEKDAYS(*) NE ' '
+    #ES-MSG-NR := 0630  /* don't specify both weekly and monthly type
+    #ES-MSG-FIELD-NAME := 'DAYS'
+    #ES-MSG-FIELD-INDEX := 1
+    ESCAPE ROUTINE
+  WHEN NODC-WEEKDAYS(*) NE ' '
+    FOR #I = 1 TO 7
+      IF NODC-WEEKDAYS(#I) > ' ' AND
+          NOT (NODC-WEEKDAYS(#I)= 'SA' OR ='SU' OR ='MO'
+          OR ='TU' OR ='WE' OR ='TH' OR ='FR')
+        #ES-MSG-NR := 0057             /* invalid week days
+        #ES-MSG-FIELD-NAME := 'WEEKDAYS'
+        #ES-MSG-FIELD-INDEX := #I
+        ESCAPE ROUTINE
+      END-IF
+    END-FOR
+  WHEN NODC-DAYS(*) NE ' '
+    FOR #L = 1 TO 31
+      IF NOT(NODC-DAYS(#L) = ' ' OR = 'ALL' OR = 'LD')
+        #ADAY := NODC-DAYS(#L)
+        IF NOT(#ADAY IS (N2) )
+          #ES-MSG-NR := 2102     /* enter valid monthly day
+          #ES-MSG-FIELD-NAME := 'DAYS'
+          #ES-MSG-FIELD-INDEX := #L
+          ESCAPE ROUTINE
+        ELSE
+          #NDAY := VAL(#ADAY)
+          IF NOT #NDAY = 1 THRU 31
+            #ES-MSG-NR := 2102
+            #ES-MSG-FIELD-NAME := 'DAYS'
+            #ES-MSG-FIELD-INDEX := #L
+            ESCAPE ROUTINE
+          END-IF
+        END-IF
+      END-IF
+    END-FOR
+  WHEN NODC-CALENDAR > ' '
+    ES-OBJECT   := 'CA'
+    ES-FUNCTION := 'EX'
+    #CA-ID := NODC-CALENDAR
+    ES-KEY-PARM(1) := #CALENDAR-ID
+    /* Check calendar existance
+    CALLNAT 'NOXXEX-N' ES-CONTROL ES-INPUT
+    IF ES-RC NE 0
+      #ES-MSG-NR := 2004       /* calendar does not exist
+      #ES-MSG-FIELD-NAME := 'CALENDAR'
+      ESCAPE ROUTINE
+    END-IF
+    IF NODC-BEFORE-AFTER = ' '
+      #ES-MSG-NR := 0061  /* Please, enter 'A' or 'B'
+      #ES-MSG-FIELD-NAME := 'BEFORE-AFTER'
+      ESCAPE ROUTINE
+    END-IF
+  WHEN NOT (NODC-BEFORE-AFTER = 'A' OR = 'B' OR = ' ')
+    #ES-MSG-NR := 0061         /*
+    #ES-MSG-FIELD-NAME := 'BEFORE-AFTER'
+    ESCAPE ROUTINE
+  WHEN NODC-BEFORE-AFTER > ' ' AND NODC-CALENDAR = ' '
+    #ES-MSG-NR := 2010         /* please enter calendar
+    #ES-MSG-FIELD-NAME := 'CALENDAR'
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATE-CLEANUP-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-CMA-DEFAULTS
+************************************************************************
+RESET #I #J
+IF NOT (NODO-TIME-SCHEDULE = 'Y' OR = 'N')
+  #ES-MSG-NR := 1099
+  #ES-MSG-FIELD-NAME := 'TIME-SCHEDULE'
+  ESCAPE ROUTINE
+END-IF
+IF NOT (NODO-CMASPOOL-VERSION = ' ' OR = '1' OR = '2')
+  #ES-MSG-NR := 2125 /* Select valid CA Spool version(1,2)
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-CMA-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-NAF-DEFAULTS
+************************************************************************
+RESET #I
+IF NOT (NODN-NAF-INTERFACE-ACTIVE = 'Y' OR = 'N')
+  #ES-MSG-NR := 1099
+  #ES-MSG-FIELD-NAME := 'NAF-INTERFACE-ACTIVE'
+  ESCAPE ROUTINE
+END-IF
+FOR #I = 1 TO 20
+* should be specified both cont dbid/fnr and spool dbid/fnr or nothing
+  IF NODN-SPOOL-DBID (#I) NE 0 OR NODN-SPOOL-FNR (#I) NE 0 OR
+      NODN-CONT-DBID (#I) NE 0 OR NODN-CONT-FNR (#I) NE 0
+    DECIDE FOR FIRST CONDITION
+      WHEN NODN-SPOOL-DBID (#I) = 0
+        #ES-MSG-NR := 1532      /* Please enter DBID
+        #ES-MSG-FIELD-NAME  := 'SPOOL-DBID'
+        #ES-MSG-FIELD-INDEX := #I
+      WHEN NODN-SPOOL-FNR (#I) = 0
+        #ES-MSG-NR := 1533     /* Please enter FNR
+        #ES-MSG-FIELD-NAME  := 'SPOOL-FNR'
+        #ES-MSG-FIELD-INDEX := #I
+      WHEN NODN-CONT-DBID (#I) = 0
+        #ES-MSG-NR := 1532
+        #ES-MSG-FIELD-NAME  := 'CONT-DBID'
+        #ES-MSG-FIELD-INDEX := #I
+      WHEN NODN-CONT-FNR (#I) = 0
+        #ES-MSG-NR := 1533
+        #ES-MSG-FIELD-NAME  := 'CONT-FNR'
+        #ES-MSG-FIELD-INDEX := #I
+      WHEN ANY ESCAPE ROUTINE
+      WHEN NONE IGNORE
+    END-DECIDE
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* VALIDATE-NAF-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-API-DEFAULTS
+************************************************************************
+RESET #I
+IF NOT (NODE-SCAN-TRIGGER-QUEUE = 'Y' OR = 'N')
+  #ES-MSG-NR := 1099
+  #ES-MSG-FIELD-NAME := 'SCAN-TRIGGER-QUEUE'
+  ESCAPE ROUTINE
+END-IF
+IF NODE-SCAN-TRIGGER-QUEUE = 'Y' AND (NODE-DBID=0 OR NODE-FNR=0) /*SU15
+  IF NODE-DBID = 0
+    #ES-MSG-NR := 1532 /*Please enter DBID.
+    #ES-MSG-FIELD-NAME := 'TRIGGER-DBID'
+  ELSE
+    #ES-MSG-NR := 1533 /*Please enter FNR.
+    #ES-MSG-FIELD-NAME := 'TRIGGER-FNR'
+  END-IF
+  ESCAPE ROUTINE
+END-IF
+FOR #I = 1 TO NODE-NOMEXIT-COUNT
+  IF NODE-NOMEXIT-ACTIVE(#I) = ' '
+    NODE-NOMEXIT-ACTIVE(#I) := 'N'
+  END-IF
+  IF NOT (NODE-NOMEXIT-ACTIVE (#I) = 'Y' OR = 'N')
+    #ES-MSG-NR := 1099
+    #ES-MSG-FIELD-NAME  := 'NOMEXIT-ACTIVE'
+    #ES-MSG-FIELD-INDEX := #I
+    ESCAPE ROUTINE
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* VALIDATE-API-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK
+************************************************************************
+PERFORM VALIDATION-S
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* CHECK
+*
+************************************************************************
+DEFINE SUBROUTINE SYSTEM-INFO
+************************************************************************
+IF NODM-MONITOR-NODE NE 0
+  FNDSY. FIND SYSTEM-INFO WITH NODE = NODM-MONITOR-NODE
+    IF ERROR-CODE NE 0
+      #ES-MSG-NR := 0005
+      COMPRESS ERROR-CODE ERROR-TEXT TO #ES-MSG-TXT
+      #ES-MSG-FIELD-NAME := 'MONITOR-NODE'
+      ESCAPE BOTTOM(FNDSY.)
+    END-IF
+    EXAMINE FULL VALUE OF SYSTEM-TYPE FOR H'00' REPLACE WITH ' '
+    EXAMINE FULL VALUE OF SPOOL-TYPE  FOR H'00' REPLACE WITH ' '
+    IF SYSTEM-TYPE = SCAN 'BS2'
+      SPOOL-TYPE := 'SPOOL'  /* was SYSTEM-TYPE    /* CF3
+    END-IF
+  END-FIND
+ELSE
+  SYSTEM-TYPE := *OPSYS
+  SPOOL-TYPE  := 'UNIX'
+END-IF
+*
+END-SUBROUTINE /* SYSTEM-INFO
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+IF ES-MSG-NR = 0005 OR = 0150 OR = 0638 OR = 0639 OR = 0114
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT
+ELSE
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+END-IF
+EXAMINE ES-MSG-TXT FOR ':2:' REPLACE ' '
+ES-MSG-FIELD := #ES-MSG-FIELD
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+/*SU16 DEFINE SUBROUTINE GET-USEREXIT-GRANDS
+/*SU16 DEFINE SUBROUTINE STEPLIBS
+/*
+************************************************************************
+DEFINE SUBROUTINE CLEAN-EMAIL-ADDRESS-LINE                 /* CF10 ->
+************************************************************************
+/* Remove blanks and multiple ';' from the Email fields
+EXAMINE #MAIL-ADDRESS FOR ' ' REPLACE ';'
+REPEAT UNTIL #MAIL-ADDRESS NE SCAN(';;')
+  EXAMINE #MAIL-ADDRESS FOR ';;' REPLACE ';'
+END-REPEAT
+REPEAT UNTIL SUBSTR(#MAIL-ADDRESS,1,1) NE ';'
+  EXAMINE #MAIL-ADDRESS FOR ';' DELETE FIRST
+END-REPEAT
+/*
+END-SUBROUTINE /* CLEAN-EMAIL-ADDRESS-LINE                 /* CF10 <-
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

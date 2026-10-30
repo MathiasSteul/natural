@@ -1,0 +1,78 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+*
+* Member    SELALPH2
+*
+* Function  Init FROM and TO values for search with wildcards
+*
+* Maintenance
+* GGS01 2021-08-05 NOMALL-2453 created
+* GGS02 2021-08-16 NOMALL-2453 fix length for NAT41002
+* GGS03 2021-08-17             Variable wildcard chars
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #OBJECT-NAME          (A250) BY VALUE
+1 #KEY-FROM             (A250) BY VALUE RESULT
+1 #KEY-TO               (A250) BY VALUE RESULT
+1 #KEY-MASK             (A25)  BY VALUE RESULT
+1 #KEY-LEN              (I2)   BY VALUE RESULT
+1 #WILDCARD-ANY-NUMBER  (A1)
+1 #WILDCARD-SINGLE-CHAR (A1)
+1 #USE-AS-START-VALUE   (L)
+LOCAL
+1 #POS                  (P3)
+1 #I                    (P3)
+1 #J                    (P3)
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+*
+#KEY-FROM := #KEY-MASK := #OBJECT-NAME
+MOVE ALL H'FF' TO #KEY-TO
+RESET #POS
+IF #WILDCARD-ANY-NUMBER = ' ' #WILDCARD-ANY-NUMBER := '*' END-IF
+EXAMINE #KEY-FROM FOR #WILDCARD-ANY-NUMBER GIVING POSITION #I
+IF #WILDCARD-SINGLE-CHAR = ' ' #WILDCARD-SINGLE-CHAR := '?' END-IF
+EXAMINE #KEY-FROM FOR #WILDCARD-SINGLE-CHAR GIVING POSITION #J
+IF #I = 0 AND #J = 0
+  IF #USE-AS-START-VALUE
+    MOVE ALL H'FF' TO #KEY-TO
+  ELSE
+    #KEY-TO := #KEY-FROM
+  END-IF
+  RESET #KEY-MASK #KEY-LEN
+ELSE
+  IF #I = 0
+    #POS := #J
+  ELSE
+    IF #J = 0
+      #POS := #I
+    ELSE
+      IF #I < #J
+        #POS := #I
+      ELSE
+        #POS := #J
+      END-IF
+    END-IF
+  END-IF
+  DECIDE FOR FIRST CONDITION
+    WHEN #POS > 1
+      SUBTRACT 1 FROM #POS
+      #KEY-FROM := SUBSTR(#KEY-FROM,1,#POS)
+      MOVE #KEY-FROM TO SUBSTR(#KEY-TO,1,#POS)
+    WHEN #POS = 1
+      RESET #KEY-FROM
+*   WHEN ANY                                                /* GGS02
+*     EXAMINE #KEY-MASK FOR ' ' GIVING LENGTH IN #KEY-LEN      GGS02
+    WHEN NONE IGNORE
+  END-DECIDE
+END-IF
+RESET #I #J
+*
+END

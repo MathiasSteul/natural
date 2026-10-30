@@ -1,0 +1,286 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMDELNO - Delete records with wrong node (Template  NOMNODE)
+* ÜÜ HANDLE WITH CARE ÜÜ
+* Function  Read all Source Pointers, Active Reports,
+*           and Printout records containing the given node number,
+*           list them with function 'LIST',
+*           delete them with function 'DELETE'.
+* Note      Mandatory input parms are node, dbid and fnr
+*
+* Maintenance:
+* uuu     yyyy-mm-dd s(999999) ....
+* fhi     2013-05-21           Created from NOMNODE
+* SU1     2014-11-17 NOMALL-1450 no changes - just restruct
+* fhi     2016-11-10 NOMALL-1917 use correct node number
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* SU2     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU3     2024-03-07 ES-34613    NOM 3.6 Remove power / BS2
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL USING RMSPL--L
+LOCAL USING RMSR---L
+LOCAL USING RMSR---E
+LOCAL USING RACTLF-A
+LOCAL
+1 NRM-SOURCE VIEW    OF  NRM-SOURCE
+  2 SR-TYPE
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-SPOOL-ATTRIBUTES
+1 NRM-ACTIVE-REPORTS    VIEW  OF  NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-SPOOL-ATTRIBUTES
+  2 AR-USERID
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU2 was NRM-MONITOR VIEW OF NRM-MONITOR
+  2 MF-TYPE                  (A1)
+  2 MF-MONITOR-ID            (A20)
+  2 MF-MONITOR-NODE          (N5)
+1 NRM-PRINTOUTS VIEW    OF  NRM-PRINTOUTS
+  2 PO-NODE
+*
+1 #NODE                      (N5)
+1 #DBID                      (N5)
+1 #FNR                       (N5)
+1 #MSG                       (A130)
+1 #FUNCTION                  (A8)
+1 #SR-TYPE-I2                (I2)
+1 #FOUND                     (L)
+1 #COUNTER                   (I2)
+1 #PROGRAM                   (A8) INIT <*PROGRAM>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY ALL
+FORMAT LS=131
+REPEAT
+  UNTIL #FUNCTION = 'END' OR *PF-KEY NE 'ENTR'
+  IF *DATA = 1
+    INPUT #MSG
+  END-IF
+  IF *DEVICE NE 'BATCH'
+    INPUT (AD=MILT'_') WITH TEXT #MSG
+      '* ----------------------   NOMDELNO   ---------------------- *'
+      / 'This program will read all Source Pointers,  Active Reports,'
+      / 'and all  Printout  Records which  contain  the  entered node'
+      / 'number on NOM System files with DBID and FNR. List them with'
+      / 'function ''LIST'', delete with function ''DELETE''.'
+      / '* ---------------------------------------------------------- *'
+      / 'Function (LIST, DELETE, END): ' #FUNCTION
+      // 'Node:                 '#NODE
+      / 'NOM System File DBID: ' #DBID 'File Number: ' #FNR
+      // 'End with any PF Key'
+    IF #FUNCTION = 'DELETE'
+      RESET #FUNCTION
+      INPUT NO ERASE (AD=OI) ////////////// 'REALLY ??' //
+        'For node'  #NODE 'with NOM System File DBID' #DBID 'FNR' #FNR
+        / 'the following NOM objects will be deleted:'
+        / 'Source Pointers, Active Reports,'
+        / 'Monitor records, and Printout queue entriesÜ'
+        // 'Confirm with ''DELETE'':' #FUNCTION (AD=MIL'_')
+      IF #FUNCTION NE 'DELETE'
+        ESCAPE MODULE
+      END-IF
+    END-IF
+  ELSE
+    INPUT (AD=MILT)
+      'Function (LIST, DELETE, END): ' #FUNCTION
+      / 'Node: '#NODE 'DBID: ' #DBID 'File Number: ' #FNR
+  END-IF
+*
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN *PF-KEY NE 'ENTR'
+        OR #FUNCTION = 'END'
+      ESCAPE TOP
+    WHEN NOT #FUNCTION = 'LIST' OR = 'DELETE' OR = 'END'
+      #MSG := 'Please enter correct function'
+      IF *DEVICE = 'BATCH'
+        WRITE (AL=130) #MSG
+        TERMINATE 16
+      ELSE
+        ESCAPE TOP
+      END-IF
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+*
+  FETCH RETURN 'SETNRMLF' #DBID #FNR
+  RESET RACTLF-LOGGING
+    RACTLF-ERROR-LOGGING
+  RACTLF-LFILE-1:= 91
+  RACTLF-LFILE-2:= 206
+  CALLNAT 'RACTLF-N' RACTLF-PARMS
+  IF RACTLF-ERROR-CODE NE 0
+    WRITE *PROGRAM *TIMX 'Error setting lfile 91' RACTLF-ERROR-CODE /
+      RACTLF-ERROR-TEXT
+    TERMINATE 16
+  END-IF
+*
+  READ(1) MF-NODE BY MF-TYPE-ID = 'MR-'/*SU2
+  END-READ
+  IF MF-TYPE NE 'M' OR MF-MONITOR-ID NE MASK('R-')
+    COMPRESS 'No monitor record found' TO #MSG
+    IF *DEVICE = 'BATCH'
+      WRITE (AL=130) #MSG
+      TERMINATE 16
+    END-IF
+    FETCH #PROGRAM #MSG
+  END-IF
+  IF #NODE = MF-MONITOR-NODE
+    #MSG := 'Don''t use the current monitor node numberÜ'
+    IF *DEVICE = 'BATCH'
+      WRITE (AL=130) #MSG
+      TERMINATE 16
+    END-IF
+    FETCH #PROGRAM #MSG
+  END-IF
+*
+  WRITE *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+    'Executing with function' #FUNCTION 'on node'  #NODE
+    'NOM System File DBID' #DBID 'FNR' #FNR
+*
+  PERFORM NODE-SOURCE
+  PERFORM NODE-ACTIVE-REPORTS
+  PERFORM NODE-PRINTOUTS
+*
+  END TRANSACTION
+*
+  WRITE *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+    'Function ended:' #FUNCTION 'on node'  #NODE 'DBID' #DBID 'FNR' #FNR
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE NODE-SOURCE
+************************************************************************
+RESET #COUNTER
+WRITE *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+  'Searching Source Pointers'
+RSRC. READ NRM-SOURCE BY SR-ID
+  #SOURCE-ATTRIBUTES := SR-ATTRIBUTES-IDENT
+  CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES SR-TYPE
+  #SPOOL-ATTRIBUTES := SR-SPOOL-ATTRIBUTES
+  MOVE SR-TYPE TO #SR-TYPE-I2
+  CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SR-TYPE-I2
+  RESET #FOUND
+  DECIDE ON FIRST VALUE SR-TYPE
+/*SU3  VALUE POWER IF #SPOOL-POWER-NODE = #NODE OR #POWER-NODE = #NODE
+/*SU3   #FOUND := TRUE END-IF
+    VALUE JES2-QUEUE-ENTRY
+      IF  #JES-QUEUE-NODE = #NODE
+        #FOUND := TRUE
+      END-IF
+    VALUE JES2
+      IF #SPOOL-JES-NODE = #NODE OR #JES-NODE = #NODE
+        #FOUND := TRUE
+      END-IF
+/*SU3 VALUE SEQUENTIAL-FILE-VSE IF  #FVSE-NODE = #NODE
+/*SU3   #FOUND := TRUE END-IF
+    VALUE SEQUENTIAL-FILE-MVS
+      IF #FMVS-NODE = #NODE
+        #FOUND := TRUE
+      END-IF
+    VALUE SEQUENTIAL-FILE-BS2
+      IF #FBS2-NODE = #NODE OR #SPOOL-BS2-NODE = #NODE
+        #FOUND := TRUE
+      END-IF
+    NONE  IGNORE
+  END-DECIDE
+  IF #FOUND
+    WRITE (AL=130) SR-ATTRIBUTES-IDENT
+    IF #FUNCTION = 'DELETE'
+      GSRC. GET NRM-SOURCE *ISN (RSRC.)
+      DELETE (GSRC.)
+      WRITE 'Deleted.'
+      ADD 1 TO #COUNTER
+      IF #COUNTER = 50
+        END TRANSACTION
+        RESET #COUNTER
+      END-IF
+    END-IF
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* NODE-SOURCE
+*
+************************************************************************
+DEFINE SUBROUTINE NODE-ACTIVE-REPORTS
+************************************************************************
+RESET #COUNTER
+WRITE *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+  'Searching Active Reports'
+RACT. READ NRM-ACTIVE-REPORTS BY AR-USERID
+  #SPOOL-ATTRIBUTES := AR-SPOOL-ATTRIBUTES
+  CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+  RESET #FOUND
+  DECIDE ON FIRST VALUE #SPOOL-TYPE
+    VALUE JES2
+      IF #SPOOL-JES-NODE = #NODE
+        #FOUND := TRUE
+      END-IF
+/*SU3 VALUE POWER IF #SPOOL-POWER-NODE = #NODE #FOUND := TRUE END-IF
+    VALUE SEQUENTIAL-FILE-BS2
+      IF #SPOOL-BS2-NODE = #NODE
+        #FOUND := TRUE
+      END-IF
+    NONE  IGNORE
+  END-DECIDE
+  IF #FOUND
+/*SU3 IF *OPSYS = SCAN 'BS2'
+    IF #SPOOL-TYPE = SEQUENTIAL-FILE-BS2 /*SU3
+      WRITE 'User:' AR-USERID 'Report:' AR-REPNAME '/' AR-REPRNB /
+        'BS2-Dataset:' #SPOOL-BS2-DSNAME
+    ELSE
+      WRITE 'User:' AR-USERID 'Report:' AR-REPNAME '/' AR-REPRNB
+    END-IF
+    IF #FUNCTION = 'DELETE'
+      GACT. GET NRM-SOURCE *ISN (RACT.)
+      DELETE (GACT.)
+      WRITE 'Deleted.'
+      #COUNTER := #COUNTER + 1
+      IF #COUNTER = 50
+        END TRANSACTION
+        RESET #COUNTER
+      END-IF
+    END-IF
+    WRITE '---'
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* NODE-ACTIVE-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE NODE-PRINTOUTS
+************************************************************************
+RESET #COUNTER
+WRITE *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+  'Searching Printout Queue'
+RPRT. READ NRM-PRINTOUTS BY PO-ID
+  IF PO-NODE = #NODE
+    IF #FUNCTION = 'DELETE'
+      GPRT. GET NRM-SOURCE *ISN (RPRT.)
+      DELETE (GPRT.)
+      WRITE 'Deleted.'
+      #COUNTER := #COUNTER + 1
+      IF #COUNTER = 50
+        END TRANSACTION
+        RESET #COUNTER
+      END-IF
+    END-IF
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* NODE-PRINTOUTS
+*
+END

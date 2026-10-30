@@ -1,0 +1,134 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RLAYPO-N
+* Function:  Define a User Layout for a specific Report
+*
+* Maintenance
+* fhi     2002-10-30 fhi101  switch on optimizer compiler
+* xsetggr 2009-11-13 P308338 restow due to changes in RLAYPOW&
+* SU1     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* ----------------------------------------------------------------------
+/*SU1 OPTIONS MCG=(INDX=ON,OVFLW=ON,DIGTCHCK=ON) /*fhi101 inserted
+DEFINE DATA PARAMETER
+1 #P-OPCODE                  (A4)
+1 #P-LINE-LENGTH             (N3)
+1 #P-LAYOUT-LINE             (A251)
+1 REDEFINE #P-LAYOUT-LINE
+  2 #P-LL-B                  (A1/1:251)
+1 #P-LAYOUT-TAB              (A251)
+1 REDEFINE #P-LAYOUT-TAB
+  2 #P-LT-B                  (A1/1:251)
+************************************************************************
+LOCAL
+1 #DISPLAY-LENGTH            (I2) INIT <65>
+1 #CI                        (I2)
+1 #SCOL                      (N3) INIT <1>
+1 #ECOL                      (N3)
+1 REDEFINE #ECOL
+  2 #EC1                     (N1)
+  2 #EC2                     (N1)
+  2 #EC3                     (N1)
+1 #SCALE                     (A65)
+1 REDEFINE #SCALE
+  2 #SC-B                    (A1/1:65)
+1 #DISPLAY-LINE              (A65)
+1 REDEFINE #DISPLAY-LINE
+  2 #DL-B                    (A1/1:65)
+1 #DISPLAY-TAB               (A65)
+1 REDEFINE #DISPLAY-TAB
+  2 #DT-B                    (A1/1:65)
+1 CVAR                       (C)
+1 #CURSOR                    (N6)
+1 REDEFINE #CURSOR
+  2 #CU-LIN                  (N3)
+  2 #CU-COL                  (N3)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY PF3 PF4 PF5 PF6 PF10 PF11
+IF #P-LINE-LENGTH < #DISPLAY-LENGTH
+  #P-LT-B (#P-LINE-LENGTH + 1) := H'01'
+END-IF
+RESET #P-OPCODE
+REPEAT
+  PERFORM CREATE-SCALE
+  PERFORM MOVE-TO-DISPLAY
+  SET CONTROL 'WFL78C09B01/01'
+  INPUT USING MAP 'RLAYPOW&'
+  IF CVAR MODIFIED
+    #P-OPCODE := 'MOD'
+  END-IF
+  SET CONTROL 'WMB'
+  PERFORM MOVE-FROM-DISPLAY
+  #CURSOR := *CURSOR
+  DECIDE ON FIRST *PF-KEY
+    VALUE 'PF3'  #P-OPCODE := 'EXIT'
+      ESCAPE BOTTOM
+    VALUE 'PF4'  #P-OPCODE := 'DEF'
+      ESCAPE BOTTOM
+    VALUE 'PF5'  #P-OPCODE := 'DEL'
+      ESCAPE BOTTOM
+    VALUE 'PF6'  #P-OPCODE := 'SLAY'
+      ESCAPE BOTTOM
+    VALUE 'PF11' #CU-COL := #CU-COL - 7
+      IF #CU-COL = 2 THRU #DISPLAY-LENGTH
+        #SCOL := #SCOL + #CU-COL - 1
+      ELSE
+        #SCOL := #SCOL + #DISPLAY-LENGTH
+      END-IF
+    VALUE 'PF10' #SCOL := #SCOL - #DISPLAY-LENGTH
+    ANY          #ECOL := #SCOL + #DISPLAY-LENGTH - 1
+      IF #ECOL > #P-LINE-LENGTH
+        #SCOL := #P-LINE-LENGTH - #DISPLAY-LENGTH + 1
+      END-IF
+      IF #SCOL < 1
+        #SCOL := 1
+      END-IF
+    NONE         IGNORE
+  END-DECIDE
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE MOVE-TO-DISPLAY
+************************************************************************
+#ECOL := #SCOL + #DISPLAY-LENGTH - 1
+#DT-B (1:#DISPLAY-LENGTH) := #P-LT-B (#SCOL:#ECOL)
+#DL-B (1:#DISPLAY-LENGTH) := #P-LL-B (#SCOL + 1 :#ECOL + 1)
+*
+END-SUBROUTINE /* MOVE-TO-DISPLAY
+*
+************************************************************************
+DEFINE SUBROUTINE MOVE-FROM-DISPLAY
+************************************************************************
+#ECOL := #SCOL + #DISPLAY-LENGTH - 1
+#P-LT-B (#SCOL:#ECOL) := #DT-B (1:#DISPLAY-LENGTH)
+*
+END-SUBROUTINE /* MOVE-FROM-DISPLAY
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-SCALE
+************************************************************************
+#ECOL := #SCOL - 1
+FOR #CI = 1 TO #DISPLAY-LENGTH
+  ADD 1 TO #ECOL
+  DECIDE ON FIRST #EC3
+    VALUE 0 #SC-B (#CI) := #EC2
+    VALUE 5 #SC-B (#CI) := '+'
+    NONE    #SC-B (#CI) := '-'
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* CREATE-SCALE
+*
+END

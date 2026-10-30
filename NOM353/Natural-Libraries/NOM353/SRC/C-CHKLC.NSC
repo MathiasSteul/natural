@@ -1,0 +1,106 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* C-CHKLC        check for allow/disallow line commands
+*
+* Maintenance:
+* xsetggr 2012-09-19 NOMALL-89 created
+* xsetggr 2013-06-21 NOMALL-89 corrected
+* BLI     2017-01-16 NOMALL-1984 differ MODIFY/DISPLAY grants
+* BLI     2017-02-15 NOMALL-1998 Folder grants vs. folder maintenance
+* BLI     2017-07-21 NOMALL-2031 Remove command 'Link Folder'
+* ----------------------------------------------------------------------
+IF G-USER-TYPE NE 'A'
+  FOR I 1 TO #NOFLINES
+*
+* BLI 2017-02-15 NOMALL-1998 start
+    IF G-C-OBJTYPE = 'F'    /* Check folders only for active reports
+      IF L-IDENT(I) = ##EQU-LIST-AREPORT OR
+          L-IDENT(I) = ##EQU-LIST-AREPORT-BY-KEYWORD
+        IF NOT #ALLOWED OR NOT (L-OPTION(I,1:4) = 'Y')
+          REINPUT *0020 MARK *L-MARK(I) ALARM
+        END-IF
+      END-IF
+    ELSE
+* BLI 2017-02-15 NOMALL-1998 end
+      DECIDE ON FIRST VALUE OF L-IDENT(I)
+        VALUE ##EQU-DELETE
+          IF G-C-OBJTYPE = 'GR'
+            IF G-C-GRANTS(1) NE 'Y'
+              REINPUT *0020 MARK *L-MARK(I) ALARM
+            END-IF
+          ELSE
+            IF NOT #DELETE OR NOT (L-OPTION(I,1) = 'Y'
+                OR L-OPTION(I,3) = 'Y')
+              REINPUT *0020 MARK *L-MARK(I) ALARM
+            END-IF
+          END-IF
+        VALUE ##EQU-MODIFY
+          DECIDE ON FIRST VALUE OF G-C-OBJTYPE
+            VALUE 'GR'                           /* rlisgr
+              IF G-C-GRANTS(1) NE 'Y'
+                REINPUT *0020 MARK *L-MARK(I) ALARM
+              END-IF
+* BLI 2017-01-16 NOMALL-1984 start
+**       VALUE 'AR', 'L'        /* rliacf, rlisdl
+            NONE VALUE /* rliacf,rlisab,rlisbu,rlisdl,rlispr,rlisrp
+              IF NOT #UPDATE OR NOT( L-OPTION(I,1:3) = 'Y')
+                REINPUT *0020 MARK *L-MARK(I) ALARM /* error
+              END-IF
+**      NONE VALUE             /* rlisbu,rlisab,rlisfo,rlisrp,rlispr
+**        IF NOT #UPDATE OR NOT( L-OPTION(I,1:3) = 'Y')
+**           ASSIGN L-IDENT (I) = ##EQU-DISPLAY /* display insetead
+**        END-IF
+* BLI 2017-01-16 NOMALL-1984 end
+          END-DECIDE
+        VALUE ##EQU-DISPLAY
+          IF NOT #ALLOWED OR NOT (L-OPTION(I,1:4) = 'Y')
+            REINPUT *0020 MARK *L-MARK(I) ALARM
+          END-IF
+        VALUE ##EQU-COPY
+          IF NOT #UPDATE OR NOT( L-OPTION(I,1:3) = 'Y')
+            REINPUT *0020 MARK *L-MARK(I) ALARM
+          END-IF
+        VALUE ##EQU-RENAME
+          IF NOT #UPDATE OR NOT( L-OPTION(I,1:3) = 'Y')
+            REINPUT *0020 MARK *L-MARK(I) ALARM
+          END-IF
+        VALUE ##EQU-ADD
+          IF G-C-OBJTYPE = 'GR'
+            IF G-C-GRANTS(1) NE 'Y'
+              REINPUT *0020 MARK *L-MARK(I) ALARM
+            END-IF
+          ELSE
+            IF NOT #UPDATE OR NOT( L-OPTION(I,1:3) = 'Y')
+              REINPUT *0020 MARK *L-MARK(I) ALARM
+            END-IF
+          END-IF
+* BLI 2017-07-21 NOMALL-2031 comment link folder
+**      VALUE ##EQU-ADD-REPORT, ##EQU-LINK-FOLDER, ##EQU-FILE-AREPORT,
+        VALUE ##EQU-ADD-REPORT, ##EQU-FILE-AREPORT, ##EQU-BUNDLE
+          IF NOT #UPDATE OR NOT( L-OPTION(I,1:3) = 'Y')
+            REINPUT *0020 MARK *L-MARK(I) ALARM
+          END-IF
+        VALUE ##EQU-BROWSE, ##EQU-DISPLAY-DEFINITION,
+* xsetggr 2013-06-21  NOMALL-89 insert next line
+            ##EQU-LIST-AREPORT, ##EQU-LIST-AREPORT-BY-KEYWORD
+          IF NOT #ALLOWED OR NOT (L-OPTION(I,1:4) = 'Y')
+            REINPUT *0020 MARK *L-MARK(I) ALARM
+          END-IF
+        VALUE ##EQU-ARCHIVE
+          IF G-C-OBJTYPE = 'AR' AND
+              (NOT #ARCHIVE OR L-OPTION(I,5) NE 'Y')
+            REINPUT *0020 MARK *L-MARK(I) ALARM
+          END-IF
+        VALUE ##EQU-REVIVE
+          IF G-C-OBJTYPE = 'AR' AND
+              (NOT #REVIVE OR L-OPTION(I,6) NE 'Y')
+            REINPUT *0020 MARK *L-MARK(I) ALARM
+          END-IF
+        NONE IGNORE
+      END-DECIDE
+    END-IF
+  END-FOR
+END-IF

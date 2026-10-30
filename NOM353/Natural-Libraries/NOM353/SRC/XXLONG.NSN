@@ -1,0 +1,96 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* XXLONG - Input an alpha variable of A250 using a window
+*
+* Parameters:
+* P-LONG-TITLE          (A20)            Title for window (in)
+* P-LONG-FIELD          (A250)           Field to input (in/out)
+* P-CV-MAP              (C)    OPTIONAL  Control for field on map (i/o)
+* P-PFKEY               (A4)   OPTIONAL  Pressed PF key (out)
+* P-EMPTY               (L)    OPTIONAL  Indicator: Use H'01' for empty
+*
+* P-PFKEY returns the currently pressed pf-key. PF3 will avoid changes
+* to P-LONG-FIELD
+*
+* P-EMPTY = TRUE means:
+* If the field is empty after input it will be filled with H'01' to
+* avoid shifting of occurrencies of multiple fields
+* If it contains H'01' before input it will be resetted to get a clear
+* input field.
+*
+*******************************************************************************
+*  Maintenance
+* User ID   yyyy-mm-dd Issue         Remark
+* -----------------------------------------------------------------------------
+* fhi       2018-01-15 NOMALL-1917   Created.
+* SU1    2019-09-13 NOMALL-2314 return modified marker
+************************************* data ************************************
+DEFINE DATA
+PARAMETER
+1 P-LONG-TITLE          (A20)    BY VALUE
+1 P-LONG-FIELD          (A250)
+1 P-CV-MAP              (C)      OPTIONAL
+1 P-PFKEY               (A4)     OPTIONAL
+1 P-EMPTY               (L)      OPTIONAL
+1 P-MODIFIED            (L)      OPTIONAL /*field modified SU1
+************************************************************************
+LOCAL USING XXGMSG-A  /* Get dynamic messages
+LOCAL
+1 #LONG-FIELD           (A50/5)
+1 #CV-MAP               (C)
+1 #OLD-LONG-FIELD       (A250)
+* *****
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE WINDOW LONG-FIELD SIZE 7*56 TITLE P-LONG-TITLE
+SET KEY ALL
+*
+IF P-CV-MAP SPECIFIED
+  #CV-MAP := P-CV-MAP
+ELSE
+  #CV-MAP := (AD=I CD=NE)
+END-IF
+#OLD-LONG-FIELD := P-LONG-FIELD
+*
+IF P-LONG-TITLE = MASK(NNNN)
+  #XX-GMSG-PARMS.#XX-ERROR-CODE   := VAL(P-LONG-TITLE)
+  RESET #XX-GMSG-PARMS.#XX-MSG-DYNA (*)
+  CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+  P-LONG-TITLE := #XX-GMSG-PARMS.#XX-SHORT-TEXT
+END-IF
+*
+IF P-LONG-FIELD = H'01' AND P-EMPTY SPECIFIED AND P-EMPTY = TRUE
+  RESET P-LONG-FIELD
+END-IF
+*
+PERFORM XXMVFI-S-MOVE-FIELD #LONG-FIELD(*) P-LONG-FIELD 50
+*
+INPUT WINDOW='LONG-FIELD' USING MAP 'XXLONGM&'
+*
+DECIDE FOR EVERY CONDITION
+  WHEN P-PFKEY SPECIFIED
+    P-PFKEY := *PF-KEY
+  WHEN *PF-KEY = 'PF3'
+    ESCAPE ROUTINE
+  WHEN P-CV-MAP SPECIFIED
+    P-CV-MAP := #CV-MAP
+  WHEN NONE
+    IGNORE
+END-DECIDE
+SET WINDOW OFF
+PERFORM XXMVAR-S-MOVE-ARRAY P-LONG-FIELD #LONG-FIELD(*) 50
+IF P-LONG-FIELD = ' ' AND P-EMPTY SPECIFIED AND P-EMPTY = TRUE
+  P-LONG-FIELD := H'01' /* indicator: empty
+END-IF
+IF P-MODIFIED SPECIFIED AND P-LONG-FIELD NE #OLD-LONG-FIELD /*SU1
+  P-MODIFIED := TRUE
+END-IF
+*
+END

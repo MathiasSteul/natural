@@ -1,0 +1,139 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMPUTQN
+* Version   1.3
+* Function  Store NOMPUT Queue entry
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-05-24 s(999999) created
+* gw  94-12-29 p(135435) *TIMESTMP to make IDENT unique
+* mrs 95-01-31 s(218167) stowed because of a modification in rmsr---l
+* gw  96-07-01 s(999999) forms not passed
+* xsetggr  2008-05-05 p(304350) restow due to changes in RMSPL--L
+* fhi      2010-12-14 NOMALL-921 Introduce Destination Field
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2016-07-29 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* SU3     2020-01-03 NOMALL-2370 new field:NAF: OUTPUT -store as attr.
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 NOMPUTQ-FUNCTION           (I2)
+PARAMETER USING NOMPUT-P
+************************************************************************
+LOCAL USING RMSR---L
+LOCAL USING RMSPL--L
+*
+LOCAL
+1 QUEUE-ENTRY VIEW OF NRM-NOMPUT-QUEUE
+  2 NP-STATUS
+  2 NP-TYPE
+  2 NP-ATTRIBUTES-IDENT
+  2 NP-SPOOL-ATTRIBUTES
+  2 NP-CC-TYPE
+1 UPDATE-ENTRY VIEW OF NRM-NOMPUT-QUEUE
+  2 NP-STATUS
+  2 NP-RECORD-LENGTH
+  2 NP-NUMBER-OF-LINES
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+/*SU2 OPTIONS MCG=OFF /* <--------------
+*
+DECIDE ON FIRST NOMPUTQ-FUNCTION
+  VALUE 1 PERFORM STORE-QUEUE-ENTRY
+  VALUE 2 PERFORM UPDATE-ST-ID
+  VALUE 3 PERFORM UPDATE-QUEUE-ENTRY
+  NONE    NOMPUT-ERROR-CODE := 0013
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE STORE-QUEUE-ENTRY
+************************************************************************
+MOVE EDITED *TIMX (EM=YYYYMMDDHHIISST) TO #TIME
+*
+#NAF-DBID    := #NP-NAF-DBID
+#NAF-FNR     := #NP-NAF-FNR
+#NAF-DEST    := #NP-NAF-DEST
+#NAF-OUTPUT  := #NP-NAF-OUTPUT    /*SU3
+#NAF-USER-ID := #NP-NAF-USER-ID
+#NAF-PNR     := #NP-NAF-PNR
+#NAF-PROFILE := #NP-NAF-PROFILE
+#NAF-NATPGM  := #NP-NAF-NATPGM
+#NAF-NATLIB  := #NP-NAF-NATLIB
+#NAF-COPIES  := #NP-NAF-COPIES
+#NAF-FORM    := #NP-NAF-FORMS
+#NAF-DISP    := #NP-NAF-DISP
+#NAF-NAME    := #NP-NAF-NAME
+#NAF-TIME    := #TIME
+#TIME-STAMP  := *TIMESTMP
+#NAF-TIMESTAMP-1 := #TIME-STAMP-1
+#NAF-TIMESTAMP-2 := #TIME-STAMP-2
+*
+#SPOOL-TYPE        := #NP-SOURCE-TYPE
+#SPOOL-NAF-DBID    := #NP-NAF-DBID
+#SPOOL-NAF-FNR     := #NP-NAF-FNR
+#SPOOL-NAF-DEST    := #NP-NAF-DEST
+#SPOOL-NAF-OUTPUT  := #NP-NAF-OUTPUT /*SU3
+#SPOOL-NAF-USER-ID := #NP-NAF-USER-ID
+#SPOOL-NAF-PNR     := #NP-NAF-PNR
+#SPOOL-NAF-PROFILE := #NP-NAF-PROFILE
+#SPOOL-NAF-NATPGM  := #NP-NAF-NATPGM
+#SPOOL-NAF-NATLIB  := #NP-NAF-NATLIB
+#SPOOL-NAF-COPIES  := #NP-NAF-COPIES
+#SPOOL-NAF-FORM    := #NP-NAF-FORMS
+#SPOOL-NAF-DISP    := #NP-NAF-DISP
+#SPOOL-NAF-NAME    := #NP-NAF-NAME
+#SPOOL-NAF-TIME    := #TIME
+#SPOOL-NAF-ST-ID   := #SOURCE-TEXT-ID
+*
+#QUEUE-ENTRY-STATUS := 1
+*
+QUEUE-ENTRY.NP-ATTRIBUTES-IDENT := #NAF-IDENT
+QUEUE-ENTRY.NP-SPOOL-ATTRIBUTES := #SPOOL-ATTRIBUTES
+QUEUE-ENTRY.NP-STATUS           := #QUEUE-ENTRY-STATUS
+QUEUE-ENTRY.NP-TYPE             := #NP-SOURCE-TYPE
+* QUEUE-ENTRY.NP-MONITOR-ID       := 'MAIN'
+* fhi     2016-11-15 NOMALL-1961 line above out
+QUEUE-ENTRY.NP-CC-TYPE          := #NP-CC-TYPE
+*
+STOQ. STORE QUEUE-ENTRY
+#QUEUE-ENTRY-ISN := *ISN (STOQ.)
+*
+END-SUBROUTINE /* STORE-QUEUE-ENTRY
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-QUEUE-ENTRY
+************************************************************************
+GETQ. GET UPDATE-ENTRY #QUEUE-ENTRY-ISN
+NP-STATUS (GETQ.)          := 2
+NP-NUMBER-OF-LINES (GETQ.) := #RECORD-NUMBER
+NP-RECORD-LENGTH           := #LINE-SIZE
+UPDATE (GETQ.)
+*
+END-SUBROUTINE /* UPDATE-QUEUE-ENTRY
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-ST-ID
+************************************************************************
+GETID. GET QUEUE-ENTRY #QUEUE-ENTRY-ISN
+#SPOOL-ATTRIBUTES            := NP-SPOOL-ATTRIBUTES (GETID.)
+#SPOOL-NAF-ST-ID             := #SOURCE-TEXT-ID
+NP-SPOOL-ATTRIBUTES (GETID.) := #SPOOL-ATTRIBUTES
+UPDATE (GETID.)
+*
+END-SUBROUTINE /* UPDATE-ST-ID
+*
+END

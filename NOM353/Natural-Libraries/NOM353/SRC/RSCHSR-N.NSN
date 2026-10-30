@@ -1,0 +1,74 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RSCHSR-N * Sort monthly days and replace 'LD' with last day of the
+*                current month and ' ' with '999'
+*
+* Maintenance
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #P-MONTHLY-DAYS (A3/1:30)
+************************************************************************
+LOCAL
+1 #S-DAYS         (A3/1:30)
+1 #NOD            (I2) CONST <30>
+1 #I              (P2)
+1 #SI             (P2)
+1 #NUM-OF-MEMBER  (P2)
+1 #S-DAY          (A3)
+1 #MONTH          (N2)
+1 REDEFINE #MONTH
+  2 #MONTH-A      (A2)
+1 #YEAR           (N4)
+1 REDEFINE #YEAR
+  2 #YEAR-A       (A4)
+1 #DATE           (D)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FOR #I = 1 TO #NOD
+  DECIDE ON FIRST #P-MONTHLY-DAYS (#I)
+    VALUE ' '    #P-MONTHLY-DAYS (#I) := '999'
+    VALUE 'LD'   MOVE EDITED *DATX (EM=MM) TO #MONTH-A
+      MOVE EDITED *DATX (EM=YYYY) TO #YEAR-A
+      CALLNAT 'LASTDAY' #MONTH #YEAR #DATE
+      MOVE EDITED #DATE (EM='0'DD) TO #P-MONTHLY-DAYS (#I)
+    VALUE 'ALL'  IGNORE
+    NONE         MOVE LEFT #P-MONTHLY-DAYS (#I) TO #P-MONTHLY-DAYS (#I)
+      MOVE RIGHT #P-MONTHLY-DAYS (#I) TO #P-MONTHLY-DAYS (#I)
+      EXAMINE FULL VALUE OF #P-MONTHLY-DAYS (#I) FOR
+        FULL VALUE OF ' ' REPLACE WITH '0'
+      IF #P-MONTHLY-DAYS (#I) NE MASK (NNN)
+        #P-MONTHLY-DAYS (#I) := '999'
+      END-IF
+  END-DECIDE
+  #S-DAY := #P-MONTHLY-DAYS (#I)
+  PERFORM INSERT-DAY
+END-FOR
+MOVE #S-DAYS (*) TO #P-MONTHLY-DAYS (*)
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INSERT-DAY
+************************************************************************
+ADD 1 TO #NUM-OF-MEMBER
+#SI := #NUM-OF-MEMBER
+REPEAT
+  UNTIL #SI = 1 OR #S-DAYS (#SI - 1) < #S-DAY
+  #S-DAYS (#SI) := #S-DAYS (#SI - 1)
+  SUBTRACT 1 FROM #SI
+END-REPEAT
+#S-DAYS (#SI) := #S-DAY
+*
+END-SUBROUTINE /* INSERT-DAY
+*
+END

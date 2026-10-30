@@ -1,0 +1,1151 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 5
+* <Natural Source Header
+* RDEFBU - Define a Bundle
+*
+* Maintenance
+* uuuuuu  yy-mm-dd s(999999) ...
+* gw      98-03-13 s(278970) save search values in independent variables
+* gw      98-07-16 p(172297) build list active bundle redesign
+* gw      98-08-04 p(172664) accept nonexistent rep for report arrival
+* wcd     00-04-01 CE 7267   New PFkey for add printers in RPFK---L
+*                            & new VMBUN-l
+* xsisgg  00-08-07 CE7461    Extend report and bundle names
+* sju     01-03-09 p(204915) Bundle print control exit
+* xsetggr 01-03-21 p(205864) calendar handling of bundle
+* xsetggr 01-03-26 p(205776) consistent error msmessage handling
+* xsetggr 01-04-02 p(205825) handling of PF10 (edit/layout)
+* xsetggr 01-09-24 p(208793) confirmation of non-existing event
+*                            triggering report
+* xsetoba 01-10-03 p(208366) check Y/M for field Time schedule ...
+* xsetoba 01-10-09 p(208366) check period and unit for Retention/
+*                            Force flush fields
+* xsetoba 01-10-11 p(208366) Report arrival selection from Report list
+* xsetoba 01-10-29 P(208366) Printing atributes control for Bundle Def.
+* xsetggr 02-01-02 p(205776) change window SCHEDULE definition
+* sju     02-03-01 p(221038) Take defaults for existing bundles
+*                            note: code is commented out
+*                                  except for Hold before
+*                                  print and Report
+*                                  separators as they are (currently)
+*                                  the only fields which may
+*                                  not be empty.
+* xsetggr 02-06-25 p(205776) add changes from NOM211 02-01-22;02-02-07
+* xsetoba 02-07-02 (CE7553)  Default Profile non-defined users
+* sju     02-07-31 p(226955) Correct handling of flush reports
+* sju     02-09-05 p(228420) Some wrong cursor positions after 205776
+* sju     02-12-04 p(231473) Honour steplib settings for printer exit
+* xsetggr 03-02-03 NOM221    Fill fields b-last-modified, b-modified-by
+* sju     03-03-04 QE        Correct pre-setting of print contrl library
+* sju     03-05-22 (P240729) restricted use printers
+* xsetggr 03-07-28 p(240465) correct CE7553
+* fhi     03-08-29 p(240465) allow '*' selection of coordinator-id
+*                            Delete comments before 2000
+*                            Prevent 'REINPUT without INPUT' error
+* XSETHZ 2004-01-29 P(249557) Separator Page not printed
+* XSETHZ  2004-02-13 P(250183) Separator member 'NONE'/'KEIN'
+* sju     04-06-07 (P253886) B-BUNDLE incorrectly modified
+* xsetggr 2005-10-26 p(270950) ISN field must be p10, not p8
+* xsetggr 2008-07-18 p(300480) allow creating new members with pf10
+*                              only if isp installed
+* xsetggr 2009-09-01 P314431  allow UNIXLP printers only on mainframe,
+*                             but NATUNIX printers only on unix systems.
+* xsetggr 2009-10-09 P320995 returns to general attributes screen after
+*                            editing separators/control exit member
+* xsetggr 2010-01-21 P300184 use G-LANGUAGE for checking,correct cursor
+* splildav 2010-01-11 N3246   Add field TYPE to map
+* xsetggr  2010-03-12 P307403 side effects of changes in RPFKEX-C
+* XSETGGR  2010-03-18 P307403 BACKOUTED *DATA CONDITION, TAG DELETED
+*                             corrected cursor position
+* xsetggr 2010-11-03 NOMALL-865 restow due to changes in EOMPHTYE
+* fhi     2011-01-11 NOMALL-936 Member name into message 1079
+* xsetggr 2012-02-01 NOMALL-1100 write language independant msgs to log
+* xsetggr 2012-05-17 NOMALL-1136 improve validation of printers
+* xsetggr 2012-12-18 NOMALL-89 implemet C-CHKFNC to validate function
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-03-05 NOMALL-1281 show last update user+date
+* fhi     2015-03-17 NOMALL-1588 Avoid 0C7 abend
+* fhi     2015-06-30 NOMALL-1655 Leave copies field as entered
+* fhi     2015-07-07 NOMALL-1655 same
+* SU3     2016-09-16 NOMALL-1915(NOM3.5) sep.member act. help->N-SEPMEM
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* NKEW1   2024-07-24 EF-4541     Decide what to show on map with func
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING RPFK---L
+LOCAL USING VMBUN-L
+LOCAL USING VDEFBU-L
+LOCAL USING RLOG-L
+LOCAL USING RWKDAY-P
+LOCAL USING RWKDAY-E
+LOCAL USING EOMPHTYE
+LOCAL USING EOM----E
+LOCAL USING EOMGRM-P
+LOCAL USING EOMMSG-P
+LOCAL USING CONST-L /* NKEW1 changed
+LOCAL
+1 BUNDLE-REP VIEW OF NRM-BUNDLE-REPORT
+  2 BR-BUNDLE
+  2 BR-REPNAME
+  2 BR-SEQNO
+  2 BR-GROUP
+  2 BR-SEPNO
+1 PRINTERS VIEW OF NRM-PRINTERS
+  2 P-DISP
+1 PRINTER VIEW OF NRM-PRINTERS
+  2 P-PHYSICAL-NAME
+1 PHYSICAL VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-PRINTER-TYPE
+1 #BUNDLE-REPORT            (A50)
+1 REDEFINE #BUNDLE-REPORT
+  2 #BR-BUNDLE              (A25)
+  2 #BR-REPORT              (A25)
+*
+1 #EDIT-LIB                 (A8)
+1 #FATHER-PROG              (A8) INIT <'RLISBU'>
+1 #BUNDLE                   (A25)
+1 REDEFINE    #BUNDLE
+  2 #BUNDLE-1               (A1)
+1 REDEFINE    #BUNDLE
+  2 #BUNDLE-8               (A8)
+  2 #BUNDLE-R               (A17)
+1 CV-KEY                    (C)
+1 #CV-KORR                  (P3)
+1 CV-MAP                    (C) INIT < (AD=I CD=NE)>
+1 CV-COPIES                 (C) INIT < (AD=I CD=NE)>
+1 L-HEADER                  (A78)
+1 #HEADER-2                 (A16)
+1 L-BUNDISN                 (N10)
+1 #DEFINED                  (L)
+1 I                         (N3)
+1 J                         (N3)
+1 #PRINTER                  (A8)
+1 #ALLOWED                  (L)
+1 #EXIST                    (L)
+1 #FUNC                     (A1)
+1 #TEMP-TIME                (A4)
+1 REDEFINE    #TEMP-TIME
+  2 #TEMP-HH                (N2)
+  2 #TEMP-II                (N2)
+1 #ADAY                     (A3)
+1 #NDAY                     (N3)
+1 #WEEK-DAYS            (A2/7) INIT <'SU','MO','TU','WE','TH','FR','SA'>
+1 #WEEKDAYS                 (A2/1:7)
+1 #LANGUAGE                 (I1)
+1 #GR-SUPER                 (A34)
+1 REDEFINE    #GR-SUPER
+  2 #GR-T                   (A1)
+  2 #GR-U                   (A8)
+  2 #GR-O                   (A25)
+1 #GRANTED                  (L)
+1 #GR-OPTION                (A1/1:6)
+1 #PANEL                    (I2)
+1 #CONFIRM                  (A1)
+1 #REPORT                   (A25)
+1 REDEFINE #REPORT
+  2 #REPORT-17              (A17)
+  2 #REPORT-R               (A8)
+1 #FLUSH-REPORTS            (A25/1:10)
+1 #REPORT-SCREEN            (A25)
+1 #MAP-NAME                 (A8)
+1 #B-SEPSTART               (A8)
+1 #B-SEPEND                 (A8)
+1 #B-CONTROL-EXITLIB        (A8)
+1 #B-CONTROL-EXITMEM        (A8)
+1 #MARK                     (I4/5)   /* mark-option for 5 input panels
+1 #PRINT-DEFAULTS-APPLIED   (L)
+1 #UPDATE-DEFAULTS          (L)
+* 1 #LIB-ID                   (A10)
+1 #YES                      (L)
+1 #FIRST                    (L)
+1 #AUTODEF                  (A1)
+1 #LIB                      (A8)
+1 #MEMBER-TYPE              (A8)
+1 #ANY-ERROR                (L)
+1 #COORD-ID                 (A8)
+1 #DEF-USER                 (L)
+1 #CHK-USER                 (L)
+1 #USERID                   (A8)
+1 F                         (I2)
+1 #PROG                     (A8) INIT <*PROGRAM>
+1 #LAST-MOD                 (A40)
+1 #ACTIVE-HELP              (L)
+1 #CURS-FIELD               (I4)
+1 #POS-START                (I4)
+1 #POS-END                  (I4)
+1 #POS-EXIT-MEM             (I4)
+1 #POS-EXIT-LIB             (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE WINDOW SCHEDULE SIZE 20*65 BASE 01/15 CONTROL SCREEN
+DEFINE WINDOW REP-NOT-EXIST SIZE 10*38 BASE 06/25 CONTROL SCREEN
+*
+* NKEW1 <
+#JOB_ADD_FIELD := F#SETVAR(<#_JOBCARDS(1:2),#_ADDITIONALPARA(1:2)>)
+* NKEW1 >
+IF *DATA > 0
+  INPUT (AD=MIT) G-C-FUNC G-C-BUNDLE #PANEL
+END-IF
+*
+RESET G-COMMIT
+*
+#BUNDLE := G-C-BUNDLE
+#FUNC := G-C-FUNC
+#PROG := *PROGRAM
+PERFORM XXSECURITY-CHECK #PROG #BUNDLE #ALLOWED
+INCLUDE C-NALLOW
+*
+IF #FUNC = 'P'
+  CALLNAT 'RDELBU' #BUNDLE G-USERID G-DISPLAY-LONG-NAMES
+    G-CONFIRM G-NATRP-ERC
+  INCLUDE C-ESCAPE
+END-IF
+*
+G-C-OBJTYPE := 'BUNDLE'
+CALLNAT 'RGETLIB' #EDIT-LIB
+COMPRESS #EDIT-LIB 'U' TO #EDIT-LIB LEAVING NO
+*
+RESET G-LINECOM(*)
+*
+#AUTODEF := F#MONITOR-USER-AUTODEF (<>)
+IF #PANEL < 2
+  IF G-DISPLAY-LONG-NAMES
+    #PANEL := 4
+  ELSE
+    #PANEL := 1
+  END-IF
+END-IF
+*
+IF #BUNDLE = SCAN '*'
+  CALLNAT 'RSELBU-N' #BUNDLE G-USERID G-USER-TYPE
+    G-SUPPORT-LONG-NAMES G-DISPLAY-LONG-NAMES
+END-IF
+PERFORM SET-CURSOR
+*
+BUNDLE-DEFAULTS.M-MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+FIND BUNDLE-DEFAULTS WITH M-MONITOR-ID = BUNDLE-DEFAULTS.M-MONITOR-ID
+  IF M-BUNDLE-DEFAULTS = ' '
+    RESET BUNDEF
+  END-IF
+  IF B-FLUSH-TIME-A = ' '
+    RESET B-FLUSH-TIME
+  END-IF
+END-FIND
+#FIRST := TRUE
+MAIN-LOOP. REPEAT
+  IF NOT G-DISPLAY-LONG-NAMES
+    RESET #BUNDLE-R
+  END-IF
+  FIND-LOOP. FIND BUNDLES WITH B-BUNDLE  = #BUNDLE
+    IF NO RECORDS FOUND
+      IF #FUNC = 'M' OR = 'D'
+        INCLUDE C-ESCAPE
+      END-IF
+    END-NOREC
+    CALLNAT 'N-NONE' BUNDLES.B-SEPSTART BUNDLES.B-SEPEND
+    #B-SEPSTART := BUNDLES.B-SEPSTART
+    #B-SEPEND := BUNDLES.B-SEPEND
+    #B-CONTROL-EXITLIB := BUNDLES.B-CONTROL-EXITLIB
+    #B-CONTROL-EXITMEM := BUNDLES.B-CONTROL-EXITMEM
+    L-BUNDISN := *ISN(FIND-LOOP.)
+    #COORD-ID := BUNDLES.B-COORDINATOR-ID
+*
+    IF #FUNC = 'D'
+      G-HOLD-TIME := *TIMX
+    ELSE
+      RESET G-HOLD-TIME
+    END-IF
+*
+    #BUNDLE := B-BUNDLE
+    #FLUSH-REPORTS(*) := B-FLUSH-REPORTS(*)
+    DECIDE ON EVERY VALUE OF #FUNC
+      VALUE 'P'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'DBU' #ALLOWED
+        INCLUDE C-NALLOW
+      VALUE 'A','M'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'MBU' #ALLOWED
+        INCLUDE C-NALLOW
+      VALUE 'A'
+        IF G-DISPLAY-LONG-NAMES
+          #PANEL := 4
+        ELSE
+          #PANEL := 1
+        END-IF
+        RESET #FLUSH-REPORTS(*) BUNDLES.B-BUNDLE #BUNDLE CV-KEY
+        CV-KEY := (AD=I)
+        #CV-KORR := 0
+        #HEADER-2 := '  Add A Bundle  '
+        RESET BUNDLES
+        BUNDLES.B-RETENTION-PERIOD := BUNDLE-DEFAULTS.B-RETENTION-PERIOD
+        BUNDLES.B-RETENTION-ACTION := BUNDLE-DEFAULTS.B-RETENTION-ACTION
+        BUNDLES.B-SEPSTART         := BUNDLE-DEFAULTS.B-SEPSTART
+        BUNDLES.B-SEPEND           := BUNDLE-DEFAULTS.B-SEPEND
+        BUNDLES.B-SEPNO            := BUNDLE-DEFAULTS.B-SEPNO
+        BUNDLES.B-FLUSH-TIME       := BUNDLE-DEFAULTS.B-FLUSH-TIME
+        BUNDLES.B-FLAG-REPSEP      := BUNDLE-DEFAULTS.B-FLAG-REPSEP
+        BUNDLES.B-HOLD             := BUNDLE-DEFAULTS.B-HOLD
+        BUNDLES.B-JOBNAME          := BUNDLE-DEFAULTS.B-JOBNAME
+        BUNDLES.B-PRINT-LIST(1:5)  := BUNDLE-DEFAULTS.B-PRINT-LIST(1:5)
+        BUNDLES.B-PRINT-JOBCARD(1) := BUNDLES.B-JOBNAME
+        RESET  BUNDLES.B-JOBNAME
+        BUNDLES.B-RETENTION-PERIOD-PURGE := BUNDLES.B-RETENTION-PERIOD
+        RESET  BUNDLES.B-RETENTION-PERIOD
+        BUNDLES.B-BUNDLE-STATUS := 'M'
+      VALUE 'M','D'
+        CV-KEY := (AD=IP)
+        #CV-KORR := 1
+      VALUE 'M' /*UPDATE
+        #HEADER-2 := 'Update A Bundle'
+        GETREC. GET BUNDLES L-BUNDISN
+        CALLNAT 'N-NONE' BUNDLES.B-SEPSTART BUNDLES.B-SEPEND
+        #B-SEPSTART := BUNDLES.B-SEPSTART
+        #B-SEPEND := BUNDLES.B-SEPEND
+      VALUE 'D' /*DISPLAY
+        #HEADER-2 := 'Display A Bundle'
+        CV-MAP := (AD=IP)
+        CV-COPIES := (AD=IP)
+        SET KEY PF5 NAMED OFF
+        SET KEY PF6 NAMED OFF
+      NONE VALUE
+        IGNORE
+    END-DECIDE
+*
+    SCREEN-LOOP. REPEAT
+      #BUNDLE := BUNDLES.B-BUNDLE
+      IF NOT G-DISPLAY-LONG-NAMES
+        #BUNDLE-R := H'FA'
+      END-IF
+      PERFORM BEFORE-INPUT
+      IF #FUNC NE 'D' AND NOT #ANY-ERROR
+        INCLUDE C-HOLD
+      END-IF
+*
+      IF #LANGUAGE NE *LANGUAGE
+        PERFORM INIT-PFKEYS
+        MOVE G-LANGUAGE TO #LANGUAGE *LANGUAGE
+        PERFORM SET-PFKEYS
+      END-IF
+*
+      PERFORM FLIP-DISPLAY
+      CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT #MAP-NAME
+      CALLNAT 'N-HEAD2' B-LAST-UPDATE-USER B-LAST-UPDATE
+        #LAST-MOD G-DATE-FORMAT
+      SET CONTROL 'WB'
+      SET CONTROL 'M21'
+      IF BUNDLES.B-CONTROL-EXITLIB = ' ' AND #FIRST
+          AND BUNDLES.B-CONTROL-EXITMEM NE ' '
+        CALLNAT 'RGETLIB' BUNDLES.B-CONTROL-EXITLIB
+        COMPRESS BUNDLES.B-CONTROL-EXITLIB 'U'
+          TO BUNDLES.B-CONTROL-EXITLIB
+          LEAVING NO
+      END-IF
+      DECIDE ON FIRST #PANEL
+        VALUE 2                   /* print attributes
+          IF #ACTIVE-HELP AND BUNDLES.B-SEPNO = 0
+              AND NOT CV-COPIES MODIFIED
+            BUNDLES.B-SEPNO := 1
+          END-IF
+          INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK #MARK (#PANEL)
+            USING MAP 'RDEFBU2&'
+          PERFORM SET-CURSOR
+          IF BUNDLES.B-FLUSH-TIME-SCHEDULE = 'N' AND *PF-KEY  = 'PF8'
+            REINPUT *4027 MARK *BUNDLES.B-FLUSH-TIME-SCHEDULE
+          END-IF
+        VALUE 3
+          INPUT WINDOW = 'SCHEDULE' WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+            MARK #MARK (#PANEL) USING MAP 'RDEFSCH&'
+          PERFORM SET-CURSOR
+          SET CONTROL 'M21'
+          IF BUNDLES.B-FLUSH-TIME-SCHEDULE = 'N' AND *PF-KEY  = 'PF8'
+            REINPUT *4027 MARK *BUNDLES.B-FLUSH-TIME-SCHEDULE
+          END-IF
+        VALUE 1
+          #USERID := BUNDLES.B-COORDINATOR-ID
+          IF NOT(BUNDLES.B-BUNDLE-STATUS ='M' OR='S') /*Master/Suspend
+            BUNDLES.B-BUNDLE-STATUS := 'M'
+          END-IF
+          INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK #MARK (#PANEL)
+            USING MAP 'RDEFBUM&'
+          IF BUNDLES.B-FLUSH-TIME-SCHEDULE = 'N' AND *PF-KEY  = 'PF8'
+            REINPUT *4027 MARK *BUNDLES.B-FLUSH-TIME-SCHEDULE
+          END-IF
+          PERFORM SET-CURSOR
+        VALUE 4
+          #USERID := BUNDLES.B-COORDINATOR-ID
+          IF NOT(BUNDLES.B-BUNDLE-STATUS ='M' OR='S') /*Master/Suspend
+            BUNDLES.B-BUNDLE-STATUS := 'M'
+          END-IF
+          INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK #MARK (#PANEL)
+            USING MAP 'RDEFBUL&'
+          IF NOT(BUNDLES.B-BUNDLE-STATUS ='M' OR='S') /*Master/Suspend
+            BUNDLES.B-BUNDLE-STATUS := 'M'
+          END-IF
+          IF BUNDLES.B-FLUSH-TIME-SCHEDULE = 'N' AND *PF-KEY  = 'PF8'
+            REINPUT *4027 MARK *BUNDLES.B-FLUSH-TIME-SCHEDULE
+          END-IF
+          PERFORM SET-CURSOR
+        VALUE 5
+          INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK #MARK (#PANEL)
+            USING MAP 'RDEFBUX&'
+          PERFORM SET-CURSOR
+        NONE VALUE IGNORE
+      END-DECIDE
+      RESET G-NATRP-ERC G-NATRP-ERT
+      PERFORM AFTER-INPUT
+*
+      INCLUDE RPFKVA-C
+      INCLUDE C-DIRECT
+      IF  G-PF-FUNC = 'ADD' AND ( #PANEL = 2 OR = 3 OR = 5)
+        RESET  #LANGUAGE
+      END-IF
+      INCLUDE RPFKED-C
+*
+      IF CV-MAP MODIFIED OR CV-KEY MODIFIED OR #UPDATE-DEFAULTS
+      OR #ANY-ERROR OR #DEF-USER OR CV-COPIES MODIFIED                /*
+        RESET #ANY-ERROR #UPDATE-DEFAULTS
+        IF #CHK-USER
+          RESET #DEF-USER
+        END-IF
+        PERFORM VALIDATE-INPUT
+        IF #DEF-USER
+          G-NATRP-ERC := 0509
+        END-IF
+        IF G-NATRP-ERC NE 0
+          ESCAPE TOP
+        END-IF
+        DECIDE ON FIRST VALUE OF #FUNC
+          VALUE 'A'     /* ADD RECORD
+            IF G-DISPLAY-LONG-NAMES
+              BUNDLES.B-FLUSH-REPORTS(*) := #FLUSH-REPORTS(*)
+            ELSE
+              FOR I=1 TO 10
+                #REPORT := #FLUSH-REPORTS(I)
+                RESET #REPORT-R
+                BUNDLES.B-FLUSH-REPORTS(I) := #REPORT
+              END-FOR
+            END-IF
+            IF NOT G-DISPLAY-LONG-NAMES
+              RESET #BUNDLE-R
+            END-IF
+            CALLNAT 'RCHKBU' #BUNDLE #EXIST
+            IF #EXIST
+              G-NATRP-ERC := 404
+              #MARK (#PANEL) := 1
+              ESCAPE TOP
+            END-IF    /* (3265)
+            BUNDLES.B-BUNDLE := #BUNDLE
+            BUNDLES.B-USERID := G-USERID
+            BUNDLES.B-MODIFIED-BY   := B-LAST-UPDATE-USER := G-USERID
+            BUNDLES.B-LAST-MODIFIED := B-LAST-UPDATE      := *TIMX
+            STORE1. STORE BUNDLES
+            #FUNC := 'M'
+            G-NATRP-ERC := 31
+*           GRANTS.GR-OBJECT-NAME := #BUNDLE
+*           GRANTS.GR-USERID := G-USERID
+*           GRANTS.GR-OBJECT-TYPE := 'B'
+*           GRANTS.GR-OPTION(1:6) := 'Y'
+            PERFORM ADD-GRANTS
+            IF G-LOG-BUN
+              LG-BUNDLE := LG-OBJECT-NAME := BUNDLES.B-BUNDLE
+              LG-CODE := 'BM'
+              LG-USERID := G-USERID
+              COMPRESS '2505' BUNDLES.B-BUNDLE TO LG-MSG
+              CALLNAT 'RLOG' PL-PARMS
+            END-IF
+*
+            INCLUDE C-COMMIT
+            INCLUDE REXDO--C
+            ESCAPE BOTTOM (FIND-LOOP.)
+          VALUE 'M'
+            CALLNAT 'RGETLIB' #EDIT-LIB
+            COMPRESS #EDIT-LIB 'U' TO #EDIT-LIB LEAVING NO
+            IF BUNDLES.B-CONTROL-EXITMEM = ' ' AND
+                BUNDLES.B-CONTROL-EXITLIB = #EDIT-LIB
+              RESET BUNDLES.B-CONTROL-EXITLIB
+            END-IF
+            IF G-DISPLAY-LONG-NAMES
+              BUNDLES.B-FLUSH-REPORTS(*) := #FLUSH-REPORTS(*)
+            ELSE
+              FOR I=1 TO 10
+                #REPORT := #FLUSH-REPORTS(I)
+                RESET #REPORT-R
+                BUNDLES.B-FLUSH-REPORTS(I) := #REPORT
+              END-FOR
+            END-IF
+            BUNDLES.B-MODIFIED-BY   := B-LAST-UPDATE-USER := G-USERID
+            BUNDLES.B-LAST-MODIFIED := B-LAST-UPDATE      := *TIMX
+            UPDATE(GETREC.)
+            G-NATRP-ERC := 32
+            IF G-LOG-BUN
+              LG-BUNDLE := LG-OBJECT-NAME := BUNDLES.B-BUNDLE
+              LG-CODE := 'BM'
+              LG-USERID := G-USERID
+              COMPRESS '2506' BUNDLES.B-BUNDLE TO LG-MSG
+              CALLNAT 'RLOG' PL-PARMS
+            END-IF
+            INCLUDE C-COMMIT
+          NONE VALUE
+            IGNORE
+        END-DECIDE
+      END-IF
+*
+      INCLUDE REXDO--C
+*
+      DECIDE ON FIRST G-PF-FUNC
+        VALUE ##PFK-SCHEDULE
+          #PANEL := 3
+          RESET  #LANGUAGE G-NATRP-ERC
+        VALUE ##PFK-BUNDLE-PRINT
+          #PANEL := 2
+          RESET  #LANGUAGE
+* First time they see the bundle, empty fields will be populated
+* from bundle-defaults. Note that some empty fields are not populated
+          IF NOT #PRINT-DEFAULTS-APPLIED AND #FUNC = 'M'
+            #PRINT-DEFAULTS-APPLIED:= TRUE
+            DECIDE FOR EVERY CONDITION
+              WHEN BUNDLES.B-FLAG-REPSEP = ' '
+                BUNDLES.B-FLAG-REPSEP := BUNDLE-DEFAULTS.B-FLAG-REPSEP
+              WHEN BUNDLES.B-HOLD = ' '
+                BUNDLES.B-HOLD := BUNDLE-DEFAULTS.B-HOLD
+              WHEN ANY
+                #UPDATE-DEFAULTS:= TRUE
+              WHEN NONE IGNORE
+            END-DECIDE
+          END-IF
+        VALUE ##PFK-EXIT-SUBFUNC
+          IF #PANEL = 5
+            #PANEL := 2
+          ELSE
+            IF #PANEL = 3
+              PERFORM VALIDATE-INPUT
+              IF G-NATRP-ERC NE 0
+                ESCAPE TOP
+              END-IF
+            END-IF
+            IF G-DISPLAY-LONG-NAMES
+              #PANEL := 4
+            ELSE
+              #PANEL := 1
+            END-IF
+          END-IF
+          RESET  #LANGUAGE
+        VALUE ##PFK-EDIT
+          PERFORM EDIT-SEPARATOR
+        VALUE ##PFK-DISPLAY-LONG-NAMES
+          DECIDE FOR FIRST CONDITION
+            WHEN G-SUPPORT-LONG-NAMES AND NOT G-DISPLAY-LONG-NAMES
+              G-DISPLAY-LONG-NAMES := TRUE
+              IF NOT (#PANEL = 2 OR = 5)
+                #PANEL := 4
+              END-IF
+            WHEN G-SUPPORT-LONG-NAMES AND G-DISPLAY-LONG-NAMES
+              RESET G-DISPLAY-LONG-NAMES
+              IF NOT (#PANEL = 2 OR = 5)
+                #PANEL := 1
+              END-IF
+            WHEN NONE
+              RESET G-DISPLAY-LONG-NAMES
+          END-DECIDE
+          RESET #LANGUAGE
+        VALUE ##PFK-ADDNAL-PRINTERS
+          #PANEL := 5
+          RESET #LANGUAGE
+        NONE VALUE
+          IGNORE
+      END-DECIDE
+*
+    END-REPEAT
+  END-FIND
+END-REPEAT  /*(MAIN-LOOP.)
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-GRANTS
+************************************************************************
+EOMGRM-I-NAME := #BUNDLE
+EOMGRM-I-TYPE := 'B'
+EOMGRM-I-USER := G-USERID
+EOMGRM-OPTION(*) := 'Y'
+CALLNAT 'EOMGRM-N' EOM-ADD EOMGRM-PARMS EOMMSG-PARMS
+*
+END-SUBROUTINE /* ADD-GRANTS
+*
+************************************************************************
+DEFINE SUBROUTINE  SET-CURSOR
+************************************************************************
+IF #FUNC = 'A'
+  #MARK(1) := #MARK(4) := 23
+ELSE
+  #MARK(1) := #MARK(4) := 22
+END-IF
+#MARK(2) := 21  /* MARK INPUT AT *G-DIRECT-COMMAND PANEL 2
+#MARK(3) := 1   /* MARK INPUT AT FIELD 1 OF PANEL 3
+#MARK(5) := 31  /* MARK INPUT AT *G-DIRECT-COMMAND PANEL 5
+*
+END-SUBROUTINE /* SET-CURSOR
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+DECIDE ON FIRST #PANEL
+  VALUE 1,4  PERFORM VALIDATE-GENERAL-ATTRIBUTES
+  VALUE 2    PERFORM VALIDATE-PRINTING-ATTRIBUTES
+  VALUE 3    PERFORM VALIDATE-SCHEDULE
+  VALUE 5    PERFORM VALIDATE-ADDNAL-PRINTERS
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-PRINTING-ATTRIBUTES
+************************************************************************
+IF NOT ( BUNDLES.B-HOLD = 'Y' OR = 'N' )
+  REINPUT *1099 MARK *BUNDLES.B-HOLD
+END-IF
+IF NOT (BUNDLES.B-FLAG-REPSEP = 'Y' OR = 'N' )
+  REINPUT *1099 MARK *BUNDLES.B-FLAG-REPSEP
+END-IF
+CALLNAT 'RGETLIB' #LIB
+COMPRESS #LIB 'U' TO #LIB LEAVING NO
+IF BUNDLES.B-CONTROL-EXITMEM = ' ' AND BUNDLES.B-CONTROL-EXITLIB = #LIB
+  RESET BUNDLES.B-CONTROL-EXITLIB #FIRST
+END-IF
+IF #EDIT-LIB = ' '
+  CALLNAT 'RGETLIB' #EDIT-LIB
+  COMPRESS #EDIT-LIB 'U' TO #EDIT-LIB LEAVING NO
+END-IF
+CALLNAT 'N-SEPMEM' BUNDLES.B-SEPSTART #B-SEPSTART 'S' 'B' 1X
+  #ACTIVE-HELP G-NATRP-ERC G-NATRP-ERT
+IF G-NATRP-ERC NE 0
+  #MARK  (2)  := 13
+  #ANY-ERROR  := TRUE
+  RESET #ACTIVE-HELP
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'N-SEPMEM' BUNDLES.B-SEPEND #B-SEPEND 'E' 'B' 1X
+  #ACTIVE-HELP G-NATRP-ERC G-NATRP-ERT
+IF G-NATRP-ERC NE 0
+  #MARK (2) := 15
+  #ANY-ERROR  := TRUE
+  ESCAPE ROUTINE
+END-IF
+*
+FOR I 1 TO 5
+  PERFORM CHECK-PRINTERS
+END-FOR
+IF BUNDLES.B-CONTROL-EXITLIB NE ' ' AND BUNDLES.B-CONTROL-EXITMEM = ' '
+  REINPUT *4101 MARK *BUNDLES.B-CONTROL-EXITMEM ALARM
+END-IF
+IF BUNDLES.B-CONTROL-EXITMEM NE ' '
+  IF BUNDLES.B-CONTROL-EXITMEM = SCAN '*' AND
+      (BUNDLES.B-CONTROL-EXITLIB = SCAN '*'
+      OR BUNDLES.B-CONTROL-EXITLIB = ' ')
+    CALLNAT 'RGETLIB' BUNDLES.B-CONTROL-EXITLIB
+    COMPRESS BUNDLES.B-CONTROL-EXITLIB 'U'
+      TO BUNDLES.B-CONTROL-EXITLIB
+      LEAVING NO
+  END-IF
+  IF BUNDLES.B-CONTROL-EXITMEM NE #B-CONTROL-EXITMEM
+      OR BUNDLES.B-CONTROL-EXITLIB NE #B-CONTROL-EXITLIB
+    #MEMBER-TYPE:= 'BUNPRTCO'
+    CALLNAT 'N-LISMEM' BUNDLES.B-CONTROL-EXITLIB
+      BUNDLES.B-CONTROL-EXITMEM #MEMBER-TYPE G-NATRP-ERC G-NATRP-ERT
+    #B-CONTROL-EXITLIB  := BUNDLES.B-CONTROL-EXITLIB
+    #B-CONTROL-EXITMEM  := BUNDLES.B-CONTROL-EXITMEM
+  END-IF
+  IF G-NATRP-ERC = 1052
+    G-NATRP-ERC := 1079
+    G-NATRP-ERT := BUNDLES.B-CONTROL-EXITMEM
+    #MARK (2) := 14
+    #ANY-ERROR:= TRUE
+    ESCAPE ROUTINE
+  END-IF
+  IF BUNDLES.B-CONTROL-EXITLIB NE ' ' AND BUNDLES.B-CONTROL-EXITMEM =' '
+      OR G-NATRP-ERC = 1070
+    RESET G-NATRP-ERC
+    BUNDLES.B-CONTROL-EXITLIB := #B-CONTROL-EXITLIB
+    BUNDLES.B-CONTROL-EXITMEM := #B-CONTROL-EXITMEM
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-PRINTING-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-ADDNAL-PRINTERS
+************************************************************************
+FOR I 6 TO 20
+  PERFORM CHECK-PRINTERS
+END-FOR
+*
+END-SUBROUTINE /* VALIDATE-ADDNAL-PRINTERS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-PRINTERS
+************************************************************************
+IF NOT(BUNDLES.B-PRINTER(I) = ' ' OR = 'DUMMY')
+  EXAMINE FULL BUNDLES.B-PRINTER(*) FOR FULL VALUE OF
+    BUNDLES.B-PRINTER(I) GIVING NUMBER IN F
+  IF F > 1
+    REINPUT *0104 MARK *BUNDLES.B-PRINTER (I) ALARM
+  END-IF
+  #PRINTER := BUNDLES.B-PRINTER(I)
+  IF G-NATRP-INDICATOR = H'0807060504030201'
+    CALLNAT 'RCHKPRT' BUNDLES.B-PRINTER(I) #DEFINED
+  END-IF
+*
+  IF NOT #DEFINED
+    IF BUNDLES.B-PRINTER(I) = SCAN '?' OR=SCAN '*'
+      REINPUT USING HELP MARK *BUNDLES.B-PRINTER (I) ALARM
+    END-IF
+    REINPUT *0108 MARK *BUNDLES.B-PRINTER (I) ALARM
+  END-IF
+  IF G-USER-TYPE NE 'A'
+    #GR-U := G-USERID
+    #GR-T := 'P'
+    #GR-O := BUNDLES.B-PRINTER (I)
+    RESET #GRANTED
+    CALLNAT 'RGRANT-N' #GR-U #GR-T #GR-O #GRANTED #GR-OPTION(*)
+    IF #GRANTED AND NOT #GR-OPTION(*) = 'Y'
+      FIND PRINTERS WITH P-ID = #GR-O
+        IF P-DISP = 'Y'
+          RESET #GRANTED
+        END-IF
+      END-FIND
+    END-IF
+    IF NOT #GRANTED
+      REINPUT *1090 MARK *BUNDLES.B-PRINTER (I)
+    END-IF
+  END-IF
+*
+  IF BUNDLES.B-PRINTER-COPIES(I) = 0
+    BUNDLES.B-PRINTER-COPIES(I) := 1
+  END-IF
+END-IF
+IF BUNDLES.B-PRINTER-COPIES(I) > 0 AND BUNDLES.B-PRINTER(I) = ' '
+  RESET BUNDLES.B-PRINTER-COPIES(I)
+END-IF
+*
+PERFORM CHECK-PRINTER-TYPE
+*
+END-SUBROUTINE /* CHECK-PRINTERS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-PRINTER-TYPE
+************************************************************************
+FIND PRINTER WITH P-ID = BUNDLES.B-PRINTER(I)
+  FIND PHYSICAL WITH PH-VTAMID = P-PHYSICAL-NAME
+    IF *MACHINE-CLASS = 'MAINFRAME'
+      IF PH-PRINTER-TYPE = ##PHYS-NATUNIX
+        REINPUT *0130 MARK *BUNDLES.B-PRINTER (I)
+      END-IF
+    ELSE
+      IF NOT (PH-PRINTER-TYPE = ##PHYS-NATUNIX OR = ##PHYS-DISKUNIX)
+        REINPUT *0131 MARK *BUNDLES.B-PRINTER (I)
+      END-IF
+    END-IF
+  END-FIND
+END-FIND
+*
+END-SUBROUTINE /* CHECK-PRINTER-TYPE
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-GENERAL-ATTRIBUTES
+************************************************************************
+BUNDLES.B-BUNDLE := #BUNDLE
+IF NOT G-DISPLAY-LONG-NAMES
+  EXAMINE BUNDLES.B-BUNDLE FOR H'FA' REPLACE ' '
+END-IF
+IF #BUNDLE=' '
+  REINPUT *0405 MARK *#BUNDLE ALARM
+END-IF
+IF #BUNDLE-1 NE MASK (A)    /* MUST START WITH A CHARCTER
+  REINPUT *0019 MARK *#BUNDLE ALARM
+END-IF
+IF BUNDLES.B-COORDINATOR-ID = ' '
+  BUNDLES.B-COORDINATOR-ID := G-USERID
+END-IF
+IF BUNDLES.B-COORDINATOR-ID = SCAN '*'
+  CALLNAT 'RSELUS-N' BUNDLES.B-COORDINATOR-ID
+  IF BUNDLES.B-COORDINATOR-ID = SCAN '*'
+    BUNDLES.B-COORDINATOR-ID := #USERID /* take old one again
+  END-IF
+END-IF
+*
+IF NOT #DEF-USER
+  IF BUNDLES.B-COORDINATOR-ID NE #COORD-ID
+    CALLNAT 'RCHKUS' BUNDLES.B-COORDINATOR-ID #EXIST
+    IF NOT #EXIST
+      IF #AUTODEF = 'P'
+        #DEF-USER := TRUE
+        RESET #YES
+        CALLNAT 'Y-OR-N' BUNDLES.B-COORDINATOR-ID #YES
+      END-IF
+      IF #AUTODEF = 'Y' OR (#AUTODEF = 'P' AND #YES)
+        #COORD-ID := BUNDLES.B-COORDINATOR-ID
+        RESET #CHK-USER
+        IF #AUTODEF = 'P'
+          ESCAPE ROUTINE
+        END-IF
+      ELSE
+        IF #AUTODEF = 'P' AND #YES = FALSE
+          #CHK-USER := TRUE
+          #MARK(1) := #MARK(4) := 3
+          ESCAPE ROUTINE
+        END-IF
+        #ANY-ERROR := TRUE
+        G-NATRP-ERC := 2
+        G-NATRP-ERT := BUNDLES.B-COORDINATOR-ID
+        #MARK (1) := #MARK (4) := 4 - #CV-KORR
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+  END-IF
+ELSE
+  RESET #DEF-USER
+END-IF
+*
+IF BUNDLES.B-RETENTION-PERIOD = '000'
+  RESET BUNDLES.B-RETENTION-PERIOD
+END-IF
+IF BUNDLES.B-RETENTION-PERIOD-PURGE = '000'
+  RESET BUNDLES.B-RETENTION-PERIOD-PURGE
+END-IF
+*
+IF BUNDLES.B-RETENTION-PERIOD-PURGE NE ' '
+  CALLNAT 'RCHKRETU' BUNDLES.B-RETENTION-UNIT-PURGE G-NATRP-ERC
+  IF BUNDLES.B-RETENTION-NUM-PURGE = 0
+    REINPUT *0415 MARK *BUNDLES.B-RETENTION-PERIOD-PURGE ALARM
+  END-IF
+  IF G-NATRP-ERC NE 0
+    REINPUT USING HELP MARK *B-RETENTION-UNIT-PURGE ALARM
+  END-IF
+  IF BUNDLES.B-RETENTION-CALENDAR-PURGE = SCAN '*'
+      OR BUNDLES.B-RETENTION-UNIT-PURGE = 'W' AND
+      BUNDLES.B-RETENTION-CALENDAR-PURGE = ' '
+    REINPUT USING HELP MARK *BUNDLES.B-RETENTION-CALENDAR-PURGE
+  END-IF
+  IF BUNDLES.B-RETENTION-CALENDAR-PURGE > ' '
+    CALLNAT 'RCHKCA' BUNDLES.B-RETENTION-CALENDAR-PURGE #EXIST
+    IF NOT #EXIST
+      G-NATRP-ERC := 2004
+      #MARK (1) := #MARK (4) := 7 - #CV-KORR
+      ESCAPE ROUTINE
+    END-IF
+    BUNDLES.B-RETENTION-UNIT-PURGE := 'W'
+  END-IF
+END-IF
+IF BUNDLES.B-RETENTION-PERIOD NE ' '
+  CALLNAT 'RCHKRETU' BUNDLES.B-RETENTION-UNIT G-NATRP-ERC
+  IF G-NATRP-ERC NE 0
+    REINPUT USING HELP MARK *BUNDLES.B-RETENTION-UNIT ALARM
+  END-IF
+  IF BUNDLES.B-RETENTION-NUM = 0
+    REINPUT *0415 MARK *BUNDLES.B-RETENTION-PERIOD ALARM
+  END-IF
+  IF BUNDLES.B-RETENTION-CALENDAR = SCAN '*'
+  OR BUNDLES.B-RETENTION-UNIT ='W' AND BUNDLES.B-RETENTION-CALENDAR =' '
+    REINPUT USING HELP MARK *BUNDLES.B-RETENTION-CALENDAR
+  END-IF
+  IF BUNDLES.B-RETENTION-CALENDAR > ' '
+    CALLNAT 'RCHKCA' BUNDLES.B-RETENTION-CALENDAR #EXIST
+    IF NOT #EXIST
+      G-NATRP-ERC := 2004
+      #MARK (1) := #MARK (4) := 11 - #CV-KORR
+      ESCAPE ROUTINE
+    END-IF
+    BUNDLES.B-RETENTION-UNIT := 'W'
+  END-IF
+END-IF
+*
+IF BUNDLES.B-FLUSH-TIME-SCHEDULE = 'Y' AND
+    BUNDLES.B-FLUSH-START = '0000' AND
+    BUNDLES.B-FLUSH-INT = '0000'   AND
+    BUNDLES.B-FLUSH-END = '0000'   AND
+    NOT(BUNDLES.B-FLUSH-WEEK-DAYS (*) NE ' ') AND
+    NOT(BUNDLES.B-FLUSH-DAYS (*) NE ' ')      AND
+    BUNDLES.B-FLUSH-CALENDAR = ' '      AND
+    BUNDLES.B-FLUSH-BEFORE-AFTER = ' ' AND *PF-KEY NE 'PF8'
+  G-NATRP-ERC := 4030
+  #MARK (1) := #MARK (4) := 8 - #CV-KORR
+  ESCAPE ROUTINE
+END-IF
+IF BUNDLES.B-FLUSH-TIME-SCHEDULE = 'N' AND
+    (BUNDLES.B-FLUSH-START NE '0000' OR
+    BUNDLES.B-FLUSH-INT NE '0000'   OR
+    BUNDLES.B-FLUSH-END NE '0000'   OR
+    BUNDLES.B-FLUSH-WEEK-DAYS (*) NE ' ' OR
+    BUNDLES.B-FLUSH-DAYS (*) NE ' '      OR
+    BUNDLES.B-FLUSH-CALENDAR NE ' '      OR
+    BUNDLES.B-FLUSH-BEFORE-AFTER NE ' ')
+  G-NATRP-ERC := 4027
+  #MARK (1) := #MARK (4) := 8 - #CV-KORR
+  ESCAPE ROUTINE
+END-IF
+IF NOT (BUNDLES.B-FLUSH-TIME-SCHEDULE = 'Y' OR = 'N')
+  G-NATRP-ERC := 1099
+  #MARK (1) := #MARK (4) := 8 - #CV-KORR
+  ESCAPE ROUTINE
+END-IF
+*
+RESET #REPORT
+J := 1
+FOR I 1 TO 10
+  IF #FLUSH-REPORTS(I) = ' '
+    ESCAPE TOP
+  END-IF
+  IF #FLUSH-REPORTS(I) = SCAN '*'
+    CALLNAT 'RSELRP-N' #FLUSH-REPORTS(I) G-USERID G-DISPLAY-LONG-NAMES
+    IF #FLUSH-REPORTS(I) = SCAN '*'
+      RESET #FLUSH-REPORTS(I)
+      ESCAPE TOP
+    END-IF
+  END-IF
+  #FLUSH-REPORTS(J) := #FLUSH-REPORTS(I)
+  ADD 1 TO J
+  IF G-DISPLAY-LONG-NAMES
+    CALLNAT 'RCHKRP' #FLUSH-REPORTS(I) #EXIST
+  ELSE
+    #REPORT := #FLUSH-REPORTS(I)
+    RESET #REPORT-R
+    CALLNAT 'RCHKRP' #REPORT #EXIST
+  END-IF
+  IF NOT #EXIST
+    IF G-DISPLAY-LONG-NAMES
+      #REPORT-SCREEN := #FLUSH-REPORTS(I)
+    ELSE
+      MOVE ALL H'FA' TO #REPORT-R
+      #REPORT-SCREEN := #REPORT
+    END-IF
+    RESET #CONFIRM
+    INPUT WINDOW = 'REP-NOT-EXIST' USING MAP 'RDEFBUA&'
+    IF NOT #CONFIRM = 'Y' OR = 'N'
+      G-NATRP-ERC := 1099
+      #MARK (1) := #MARK (4) := 22
+      ESCAPE ROUTINE
+    END-IF
+    IF NOT #CONFIRM = 'Y'
+      RESET #FLUSH-REPORTS(I)
+      SUBTRACT 1 FROM J
+      ESCAPE TOP
+    END-IF
+  END-IF
+*
+  PERFORM ADD-BUNDLE-REPORT
+*
+END-FOR
+IF J LE 10
+  RESET #FLUSH-REPORTS(J:10)
+END-IF
+*
+*
+END-SUBROUTINE /* VALIDATE-GENERAL-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-BUNDLE-REPORT
+************************************************************************
+IF G-DISPLAY-LONG-NAMES
+  #BR-BUNDLE := #BUNDLE
+  #BR-REPORT := #FLUSH-REPORTS(I)
+ELSE
+  #BR-BUNDLE := #BUNDLE-8
+  #BR-REPORT := #REPORT-17
+END-IF
+FIND (1) BUNDLE-REP WITH BR-BUNDLE-REPORT = #BUNDLE-REPORT
+  IF NO
+    IF G-DISPLAY-LONG-NAMES
+      BR-BUNDLE  := #BUNDLE
+      BR-REPNAME := #FLUSH-REPORTS(I)
+    ELSE
+      BR-BUNDLE  := #BUNDLE-8
+      BR-REPNAME := #REPORT-17
+    END-IF
+    BR-SEQNO := 1
+    BR-GROUP := #BUNDLE-8
+    IF BUNDLES.B-FLAG-REPSEP = 'Y'
+      BR-SEPNO := 1
+    END-IF
+    STORE BUNDLE-REP
+  END-NOREC
+END-FIND
+*
+END-SUBROUTINE /* ADD-BUNDLE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-SCHEDULE
+************************************************************************
+#TEMP-TIME := BUNDLES.B-FLUSH-START
+IF #TEMP-TIME NE MASK (NNNN) OR
+    NOT (#TEMP-HH = 0 THRU 23 AND #TEMP-II = 0 THRU 59)
+  REINPUT *51 MARK *BUNDLES.B-FLUSH-START ALARM
+END-IF
+#TEMP-TIME := BUNDLES.B-FLUSH-INT
+IF #TEMP-TIME NE MASK (NNNN) OR
+    NOT (#TEMP-HH = 0 THRU 23 AND #TEMP-II = 0 THRU 59)
+  REINPUT *51 MARK *BUNDLES.B-FLUSH-INT ALARM
+END-IF
+#TEMP-TIME := BUNDLES.B-FLUSH-END
+IF #TEMP-TIME NE MASK (NNNN) OR
+    NOT (#TEMP-HH = 0 THRU 23 AND #TEMP-II = 0 THRU 59)
+  REINPUT *51 MARK *BUNDLES.B-FLUSH-END ALARM
+END-IF
+IF BUNDLES.B-FLUSH-END < BUNDLES.B-FLUSH-START
+  REINPUT *52 MARK *BUNDLES.B-FLUSH-END ALARM
+END-IF
+IF BUNDLES.B-FLUSH-DAYS (*) NE ' '
+    AND BUNDLES.B-FLUSH-WEEK-DAYS (*) NE ' '
+  REINPUT *630 MARK *BUNDLES.B-FLUSH-DAYS(1) ALARM
+END-IF
+FOR I 1 TO 7
+  IF NOT (BUNDLES.B-FLUSH-WEEK-DAYS(I) = ' '
+      OR BUNDLES.B-FLUSH-WEEK-DAYS(I) = #WEEK-DAYS(1:7) )
+    REINPUT USING HELP MARK *#WEEKDAYS (I) ALARM
+  END-IF
+END-FOR
+FOR I 1 TO 30
+  IF BUNDLES.B-FLUSH-DAYS(I) = ' ' OR = 'ALL' OR = 'LD'
+    ESCAPE TOP
+  END-IF
+  #ADAY := BUNDLES.B-FLUSH-DAYS(I)
+  IF NOT(#ADAY IS (N2) )
+    REINPUT USING HELP MARK *BUNDLES.B-FLUSH-DAYS(I) ALARM
+  END-IF
+  #NDAY := VAL(#ADAY)
+  IF NOT #NDAY = 1 THRU 31
+    REINPUT USING HELP MARK *BUNDLES.B-FLUSH-DAYS(I) ALARM
+  END-IF
+END-FOR
+*
+IF BUNDLES.B-FLUSH-CALENDAR NE ' ' AND
+    BUNDLES.B-FLUSH-CALENDAR NE SCAN '*'
+  CALLNAT 'RCHKCA' BUNDLES.B-FLUSH-CALENDAR #EXIST
+  IF NOT #EXIST
+    REINPUT *2004 MARK *BUNDLES.B-FLUSH-CALENDAR
+  END-IF
+  IF NOT BUNDLES.B-FLUSH-BEFORE-AFTER = 'A' OR = 'B'
+    REINPUT *0060 MARK *BUNDLES.B-FLUSH-BEFORE-AFTER
+  END-IF
+ELSE
+  IF BUNDLES.B-FLUSH-CALENDAR = SCAN '*'
+    REINPUT USING HELP MARK *BUNDLES.B-FLUSH-CALENDAR
+  END-IF
+END-IF
+IF (BUNDLES.B-FLUSH-BEFORE-AFTER = 'A' OR = 'B') AND
+    BUNDLES.B-FLUSH-CALENDAR = ' '
+  REINPUT *2010 MARK *BUNDLES.B-FLUSH-CALENDAR
+END-IF
+IF BUNDLES.B-FLUSH-TIME-SCHEDULE = 'Y' AND
+    BUNDLES.B-FLUSH-START = '0000' AND
+    BUNDLES.B-FLUSH-INT = '0000'   AND
+    BUNDLES.B-FLUSH-END = '0000'   AND
+    NOT(BUNDLES.B-FLUSH-WEEK-DAYS (*) NE ' ') AND
+    NOT(BUNDLES.B-FLUSH-DAYS (*) NE ' ')      AND
+    BUNDLES.B-FLUSH-CALENDAR = ' '      AND
+    BUNDLES.B-FLUSH-BEFORE-AFTER = ' '
+  BUNDLES.B-FLUSH-TIME-SCHEDULE := 'N'
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-SCHEDULE
+*
+************************************************************************
+DEFINE SUBROUTINE BEFORE-INPUT
+************************************************************************
+DECIDE FOR EVERY CONDITION
+  WHEN BUNDLES.B-FLUSH-START = ' '  BUNDLES.B-FLUSH-START := '0000'
+  WHEN BUNDLES.B-FLUSH-INT = ' '    BUNDLES.B-FLUSH-INT := '0000'
+  WHEN BUNDLES.B-FLUSH-END = ' '    BUNDLES.B-FLUSH-END := '0000'
+  WHEN NONE                         IGNORE
+END-DECIDE
+IF NOT (#PANEL = 2 OR = 3 OR = 5)
+  IF G-DISPLAY-LONG-NAMES
+    #MAP-NAME := 'RDEFBUL&'
+    #PANEL := 4
+  ELSE
+    #MAP-NAME := 'RDEFBUM&'
+    #PANEL := 1
+  END-IF
+END-IF
+*
+IF NOT BUNDLES.B-FLUSH-TIME-SCHEDULE = 'Y'
+  BUNDLES.B-FLUSH-TIME-SCHEDULE := 'N'
+END-IF
+*
+CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDEFBUM1'
+RWKDAY-IN-WEEKDAYS (*) := BUNDLES.B-FLUSH-WEEK-DAYS (*)
+RWKDAY-FUNCTION := RWKDAY-FROM-ENGLISH-TO-CURRENT
+CALLNAT 'RWKDAY-N' RWKDAY-PARMS
+#WEEKDAYS (*) := RWKDAY-OUT-WEEKDAYS (*)
+*
+END-SUBROUTINE /* BEFORE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE AFTER-INPUT
+************************************************************************
+RWKDAY-IN-WEEKDAYS (*) := #WEEKDAYS (*)
+RWKDAY-FUNCTION := RWKDAY-FROM-CURRENT-TO-ENGLISH
+CALLNAT 'RWKDAY-N' RWKDAY-PARMS
+BUNDLES.B-FLUSH-WEEK-DAYS (*) := RWKDAY-OUT-WEEKDAYS (*)
+*
+END-SUBROUTINE /* AFTER-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+RESET G-PF
+INCLUDE RPFSTD-C
+INCLUDE RPFADD-C
+INCLUDE RPFCOM-C
+DECIDE ON FIRST #PANEL
+  VALUE 1,4
+    INCLUDE RPFSCH-C
+    INCLUDE RPFBUP-C
+  VALUE 2
+    INCLUDE RPFESF-C
+    INCLUDE RPFEDT-C
+    INCLUDE RPFEXT-C
+    INCLUDE RPFAPR-C
+  VALUE 3
+    INCLUDE RPFESF-C
+  VALUE 5
+    INCLUDE RPFESF-C
+    INCLUDE RPFEXT-C
+  NONE VALUE
+    IGNORE
+END-DECIDE
+*
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE EDIT-SEPARATOR
+************************************************************************
+#CURS-FIELD := *CURS-FIELD
+#POS-START  := POS(BUNDLES.B-SEPSTART)
+#POS-END    := POS(BUNDLES.B-SEPEND)
+#POS-EXIT-MEM := POS(BUNDLES.B-CONTROL-EXITMEM)
+#POS-EXIT-LIB := POS(BUNDLES.B-CONTROL-EXITLIB)
+PERFORM S-SEPEDT #PROG #CURS-FIELD #POS-START BUNDLES.B-SEPSTART
+  #POS-END BUNDLES.B-SEPEND #POS-EXIT-MEM #POS-EXIT-LIB
+  BUNDLES.B-CONTROL-EXITMEM BUNDLES.B-CONTROL-EXITLIB 1X
+  #FUNC #BUNDLE #PANEL
+IF G-NATRP-ERC NE 0
+  #MARK (#PANEL) := #POS-START
+  ESCAPE TOP
+END-IF
+*
+END-SUBROUTINE /* EDIT-SEPARATOR
+* --------------------------------------- set pfkeys -------------------
+INCLUDE RPFSET-C
+*
+END

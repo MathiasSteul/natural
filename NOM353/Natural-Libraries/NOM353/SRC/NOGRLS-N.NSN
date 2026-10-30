@@ -1,0 +1,383 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOGRLS-N - NOM API Authorization List
+*
+* Maintenance:
+* XSETHZ  2002-01-31 created
+* XSETHZ  2002-06-04
+* XSETGGR 2002-06-07 read header from SYSERR
+* XSETGGR 2005-01-12 changes dues use for folders from user list
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* XSETHZ  2010-11-08 NOMALL-883
+* XSETHZ  2010-12-15 NOMALL-907
+* xsetggr 2011-01-07 NOMALL-907 add messages about folder authorization
+* xsetggr 2011-07-26 NOMALL-1030 allow ad min user list folder grants
+* xsetggr 2013-05-08 NOMALL-89 allow auth list for all users, other
+*                              functions - for owners
+* xsetggr 2013-05-28 NOMALL-89 do not allow delete owner grants for
+*                              default folders
+* CF1     2015-12-14 NOMALL-1794 Suppress sending header texts
+* BLI     2017-01-24 NOMALL-1983 omit arc/rev for reports
+* CF2     2018-12-13 NOMALL-2193 Correction for reading default folder
+* CF3     2019-11-21 NOMALL-2352 Correction DL w/ links on default FO
+** --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOGRLS-A
+************************************************************************
+LOCAL USING ESMCONSL
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING NOUSUP-L
+LOCAL
+1 GRANTS VIEW OF NRM-GRANTS
+  2 GR-USERID
+  2 GR-OBJECT-NAME
+  2 GR-OBJECT-TYPE
+  2 GR-OPTION     (6)
+1 FO VIEW OF NRM-FOLDER
+  2 FO-ID
+  2 FO-USER-ID
+  2 FO-LINKED-FO-ID
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER-ID  (A8)
+    3 FO-LINKED-ID       (B2)
+1 #I2             (I4)
+1 #IMAX           (I4)
+1 #GR-TYPE-OBJ-USER(A34)
+1 REDEFINE #GR-TYPE-OBJ-USER
+  2 #OBJ-TYPE     (A1)
+  2 #OBJ-NAME     (A25)
+  2 #USERID       (A8)
+1 #FO-USER-NAME   (A24)
+1 REDEFINE #FO-USER-NAME
+  2 #FO-USER-ID   (A8)
+  2 #FO-NAME      (A16)
+1 #FO-NUMBER      (N5)
+1 REDEFINE #FO-NUMBER
+  2 #FO-NUMBER-A  (A5)
+1 #HEADER-TEXT    (A80)
+1 #MSG-NR         (N4)  CONST <6101>
+1 #I              (I2)
+1 #GR-USER        (A8)
+1 #GRANTS         (A1/6)
+1 #OPTIONS        (A2/10)
+1 REDEFINE #OPTIONS
+  2 #OPTIONS-A    (A20)
+1 #TXT            (A25)
+1 #ES-MSG-PREF    (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM   (A3)
+  2 #ES-MSG-NR    (N4)
+1 #HEADER         (L)
+1 US VIEW OF NRM-USERS
+  2 USER-PROFILE
+1 #PROF-USER      (N1)
+1 #PROF-USER-2    (N1)
+1 #USERID-LN      (A8)
+1 #STRING         (A25)
+1 #CHK-USER       (A8)
+1 #CHK-FO-ID-A    (A5)
+1 REDEFINE #CHK-FO-ID-A
+  2 #CHK-FO-ID    (N5)
+1 #LEN            (I2)
+1 P-ERC                     (N4)      /* CF1
+1 P-VERSION-A10             (A10)     /* CF1
+1 #IS-DEFAULT-FOLDER        (L)       /* CF3
+1 #II                       (I1)      /* CF3
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-NUMBER ES-SORTKEY ES-SORTORDER ES-STARTINDEX
+  #HEADER #TXT
+ES-OPTION-COUNT := 10
+ES-STARTINDEX := 4
+DECIDE ON FIRST VALUE OF ES-KEY-CODE(1)
+  VALUE 'BN','PR','DL','RP'  /* BLI 2017-01-24 NOMALL-1983 add 'RP'
+    #IMAX := 790
+    ES-FIELD-COUNT := 5
+    NOGRL4-FIELD-LENGTH(1) := 8
+    NOGRL4-FIELD-LENGTH(2:5) := 1
+  VALUE 'FO','US' /* BLI 2017-01-24 NOMALL-1983 move 'RP' to above
+* 'US' means called from users' list
+    #IMAX := 743
+    ES-FIELD-COUNT := 7
+    NOGRL6-FIELD-LENGTH(1) := 8
+    NOGRL6-FIELD-LENGTH(2:7) := 1
+  NONE VALUE IGNORE
+END-DECIDE
+ES-EOF := 'X'
+IF ES-KEY-PARM-COUNT = 1
+  #OBJ-TYPE := ES-KEY-CODE(1)
+  #OBJ-NAME := ES-KEY-PARM(1)
+  #USERID   := ES-USER
+ELSE
+  #OBJ-TYPE := ES-KEY-CODE(2)
+  #OBJ-NAME := ES-KEY-PARM(2)
+  #USERID   := ES-KEY-PARM(1)
+END-IF
+IF #OBJ-TYPE = 'D'
+  #OBJ-TYPE := 'L'
+END-IF
+IF ES-NEXT-KEY-PARM(1) NE ' '
+  #USERID := ES-NEXT-KEY-PARM(1)
+  IF #OBJ-TYPE = 'F'
+    #OBJ-NAME := ES-NEXT-KEY-PARM(2)
+    #OPTIONS-A := ES-NEXT-KEY-PARM(3)
+  END-IF
+  RESET ES-STARTINDEX
+ELSE
+  IF #OBJ-TYPE = 'F'
+    #FO-USER-ID := #USERID
+    #FO-NAME    := #OBJ-NAME
+    FIND FO WITH FO-USER-NAME = #FO-USER-NAME
+      IF NO RECORDS FOUND
+        IF #FO-NAME = '#Inbasket' OR = '#Listeneingang'
+          IF #FO-NAME = '#Inbasket'
+            #FO-NAME := '#Listeneingang'
+          ELSE
+            #FO-NAME := '#Inbasket'
+          END-IF
+          FIND FO WITH FO-USER-NAME = #FO-USER-NAME
+            IF NO RECORDS FOUND
+              ES-MSG-NR := 0352
+              PERFORM GET-MSG-TXT
+              ESCAPE ROUTINE
+            END-NOREC
+          END-FIND
+        ELSE
+          ES-MSG-NR := 0352
+          PERFORM GET-MSG-TXT
+          ESCAPE ROUTINE
+        END-IF
+      END-NOREC
+      #FO-NUMBER := FO-ID
+      #USERID-LN := FO-LINKED-USER-ID
+      COMPRESS #USERID #FO-NUMBER-A TO #OBJ-NAME LEAVING NO
+    END-FIND
+  END-IF
+*
+  IF ES-USER-TYPE = 'A' OR ES-USER = #USERID AND
+      (#USERID-LN = ' ' OR ES-USER = #USERID-LN)
+    #PROF-USER := 3
+  ELSE
+    FIND US WITH USER-ID = ES-USER PROFILE-STRING := USER-PROFILE
+    END-FIND
+    DECIDE ON FIRST VALUE OF PROF-USERS
+      VALUE 'D' #PROF-USER := 1
+      VALUE 'M' #PROF-USER := 2
+      VALUE 'P' #PROF-USER := 3
+      NONE VALUE
+        #PROF-USER := 0
+        IF #USERID-LN = ' '
+          #TXT := #USERID
+        ELSE
+          #TXT := #USERID-LN
+        END-IF
+    END-DECIDE
+  END-IF
+  IF ES-USER-TYPE NE 'A'
+    IF ES-USER NE #USERID
+      FIND US WITH USER-ID = #USERID
+        PROFILE-STRING := USER-PROFILE
+      END-FIND
+      IF PROF-TYPE NE 'A'
+        DECIDE ON FIRST VALUE OF PROF-USERS
+          VALUE 'D' #PROF-USER-2 := 1
+          VALUE 'M' #PROF-USER-2 := 2
+          VALUE 'P' #PROF-USER-2 := 3
+          NONE VALUE
+            #PROF-USER-2 := 0
+            #TXT := #USERID
+        END-DECIDE
+        IF #PROF-USER-2 < #PROF-USER
+          #PROF-USER := #PROF-USER-2
+        END-IF
+      END-IF
+    END-IF
+*
+    IF #USERID-LN NE ' ' AND
+        (ES-USER NE #USERID-LN OR #USERID NE #USERID-LN)
+      FIND US WITH USER-ID = #USERID-LN
+        PROFILE-STRING := USER-PROFILE
+      END-FIND
+      IF PROF-TYPE NE 'A'
+        DECIDE ON FIRST VALUE OF PROF-USERS
+          VALUE 'D' #PROF-USER-2 := 1
+          VALUE 'M' #PROF-USER-2 := 2
+          VALUE 'P' #PROF-USER-2 := 3
+          NONE VALUE
+            #PROF-USER-2 := 0
+            #TXT := #USERID-LN
+        END-DECIDE
+        IF #PROF-USER-2 < #PROF-USER
+          #PROF-USER := #PROF-USER-2
+        END-IF
+      END-IF
+    END-IF
+  END-IF
+  IF #OBJ-TYPE = 'F' AND FO-LINKED-FO-ID NE ' '
+    #FO-NUMBER := FO-LINKED-ID
+    COMPRESS FO-LINKED-USER-ID #FO-NUMBER-A TO #OBJ-NAME LEAVING NO
+  END-IF
+*
+  IF ES-USER-TYPE NE 'A' AND
+      (#OBJ-TYPE NE 'F' OR
+      #USERID-LN = ' ' AND ES-USER NE #USERID OR
+      #USERID-LN NE ' ' AND ES-USER NE #USERID-LN)
+    CALLNAT 'NOGROU-N'
+      #OBJ-TYPE #OBJ-NAME ES-USER #GR-USER #GRANTS(*)
+    IF #GRANTS(1) NE 'Y' AND #PROF-USER > 1
+      #PROF-USER := 1
+    END-IF
+  END-IF
+  DECIDE ON FIRST VALUE OF #PROF-USER
+    VALUE 1
+      #OPTIONS-A := 'NWOPDL'
+    VALUE 2
+      #OPTIONS-A := 'DL'
+    VALUE 3
+      #OPTIONS-A := ' '
+    NONE VALUE IGNORE
+  END-DECIDE
+*
+  #USERID := H'00'
+/* Suppress sending list header texts, to enable the  /* CF1 +
+/* client side using its own texts with German Umlaute.
+/* Client versions GT 3.4.3.4 support this feature.
+ CALLNAT 'ESMAVC-N' 'N' P-VERSION-A10 P-ERC ES-CONTROL /*1 char->2 digit
+  IF P-VERSION-A10 LE '0304030004'                        /* CF1 -
+    #I2 := ES-STARTINDEX - 1
+    ES-MSG-NR := #MSG-NR
+    #HEADER   := TRUE
+    PERFORM GET-MSG-TXT
+    #HEADER-TEXT := LONG-MSG(1)
+    FOR #I = 2 TO 5
+      COMPRESS #HEADER-TEXT C-HEADER-DELIMITER LONG-MSG(#I)
+        TO #HEADER-TEXT LEAVING NO
+    END-FOR
+    IF #OBJ-TYPE = 'R' OR = 'F'
+      COMPRESS #HEADER-TEXT C-HEADER-DELIMITER LONG-MSG(6)
+        C-HEADER-DELIMITER LONG-MSG(7) TO #HEADER-TEXT LEAVING NO
+    END-IF
+    DECIDE ON FIRST VALUE OF #OBJ-TYPE
+      VALUE 'B','P','L'
+        NOGRL4-HEADER := #HEADER-TEXT
+      VALUE 'R','F'
+        NOGRL6-HEADER := #HEADER-TEXT
+      NONE VALUE IGNORE
+    END-DECIDE
+  ELSE                                                  /* CF1
+    ES-STARTINDEX := 1                                    /* CF1
+  END-IF                                                /* CF1
+END-IF
+PERFORM READ-GRANTS
+IF ES-NUMBER = 0
+  ES-NUMBER := ES-STARTINDEX
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+***********************************************************************
+DEFINE SUBROUTINE READ-GRANTS
+***********************************************************************
+*
+READ GRANTS BY GR-TYPE-OBJ-USER STARTING FROM #GR-TYPE-OBJ-USER
+  IF GR-OBJECT-TYPE NE #OBJ-TYPE OR GR-OBJECT-NAME NE #OBJ-NAME
+    ESCAPE BOTTOM
+  END-IF
+  IF GR-OBJECT-TYPE = 'F'
+    #STRING := GR-OBJECT-NAME
+    EXAMINE #STRING FOR ' ' GIVING LENGTH IN #LEN
+    IF #LEN > 5
+      #LEN := #LEN - 5
+      #CHK-USER := SUBSTR(#STRING,1,#LEN)
+      #LEN := #LEN + 1
+      #CHK-FO-ID-A := SUBSTR(#STRING,#LEN,5)
+    END-IF
+    /* Do not allow DELETE owner grants in default folder
+    RESET #IS-DEFAULT-FOLDER                                    /* CF3
+    IF GR-USERID = #CHK-USER AND #CHK-FO-ID = 1
+      /*     COMPRESS #OPTIONS-A 'DL' TO #OPTIONS-A LEAVING NO    /* CF3
+      #IS-DEFAULT-FOLDER := TRUE                                /* CF3
+    END-IF
+  END-IF                                                        /* CF3
+*
+  PERFORM VALUES-TO-PDA
+END-READ
+*
+END-SUBROUTINE /* READ-GRANTS
+*
+**********************************************************************
+DEFINE SUBROUTINE VALUES-TO-PDA
+***********************************************************************
+ADD 1 TO #I2
+IF #I2 > #IMAX
+  ES-NEXT-KEY-PARM(1) := GR-USERID
+  ES-NEXT-KEY-PARM(2) := GR-OBJECT-NAME
+  ES-NEXT-KEY-PARM(3) := #OPTIONS-A
+  ES-NUMBER := #IMAX
+  RESET ES-EOF
+END-IF
+DECIDE ON FIRST VALUE OF #OBJ-TYPE
+  VALUE 'F'
+    NOGRL6-USER-ID(#I2) := GR-USERID
+    NOGRL6-AUTHORIZATION(#I2,1:6) := GR-OPTION(1:6)
+    NOGRL6-OPTIONS(#I2,*) := #OPTIONS(*)
+    IF #IS-DEFAULT-FOLDER                                  /* CF3 ->
+      /* Disallow DELETE of owner grants in default folder
+      FOR #II = 1 TO 10
+        IF NOGRL6-OPTIONS(#I2,#II) = ' ' OR= 'DL'
+          NOGRL6-OPTIONS(#I2,#II) := 'DL'
+          ESCAPE BOTTOM
+        END-IF
+      END-FOR
+    END-IF                                                 /* CF3 <-
+  VALUE 'B','P','L','R'   /* BLI 2017-01-24 NOMALL-1983 add 'R'
+    NOGRL4-USER-ID(#I2) := GR-USERID
+    NOGRL4-AUTHORIZATION(#I2,1:4) := GR-OPTION(1:4)
+    NOGRL4-OPTIONS(#I2,*) := #OPTIONS(*)
+**      VALUE 'R'            /* BLI 2017-01-16 NOMALL-1983 'R' s.above
+**        NOGRL6-USER-ID(#I2) := GR-USERID
+**        NOGRL6-AUTHORIZATION(#I2,1:6) := GR-OPTION(1:6)
+**        NOGRL6-OPTIONS(#I2,*) := #OPTIONS(*)
+  NONE VALUE IGNORE
+END-DECIDE
+ES-NUMBER := #I2
+*
+END-SUBROUTINE /* VALUES-TO-PDA
+*
+***********************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+***********************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+IF NOT #HEADER
+  ES-MSG-TXT := SHORT-MSG
+  #ES-MSG-NR := ES-MSG-NR
+  EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #TXT
+  ES-RC := 1
+END-IF
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+END

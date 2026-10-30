@@ -1,0 +1,178 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* OOPOFF-N - Interface for NOMRPCX and all OPO functions
+*
+* Maintenance:
+* XSETHZ  2009-10-20 N3460 created
+* xsetggr 2010-01-03 N3460 error msg when NGC version below 3.2.2.0
+* fhi     2010-02-24 N3460 Non-opo active-reports view only < NOM3300
+*                          No tags entered for this change.
+* fhi     2011-09-14 NOMALL-901  log deletion from OPO with RMLOGDEL
+* raya    2012-01-04 NOMALL-1097 log deletion from opo makes by NOARFF-N
+* xsetggr 2012-02-01 NOMALL-1097 add parameter to OOINPUTA
+* xsetggr 2012-03-13 NOMALL-1099 check settings of nomexits to provide
+*                                working of NOMEX004/NOMEX010
+* bli     2012-09-18 NOMALL-94   Remove old version compare
+* fhi     2015-09-03 NOMALL-1402 Handle delete requests with ignore
+* fhi     2015-10-01 NOMALL-1402 Add trace
+* fhi     2015-11-06 NOMALL-1402 Handle group deletion with canceltag
+* SU1     2016-02-15 NOMALL-1819 support long file names (XXHASH)
+* SU2     2016-08-08 NOM 3.5: remove unused code
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING NOMRPCXP
+PARAMETER USING OOINPUTA
+************************************************************************
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE         (L/1:20)
+************************************************************************
+LOCAL USING ESMCNT-A
+LOCAL USING ESMINP-A
+LOCAL USING OOPOLS-A
+LOCAL USING OOPOLW-A
+* *****
+LOCAL
+1 USER-EXITS VIEW OF NRM-MONITOR
+  2 M-USER-DEFAULTS
+  2 REDEFINE M-USER-DEFAULTS
+    3 M-NOMEXIT-ACTIVE      (A1/1:20)
+* *****
+1 #I                        (I4)
+1 #K                        (I4)
+1 #OOPO-OPTIONS             (A2/10)
+1 REDEFINE #OOPO-OPTIONS
+  2 #OOPO-OPTIONS-A         (A20)
+1 OOPOOB-PARMS
+  2 OOPOOB-PARM-AREA        (A253/1:20)
+  2 REDEFINE OOPOOB-PARM-AREA
+    3 OOPO-METADATA         (A2500)
+1 #OBJ                      (A50)
+1 #TRACE-MSG                (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET NOMRPC-RC NOMRPC-ERROR-TEXT
+*
+CALLNAT 'RGETLIB' ES-APP-SERVER-LIBRARY
+ES-ORIG-APPLICATION := 'NO'
+ES-ORIG-OBJECT := 'OO'
+IF NOMRPC-USER > ' '
+  ES-USER := NOMRPC-USER
+ELSE
+  ES-USER := NOMRPC-SENDER
+END-IF
+ES-USER-TYPE := 'A'
+ES-LANGUAGE := NOMRPC-LANGUAGE
+IF NOMRPC-CONTAINER-DB IS (N5)
+  ES-TARGET-DBID := VAL(NOMRPC-CONTAINER-DB)
+END-IF
+IF NOMRPC-CONTAINER-FNR IS (N5)
+  ES-TARGET-FNR  := VAL(NOMRPC-CONTAINER-FNR)
+END-IF
+* --------------------------------------------------------------------
+DECIDE ON FIRST VALUE OF NOMRPC-FUNCTION
+*
+  VALUE 'LIST'
+    ES-APPLICATION    := 'NO'
+    ES-OBJECT         := 'OO'
+    ES-ORIG-FUNCTION  := 'LS'
+    ES-FUNCTION       := 'LS'
+    ES-NODES-A20      := 'NOOO'
+    ES-KEY-PARM-COUNT := 2
+    ES-KEY-PARM (1)   := NOMRPC-SOURCE
+    ES-KEY-PARM (2)   := NOMRPC-SENDER
+    OOPOLW-WORK       := NOMRPC-LIST-WORK
+    CALLNAT 'ESLISTRN' ES-CONTROL ES-INPUT OOPOLW-WORK OOPOLS-PARMS
+    NOMRPC-RC         := ES-MSG-NR
+    NOMRPC-ERROR-TEXT := ES-MSG-TXT
+    NOMRPC-EOF        := ES-EOF
+    NOMRPC-LIST-WORK  := OOPOLW-WORK
+    FOR #I = 1 TO ES-NUMBER
+      #OOPO-OPTIONS-A := OOPOLS-OPTIONS-A(#I)
+      RESET OOPOLS-DISABLED-CMD(#I,*)
+      IF #OOPO-OPTIONS(*) = 'DL'
+        OOPOLS-DISABLED-CMD(#I,1) := 'CANCEL'
+      END-IF
+    END-FOR
+    NOMRPC-DATA := OOPOLS-LIST-A
+* *****
+  VALUE 'CANCEL'
+    ES-APPLICATION := 'NO'
+    ES-OBJECT := 'AR'
+    ES-ORIG-FUNCTION := 'DL'
+    ES-FUNCTION := 'FF'
+    ES-NODES-A20 := 'NOOOPO'
+    ES-KEY-PARM-COUNT := 3
+    ES-KEY-PARM(1) := NOMRPC-SENDER
+    ES-KEY-PARM(2) := NOMRPC-REPNAME
+    ES-KEY-PARM(3) := NOMRPC-RNB
+    IF NOMRPC-TRACE-LEVEL > '2'
+      COMPRESS 'Executing cancel for sender' NOMRPC-SENDER
+        '- Repname' NOMRPC-REPNAME 'Reprnb' NOMRPC-RNB TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+    CALLNAT 'ESFUNCRN' ES-CONTROL ES-INPUT
+    NOMRPC-RC := ES-MSG-NR
+    NOMRPC-ERROR-TEXT := ES-MSG-TXT
+    IF ES-MSG-NR = 490                          /* NOMALL-1402 instead
+      IF NOMRPC-TRACE-LEVEL > '2'
+        COMPRESS 'Deletion error' ES-MSG-NR 'ignored.' TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      RESET NOMRPC-RC NOMRPC-ERROR-TEXT NOMRPC-IGNORE-DELETE
+    END-IF
+    IF NOMRPC-RC = 0
+      COMPRESS NOMRPC-REPNAME '/' NOMRPC-RNB TO #OBJ LEAVING NO
+      PERFORM SET-NOMEXIT-ACTIVE
+      PERFORM RMLOGDEL #OBJ 'ACTIVE-REPORT' NOMRPC-SENDER
+    END-IF
+************************************************************************
+  VALUE 'STATUS'
+    IGNORE
+************************************************************************
+  VALUE 'METADATA'  /* ???
+    ES-APPLICATION := 'NO'
+    ES-OBJECT := 'AR'
+    ES-ORIG-FUNCTION := 'OP'
+    ES-FUNCTION := 'OP'
+    ES-EXTEND-FUNCTION := 'MET'
+    ES-NODES-A20 := 'NOOOPO'
+    ES-KEY-PARM-COUNT := 2
+    ES-KEY-PARM(1) := NOMRPC-REPNAME
+    ES-KEY-PARM(2) := NOMRPC-RNB
+    CALLNAT 'ESOBJ-RN' ES-CONTROL ES-INPUT OOPOOB-PARMS
+    NOMRPC-RC := ES-MSG-NR
+    NOMRPC-ERROR-TEXT := ES-MSG-TXT
+    NOMRPC-DATA := OOPO-METADATA
+************************************************************************
+  NONE VALUE
+    IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SET-NOMEXIT-ACTIVE
+************************************************************************
+FIND (1) USER-EXITS WITH M-MONITOR-ID = 'API-DEFS'
+  FOR #K 1 20
+    IF M-NOMEXIT-ACTIVE (#K) = 'Y'
+      +G-NOMEXIT-ACTIVE (#K) := TRUE
+    ELSE
+      +G-NOMEXIT-ACTIVE (#K) := FALSE
+    END-IF
+  END-FOR
+END-FIND
+*
+END-SUBROUTINE /* SET-NOMEXIT-ACTIVE
+*
+END

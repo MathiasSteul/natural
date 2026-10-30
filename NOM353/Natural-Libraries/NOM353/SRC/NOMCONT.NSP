@@ -1,0 +1,263 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMCONT - Change NOM Container file in NOM objects
+* Note      - Mandatory input parms are dbid and fnr (old and new)
+*           - Lfile 158 (container file) is set to new DBID / FNR
+*           - Lfile 91  must be set statically by invoking job or online
+*
+* Maintenance:
+* uuu      yyyy-mm-dd iTrac       Remark
+* fhi      2014-01-22 NOMALL-1336 created
+* fhi      2014-01-30 NOMALL-1336 corrected, no tags
+* fhi      2014-03-03 NOMALL-1363 Avoid loop in check log file
+* SU1      2014-07-04 NOMALL-1279 fill fields for Adabas Vista
+* fhi      2014-10-07 NOMALL-1336 corrected, no tags
+* fhi      2014-10-24 NOMALL-1514 added dry mode, no tags
+* fhi      2014-10-30 NOMALL-1514 added ON ERROR
+* SU2      2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU3      2016-01-15  NOMALL-1802 do not update Adabas Vista fields
+* fhi      2016-04-05 NOMALL-1549 some beautification
+* fhi      2016-04-13 NOMALL-1549 same
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL USING RMSPL--L
+LOCAL USING RMSR---L
+LOCAL USING RMSR---E
+LOCAL
+1 SR VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-SPOOL-ATTRIBUTES
+1 NP VIEW OF NRM-NOMPUT-QUEUE
+  2 NP-ATTRIBUTES-IDENT
+  2 NP-SPOOL-ATTRIBUTES
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-SPOOL-ATTRIBUTES
+* *****
+1 #DBID-OLD    (N5)
+1 #DBID        (N5)
+1 #FNR-OLD     (N5)
+1 #FNR         (N5)
+1 #DISPLAY     (L)
+1 #UPD         (L)
+1 #CATDATE     (A19)
+1 #MSG         (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *DEVICE = 'BATCH'
+  INPUT 'old DB' #DBID-OLD 'new DB' #DBID
+    'old FNR' #FNR-OLD 'new FNR' #FNR 'Display only' #DISPLAY
+ELSE
+  WRITE NOTITLE NOHDR
+ '* --------------------------------------------------------------- *' /
+ '*                              NOMCONT                            *' /
+'* --------------------------------------------------------------- *' //
+    'This program must be run in batch mode.' //
+    'It will take care of a moved container file and update all NOM' /
+    'objects that have been created using the old place of the file.' //
+   'Start this program with lfiles 206 and 91 set to the correct Adabas'
+    'files and enter the old and new locations of that Container' /
+    'file which is used as trigger queue (in menu 8.1/10).' /
+    'Enter the following parameters:' //
+'NOMCONT <old DB> <new DB> <old filenumber> <new filenumber> <display>'/
+    '(where <display> is set to X if no updates but only displays are' /
+    'required. To update leave this parameter empty.)' //
+    'Example:' /
+    'NOMCONT 9 10 246 250 X' //
+    'This program will stop now.'
+  STOP
+END-IF
+*
+FORMAT LS=131
+WRITE 'Start Program' *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+  'Migrating container DB/FNR' #DBID-OLD #FNR-OLD 'to DB/FNR' #DBID #FNR
+IF #DISPLAY
+  WRITE 'U P D A T E   D I S A B L E D, Display only.'
+END-IF
+*
+PERFORM XXCATAL-GET-CATDATE #CATDATE
+WRITE *PROGRAM 'cataloged at'  #CATDATE
+FETCH RETURN 'SETNRMLF' #DBID #FNR 158
+*
+PERFORM PROCESS-SR
+PERFORM PROCESS-NP
+PERFORM PROCESS-AR
+*
+END TRANSACTION
+*
+WRITE 'End   Program' *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+  'Migrating' #DBID-OLD #FNR-OLD 'to DB/FNR' #DBID #FNR
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-SR
+************************************************************************-
+RDSR. READ SR BY SR-ID
+  RESET #UPD
+  #SPOOL-ATTRIBUTES  := SR-SPOOL-ATTRIBUTES
+  #SOURCE-ATTRIBUTES := SR-ATTRIBUTES-IDENT
+  DECIDE ON FIRST VALUE OF #SPOOL-TYPE
+    VALUE NOM-DATA-BASE
+      IF #NOMDB-DBID = #DBID-OLD AND #NOMDB-FNR = #FNR-OLD
+        #NOMDB-DBID := #DBID
+        #NOMDB-FNR  := #FNR
+        IF NOT #DISPLAY
+          #UPD := TRUE
+        END-IF
+      END-IF
+    VALUE SEQUENTIAL-FILE-UNIX
+      IF  #SPOOL-UNIX-CONTAINER-DBID     = #DBID-OLD
+          AND #SPOOL-UNIX-CONTAINER-FNR  = #FNR-OLD
+        #SPOOL-UNIX-CONTAINER-DBID := #DBID
+        #SPOOL-UNIX-CONTAINER-FNR  := #FNR
+        IF NOT #DISPLAY
+          #UPD := TRUE
+        END-IF
+      END-IF
+    VALUE DIRECT-INPUT
+      IF  #SPOOL-DI-CONTAINER-DBID       = #DBID-OLD
+          AND #SPOOL-DI-CONTAINER-FNR    = #FNR-OLD
+        #SPOOL-DI-CONTAINER-DBID := #DBID
+        #SPOOL-DI-CONTAINER-FNR  := #FNR
+        IF NOT #DISPLAY
+          #UPD := TRUE
+        END-IF
+      END-IF
+    NONE
+      ESCAPE TOP
+  END-DECIDE
+  IF #UPD
+    GTSR. GET SR *ISN(RDSR.)
+    SR-SPOOL-ATTRIBUTES := #SPOOL-ATTRIBUTES
+    SR-ATTRIBUTES-IDENT := #SOURCE-ATTRIBUTES
+    UPDATE (GTSR.)
+    IF *COUNTER(RDSR.) = 50
+      END TRANSACTION
+      RESET *COUNTER(RDSR.)
+    END-IF
+    WRITE 'Source ID' SR-ID 'changed to' #DBID #FNR
+  ELSE
+    WRITE 'Source ID' SR-ID 'not changed.'
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* PROCESS-SR
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-AR
+************************************************************************
+RDAR. READ AR BY AR-REPORT-RNB
+  RESET #UPD
+  #SPOOL-ATTRIBUTES := AR-SPOOL-ATTRIBUTES
+  DECIDE ON FIRST VALUE OF #SPOOL-TYPE
+    VALUE SEQUENTIAL-FILE-UNIX
+      IF #SPOOL-UNIX-CONTAINER-DBID     = #DBID-OLD
+          AND #SPOOL-UNIX-CONTAINER-FNR  = #FNR-OLD
+        #SPOOL-UNIX-CONTAINER-DBID := #DBID
+        #SPOOL-UNIX-CONTAINER-FNR  := #FNR
+        IF NOT #DISPLAY
+          #UPD := TRUE
+        END-IF
+      END-IF
+    VALUE DIRECT-INPUT
+      IF  #SPOOL-DI-CONTAINER-DBID       = #DBID-OLD
+          AND #SPOOL-DI-CONTAINER-FNR    = #FNR-OLD
+        #SPOOL-DI-CONTAINER-DBID := #DBID
+        #SPOOL-DI-CONTAINER-FNR  := #FNR
+        IF NOT #DISPLAY
+          #UPD := TRUE
+        END-IF
+      END-IF
+    NONE
+      ESCAPE TOP
+  END-DECIDE
+  IF #UPD
+    GTAR. GET AR *ISN(RDAR.)
+    AR-SPOOL-ATTRIBUTES := #SPOOL-ATTRIBUTES
+    UPDATE (GTAR.)
+    IF *COUNTER(RDAR.) = 50
+      END TRANSACTION
+      RESET *COUNTER(RDAR.)
+    END-IF
+    WRITE 'Report' AR-REPNAME '/' AR-REPRNB 'changed to' #DBID #FNR
+  ELSE
+    WRITE 'Report' AR-REPNAME '/' AR-REPRNB 'not changed.'
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* PROCESS-AR
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-NP
+************************************************************************
+RDNP. READ NP BY NP-QUEUE
+  RESET #UPD
+  #SPOOL-ATTRIBUTES  := NP-SPOOL-ATTRIBUTES
+  #SOURCE-ATTRIBUTES := NP-ATTRIBUTES-IDENT
+  DECIDE ON FIRST VALUE OF #SPOOL-TYPE
+    VALUE SEQUENTIAL-FILE-UNIX
+      IF  #SPOOL-UNIX-CONTAINER-DBID     = #DBID-OLD
+          AND #SPOOL-UNIX-CONTAINER-FNR  = #FNR-OLD
+        #SPOOL-UNIX-CONTAINER-DBID := #DBID
+        #SPOOL-UNIX-CONTAINER-FNR  := #FNR
+        IF NOT #DISPLAY
+          #UPD := TRUE
+        END-IF
+      END-IF
+    VALUE DIRECT-INPUT
+      IF  #SPOOL-DI-CONTAINER-DBID       = #DBID-OLD
+          AND #SPOOL-DI-CONTAINER-FNR    = #FNR-OLD
+        #SPOOL-DI-CONTAINER-DBID := #DBID
+        #SPOOL-DI-CONTAINER-FNR  := #FNR
+        IF NOT #DISPLAY
+          #UPD := TRUE
+        END-IF
+      END-IF
+    NONE
+      ESCAPE TOP
+  END-DECIDE
+  IF #UPD
+    GTNP. GET NP *ISN(RDNP.)
+    NP-SPOOL-ATTRIBUTES := #SPOOL-ATTRIBUTES
+    UPDATE (GTNP.)
+    IF *COUNTER(RDNP.) = 50
+      END TRANSACTION
+      RESET *COUNTER(RDNP.)
+    END-IF
+    WRITE (AL=60) 'Nomput ID' NP-ATTRIBUTES-IDENT 'changed to'
+      #DBID #FNR
+  ELSE
+    WRITE (AL=60) 'Nomput ID' NP-ATTRIBUTES-IDENT 'not changed.'
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* PROCESS-NP
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+*
+ WRITE 'Error Program' *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+    *PROGRAM 'abnormal termination'
+  CALLNAT 'C-NATERN' #MSG
+ PRINT 'Error Message' *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+    / #MSG
+  TERMINATE 50
+*
+END-ERROR
+*
+END

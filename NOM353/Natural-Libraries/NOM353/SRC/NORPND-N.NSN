@@ -1,0 +1,117 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NORPND-N - NOM API Check Report Definitions for an Internal Node ID
+*
+*            Read all Report Definitions and check if the
+*            given Internal Node ID is used in any of them.
+*            The Internal Node ID is handed over in ES-SELECT.
+*
+*            Response codes in ES_RC:
+*              0   :  The Internal Node ID is not used
+*                     in any Report Definition
+*              3   :  The Internal Node ID is used in
+*                     one or more Report Definitions;
+*                     the number is returned in ES-NUMBER
+*              2   :  Parameter error
+*                     (eg. Internal Node ID not numeric)
+*              1   :  Natural error
+* ------------------------------------------------------------------
+* Maintenance:
+* CF      2017-10-12 NOMALL-2077 created
+* SU1     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-TYPE
+  2 R-INTERNAL-NODE-ID
+  2 R-IDENT (A82/1:14) /* MU-FIELD
+  2 REDEFINE R-IDENT /* BEGIN REDEFINE: R-IDENT
+    3 R-IDENT-TAB (1:14)
+      4 R-IDENT-TYPE (I2)
+      4 R-IDENT-VALUE (A80)
+  2 C*R-IDENT
+1 #INTERNAL-NODE-ID (P11)
+1 #UNIX-NODENAME    (A16)
+1 #I (I1)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-NUMBER
+/* Check input parameter
+DECIDE FOR FIRST CONDITION
+  WHEN ES-SELECT IS (P11)
+    #INTERNAL-NODE-ID := VAL(ES-SELECT)
+  WHEN ES-SELECT NE ' '
+    #UNIX-NODENAME := ES-SELECT
+  WHEN NONE
+    ES-RC := 2
+    ES-MSG-NR := 6008
+    ESCAPE ROUTINE
+END-DECIDE
+/*
+/* Browse all report definitions
+REP. READ REPORTS BY R-REPNAME
+  IF R-REPNAME NE 'NOM-CONTROL-REC'
+    IF #INTERNAL-NODE-ID GT 0
+      /* Check for existing MF identification
+      IF R-INTERNAL-NODE-ID = #INTERNAL-NODE-ID
+        /* Check if a spool type restricting
+        /* identification exists in the report definition
+        FOR #I = 1 TO C*R-IDENT
+          DECIDE ON FIRST R-IDENT-TYPE(#I)
+            VALUE  1 :  4      /* JES   (JES2, JES3)
+              ADD 1 TO ES-NUMBER
+              ESCAPE BOTTOM
+/*SU1       VALUE  5 :  7      /* POWER (POWR)
+/*SU1         ADD 1 TO ES-NUMBER ESCAPE BOTTOM
+            VALUE 14 : 16      /* BS2   (SPOOL/BS2000)
+              ADD 1 TO ES-NUMBER
+              ESCAPE BOTTOM
+            NONE IGNORE
+          END-DECIDE
+        END-FOR
+        /*
+      END-IF
+    ELSE
+      /* Check for existing UNIX identification
+      FOR #I = 1 TO C*R-IDENT
+        /* Check if a spool type restricting
+        /* identification exists in the report definition
+        IF R-IDENT-TYPE(#I) = 23
+          IF R-IDENT-VALUE(#I) = #UNIX-NODENAME
+            ADD 1 TO ES-NUMBER
+          END-IF
+          ESCAPE BOTTOM
+        END-IF
+      END-FOR
+    END-IF
+  END-IF
+END-READ
+/*
+IF ES-NUMBER GT 0
+  ES-RC := 3
+END-IF
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  ES-MSG-NR := *ERROR-NR
+  COMPRESS *PROGRAM 'ERROR' *ERROR-LINE ES-SELECT TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

@@ -1,0 +1,270 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    EOMGRMVN
+* Version   1.3
+* Function  DB Interface EOM Object Grant
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-06-10           created
+* gw  95-11-01 s(999999) init value for gr-super for read and modify
+* xsethz  2000-07-27 (CE7461) Extend Report and Bundle Names
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 EOM-FUNCTION               (I2)
+PARAMETER USING EOMGRM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL USING EOM----E
+LOCAL
+1 GRANT VIEW OF NRM-GRANTS
+  2 GR-OBJECT-TYPE
+  2 GR-USERID
+  2 GR-OBJECT-NAME
+  2 GR-OPTION (1:6)
+1 I                   (I2)
+1 NOG                 (I2)       CONST <5>
+1 #GRANT-TYPE         (A1/1:NOG) INIT <'R','B','L','P','F'>
+1 #GR-SUPER           (A34)
+1 REDEFINE #GR-SUPER
+  2 #GR-TYPE          (A1)
+  2 #GR-USER-ID       (A8)
+  2 #GR-OBJECT-NAME   (A25)
+1 #GR-TYPE-NAME       (A26)
+1 REDEFINE #GR-TYPE-NAME
+  2 #GRTN-TYPE        (A1)
+  2 #GRTN-OBJECT-NAME (A25)
+1 #GR-SUPER-START     (A34)
+1 REDEFINE #GR-SUPER-START
+  2 #GRS-TYPE         (A1)
+  2 #GRS-USER-ID      (A8)
+  2 #GRS-OBJECT-NAME  (A25)
+1 #GR-SUPER-END       (A34)
+1 REDEFINE #GR-SUPER-END
+  2 #GRE-TYPE         (A1)
+  2 #GRE-USER-ID      (A8)
+  2 #GRE-OBJECT-NAME  (A25)
+1 #COUNTER            (P3)
+1 #OBJ                (A50)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-READ, EOM-READHOLD
+    PERFORM READ-GRANT-ATTRIBUTES
+  VALUE EOM-ADD, EOM-MODIFY
+    PERFORM MODIFY-GRANT-ATTRIBUTES
+  VALUE EOM-DELETE
+    PERFORM DELETE-GRANT
+  VALUE EOM-RENAME
+    PERFORM RENAME-GRANT
+  VALUE EOM-COPY
+    PERFORM COPY-GRANT
+  VALUE EOM-DELETE-ALL
+    IF EOMGRM-I-NAME = ' '
+      PERFORM DELETE-GRANT-BY-USER
+    ELSE
+      PERFORM DELETE-GRANT-BY-OBJECT-NAME
+    END-IF
+  NONE  IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-GRANT-ATTRIBUTES
+************************************************************************
+#GR-TYPE               := EOMGRM-I-TYPE
+#GR-USER-ID            := EOMGRM-I-USER
+#GR-OBJECT-NAME := EOMGRM-I-NAME
+FNDGR. FIND GRANT WITH GR-SUPER = #GR-SUPER
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0910
+    ESCAPE BOTTOM (FNDGR.)
+  END-NOREC
+  EOMGRM-OPTION (*) := GR-OPTION (*)
+  IF EOM-FUNCTION = EOM-READHOLD
+    UPD. GET GRANT *ISN (FNDGR.)
+    IF GR-USERID NE GR-USERID
+      UPDATE (UPD.)
+    END-IF
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* READ-GRANT-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-GRANT-ATTRIBUTES
+************************************************************************
+#GR-TYPE        := EOMGRM-I-TYPE
+#GR-USER-ID     := EOMGRM-I-USER
+#GR-OBJECT-NAME := EOMGRM-I-NAME
+*
+FNDMOD. FIND GRANT WITH GR-SUPER = #GR-SUPER
+  IF NO RECORDS FOUND
+    ENTER
+  END-NOREC
+  DECIDE FOR FIRST CONDITION
+    WHEN EOM-FUNCTION = EOM-ADD AND *NUMBER (FNDMOD.) = 0
+      GR-OBJECT-NAME := EOMGRM-I-NAME
+      GR-OBJECT-TYPE := EOMGRM-I-TYPE
+      GR-USERID      := EOMGRM-I-USER
+    WHEN EOM-FUNCTION = EOM-ADD AND *NUMBER (FNDMOD.) > 0
+      EOMMSG-NR := 0907
+      ESCAPE BOTTOM (FNDMOD.)
+    WHEN EOM-FUNCTION = EOM-MODIFY AND *NUMBER (FNDMOD.) = 0
+      EOMMSG-NR := 0910
+      ESCAPE BOTTOM (FNDMOD.)
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+*
+  IF *NUMBER (FNDMOD.) = 0
+    GR-OPTION (*) := EOMGRM-OPTION (*)
+    STORE GRANT
+  ELSE
+    GETMOD. GET GRANT *ISN (FNDMOD.)
+    GR-OPTION (*) := EOMGRM-OPTION (*)
+    UPDATE (GETMOD.)
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* MODIFY-GRANT-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-GRANT
+************************************************************************
+#GR-TYPE        := EOMGRM-I-TYPE
+#GR-OBJECT-NAME := EOMGRM-I-NAME
+#GR-USER-ID     := EOMGRM-I-USER
+*
+FNDDEL. FIND GRANT WITH GR-SUPER = #GR-SUPER
+  DELETE
+  COMPRESS GR-OBJECT-TYPE '/' GR-USERID '/' GR-OBJECT-NAME
+    TO #OBJ LEAVING NO
+  PERFORM RMLOGDEL #OBJ 'GRANT'
+*
+END-FIND
+*
+END-SUBROUTINE /* DELETE-GRANT
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-GRANT-BY-OBJECT-NAME
+************************************************************************
+#GRTN-TYPE        := EOMGRM-I-TYPE
+#GRTN-OBJECT-NAME := EOMGRM-I-NAME
+*
+FNDDELO. FIND GRANT WITH GR-TYPE-NAME = #GR-TYPE-NAME
+  IF EOMGRM-I-AUTO-COMMIT > 0
+    ADD 1 TO #COUNTER
+    IF #COUNTER >= EOMGRM-I-AUTO-COMMIT
+      END OF TRANSACTION
+      RESET #COUNTER
+    END-IF
+  END-IF
+  DELETE
+  COMPRESS GR-OBJECT-TYPE '/' GR-USERID '/' GR-OBJECT-NAME
+    TO #OBJ LEAVING NO
+  PERFORM RMLOGDEL #OBJ 'GRANT'
+*
+END-FIND
+*
+IF EOMGRM-I-AUTO-COMMIT > 0
+  END OF TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* DELETE-GRANT-BY-OBJECT-NAME
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-GRANT-BY-USER
+************************************************************************
+#GRS-USER-ID  := EOMGRM-I-USER
+#GR-SUPER-END := #GR-SUPER-START
+MOVE ALL H'00' TO #GRS-OBJECT-NAME
+MOVE ALL H'FF' TO #GRE-OBJECT-NAME
+*
+FOR I = 1 TO NOG
+  #GRS-TYPE := #GRANT-TYPE (I)
+  #GRE-TYPE := #GRANT-TYPE (I)
+*
+  FNDDELU. FIND GRANT WITH GR-SUPER = #GR-SUPER-START THRU #GR-SUPER-END
+    IF EOMGRM-I-AUTO-COMMIT > 0
+      ADD 1 TO #COUNTER
+      IF #COUNTER >= EOMGRM-I-AUTO-COMMIT
+        END OF TRANSACTION
+        RESET #COUNTER
+      END-IF
+    END-IF
+    DELETE
+    COMPRESS GR-OBJECT-TYPE '/' GR-USERID '/' GR-OBJECT-NAME
+      TO #OBJ LEAVING NO
+    PERFORM RMLOGDEL #OBJ 'GRANT'
+  END-FIND
+END-FOR
+IF EOMGRM-I-AUTO-COMMIT > 0
+  END OF TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* DELETE-GRANT-BY-USER
+*
+************************************************************************
+DEFINE SUBROUTINE RENAME-GRANT
+************************************************************************
+#GRTN-TYPE        := EOMGRM-I-TYPE
+#GRTN-OBJECT-NAME := EOMGRM-I-NAME
+*
+FNDRN. FIND GRANT WITH GR-TYPE-NAME = #GR-TYPE-NAME
+  IF EOMGRM-I-AUTO-COMMIT > 0
+    ADD 1 TO #COUNTER
+    IF #COUNTER >= EOMGRM-I-AUTO-COMMIT
+      END OF TRANSACTION
+      RESET #COUNTER
+    END-IF
+  END-IF
+  GR-OBJECT-NAME := EOMGRM-I-NEWNAME
+  UPDATE
+END-FIND
+*
+END-SUBROUTINE /* RENAME-GRANT
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-GRANT
+************************************************************************
+#GRTN-TYPE        := EOMGRM-I-TYPE
+#GRTN-OBJECT-NAME := EOMGRM-I-NAME
+*
+FNDCP. FIND GRANT WITH GR-TYPE-NAME = #GR-TYPE-NAME
+  IF EOMGRM-I-AUTO-COMMIT > 0
+    ADD 1 TO #COUNTER
+    IF #COUNTER >= EOMGRM-I-AUTO-COMMIT
+      END OF TRANSACTION
+      RESET #COUNTER
+    END-IF
+  END-IF
+  GR-OBJECT-NAME := EOMGRM-I-NEWNAME
+  STORE GRANT
+END-FIND
+*
+IF EOMGRM-I-AUTO-COMMIT > 0
+  END OF TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* COPY-GRANT
+*
+INCLUDE C-EOMERR
+*
+END

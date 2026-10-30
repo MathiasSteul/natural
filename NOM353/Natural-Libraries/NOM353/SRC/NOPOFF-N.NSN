@@ -1,0 +1,547 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOPOFF-N - NOM API Printout Maintenance
+*            Functions: Delete, Hold, Release, Restart
+*
+* Maintenance:
+* XSEGGR  2002-10-29 created
+* XSETHZ  2002-11-09 ASSIGN EOMPOL-NAME-RNB
+* XSETGGR 2002-11-14 use new parameter ES-APP-SERVER-LIBRARY
+* XSETHZ  2003-04-03
+* XSETHZ  2003-08-26 P241905
+* XSETGGR 2005-05-10 nom3107 change length of noporo field
+* XSETGGR 2006-03-08 changes #NOPORO to #NOPORO1
+* xsetggr 2007-05-09 p(294774) change date/time format in lists
+* xsetggr 2007-06-21 p(294790) restow due changes in dompom-parms
+* xsetggr 2007-06-27 NOM3201   support P11 format run numbers
+* xsetggr 2007-09-20 p(296832) add 'Created Date/Time' to printout list
+* xsetggr 2007-11-30 NRT2771   Star/stop physical printers
+* XSETHZ  2007-12-11 NRT2769   Browse command in printout
+* xsetggr 2008-03-06 add option to protect browsing bundles
+* xsetggr 2008-03-11 p(302778) change format of RBINSZ-N parms
+* xsetggr 2008-05-05 p(304350) get size of binary docs from spool attr.
+* xsetggr 2008-07-09 p(292935) not display printed time if error
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* fhi     2009-11-11 P321483   New Status 'X' wait for external ok      ONTENTS
+* xsetggr 2010-03-08 P321493   corrrection for P319147 - operator can
+*                    browse reports from own folders and linked folders,
+*                    if linked folder is granted
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-08-26 NOMALL-870 use NOSRCK-N for source existance check
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* fhi     2011-09-14 NOMALL-901 Add printer name to logging
+* xsetggr 2011-09-28 NOMALL-901 correct writing delete operations in log
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* fhi     2015-05-18 NOMALL-1552 Show real size, not base64 size
+* SU2     2015-06-01 NOMALL-1552 Show size 1 (instead 0)
+* SU3     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-01-20 NOMALL-1465 Correct granting for browse
+* CF1     2016-01-25 NOMALL-1465 Correct option setting
+* SU4     2016-08-08 NOM 3.5: remove unused code
+* HEB1    2020-09-28 NOMALL-2439 return error message to client/NOMLOG
+* --------------------------------------------------------------------- ---
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING EOMPOM-P
+LOCAL USING EOMPOL-P
+LOCAL USING NOPORO1A
+LOCAL USING RTXT---L
+LOCAL USING RMSPL--L
+LOCAL USING RLOG-L
+* *****
+LOCAL
+1 PO VIEW OF NRM-PRINTOUTS
+  2 PO-ID
+  2 PO-BUNDLE
+  2 PO-BUNDRNB
+  2 PO-REPNAME
+  2 PO-REPRNB
+  2 PO-PHYSICAL-NAME
+  2 PO-SCHEDULED
+  2 PO-CREATED
+  2 PO-PRINTED
+  2 PO-MSG
+  2 PO-STATUS
+  2 PO-NUMBER-OF-RETRIES
+  2 PO-LAST-PRINTED-RECNO
+  2 PO-JOBNAME
+  2 PO-JOBNO
+  2 PO-JOBID
+  2 PO-LOGICAL
+  2 PO-FROM-LINE
+  2 PO-TO-LINE
+  2 PO-USERID
+1 BC VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-BUNDRNB
+  2 BC-REPNAME
+  2 BC-REPRNB
+  2 BC-BUNDLE
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-CC-TYPE
+  2 AR-SPOOL-ATTRIBUTES
+1 MA VIEW OF NRM-MAIL
+  2 MA-FO-ID
+  2 MA-USERID
+1 FOLDER VIEW OF NRM-FOLDER
+  2 FO-LINKED-FO-ID    (A10)
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USERID (A8)
+    3 FO-LINKED-ID     (B2)
+*
+1 #OBJECT-NAME         (A25)
+1 #PO-ID               (N7)
+1 #ES-MSG-PREF         (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM        (A3)
+  2 #ES-MSG-NR         (N4)
+1 #TT                  (T)
+1 #STATUS-TEXT         (L)
+1 #BUNDLE-RNB          (A33)
+1 REDEFINE #BUNDLE-RNB
+  2 #BUNDLE            (A25)
+  2 #RNB               (P11)
+  2 #SEQNO             (P3)
+1 #BUNDLE-RNB-E        (A33)
+1 #BIN                 (L)
+1 #ERC                 (N4)
+1 #ERT                 (A250)
+1 #BIN-SIZE            (I4)
+1 #OBJECT-RNB          (P11)
+1 #AR-REPORT-RNB       (A31)
+1 REDEFINE #AR-REPORT-RNB
+  2 #AR-REPNAME        (A25)
+  2 #AR-REPRNB         (P11)
+1 #RECNUM              (I4)
+1 #SOURCE-EXIST        (L)
+1 #A4                  (A4)
+1 REDEFINE #A4
+  2 #I4                (I4)
+1 #BROWSE              (L)
+1 #GRANTS              (A1/6)
+1 #FO-NAME             (A25)
+1 #FO-USER-ID          (A10)
+1 REDEFINE #FO-USER-ID
+  2 #FO-USER           (A8)
+  2 #FO-ID             (B2)
+1 #GR-USERID           (A8)
+1 #FO-ID-N             (N5)
+1 REDEFINE #FO-ID-N
+  2 #FO-ID-A           (A5)
+1 #OBJ                 (A50)
+1 #USER-LIB            (A8)
+1 #NATRP-ERC           (N4)                             /* HEB1
+1 #NATRP-ERT           (A250)                           /* HEB1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC #TT
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+#OBJECT-NAME := ES-KEY-PARM(1)
+#PO-ID       := VAL(ES-KEY-PARM(2))
+
+FNDPO. FIND PO WITH PO-ID = #PO-ID
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 2115
+    PERFORM GET-MSG-TXT
+    ESCAPE BOTTOM (FNDPO.)
+  END-NOREC
+  IF ES-EXTEND-FUNCTION = 'RNB'
+    IF PO.PO-BUNDLE = #OBJECT-NAME
+      ES-KEY-PARM(2) := PO.PO-BUNDRNB
+    END-IF
+    IF PO.PO-REPNAME = #OBJECT-NAME
+      ES-KEY-PARM(2) := PO.PO-REPRNB
+    END-IF
+    ESCAPE ROUTINE
+  END-IF
+** ------------------------------------------------------------------
+  DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+    VALUE 'HL'                             /* hold printout
+      GETHL. GET PO *ISN(FNDPO.)
+      PO.PO-STATUS := 'H'
+      RESET PO-NUMBER-OF-RETRIES PO-LAST-PRINTED-RECNO
+      UPDATE (GETHL.)
+      END TRANSACTION
+** ------------------------------------------------------------------
+    VALUE 'RL'                             /* release printout
+      GETRL. GET PO *ISN(FNDPO.)
+      PO.PO-STATUS := 'R'
+      EOMPOM-PHYSICAL-NAME := PO.PO-PHYSICAL-NAME
+      CALLNAT 'EOMPOTWN' EOMPOM-PARMS
+      PO.PO-SCHEDULED := EOMPOM-SCHEDULED
+      RESET  PO.PO-NUMBER-OF-RETRIES PO.PO-PRINTED
+        PO.PO-LAST-PRINTED-RECNO PO.PO-MSG PO.PO-JOBNAME PO.PO-JOBNO
+        PO.PO-JOBID
+      UPDATE (GETRL.)
+      END TRANSACTION
+** ------------------------------------------------------------------
+    VALUE 'RE'                           /* Restart printout
+      GETRE. GET PO *ISN(FNDPO.)
+      PO.PO-STATUS := 'R'
+      EOMPOM-PHYSICAL-NAME := PO.PO-PHYSICAL-NAME
+      CALLNAT 'EOMPOTWN' EOMPOM-PARMS
+      PO.PO-SCHEDULED := EOMPOM-SCHEDULED
+      RESET  PO.PO-PRINTED PO.PO-MSG PO.PO-JOBNAME PO.PO-JOBNO
+        PO.PO-JOBID PO.PO-NUMBER-OF-RETRIES
+      UPDATE (GETRE.)
+      END TRANSACTION
+** ---------------------------------------------------------------------
+    VALUE 'DL'
+      GETDL. GET PO *ISN(FNDPO.)
+      IF PO-REPNAME NE ' '
+        COMPRESS PO-REPNAME '/' PO-REPRNB TO #OBJ LEAVING NO
+      ELSE
+        COMPRESS PO-BUNDLE '/' PO-BUNDRNB TO #OBJ LEAVING NO
+      END-IF
+      COMPRESS #OBJ '/'  PO-ID '/' PO-LOGICAL TO #OBJ LEAVING NO
+      DELETE (GETDL.)
+      PERFORM WRITE-LOG
+      END TRANSACTION
+** ------------------------------------------------------------------
+    NONE VALUE IGNORE
+  END-DECIDE
+END-FIND
+/* send parameters to list
+IF PO.PO-BUNDLE > ' '
+  #NOPORO1.#OBJECT := PO.PO-BUNDLE
+  EOMPOL-BUNDLE    := PO-BUNDLE
+  EOMPOL-RNB       := PO-BUNDRNB
+  #NOPORO1.#TYPE   := 'B'
+  #OBJECT-RNB      := PO-BUNDRNB
+ELSE
+  #NOPORO1.#OBJECT := PO.PO-REPNAME
+  #OBJECT-RNB      := PO-REPRNB
+  EOMPOL-REPORT    := PO-REPNAME
+  EOMPOL-RNB       := PO-REPRNB
+  #NOPORO1.#TYPE   := 'R'
+END-IF
+MOVE RIGHT JUSTIFIED PO.PO-ID TO #NOPORO1.#ID
+#NOPORO1.#PRINTER := PO.PO-LOGICAL
+PERFORM CHECK-BINARY-FILES
+IF PO.PO-LAST-PRINTED-RECNO NE 0
+  IF #BIN
+    RESET #NOPORO1.#LINES
+    #NOPORO1.#BYTES := PO-LAST-PRINTED-RECNO
+  ELSE
+    RESET #NOPORO1.#BYTES
+    #NOPORO1.#LINES := PO-LAST-PRINTED-RECNO
+  END-IF
+ELSE
+  IF #BIN
+    PERFORM GET-BINARY-SIZE
+    RESET #NOPORO1.#LINES
+    #NOPORO1.#BYTES := #BIN-SIZE
+  ELSE
+    RESET #NOPORO1.#BYTES
+    EOMPOL-FROM-LINE := PO-FROM-LINE
+    EOMPOL-TO-LINE   := PO-TO-LINE
+    CALLNAT 'EOMPOL-N' EOMPOL-PARMS
+    #NOPORO1.#LINES := EOMPOL-TOTAL-LINES
+  END-IF
+END-IF
+MOVE RIGHT JUSTIFIED #NOPORO1.#LINES TO #NOPORO1.#LINES
+/* get status text
+DECIDE ON FIRST VALUE OF PO.PO-STATUS
+  VALUE 'X'
+    #ES-MSG-NR := ##TXT-EXTERNAL-OK
+  VALUE 'R'
+    #ES-MSG-NR := ##TXT-READY-TO-PRINT
+  VALUE 'T'
+    IF PO.PO-MSG = MASK(NNNN) AND PO.PO-MSG IS (N4)
+      #ES-MSG-NR := VAL (PO.PO-MSG)
+    ELSE
+      #ES-MSG-NR := ##TXT-PRINTER-IS-BUSY
+    END-IF
+  VALUE 'A'
+    IF PO.PO-MSG = MASK(NNNN)
+      #ES-MSG-NR := VAL(PO.PO-MSG)
+    END-IF
+  VALUE 'P'
+    IF PO.PO-MSG = MASK(NNNN) AND PO.PO-MSG IS (N4)
+      #ES-MSG-NR := VAL (PO.PO-MSG)
+    ELSE
+      #ES-MSG-NR := ##TXT-SENT-TO-PRINTER
+    END-IF
+  VALUE 'H'
+    #ES-MSG-NR := ##TXT-HOLD
+  VALUE 'C'
+    #ES-MSG-NR := ##TXT-CONFIRMATION-REQUIRED
+  VALUE 'D'
+    IF PO.PO-MSG NE ' ' /* leave msgs from bundle print exit
+      RESET #ES-MSG-NR
+      #NOPORO1.#STATUS := PO.PO-MSG
+    ELSE
+      #ES-MSG-NR := ##TXT-PRINTED-SUCCESSFULLY
+    END-IF
+  VALUE 'F'
+    IF PO.PO-MSG = MASK(NNNN) AND PO.PO-MSG IS (N4)
+      #ES-MSG-NR := VAL(PO.PO-MSG)
+    ELSE
+      #NOPORO1.#STATUS := PO.PO-MSG
+    END-IF
+  VALUE 'E'
+    IF PO.PO-MSG = MASK(NNNN) AND PO.PO-MSG IS (N4)
+      #ES-MSG-NR := VAL(PO.PO-MSG)
+    ELSE
+      #NOPORO1.#STATUS := PO.PO-MSG
+    END-IF
+  VALUE 'S'
+    #ES-MSG-NR := ##TXT-PRINTER-STOPPED
+  ANY VALUE
+    IF #ES-MSG-NR NE 0
+      NADA2000.ERROR-NUMBER := #ES-MSG-NR
+      #STATUS-TEXT := TRUE
+      PERFORM GET-MSG-TXT
+      #NOPORO1.#STATUS := SHORT-MSG
+      EXAMINE #STATUS FOR #ES-MSG-PREF DELETE
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+#NOPORO1.#USERID  := PO.PO-USERID
+#NOPORO1.#JOBNAME := PO.PO-JOBNAME
+IF PO.PO-JOBNO > 0
+  MOVE RIGHT JUSTIFIED PO.PO-JOBNO TO #NOPORO1.#JOBNO
+END-IF
+IF PO.PO-JOBID > ' '
+  MOVE RIGHT JUSTIFIED PO.PO-JOBID TO #NOPORO1.#JOBNO
+END-IF
+IF PO.PO-CREATED NE #TT
+  MOVE EDITED PO.PO-CREATED (EM=YYYYMMDDHHII) TO
+    #NOPORO1.#CREATED-TIME
+ELSE
+  RESET #NOPORO1.#CREATED-TIME
+END-IF
+IF PO.PO-SCHEDULED NE #TT
+  MOVE EDITED PO.PO-SCHEDULED (EM=YYYYMMDDHHII) TO
+    #NOPORO1.#SCHEDULED-TIME
+ELSE
+  RESET #NOPORO1.#SCHEDULED-TIME
+END-IF
+IF PO.PO-PRINTED NE #TT
+  IF PO.PO-STATUS NE 'E'
+   MOVE EDITED PO.PO-PRINTED (EM=YYYYMMDDHHII) TO #NOPORO1.#PRINTED-TIME
+  ELSE
+    RESET #NOPORO1.#PRINTED-TIME
+  END-IF
+ELSE
+  RESET #NOPORO1.#PRINTED-TIME
+END-IF
+RESET #NOPORO1.#OPTIONS(*)
+  #NATRP-ERC #NATRP-ERT                             /* HEB1
+IF NOT (PO.PO-STATUS = 'H' OR = 'R')
+  #NOPORO1.#OPTIONS(1) := 'OP'
+END-IF
+IF PO.PO-BUNDLE > ' ' OR PO.PO-STATUS NE 'E'
+  #NOPORO1.#OPTIONS(2) := 'RE'
+END-IF
+IF PO.PO-REPNAME > ' '
+  #NOPORO1.#OPTIONS(3) := 'LB'
+  CALLNAT 'NOSRCK-N' PO-REPNAME PO-REPRNB #SOURCE-EXIST
+    #NATRP-ERC #NATRP-ERT ES-USER (AD=O)          /* HEB1
+    ES-APP-SERVER-LIBRARY (AD=O)                  /* HEB1
+  IF #NATRP-ERC NE 0                                    /* HEB1 >
+    ES-RC := 1
+    ES-MSG-NR := #NATRP-ERC
+    ES-MSG-TXT := #NATRP-ERT
+    ESCAPE MODULE
+  END-IF                                                /* HEB1 <
+*
+  IF NOT #SOURCE-EXIST
+    #NOPORO1.#OPTIONS(4) := 'BB'
+  END-IF
+  IF #BIN AND #NOPORO1.#LINES = ' '
+    #OPTIONS(5) := 'BB'
+  END-IF
+ELSE
+  #NOPORO1.#OPTIONS(4) := 'BB'
+  #BUNDLE-RNB.#BUNDLE  := PO-BUNDLE
+  #BUNDLE-RNB.#RNB     := PO-BUNDRNB
+  #BUNDLE-RNB.#SEQNO   := 999
+  #BUNDLE-RNB-E        := #BUNDLE-RNB
+  RESET #BUNDLE-RNB.#SEQNO
+  FNDBC. FIND NUMBER BC
+    WITH BC-BUNDLE-RNB = #BUNDLE-RNB THRU #BUNDLE-RNB-E
+  IF *NUMBER (FNDBC.) = 0
+*    #NOPORO1.#OPTIONS(4) := 'LB'                /* CF1
+    #NOPORO1.#OPTIONS(5) := 'LB'                 /* CF1
+  END-IF
+END-IF
+IF PO.PO-STATUS = 'H'
+  #NOPORO1.#OPTIONS(6) := 'HL'
+ELSE
+  #NOPORO1.#OPTIONS(7) := 'RL'
+END-IF
+PERFORM CHECK-FOLDER-GRANTS
+ES-SELECT := #NOPORO1
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-FOLDER-GRANTS
+************************************************************************
+RESET #BROWSE
+IF PO-BUNDLE NE ' ' OR ES-USER-TYPE = 'A'
+  ESCAPE ROUTINE
+END-IF
+*
+#AR-REPNAME := PO-REPNAME
+#AR-REPRNB  := PO-REPRNB
+*
+MA1. FIND MA WITH MA-REP-RNB = #AR-REPORT-RNB
+  RESET #GRANTS(*) #GR-USERID
+  DECIDE FOR FIRST CONDITION
+/* mailed to es-user  own folder
+    WHEN MA-USERID = ES-USER  AND MA-FO-ID = 0001
+      #BROWSE := TRUE
+/* mailed to es-user , to linked folder
+    WHEN MA-USERID = ES-USER  AND MA-FO-ID NE 0001
+      #FO-ID   := MA-FO-ID
+      #FO-USER := MA-USERID
+      FIND FOLDER WITH FO-USER-FO-ID = #FO-USER-ID
+        #FO-ID-N := FO-LINKED-ID
+        COMPRESS FO-LINKED-USERID #FO-ID-A TO #FO-NAME LEAVING NO
+        CALLNAT 'NOGROU-N' 'F' #FO-NAME ES-USER #GR-USERID #GRANTS(*)
+        IF #GRANTS(1) NE 'Y' AND #GRANTS(4) NE 'Y'
+          #BROWSE := FALSE
+        ELSE
+          #BROWSE := TRUE
+        END-IF
+      END-FIND
+/* mailed not to es-user , but contains in linked folder
+    WHEN MA-USERID NE ES-USER  AND MA-FO-ID = 0001
+      #FO-ID-N := MA-FO-ID
+      COMPRESS MA-USERID #FO-ID-A TO #FO-NAME LEAVING NO
+      CALLNAT 'NOGROU-N' 'F' #FO-NAME ES-USER #GR-USERID #GRANTS(*)
+      IF #GRANTS(1) NE 'Y' AND #GRANTS(4) NE 'Y'
+        #BROWSE := FALSE
+      ELSE
+        #BROWSE := TRUE
+      END-IF
+    WHEN NONE IGNORE
+  END-DECIDE
+  IF #BROWSE
+    ESCAPE BOTTOM(MA1.)
+  END-IF
+END-FIND
+IF NOT #BROWSE
+  #OPTIONS(8) := 'BB'
+END-IF
+*
+END-SUBROUTINE /* CHECK-FOLDER-GRANTS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-BINARY-SIZE
+************************************************************************
+RESET #BIN-SIZE #ERC #ERT #RECNUM
+IF #NOPORO1.#TYPE = 'B'
+  CALLNAT 'RBINSZ-N' #NOPORO1.#OBJECT #OBJECT-RNB #NOPORO1.#TYPE #RECNUM
+    #BIN-SIZE #ERC #ERT
+  IF #ES-MSG-NR = 0 AND #BIN-SIZE NE 0
+    #BIN-SIZE := #BIN-SIZE / 1024 + 1
+  END-IF
+ELSE
+  IF NOT(#SPOOL-DI-SIZE = #I4 OR = 0)
+    #BIN-SIZE := (#SPOOL-DI-SIZE / 1024) * 3 / 4 + 1
+  ELSE
+    CALLNAT 'RBINSZ-N' #NOPORO1.#OBJECT #OBJECT-RNB #NOPORO1.#TYPE #RECNUM
+      #BIN-SIZE #ERC #ERT
+    IF #ES-MSG-NR = 0 AND #BIN-SIZE NE 0
+      #BIN-SIZE := #BIN-SIZE / 1024 + 1
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* GET-BINARY-SIZE
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-BINARY-FILES
+************************************************************************
+RESET #AR-REPORT-RNB #BUNDLE-RNB #BIN #SPOOL-ATTRIBUTES
+IF PO-BUNDLE = ' '
+  #AR-REPORT-RNB.#AR-REPNAME := PO-REPNAME
+  #AR-REPORT-RNB.#AR-REPRNB  := PO-REPRNB
+  FIND AR WITH AR-REPORT-RNB = #AR-REPORT-RNB
+    IF AR-CC-TYPE = 0005                /* binary
+      #BIN := TRUE
+      #SPOOL-ATTRIBUTES := AR-SPOOL-ATTRIBUTES
+    END-IF
+  END-FIND
+ELSE
+  #BUNDLE-RNB.#BUNDLE  := PO-BUNDLE
+  #BUNDLE-RNB.#RNB     := PO-BUNDRNB
+  #BUNDLE-RNB.#SEQNO   := 0
+  RDBC. READ BC WITH BC-BUNDLE-RNB = #BUNDLE-RNB
+    IF BC-BUNDLE NE #BUNDLE-RNB.#BUNDLE OR
+        BC-BUNDRNB NE #BUNDLE-RNB.#RNB
+      ESCAPE BOTTOM(RDBC.)
+    END-IF
+    #AR-REPORT-RNB.#AR-REPNAME := BC-REPNAME
+    #AR-REPORT-RNB.#AR-REPRNB  := BC-REPRNB
+    FIND AR WITH AR-REPORT-RNB = #AR-REPORT-RNB
+      IF AR-CC-TYPE NE 0005     /* binary
+        RESET #BIN
+      ELSE
+        #BIN := TRUE
+        ESCAPE BOTTOM(RDBC.)
+      END-IF
+    END-FIND
+  END-READ
+END-IF
+*
+END-SUBROUTINE /* CHECK-BINARY-FILES
+*
+/*SU4 DEFINE SUBROUTINE CHECK-SOURCE
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG
+************************************************************************
+IF ES-ORIG-FUNCTION = 'DL'
+  COMPRESS '0075' #OBJ 'PRINTOUT' TO LG-MSG
+  LG-USERID   := ES-USER
+  LG-CODE     := 'MO'
+  LG-FUNCTION := 'W'
+  CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND    := 'U'
+NADA2000.ERROR-NUMBER   := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+IF NOT #STATUS-TEXT
+  ES-MSG-NR    := #ES-MSG-NR
+  ES-MSG-TXT   := SHORT-MSG
+  EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+  ES-MSG-FIELD := ' '
+  ES-RC := 1
+END-IF
+*
+END-SUBROUTINE
+*
+END

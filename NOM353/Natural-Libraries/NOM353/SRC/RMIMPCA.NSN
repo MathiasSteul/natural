@@ -1,0 +1,116 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+************************************************************************
+* RMIMPCA - Import CAlender
+*
+* Maintenance
+* User  yyyy-mm-dd Issue       Remark
+* ----- ---------------------- -----------------------------------------
+*       2019-02-22 generated   Created for RMIMPORT from RMXML2LD
+* fhi   2019-02-20 NOMALL-2215 Add object type MF Node: NO /rewritten
+* SU3   2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU4   2021-01-08 NOMALL-2443 avoid dup. entries
+* SU5   2021-04-22 NOMALL-2460 show actions
+* SU6   2021-08-18 NOMALL-2467 recat (RMIMP-A/RMIMP-C/RMIMP-C1)+RMIMPCAL
+************************************************************************
+DEFINE DATA
+PARAMETER USING RMIMP-A
+PARAMETER
+1 CA-FILL
+  2 CA-CALENDAR-ID      (A12)
+  2 REDEFINE CA-CALENDAR-ID
+    3 CA-CALENDAR       (A8)
+    3 CA-YEAR           (N4)
+  2 CA-WORKING-DAYS     (A31/1:12) /* DEF. FROM PREDICT
+  2 CA-OBJECT-TYPE      (A10)
+  2 CA-OBJECT-TIME      (T)
+  2 P-LAST-UPDATE       (T)
+  2 P-LAST-UPDATE-USER  (A16)
+************************************************************************
+LOCAL USING RMIMP-L /*SU5
+LOCAL USING RMBAS64P
+/*SU6 LOCAL USING RMIMPCAL
+*
+LOCAL
+1 CA VIEW OF NRM-CALENDARS
+  2 CA-OBJECT-TYPE       (A10)
+  2 CA-OBJECT-TIME       (T)
+  2 P-LAST-UPDATE        (T)
+  2 P-LAST-UPDATE-USER   (A16)
+  2 CA-CALENDAR-ID       (A12)
+  2 REDEFINE CA-CALENDAR-ID
+    3 CA-CALENDAR        (A8)
+    3 CA-YEAR            (N4)
+  2 CA-WORKING-DAYS      (A31/1:12)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *OCC(B64-TEXT-ARRAY) = 0
+  EXPAND ARRAY B64-TEXT-ARRAY TO (1:5)
+END-IF
+IF NOT #SAVE
+  IF #TAG-CURRENT = #TAG-OLD
+    ADD 1 TO #IND
+  ELSE
+    #IND := 1
+  END-IF
+  IF #VALUE-CURRENT = ' '
+    ESCAPE MODULE
+  END-IF
+  DECIDE ON FIRST VALUE OF #TAG-CURRENT
+    VALUE 'CA-OBJECT-TYPE'
+      CA-FILL.CA-OBJECT-TYPE := #VALUE-CURRENT
+    VALUE 'CA-OBJECT-TIME'
+      MOVE EDITED #VALUE-CURRENT TO CA-FILL.CA-OBJECT-TIME
+        (EM=YYYY'-'MM'-'DD'-'HH':'II':'SS'.'T)
+    VALUE 'P-LAST-UPDATE'
+      MOVE EDITED #VALUE-CURRENT TO CA-FILL.P-LAST-UPDATE
+        (EM=YYYY'-'MM'-'DD'-'HH':'II':'SS'.'T)
+    VALUE 'P-LAST-UPDATE-USER'
+      CA-FILL.P-LAST-UPDATE-USER := #VALUE-CURRENT
+    VALUE 'CA-CALENDAR'
+      CA-FILL.CA-CALENDAR := #VALUE-CURRENT
+    VALUE 'CA-YEAR'
+      IF #VALUE-CURRENT IS (N4)
+        CA-FILL.CA-YEAR := VAL (#VALUE-CURRENT)
+      ELSE
+        #MSG := 'CA-YEAR'
+        PERFORM FIELD-IGNORED /*RMIMP-C1
+      END-IF
+    VALUE 'CA-WORKING-DAYS'
+      CA-FILL.CA-WORKING-DAYS (#IND) := #VALUE-CURRENT
+    NONE IGNORE
+  END-DECIDE
+ELSE
+  #OBJ-NAME := CA-FILL.CA-CALENDAR-ID /*SU4
+  OBJ. FIND (1) CA WITH CA-CALENDAR-ID = CA-FILL.CA-CALENDAR-ID /*SU4
+    IF NO RECORDS FOUND
+      MOVE BY NAME CA-FILL TO CA
+      STORE CA
+      PERFORM ADD-LOADED
+      ESCAPE BOTTOM (OBJ.)
+    END-NOREC
+    MOVE BY NAME CA-FILL TO CA
+    IF #REPL = 'Y'
+      UPDATE (OBJ.)
+      PERFORM ADD-REPLACED
+    ELSE
+      COMPRESS CA-FILL.CA-CALENDAR-ID 'not replaced for CA' /*SU4:#KEY
+        TO #MSG
+      PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+      PERFORM ADD-NOT-REPLACED
+    END-IF
+  END-FIND
+  END TRANSACTION
+END-IF
+*
+INCLUDE RMIMP-C1
+*
+END

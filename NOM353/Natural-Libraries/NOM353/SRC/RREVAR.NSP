@@ -1,0 +1,187 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RREVAR - Revive Active Report
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-08-02           created
+* mrs 97-05-27 p(162705) recompiled (changes in eomarm-p)
+* mrs 97-05-27 p(162737) recompiled (changes in eomarm-p)
+* sju 99-10-04 p(187419) disallow revive to connect if no LFILE 251
+* sju 00-04-17 p(194279) allow revive of immediate archived reports
+* sju 00-05-24 p(191368) allow bundle name - call RBUNRP to create a
+*                        pending bundle-contents record. RBUNRP checks
+*                        if caller is RREVAR
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* sju 02-11-01 NOM221    Long records
+* xsetggr 2006-01-02 p(266299) prevent fetch of wrong #father-prog
+* xsetggr 2007-07-05 NOM3201   Support P11 format run numbers
+* xsetggr 2008-05-05 p(304350) restow due changes in EOMARM-P
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* splildav 2009-03-30 P304322  For Unix, assume 'revive to DB'          ONTENTS
+* fhi     2009-05-20 N3463     restow due changes in EOMARM-P
+* raya    2012-08-15 nomall-78 disable long records
+* SU1     2016-01-11 NOMALL-1800 avoid NAT1108
+* BLI     2016-02-24 NOMALL-1829 Check flags A R L
+* SU2     2017-09-26 NOMALL-1823 NOM 3.5: remove CONNECT
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+*
+LOCAL USING EOM----E
+LOCAL USING EOM----P
+LOCAL USING EOMARM-E
+LOCAL USING EOMARM-P
+LOCAL USING EOMMSG-P
+*
+LOCAL
+1 MAP-DISPLAYED          (L)
+1 BUNDLE-CONTENTS VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-BUNDRNB
+1 #OLD-FATHER-PROG       (A8)
+1 #BC-REPORT-RNB         (A31)
+1 REDEFINE #BC-REPORT-RNB
+  2 #BC-REPNAME          (A25)
+  2 #BC-REPRNB           (P11)
+1 #M-REPORT              (A25)
+1 REDEFINE #M-REPORT
+  2 #M-REPORT-17         (A17)
+  2 #M-REPORT-R          (A8)
+1 #M-BUNDLE              (A25)
+1 REDEFINE #M-BUNDLE
+  2 #M-BUNDLE-17         (A17)
+  2 #M-BUNDLE-R          (A8)
+1 CV-REVIVE              (C) INIT <(AD=D CD=NE)>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE WINDOW REVIVE-WINDOW SIZE 15*55 BASE 05/10 CONTROL WINDOW
+*
+EOMARM-I-NAME := G-C-REPORT
+EOMARM-I-RNB  := G-C-REPRNB
+EOM-USER-PROFILE := G-USER-PROFILE
+EOM-USER         := G-USERID
+EOM-USER-TYPE    := G-USER-TYPE
+EOM-LANGUAGE     := *LANGUAGE
+*
+EOM-FUNCTION := EOM-READHOLD
+EOMARM-I-ATTRIBUTE-TYPE := ACTIVE-REPORT-ARCHIVE-ATTRIBUTES
+CALLNAT 'EOMARM-N' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+*
+IF EOMMSG-NR NE 0
+  G-NATRP-ERC := EOMMSG-NR
+  G-NATRP-ERT := EOMMSG-TOKEN (1)
+  ESCAPE ROUTINE
+END-IF
+*
+* BLI NOMALL-1829 start
+IF EOMARM-ARCHIVE NE '*'
+  IF EOMARM-ARCHIVE = 'R' OR = 'P' OR = 'I'
+* Report available, revive unnecessary.
+    G-NATRP-ERC := 497
+  ELSE                                 /* 'A' OR ' '
+* Report is not on archive - revive not possible.
+    G-NATRP-ERC := 439
+  END-IF
+  BACKOUT TRANSACTION
+  ESCAPE ROUTINE
+END-IF
+* BLI NOMALL-1829 end
+*
+EOM-FUNCTION := EOM-READHOLD
+EOMARM-I-ATTRIBUTE-TYPE := ACTIVE-REPORT-REVIVE-ATTRIBUTES
+CALLNAT 'EOMARM-N' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+IF EOMMSG-NR NE 0
+  G-NATRP-ERC := EOMMSG-NR
+  G-NATRP-ERT := EOMMSG-TOKEN (1)
+  ESCAPE ROUTINE
+END-IF
+*
+IF EOMARM-REVIVE = '*'
+  G-NATRP-ERC := 440
+  BACKOUT TRANSACTION
+ELSE
+  PERFORM MODIFY-REVIVE-FLAG
+  IF G-NATRP-ERC = 0
+    END OF TRANSACTION
+  ELSE
+    BACKOUT TRANSACTION
+  END-IF
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-REVIVE-FLAG
+************************************************************************
+IF EOMARM-REVIVE NE ' '
+  RESET EOMARM-ARCHIVE
+  #BC-REPNAME := G-C-REPORT
+  #BC-REPRNB  := G-C-REPRNB
+  DELBC. FIND BUNDLE-CONTENTS WITH BC-REPORT-RNB = #BC-REPORT-RNB
+    IF BC-BUNDRNB = 0
+      GET BUNDLE-CONTENTS *ISN(DELBC.)
+      DELETE
+    END-IF
+  END-FIND
+ELSE
+  SET KEY PF3 = PGM
+  SET CONTROL 'MT'
+  MAP-DISPLAYED := TRUE
+  #M-REPORT := G-C-REPORT
+  RESET  #M-BUNDLE
+  IF NOT G-DISPLAY-LONG-NAMES
+    #M-REPORT-R := H'FA'
+    #M-BUNDLE-R := H'FA'
+  END-IF
+  RESET G-NATRP-ERC
+  IF *MACHINE-CLASS NE 'MAINFRAME'
+    EOMARM-REVIVE := 'D'
+  ELSE
+    INPUT WINDOW = 'REVIVE-WINDOW' WITH TEXT *G-NATRP-ERC, G-NATRP-ERT
+      USING MAP 'RREVARM&'
+    IF *PF-KEY = 'PF3'
+      SET CONTROL 'M21'
+      G-NATRP-ERC := 0466
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+  IF #M-BUNDLE-17 NE ' '
+    IF G-DISPLAY-LONG-NAMES
+      G-C-BUNDLE := #M-BUNDLE
+    ELSE
+      G-C-BUNDLE := #M-BUNDLE-17
+    END-IF
+    #OLD-FATHER-PROG := G-FATHER-PROG
+    G-FATHER-PROG := *PROGRAM
+    PERFORM BUNDLE-REPORT
+    G-FATHER-PROG := #OLD-FATHER-PROG
+    IF G-NATRP-ERC NE 0438 /* ANYTHING OTHER THAN BUNDLED OK
+      REINPUT *G-NATRP-ERC
+    ELSE
+      RESET G-NATRP-ERC
+    END-IF
+  END-IF
+END-IF
+*
+EOM-FUNCTION := EOM-MODIFY
+EOMARM-I-ATTRIBUTE-TYPE := ACTIVE-REPORT-REVIVE-ATTRIBUTES
+CALLNAT 'EOMARM-N' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+IF EOMMSG-NR NE 0
+  G-NATRP-ERC := EOMMSG-NR
+  G-NATRP-ERT := EOMMSG-TOKEN (1)
+END-IF
+*
+SET CONTROL 'M21'
+*
+END-SUBROUTINE /* MODIFY-REVIVE-FLAG
+*
+END

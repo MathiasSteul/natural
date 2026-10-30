@@ -1,0 +1,161 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMDEFPH - API for Physical Printer
+*
+* Creation and Maintenance History
+* uuu     yyyy-mm-dd s(999999) ...
+* gw      1992-08-17           created
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2012-10-03 NOMALL-89  out adding grants of type 'H'
+* SU1     2014-06-06 NOMALL-1281 show last update user+date
+* SU2     2024-04-24 NOM36       restruct
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER
+1 PH-PARMS
+  2 P-NODE                     (N5)
+  2 P-ERROR-CODE               (N4)
+  2 P-ERROR-TEXT               (A72)
+  2 P-FUNC                     (A8)
+  2 P-PHYSICAL-PRINTER         (A8)
+  2 P-LOCATION                 (A30)
+  2 P-STATUS                   (A1)
+  2 P-FORM                     (A8)
+************************************************************************
+LOCAL
+1 PHYSICAL-PRINTERS VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-VTAMID
+  2 PH-STATUS
+  2 PH-FORM
+  2 PH-LOCATION
+  2 PH-LAST-UPDATE-USER
+  2 PH-LAST-UPDATE
+1 LOGICAL-PRINTERS VIEW OF NRM-PRINTERS
+/*SU2 1 GRANTS VIEW OF NRM-GRANTS 2 GR-OBJECT-TYPE 2 GR-USERID
+/*SU2 2 GR-OBJECT-NAME 2 GR-OPTION (1:9)
+*
+1 #USER-ID                    (A8)
+1 #OBJ                       (A50)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM INIT
+MAIN-LOOP. REPEAT
+  DECIDE ON FIRST P-FUNC
+    VALUE 'ADD'
+      PERFORM CHECK-PRINTER-EXIST
+      PERFORM VALIDATE
+      PERFORM ADD-PRINTER
+    VALUE 'MODIFY'
+      PERFORM VALIDATE
+      PERFORM MOD-PRINTER
+    VALUE 'DELETE'
+      PERFORM DEL-PRINTER
+    NONE
+      IGNORE
+  END-DECIDE
+  ESCAPE BOTTOM (MAIN-LOOP.)
+*
+END-REPEAT /* (MAIN-LOOP.)
+*
+END TRANSACTION
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT
+************************************************************************
+RESET P-ERROR-CODE P-ERROR-TEXT
+#USER-ID := *USER
+*
+END-SUBROUTINE /* INIT
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-PRINTER-EXIST
+************************************************************************
+CHK. FIND NUMBER PHYSICAL-PRINTERS WITH PH-VTAMID = P-PHYSICAL-PRINTER
+IF *NUMBER (CHK.) > 0
+  P-ERROR-CODE := 104
+  P-ERROR-TEXT := 'Physical printer already defined.'
+  ESCAPE MODULE /*SU2 BOTTOM (MAIN-LOOP.)
+END-IF
+*
+END-SUBROUTINE /* CHECK-PRINTER-EXIST
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-PRINTER
+************************************************************************
+PERFORM FILL-ATTR
+STORE. STORE PHYSICAL-PRINTERS
+*
+END-SUBROUTINE /* ADD-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE MOD-PRINTER
+************************************************************************
+MODPRT. FIND PHYSICAL-PRINTERS WITH PH-VTAMID = P-PHYSICAL-PRINTER
+  PERFORM FILL-ATTR
+  UPDATE (MODPRT.)
+END-FIND
+*
+END-SUBROUTINE /* MOD-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE FILL-ATTR
+************************************************************************
+PHYSICAL-PRINTERS.PH-VTAMID           := P-PHYSICAL-PRINTER
+PHYSICAL-PRINTERS.PH-LOCATION         := P-LOCATION
+PHYSICAL-PRINTERS.PH-STATUS           := P-STATUS
+PHYSICAL-PRINTERS.PH-FORM             := P-FORM
+PHYSICAL-PRINTERS.PH-LAST-UPDATE-USER := *USER
+PHYSICAL-PRINTERS.PH-LAST-UPDATE      := *TIMX
+*
+END-SUBROUTINE /* FILL-ATTR
+*
+************************************************************************
+DEFINE SUBROUTINE DEL-PRINTER
+************************************************************************
+LOGICAL.
+FIND NUMBER LOGICAL-PRINTERS WITH P-PHYSICAL-NAME = P-PHYSICAL-PRINTER
+IF *NUMBER (LOGICAL.) > 0
+  P-ERROR-CODE := 9999
+  P-ERROR-TEXT:='Delete failed - still being used in logical printer.'
+  ESCAPE MODULE /*SU2 BOTTOM (MAIN-LOOP.)
+END-IF
+*
+FIND PHYSICAL-PRINTERS WITH PH-VTAMID = P-PHYSICAL-PRINTER
+  DELETE
+  MOVE P-PHYSICAL-PRINTER TO #OBJ
+  PERFORM RMLOGDEL #OBJ 'PH-PRINTER'
+END-FIND
+*
+END-SUBROUTINE /* DEL-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE
+************************************************************************
+IF P-PHYSICAL-PRINTER = ' '
+  P-ERROR-CODE := 105
+  P-ERROR-TEXT := 'Printer name must not be blank.'
+  ESCAPE MODULE /*SU2 BOTTOM (MAIN-LOOP.)
+END-IF
+IF P-PHYSICAL-PRINTER NE MASK (A)
+  P-ERROR-CODE := 19
+  P-ERROR-TEXT := 'Printer name must begin with a charakter.'
+  ESCAPE MODULE /*SU2 BOTTOM (MAIN-LOOP.)
+END-IF
+*
+END-SUBROUTINE /* VALIDATE
+*
+END

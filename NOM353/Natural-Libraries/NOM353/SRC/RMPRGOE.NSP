@@ -1,0 +1,81 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPRGOE  from template RMPRGOD - Purge orders in error
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* fhi 07-11-01 P(298580) delete failed orders
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* SU1 2014-02-10 NOMALL-1344 unix - daily cleanup does not delete orders
+* fhi     2017-01-11 NOMALL-1961 Change descriptor of NRM-ORDER
+* fhi     2017-02-01 NOMALL-1913 Build correct inverse time
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi     2018-07-18 NOMALL-2008 Delete order sources
+* fhi     2019-05-13 NOMALL-2272 Correct evaluation of time inverted
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +CMRDC (A1)
+* *****
+LOCAL USING CONST-L
+LOCAL
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-TYPE
+*
+1 #S-TYPE-TIME             (A9)
+1 REDEFINE #S-TYPE-TIME
+  2 #S-TYPE                (B2)
+  2 #S-TIME                (P13)
+1 #T-MONITOR-ID-TYPE-TIME  (A17)
+1 REDEFINE #T-MONITOR-ID-TYPE-TIME
+  2 #T-MONITOR-ID          (A8)
+  2 #T-TYPE                (I2)
+  2 #T-TIME                (P13)
+1 #COUNTER                 (P10)
+1 #TRACING                 (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF G-TRACE GE *LEVEL
+  #TRACING := TRUE
+  G-TRACE-MSG := 'Start Order Clean up for orders in error'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+INCLUDE CMRDC
+*
+#S-TYPE       := 7000
+RESET  #S-TIME
+*
+#T-MONITOR-ID := G-MONITOR-ID
+#T-TYPE       := 7999
+#T-TIME       := #CONST-INV-TIME
+REAOD. READ ORDER BY OD-TYPE-TIME = #S-TYPE-TIME
+  IF OD-TYPE > #T-TYPE
+    ESCAPE BOTTOM (REAOD.)
+  END-IF
+  ADD 1 TO #COUNTER
+  DELETE
+  CALLNAT 'RMPRGOS' OD-ID
+  IF *COUNTER > 50
+    RESET *COUNTER
+    END OF TRANSACTION
+  END-IF
+END-READ
+END OF TRANSACTION
+*
+IF #TRACING
+  COMPRESS 'Number of deleted Orders in error:' #COUNTER TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  G-TRACE-MSG := 'End of Orders in Error Clean up'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END

@@ -1,0 +1,346 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMMTS-N - NOM API Get status, last-active-time of Monitor tasks
+*             = Reworked for version 3.5.0 =
+*
+* Maintenance:
+* XSETGGR 2004-11-15 created
+* XSETGGR 2005-01-25 changed
+* XSETGGR 2005-06-29 changed
+* XSETGGR 2005-08-11 replace nomod-parms by fileds from monitor file
+* fhi     2005-11-15 P272724   End Transaction for Unix Eventing
+* xsetggr 2006-03-01 p(274675) corect monitor & subtasks update
+* xsetggr 2006-03-06 pass es-language as parameter to NATA2000
+* xsetggr 2007-05-23 p(294774) change date/time format in lists
+* xsetggr 2008-08-15 p(307976) make monitor NPR mainframe independent
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2016-08-08 NOM 3.5: remove unused code
+* fhi     2016-11-10 NOMALL-1917 use correct node number
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-10-09 NOMALL-1620 Use BS2000 Spool correctly
+* CF      2017-11-29 NOMALL-2055 Adapt to increased SubTask number
+* SU2     2020-04-16 NOMALL-2349 error handling (NPR)
+* SU3     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU4     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOMMTS-A
+************************************************************************
+LOCAL USING VSUBT-L
+LOCAL USING RMSETSTE
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RMTASK-P
+LOCAL
+1 MF-NODE VIEW OF NRM-MF-NODES
+  2 MF-TYPE              (A1)
+  2 MF-SPOOL-TYPE        (A8)
+  2 MF-MONITOR-ID        (A20)
+  2 MF-MONITOR-NODE      (N5)
+1 MONITOR VIEW OF NRM-MONITOR
+  2 M-STATUS
+  2 M-LAST-ACTIVE
+  2 M-BATCH-MODULE
+  2 M-XCOM-JOBNAME
+  2 M-NATRPT-DBID-N5
+  2 M-NATRPT-FNR-N5
+  2 M-WAIT-CURRENT
+  2 M-MONITOR-TASKS      (A36)
+  2 REDEFINE M-MONITOR-TASKS
+    3 M-TASK-NUMBER      (N3/1:12)
+1 ACTIVE-JOBS VIEW OF ACTIVE-JOBS /*without ERROR-CODE/ERROR-TEXT
+/*err->NAT
+  2 NODE
+  2 JOB-NAME
+1 MONITOR-SUB-TASK VIEW OF NATURAL-SUB-TASK
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 NODE
+  2 NAT-STATUS
+1 UX-NODES  VIEW OF NRM-UX-NODES
+  2 UX-NODE-SUSPEND      (A1)
+/*
+1 #TASK-ID-E             (A16)
+1 #MAX-TASKS             (I1)   INIT <59>
+1 #ES-MSG-PREF           (A7)   INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM          (A3)
+  2 #ES-MSG-NR           (N4)
+1 #ES-MSG-TXT            (A250)
+1 #LIBRARY-ID            (A8)
+1 #STATUS-CODE           (A1)
+1 #STATUS-TEXT           (A24)
+1 #MONITOR-STATUS        (A1)
+1 #TASKNR                (N3)
+1 #MONITOR-TIME          (T)
+1 #J                     (I4)
+1 #K                     (I4)
+1 #TT                    (T)
+1 #SUBT-NUMBER           (N3/1:12)
+1 #TASK-FUNC-CODE        (A1/5) INIT <'M','Q','S','R','P'>
+1 #N                     (I4)
+1 #M                     (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC #TT NOMM-PARMS
+#LIBRARY-ID := ES-APP-SERVER-LIBRARY
+/*
+/* Read main task data
+/*
+RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)
+FNDMAIN. FIND MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 1516      /* Monitor not installed correctly
+    ESCAPE BOTTOM (FNDMAIN.)
+  END-NOREC
+  #STATUS-CODE := MONITOR.M-STATUS
+  NOMM-MONITOR-ID(1)   := F#MONITOR-TASK-USER-ID-LOG1 (<>)
+  NOMM-WAIT-CURRENT(1) := MONITOR.M-WAIT-CURRENT
+  #SUBT-NUMBER(1:12)   := MONITOR.M-TASK-NUMBER(1:12)
+  COMPRESS #TASK-FUNC-CODE(1:5) TO NOMM-TASK-FUNCTION(1) LEAVING NO
+  RESET MF-NODE
+  IF *MACHINE-CLASS = 'MAINFRAME'
+    RDMAIN. READ(1) MF-NODE BY MF-TYPE-ID = 'MR-'
+    END-READ
+    IF MF-NODE.MF-TYPE NE 'M' OR MF-NODE.MF-MONITOR-ID NE MASK('R-')
+      #ES-MSG-NR := 1516      /* Monitor not installed correctly
+      ESCAPE BOTTOM (FNDMAIN.)
+    END-IF
+  ELSE /* *MACHINE-CLASS = 'UNIX'     (? 'PC', 'VMS' ?)
+    /* Possible Monitor identifier: L=Local(none-RPC), M=Monitor(RPC)
+    RMD-UX. FIND UX-NODES WITH UX-SUSP-NAME = 'L'-H'00' THRU 'M'-H'FF'
+      IF NO RECORDS FOUND
+        #ES-MSG-NR := 1516      /* Monitor not installed correctly
+        ESCAPE BOTTOM (FNDMAIN.)
+      END-NOREC
+      M-STATUS     := UX-NODES.UX-NODE-SUSPEND
+      MF-SPOOL-TYPE := 'UNIX'
+    END-FIND
+  END-IF
+  /*
+  RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)
+  PERFORM STATUS
+  IF #MONITOR-STATUS NE ' '
+    #STATUS-CODE  := #MONITOR-STATUS
+    M-LAST-ACTIVE := #MONITOR-TIME
+    PERFORM GET-STATUS-TEXT
+  ELSE
+    PERFORM GET-STATUS-TEXT
+  END-IF
+  NOMM-STATUS(1) := #STATUS-TEXT
+  /*
+  PERFORM CHANGE-STATUS
+  PERFORM GET-STATUS-TEXT
+  IF #STATUS-TEXT > ' '
+    NOMM-STATUS(1) := #STATUS-TEXT
+  END-IF
+  IF M-LAST-ACTIVE NE #TT
+    MOVE EDITED M-LAST-ACTIVE(EM=YYYYMMDDHHIISST) TO NOMM-LAST-ACTIVE(1)
+  ELSE
+    RESET NOMM-LAST-ACTIVE(1)
+  END-IF
+  /*
+END-FIND
+/*
+IF #ES-MSG-NR NE 0
+  BACKOUT TRANSACTION
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+END TRANSACTION
+/*
+/* Read sub task data
+/*
+#K := 1
+RMTASK-P.FUNCTION       := 'S'
+RMTASK-P.SUBTASK-NUMBER := #MAX-TASKS
+CALLNAT 'RMTASKID' RMTASK-P
+#TASK-ID-E              := RMTASK-P.TASK-ID
+RMTASK-P.SUBTASK-NUMBER := 21
+CALLNAT 'RMTASKID' RMTASK-P
+FNDSBT. FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = RMTASK-P.TASK-ID
+    THRU #TASK-ID-E
+  /*
+  #STATUS-CODE := NRM-SUBTASK-INFO.ST-STATUS
+  RMTASK-P.TASK-ID := ST-SUBTASK-ID
+  RMTASK-P.FUNCTION       := 'G'
+  CALLNAT 'RMTASKID' RMTASK-P
+  PERFORM STATUS
+  IF #MONITOR-STATUS NE ' '
+    #STATUS-CODE := #MONITOR-STATUS
+    ST-LAST-ACTIVE := #MONITOR-TIME
+    PERFORM GET-STATUS-TEXT
+  ELSE
+    PERFORM GET-STATUS-TEXT
+  END-IF
+  IF ST-EXEC-TYPE ='N' AND (#STATUS-TEXT =#EQN-CLOSED OR=#EQ2-CLOSED
+   OR=#EQN-NOTACTIVE OR=#EQ2-NOTACTIVE)                               /*
+    ESCAPE TOP
+  END-IF
+  ADD 1 TO #K
+  RMTASK-P.FUNCTION := 'L'
+  CALLNAT 'RMTASKID' RMTASK-P
+  NOMM-MONITOR-ID(#K)   := RMTASK-P.TASK-ID
+  NOMM-WAIT-CURRENT(#K) := NRM-SUBTASK-INFO.ST-WAIT-CURRENT
+  /*
+  FOR #N = 1 TO 12
+    IF #SUBT-NUMBER(#N) = RMTASK-P.SUBTASK-NUMBER /*#I
+      DECIDE ON FIRST #N
+        VALUE 1        #M := 2
+        VALUE 2 : 10   #M := 3
+        VALUE 11       #M := 4
+        VALUE 12       #M := 5
+        ANY
+          COMPRESS NOMM-TASK-FUNCTION(#K) #TASK-FUNC-CODE(#M)
+            TO NOMM-TASK-FUNCTION(#K) LEAVING NO
+          EXAMINE NOMM-TASK-FUNCTION(1) FOR #TASK-FUNC-CODE(#M) DELETE
+        NONE IGNORE
+      END-DECIDE
+    END-IF
+  END-FOR
+  /*
+  NOMM-STATUS(#K) := #STATUS-TEXT
+  PERFORM CHANGE-STATUS
+  PERFORM GET-STATUS-TEXT
+  IF #STATUS-TEXT > ' '
+    NOMM-STATUS(#K) := #STATUS-TEXT
+  END-IF
+  IF ST-LAST-ACTIVE NE #TT
+    MOVE EDITED ST-LAST-ACTIVE(EM=YYYYMMDDHHIISST) TO
+      NOMM-LAST-ACTIVE(#K)
+  ELSE
+    RESET NOMM-LAST-ACTIVE(#K)
+  END-IF
+  /*
+  IF #ES-MSG-NR NE 0
+    BACKOUT TRANSACTION
+    PERFORM GET-MSG-TXT
+    ESCAPE BOTTOM
+  END-IF
+  END TRANSACTION
+  /*
+END-FIND
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE STATUS
+************************************************************************
+RESET #MONITOR-STATUS #MONITOR-TIME
+#TASKNR := RMTASK-P.SUBTASK-NUMBER
+CALLNAT 'RMGETSTN' #MONITOR-STATUS #MONITOR-TIME
+  MF-MONITOR-NODE MONITOR.M-NATRPT-DBID-N5
+  MONITOR.M-NATRPT-FNR-N5 #TASKNR
+END TRANSACTION
+*
+END-SUBROUTINE /* STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE CHANGE-STATUS
+************************************************************************
+RESET #MONITOR-STATUS #MONITOR-TIME #STATUS-CODE
+#TASKNR := RMTASK-P.SUBTASK-NUMBER
+DECIDE ON FIRST VALUE OF MONITOR.M-BATCH-MODULE
+  VALUE 'BATCHJOB'
+    IF MF-SPOOL-TYPE NE 'SPOOL'
+      FIND ACTIVE-JOBS WITH JOB-NAME = M-XCOM-JOBNAME
+      AND NODE = MF-MONITOR-NODE                                      /*
+        IF NO RECORDS FOUND
+          #STATUS-CODE := #EQU-CLOSED
+          PERFORM GET-STATUS-TEXT
+        END-NOREC
+      END-FIND
+    ELSE
+      CALLNAT 'RMGETSTN' #MONITOR-STATUS #MONITOR-TIME MF-MONITOR-NODE
+        MONITOR.M-NATRPT-DBID-N5 MONITOR.M-NATRPT-FNR-N5 #TASKNR
+      END TRANSACTION
+      #STATUS-CODE := #MONITOR-STATUS
+    END-IF
+  VALUE 'UNIX'
+    CALLNAT 'RMGETSTN' #MONITOR-STATUS #MONITOR-TIME MF-MONITOR-NODE
+      MONITOR.M-NATRPT-DBID-N5 MONITOR.M-NATRPT-FNR-N5 #TASKNR
+    END TRANSACTION
+    #STATUS-CODE := #MONITOR-STATUS
+  NONE
+    RMTASK-P.FUNCTION       := 'T'
+    CALLNAT 'RMTASKID' RMTASK-P
+    FIND MONITOR-SUB-TASK WITH NODE = MF-MONITOR-NODE
+    AND NAT-USER    = RMTASK-P.TASK-ID AND FUNCTION = 'STATUS'        /*
+    AND NAT-MODULE  = MONITOR.M-BATCH-MODULE                          /*
+      IF ERROR-CODE > 0 /*all errors Ü? SU2
+        #STATUS-CODE := #EQU-NOTACTIVE
+        ESCAPE BOTTOM
+      END-IF
+      DECIDE ON FIRST VALUE OF NAT-STATUS
+        VALUE 'ACTIVE'
+          IGNORE
+        VALUE 'ABEND'
+          #STATUS-CODE := #EQU-ABENDED
+        VALUE 'CLOSED'
+          #STATUS-CODE := #EQU-CLOSED
+        NONE VALUE
+          #STATUS-CODE := #EQU-NOTACTIVE
+      END-DECIDE
+    END-FIND
+END-DECIDE
+*
+END-SUBROUTINE /* CHANGE-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-STATUS-TEXT
+************************************************************************
+RESET #STATUS-TEXT
+IF #STATUS-CODE NE ' '
+  EXAMINE #EQU-STATUS-V (*) FOR #STATUS-CODE GIVING INDEX #J
+  IF #J NE 0
+    IF ES-LANGUAGE = 2
+      #STATUS-TEXT := #EQ2-STATUS-V (#J)
+    ELSE
+      #STATUS-TEXT := #EQN-STATUS-V (#J)
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* GET-STATUS-TEXT
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

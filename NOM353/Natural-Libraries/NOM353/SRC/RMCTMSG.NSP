@@ -1,0 +1,115 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMCTMSG
+* Version   3.5
+* Function  Beautify result messages of RMCTNAT in orders
+*
+* The Natural CAT or STOW commands are executed in a user library where
+* no error messages may be present. So at begin of the monitor cycle
+* messages 1599,1600,1601,1602,1606, and 1607 are resolved afterwards.
+*
+* ---------------------------------------------------------------------
+* Maintenance
+* uuuuuuuu yyyy-mm-dd iTrac       Description
+* ---------------------------------------------------------------------
+* fhi      2018-04-19 NOMALL-2008 Created.
+* ---------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+LOCAL  USING RMODTY-E
+LOCAL  USING XXGMSG-A
+LOCAL
+*
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-MONITOR-ID
+  2 OD-TYPE
+  2 OD-SOURCE-ID
+  2 OD-TIME-PROCESSED
+  2 OD-TIME-SCHEDULED
+  2 OD-PARAMETER (1)
+  2 OD-STATISTICS
+  2 OD-ERROR-CODE
+  2 OD-ERROR-TEXT
+*
+1 #OD-PARAMETER                    (A250)
+1 REDEFINE #OD-PARAMETER
+  2 #OD-COMMAND                    (A50)
+  2 #OD-LIBRARY                    (A8)
+  2 #OD-PROGRAM                    (A8)
+  2 #OD-PRODLIB                    (A8)
+  2 #OD-PROGRAM-TYPE               (A1)
+  2 #OD-SOURCE-LINES               (I4)
+  2 #OD-SHORTMSG                   (L)
+*
+1 #OD-TYPE-TIME                    (A9)
+1 REDEFINE #OD-TYPE-TIME
+  2 #OD-TYPE                       (B2)
+  2 #OD-TIME                       (T)
+1 #OD-TYPE-I                       (I2)
+1 #OD-TYPE-A                       (A4)
+1 #CATDATE                         (A19)
+1 #DUMMY                           (A)   DYNAMIC
+1 #I                               (I4)
+1 #TRACING                         (L)
+END-DEFINE
+PERFORM RMGTRACE-GET-SETTINGS #TRACING
+IF #TRACING
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS *PROGRAM 'started. Cataloged at'  #CATDATE
+    TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+FOR.
+FOR #I = 2500 TO 7500 STEP 2500
+  #OD-TYPE-I := OD-CAT-NATURAL-SOURCE
+  #OD-TYPE-I := #OD-TYPE-I + #I
+  #OD-TYPE   := #OD-TYPE-I
+  RESET  #OD-TIME
+*
+  RDOD.
+  READ ORDER BY OD-TYPE-TIME
+      STARTING FROM #OD-TYPE-TIME
+*
+    IF  OD-TYPE NE #OD-TYPE OR
+        OD-TIME-SCHEDULED > *TIMX
+      ESCAPE BOTTOM (RDOD.)
+    END-IF
+    #OD-PARAMETER := OD-PARAMETER (1)
+*
+    IF     OD-ERROR-TEXT NE MASK(9999) /* already resolved
+        OR OD-ERROR-TEXT = ' '
+        OR #OD-SHORTMSG = TRUE     /* called for no resolving
+      ESCAPE TOP
+    END-IF
+*
+    IF #TRACING
+      #OD-TYPE-A := OD-TYPE
+      COMPRESS
+        'Found OD-ID:' OD-ID 'OD-TYPE:' #OD-TYPE-A
+        'Scheduled:' OD-TIME-SCHEDULED
+        TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+*
+    GETOD. GET ORDER *ISN(RDOD.)
+    #XX-ERROR-CODE      := OD-ERROR-CODE
+    SEPARATE OD-ERROR-TEXT INTO #DUMMY #XX-MSG-DYNA (*) IGNORE
+    CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+    OD-ERROR-TEXT       := #XX-SHORT-TEXT
+    UPDATE (GETOD.)
+    END TRANSACTION
+  END-READ
+END-FOR
+IF #TRACING
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS *PROGRAM 'ended.'
+    TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+END

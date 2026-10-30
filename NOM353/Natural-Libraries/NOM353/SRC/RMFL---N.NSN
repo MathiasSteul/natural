@@ -1,0 +1,149 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMFL---N - Get attributes for flush
+*
+* Creation and Maintenance History
+* uuu yy-mm-dd s(999999) ...
+* gw  93-04-01 s(999999) created
+* mrs 93-11-02 s(999999) spl-old-cc-type and spl-opened added
+* mrs 93-11-02 s(999999) flush-copies corrected
+* mrs 93-11-02 s(999999) print to NAF implemented
+* gw  93-11-23 s(999999) print to TAPEMVS
+* gw  94-03-03 s(999999) print to CMASPOOL
+* gw  94-03-22 s(999999) print to UNIXLP
+* gw  94-03-22 s(999999) print to DISKUNIX
+* gw  94-06-21 s(999999) new field SATSI-PARTNER-TYPE in SATSI interface
+* gw  94-10-04 s(999999) print to WINPM
+* gw  94-10-18 s(999999) print to OS2PM
+* mrs 95-07-07 s(999999) print to ECL
+* mrs 95-12-20 s(999999) reset new field put length
+* jvd 98-09-14 p(164220) NAT23ÖNOM141
+* sju 02-10-08 nom221    XML printers
+* fhi     2003-02-06 p(225241) Get rid of prt type 'DISKUNIX','UNIXLP'
+* xsetggr 04-11-23 p(258871) recat due to changes in rmfl---p
+* fhi     2004-12-10 NOM3104   Backout p(225241)
+* fhi     2005-03-11 NOM3105   Use Printer UNIXLP for TCP Printing
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* fhi     2008-06-25 P306560   Reactivate DISKUNIX printer type
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-12-07 NOMALL-865 add WRTSPOOL printer type
+* fhi     2012-10-25 NOMALL-983 Copies can be > 1, even for DISKUNIX.
+* fhi     2012-11-02 NOMALL-1004 Fill FLUSH-BUNDRNB
+* fhi     2013-05-24 NOMALL-1260 Change CMA Spool to CA Spool on interf
+*                                No tags, only literals changed
+* SU1     2013-06-05 NOMALL-1262 remove OS2PM,HPSPOOL,WINPM,WINPM32
+* SU2     2017-09-26 NOMALL-1823 NOM 3.5: remove CONNECT,ECL,XML
+* SU3     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER USING RMFL---P
+PARAMETER
+1 P-ERROR-CODE (N4)
+1 P-ERROR-TEXT (A250)
+************************************************************************
+LOCAL USING EOMPHTYE
+LOCAL
+1 PRINTOUT  VIEW  OF  NRM-PRINTOUTS
+  2 PO-REPNAME
+  2 PO-BUNDLE
+  2 PO-BUNDRNB
+  2 PO-EXITMEM
+  2 PO-EXITLIB
+  2 PO-COPIES
+  2 PO-PRINTER-TYPE
+  2 PO-PRINT-PGM
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-ERROR-CODE P-ERROR-TEXT
+*
+PERFORM READ-PRINTOUT-RECORD
+PERFORM FLUSH-INTERFACE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-PRINTOUT-RECORD
+************************************************************************
+FNDPR. FIND PRINTOUT WITH PO-ID = FLUSH-POID
+  IF NO RECORDS FOUND
+    P-ERROR-CODE := 0005
+    P-ERROR-TEXT := 'Printout Record not found'
+    ESCAPE BOTTOM (FNDPR.)
+  END-NOREC
+END-FIND
+*
+END-SUBROUTINE /* READ-PRINTOUT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-INTERFACE
+************************************************************************
+FLUSH-MEMBER  := PRINTOUT.PO-EXITMEM
+FLUSH-LIBRARY := PRINTOUT.PO-EXITLIB
+FLUSH-VERSION := 012
+FLUSH-REPNAME := PRINTOUT.PO-REPNAME
+FLUSH-BUNDLE  := PRINTOUT.PO-BUNDLE
+FLUSH-BUNDRNB := PRINTOUT.PO-BUNDRNB
+FLUSH-PROGRAM := PRINTOUT.PO-PRINT-PGM
+FLUSH-COPIES  := PRINTOUT.PO-COPIES
+IF FLUSH-COPIES = 0
+  FLUSH-COPIES := 1
+END-IF
+FLUSH-PRINTER-TYPE:= PO-PRINTER-TYPE
+*
+DECIDE ON FIRST PRINTOUT.PO-PRINTER-TYPE
+/*SU3  VALUE ##PHYS-SYSPR-PWR
+  VALUE ##PHYS-DISK-MVS
+    CALLNAT 'RMFLWK-N' FLUSH-PARMS P-ERROR-CODE P-ERROR-TEXT
+    FLUSH-PROGRAM := 'RMPRWKF'
+  VALUE ##PHYS-SYSPR-JES
+    CALLNAT 'RMFLWK-N' FLUSH-PARMS P-ERROR-CODE P-ERROR-TEXT
+    FLUSH-PROGRAM := 'RMPRWKF'
+    FLUSH-COPIES := 1
+  VALUE ##PHYS-WRTSPOOL
+    CALLNAT 'RMFLWS-N' FLUSH-PARMS P-ERROR-CODE P-ERROR-TEXT
+    FLUSH-PROGRAM := 'RMPRWSP'
+    FLUSH-COPIES := 1
+  VALUE ##PHYS-TAPE-MVS /*SU3 ##PHYS-TAPE-VSE
+    CALLNAT 'RMFLWK-N' FLUSH-PARMS P-ERROR-CODE P-ERROR-TEXT
+    FLUSH-PROGRAM := 'RMPRWKF'
+  VALUE ##PHYS-NAF
+    CALLNAT 'RMFLNF-N' FLUSH-PARMS P-ERROR-CODE P-ERROR-TEXT
+    FLUSH-PROGRAM := 'RMPRNAF'
+    FLUSH-COPIES := 1
+  VALUE ##PHYS-CMASPOOL
+    CALLNAT 'RMFLCM-N' FLUSH-PARMS P-ERROR-CODE P-ERROR-TEXT
+    FLUSH-PROGRAM := 'RMPRCMA'
+    FLUSH-COPIES := 1
+  VALUE ##PHYS-UNIXLP
+    CALLNAT 'RMFLLP-N' FLUSH-PARMS P-ERROR-CODE P-ERROR-TEXT
+    FLUSH-PROGRAM := 'RMPRTCP'
+  VALUE ##PHYS-NATUNIX
+    CALLNAT 'RMFLDX-N' FLUSH-PARMS P-ERROR-CODE P-ERROR-TEXT
+    FLUSH-PROGRAM := 'RMPRNAT'
+  VALUE ##PHYS-DISKUNIX
+    CALLNAT 'RMFLDU-N' FLUSH-PARMS P-ERROR-CODE P-ERROR-TEXT
+    FLUSH-PROGRAM := 'RMPRDSK'
+/*SU3  VALUE ##PHYS-BS2
+  VALUE ##PHYS-EMAIL
+    CALLNAT 'RMFLEMLN' FLUSH-PARMS P-ERROR-CODE P-ERROR-TEXT
+    FLUSH-PROGRAM := 'RMPREML'
+    FLUSH-COPIES := 1
+  NONE VALUE /*print to VTAM
+    CALLNAT 'RMFLVT-N' FLUSH-PARMS P-ERROR-CODE P-ERROR-TEXT
+    FLUSH-PROGRAM := 'RMPRVTM'
+END-DECIDE
+*
+END-SUBROUTINE /* FLUSH-INTERFACE
+*
+END

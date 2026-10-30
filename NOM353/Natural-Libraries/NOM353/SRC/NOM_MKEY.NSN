@@ -1,0 +1,153 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* **********************************************************************
+* MEMBER       NOM__KEY
+* Version      1.3
+*
+* Function  :  Build Start and End Key, or Reports/Bundles
+*              Also bulid a Mask if masking is needed
+*
+* xsethz  2000-07-31 (CE7461) new parameter string
+* Parameters:  LENGTH 105 BYTES
+*         1  = Logical value turn on for Masking
+*         2  = Masking character to be used for masking
+*         3  = Wild card character to be used for wild card delete
+*       4-5  = Return code
+*      6-30  = Accepted Values are for in key
+*     31-55  = Start Key  - padded with low-values (Read start key)
+*     56-80  = To Key     - padded with high-values (Read to value)
+*    81-105  = Masked Key - padded with Masking character see above
+* xsethz  2000-07-31 (CE7461) end
+*
+**Parameters:  LENGTH 73  BYTES
+**        1  = Logical value turn on for Masking
+**        2  = Masking character to be used for masking
+**        3  = Wild card character to be used for wild card delete
+**      4-5  = Return code
+**     6-22  = Accepted Values are for in key
+**    23-39  = Start Key  - padded with low-values (Read start key)
+**    40-57  = To Key     - padded with high-values (Read to value)
+**    58-73  = Masked Key - padded with Masking character see above
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* JVD 97-11-20 p(167575) CREATED
+* JVD 98-01-15 p(111111) Re-written to take new input string
+* xsethz  2000-07-31 (CE7461) Extend Report and Bundle Names
+* --------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #PARAM              (A105)
+1 REDEFINE #PARAM
+  2 #PARM-WITH-MASK   (L)
+  2 #PARM-MASK-C      (A1)
+  2 #PARM-WILD-C      (A1)
+  2 #PARM-RC          (I2)
+  2 #PARM-IN          (A25)
+  2 REDEFINE #PARM-IN
+    3 #PARM-NAMEI     (A1/1:25)
+  2 #PARM-START-KEY   (A25)
+  2 REDEFINE #PARM-START-KEY
+    3 #SKEY           (A1/1:25)
+  2 #PARM-TO-KEY      (A25)
+  2 REDEFINE #PARM-TO-KEY
+    3 #EKEY           (A1/1:25)
+  2 #PARM-MASK-KEY    (A25)
+  2 REDEFINE #PARM-MASK-KEY
+    3 #MKEY           (A1/1:25)
+************************************************************************
+LOCAL
+1 #BLANK       (A1)
+1 #IND         (N3) INIT <25>
+1 #NAME-LENGTH (N3) INIT <25>
+1 #FOUND-ONE   (L)
+1 #MASK-KEY    (A25)
+1 REDEFINE #MASK-KEY
+  2 #MKEY-VAL  (A1/1:25)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #PARM-START-KEY #PARM-TO-KEY #MASK-KEY #BLANK #PARM-RC #FOUND-ONE
+*
+DECIDE FOR FIRST CONDITION
+  WHEN #PARM-IN = ' '
+    #PARM-RC := 9521  /* 'Invalid key  - empty ??'
+  WHEN #PARM-NAMEI (1) = '*' AND #PARM-NAMEI (2) = ' '
+    #PARM-RC := 9523 /* 'Invalid Parameter - * only not allowed'
+  WHEN NONE
+    IF #PARM-WITH-MASK
+      #MASK-KEY := #PARM-MASK-KEY
+      PERFORM #START-TO-MASK-KEY
+    ELSE
+      PERFORM #START-TO-KEY
+    END-IF
+    IF NOT #FOUND-ONE
+      #PARM-RC := 9550 /* Invalid structure of parameter
+    END-IF
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE #START-TO-KEY
+************************************************************************
+REP1. REPEAT UNTIL #IND LT 1
+  DECIDE FOR FIRST CONDITION
+    WHEN #PARM-NAMEI(#IND) = #BLANK
+      #SKEY(#IND) := H'00'
+      #EKEY(#IND) := H'FF'
+    WHEN (#PARM-NAMEI(#IND) = #PARM-WILD-C AND #IND = #NAME-LENGTH)
+    OR (#PARM-NAMEI(#IND) = #PARM-WILD-C)                             /*
+      #SKEY(#IND) := H'00'
+      #EKEY(#IND) := H'FF'
+      #FOUND-ONE := TRUE
+    WHEN #PARM-NAMEI(#IND) NE #BLANK
+      #SKEY(#IND) := #EKEY(#IND) := #PARM-NAMEI(#IND)
+    WHEN NONE
+      #SKEY(#IND) := H'00'
+      #EKEY(#IND) := H'FF'
+  END-DECIDE
+  SUBTRACT 1 FROM #IND
+END-REPEAT
+*
+END-SUBROUTINE /* #START-TO-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE #START-TO-MASK-KEY
+************************************************************************
+REP2. REPEAT UNTIL #IND LT 1
+  DECIDE FOR FIRST CONDITION
+    WHEN #PARM-NAMEI(#IND) = ' '
+      #SKEY(#IND) := H'00'
+      #EKEY(#IND) := H'FF'
+      #MKEY(#IND) := #PARM-MASK-C
+*
+    WHEN #PARM-NAMEI(#IND) NE  ' ' AND #MKEY-VAL(#IND) = #PARM-MASK-C
+      #MKEY(#IND) := #SKEY(#IND) := #PARM-NAMEI(#IND)
+      #EKEY(#IND) := H'FF'
+      #FOUND-ONE := TRUE
+*
+    WHEN #PARM-NAMEI(#IND) NE  ' ' AND #MKEY-VAL(#IND) NE  #PARM-MASK-C
+      #SKEY(#IND) := #PARM-NAMEI(#IND)
+      #EKEY(#IND) := H'FF'
+      #MKEY(#IND) := #PARM-MASK-C
+*
+    WHEN NONE
+      #SKEY(#IND) := H'00'
+      #EKEY(#IND) := H'FF'
+      #MKEY(#IND) := #PARM-MASK-C
+  END-DECIDE
+  SUBTRACT 1 FROM #IND
+END-REPEAT
+*
+END-SUBROUTINE /* #START-TO-MASK-KEY
+*
+END

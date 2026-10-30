@@ -1,0 +1,559 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMRPMIN - DB Interface EOM Object Report (Identification attributes)
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-06-02 s(999999) created
+* mrs 93-10-12 s(999999) NAF implemented
+* mrs 94-02-28 s(999999) printer profile added
+* mrs 94-03-02 s(999999) BS2 implemented
+* mrs 94-06-23 s(999999) CMASPOOL implemented
+* gw  94-11-17 s(214318) SAP-Spool implemented
+* gw  94-11-30 s(214320) General NOM interface
+* jvd 97-07-08 p(163579) separator page length truncation
+*                        re-cat as EOMRPM-P change
+* wcd 00-04-01 CE 7267   re-cat as changes made to EOMRPM-P, EOMRPM-E
+* xsethz   2000-05-30 s(CE7760) READ-NEXT, READ-HOLD-NEXT added
+* fhi      2000-08-24 QA03      Use NAT23006 for error values
+* fhi      2000-08-28 s(196560) Add Unix file support
+* fhi      2002-10-30 fhi101    switch on optimizer compiler
+* sju      2002-10-31 NOM221    long Jes2 records
+* sju      2005-02-18 NOM31     long records for all spool types
+* fhi      2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi      2007-12-18 NOM32     Add flag to read binary files
+* xsetggr  2008-03-20 p(302984) change lob records flag possible values
+* XSETHZ   2008-11-11 p(310041) chech long records flag for POWER & BS2
+* XSETHZ   2008-11-11 p(309624) chech long records flag for UNIX
+* XSETHZ   2008-11-11 p(309624) chech unix and jes files
+* raya     2012-08-16 NOMALL-78  disable long records
+* fhi      2013-08-29 FHI285    Enhance error message 406
+* SU1     2013-11-22 NOMALL-1288 correct FHI285 for msg 406
+* SU2     2014-06-02 NOMALL-1281 show last update user+date
+* fhi     2014-08-26 NOMALL-1475 Recat for new field 'FORMATTER'
+* SU3     2015-02-27 NOMALL-1569 USR0320N (SYSEXT) => NAT00064 (SYSLIBS)
+* SU4     2016-07-25 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* fhi     2016-08-15 NOMALL-1620 Add REMOTE-NOTE field
+* fhi     2017-05-31 NOMALL-2023 Avoid 0C7 / IW60
+* SU5     2017-07-18 NOMALL-1823 NOM 3.5: remove SAP
+* fhi     2018-18-14 NOMALL-2141 Regard ASA formatted reports
+* fhi     2018-10-29 NOMALL-2125 Use codepage at identification only
+* fhi     2018-11-14 NOMALL-2125 Fill R-REMOTE-CODEPAGE additionally
+* SU6     2018-12-03 NOMALL-1924 remove '###UNIX###'/XSETHZ 2008-11-11
+* SU7     2019-01-08 NOMALL-1924 only attributes for one iident.type
+* SU8     2019-01-29 NOMALL-2217 correct codepage handling(reset+*)
+* SU9     2020-01-30 NOMALL-2379 Unix files A26 -> A50
+* SU10    2020-04-16 NOMALL-2403 use different DDM for NOMALL-2379
+* SU11    2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER 1 EOM-FUNCTION       (I2)
+PARAMETER USING EOMRPM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL USING EOM----E
+LOCAL USING EOMRPM-E
+LOCAL USING RDEFUSRL
+LOCAL
+1 INUM                         (I2) CONST <15>
+1 REPORT VIEW OF NRM-REPORTS-NEW /*SU10
+  2 R-REPNAME
+  2 R-TYPE
+  2 R-NOMUSR-INTERFACE
+  2 R-IDENT-FILES              (A50/1:10) /*SU10
+  2 R-IDENT                    (1:INUM)
+  2 REDEFINE R-IDENT
+    3 R-IDENT-TAB              (1:INUM)
+      4 R-IDENT-TYPE           (I2)
+      4 R-IDENT-VALUE          (A80)
+  2 R-REP-FORMAT
+  2 R-REMOTE-CODEPAGE
+  2 R-LAST-MODIFIED
+  2 R-MODIFIED-BY
+*
+1 I                            (I2)
+1 J                            (I4)
+1 #CHECK-TYPE                  (I4)
+1 #NAT00064
+  2 ERROR-NUMBER               (N4)
+  2 LIBRARY                    (A8)
+  2 LANG-CODE                  (I1)
+  2 SHORT-TEXT                 (A79)
+  2 RESPONSE                   (N4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-READ, EOM-READ-NEXT
+    PERFORM READ-IDENTIFICATION-ATTRIBUTES
+  VALUE EOM-READHOLD, EOM-READHOLD-NEXT
+    PERFORM READ-IDENTIFICATION-ATTRIBUTES
+  VALUE EOM-MODIFY
+    PERFORM MODIFY-IDENTIFICATION-ATTRIBUTES
+  NONE  IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-IDENTIFICATION-ATTRIBUTES
+************************************************************************
+FNDRP. FIND REPORT WITH R-REPNAME = EOMRPM-I-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0406
+    COMPRESS EOMRPM-I-NAME ' (' *PROGRAM ',' *LINE ')'
+      TO EOMMSG-TOKEN(1) LEAVING NO
+    ESCAPE BOTTOM (FNDRP.)
+  END-NOREC
+  IF R-TYPE = 'C'
+    EOMMSG-NR := 0020
+    ESCAPE BOTTOM (FNDRP.)
+  END-IF
+  IF EOMRPM-I-ATTRIBUTE-TYPE = REPORT-JES-ATTRIBUTES
+    RESET EOMRPM-JES-ATTRIBUTES
+    EOMRPM-JES-CODEPAGE := R-REMOTE-CODEPAGE
+    J := 1
+    FOR I 1 TO 10
+      IF R-IDENT-FILES (I)=MASK('NOM=')
+        ESCAPE TOP
+      END-IF
+      EOMRPM-JES-FILES (J) := R-IDENT-FILES (I)
+      ADD 1 TO J
+    END-FOR
+    FOR I = 1 TO INUM
+      IF R-IDENT (I) = ' '
+        ESCAPE TOP
+      END-IF
+      DECIDE ON FIRST R-IDENT-TYPE (I)
+        VALUE REPORT-IDENT-JES-JOB-NAME
+          EOMRPM-JES-JOB-NAME            := R-IDENT-VALUE (I)
+        VALUE REPORT-IDENT-JES-WRITER
+          EOMRPM-JES-WRITER              := R-IDENT-VALUE (I)
+        VALUE REPORT-IDENT-JES-DESTINATION
+          EOMRPM-JES-DESTINATION         := R-IDENT-VALUE (I)
+        VALUE REPORT-IDENT-JES-FORM
+          EOMRPM-JES-FORM                := R-IDENT-VALUE (I)
+        VALUE REPORT-INTERNAL-NODE-ID
+          IF R-IDENT-VALUE (I) IS (P11)
+            EOMRPM-INTERNAL-NODE-ID      := VAL(R-IDENT-VALUE (I))
+          ELSE
+            RESET EOMRPM-INTERNAL-NODE-ID
+          END-IF
+        NONE VALUE IGNORE
+      END-DECIDE
+    END-FOR
+  END-IF
+*
+/*SU11 IF EOMRPM-I-ATTRIBUTE-TYPE = REPORT-POWER-ATTRIBUTES
+  IF EOMRPM-I-ATTRIBUTE-TYPE = REPORT-NAF-ATTRIBUTES
+    RESET EOMRPM-NAF-ATTRIBUTES
+    FOR I = 1 TO INUM
+      IF R-IDENT (I) = ' '
+        ESCAPE TOP
+      END-IF
+      DECIDE ON FIRST R-IDENT-TYPE (I)
+        VALUE REPORT-IDENT-NAF-USER-ID
+          EOMRPM-NAF-USER-ID            := R-IDENT-VALUE (I)
+        VALUE REPORT-IDENT-NAF-NATLIB
+          EOMRPM-NAF-NATLIB             := R-IDENT-VALUE (I)
+        VALUE REPORT-IDENT-NAF-NATPGM
+          EOMRPM-NAF-NATPGM             := R-IDENT-VALUE (I)
+        VALUE REPORT-IDENT-NAF-FORM
+          EOMRPM-NAF-FORM               := R-IDENT-VALUE (I)
+        VALUE REPORT-IDENT-NAF-REPORT-NAME
+          EOMRPM-NAF-REPORT-NAME := R-IDENT-VALUE (I)
+        VALUE REPORT-IDENT-NAF-PROFILE
+          EOMRPM-NAF-PROFILE            := R-IDENT-VALUE (I)
+        NONE VALUE
+          IGNORE
+      END-DECIDE
+    END-FOR
+  END-IF
+  IF EOMRPM-I-ATTRIBUTE-TYPE = REPORT-BS2-ATTRIBUTES
+    RESET EOMRPM-BS2-ATTRIBUTES
+    EOMRPM-BS2-CODEPAGE := R-REMOTE-CODEPAGE
+    J := 1
+    FOR I 1 TO 10
+      IF R-IDENT-FILES (I) =MASK('NOM=')
+        ESCAPE TOP
+      END-IF
+      EOMRPM-BS2-FILES (J) := R-IDENT-FILES (I)
+      ADD 1 TO J
+    END-FOR
+    FOR I = 1 TO INUM
+      IF R-IDENT (I) = ' '
+        ESCAPE TOP
+      END-IF
+      DECIDE ON FIRST R-IDENT-TYPE (I)
+        VALUE REPORT-IDENT-BS2-USER-ID
+          EOMRPM-BS2-USER-ID         := R-IDENT-VALUE (I)
+        VALUE REPORT-IDENT-BS2-JOB-NAME
+          EOMRPM-BS2-JOB-NAME := R-IDENT-VALUE (I)
+        VALUE REPORT-IDENT-BS2-FORM
+          EOMRPM-BS2-FORM            := R-IDENT-VALUE (I)
+        VALUE REPORT-INTERNAL-NODE-ID
+          IF R-IDENT-VALUE (I) IS (P11)
+            EOMRPM-INTERNAL-NODE-ID := VAL(R-IDENT-VALUE (I))
+          ELSE
+            RESET EOMRPM-INTERNAL-NODE-ID
+          END-IF
+        VALUE REPORT-IDENT-BS2-CODEPAGE
+          EOMRPM-BS2-CODEPAGE       := R-REMOTE-CODEPAGE
+        NONE VALUE IGNORE
+      END-DECIDE
+    END-FOR
+  END-IF
+*
+  IF EOMRPM-I-ATTRIBUTE-TYPE = REPORT-UNIX-ATTRIBUTES
+    RESET EOMRPM-UNIX-ATTRIBUTES
+    EOMRPM-UNIX-FORMAT := R-REP-FORMAT
+    IF EOMRPM-UNIX-FORMAT = ' '
+      EOMRPM-UNIX-FORMAT := 'T'
+    END-IF
+    J := 1
+    FOR I 1 TO 10
+      IF R-IDENT-FILES (I)=MASK('NOM=')
+        ESCAPE TOP
+      END-IF
+      EOMRPM-UNIX-FILES (J) := R-IDENT-FILES (I)
+      ADD 1 TO J
+    END-FOR
+    FOR I = 1 TO INUM
+      IF R-IDENT (I) = ' '
+        ESCAPE TOP
+      END-IF
+      DECIDE ON FIRST R-IDENT-TYPE (I)
+        VALUE REPORT-IDENT-UNIX-NODENAME
+          EOMRPM-UNIX-NODENAME := R-IDENT-VALUE (I)
+        VALUE REPORT-IDENT-UNIX-PATH
+          EOMRPM-UNIX-PATH := R-IDENT-VALUE (I)
+* Container data currently read from Unix node definition only.
+*       VALUE REPORT-IDENT-UNIX-C-DBID IF R-IDENT-VALUE (I) IS (N5)
+*           EOMRPM-UNIX-C-DBID := VAL (R-IDENT-VALUE (I)) END-IF
+*       VALUE REPORT-IDENT-UNIX-C-FNR IF R-IDENT-VALUE (I) IS (N5)
+*           EOMRPM-UNIX-C-FNR := VAL (R-IDENT-VALUE (I)) END-IF
+        NONE VALUE IGNORE
+      END-DECIDE
+    END-FOR
+  END-IF
+*
+  IF EOMRPM-I-ATTRIBUTE-TYPE = REPORT-CMA-ATTRIBUTES
+    RESET EOMRPM-CMA-ATTRIBUTES
+    FOR I = 1 TO INUM
+      IF R-IDENT (I) = ' '
+        ESCAPE TOP
+      END-IF
+      DECIDE ON FIRST R-IDENT-TYPE (I)
+        VALUE REPORT-IDENT-CMA-USER-ID
+          EOMRPM-CMA-USER-ID  := R-IDENT-VALUE (I)
+        VALUE REPORT-IDENT-CMA-FILE-NAME
+          EOMRPM-CMA-FILENAME := R-IDENT-VALUE (I)
+        VALUE REPORT-IDENT-CMA-FORM
+          EOMRPM-CMA-FORM     := R-IDENT-VALUE (I)
+        VALUE REPORT-IDENT-CMA-WRITER
+          EOMRPM-CMA-WRITER   := R-IDENT-VALUE (I)
+        NONE VALUE
+          IGNORE
+      END-DECIDE
+    END-FOR
+  END-IF
+*
+  IF EOMRPM-I-ATTRIBUTE-TYPE = REPORT-NOMUSR-ATTRIBUTES
+    RESET EOMRPM-NOMUSR-ATTRIBUTES
+    EOMRPM-NOMUSR-INTERFACE := R-NOMUSR-INTERFACE
+    PERFORM GET-PROMPT-TEXTS
+    RESET J
+    FOR I 1 TO 10
+      IF R-IDENT-FILES (I) = MASK ('NOM=')
+        EXAMINE R-IDENT-FILES (I) FOR 'NOM=' DELETE
+        ADD 1 TO J
+        MOVE LEFT JUSTIFIED R-IDENT-FILES (I) TO EOMRPM-NOMUSR-FILES (J)
+      END-IF
+    END-FOR
+    RESET J
+    FOR I = 1 TO INUM
+      IF R-IDENT (I) = ' '
+        ESCAPE TOP
+      END-IF
+      DIVIDE 100 INTO R-IDENT-TYPE (I) GIVING #CHECK-TYPE
+      IF #CHECK-TYPE = R-NOMUSR-INTERFACE
+        ADD 1 TO J
+        EOMRPM-NOMUSR-IDENT-VALUE (J) := R-IDENT-VALUE (I)
+      END-IF
+    END-FOR
+  END-IF
+*
+  IF EOM-FUNCTION = EOM-READHOLD OR = EOM-READHOLD-NEXT
+    UPD. GET REPORT *ISN (FNDRP.)
+    IF R-REPNAME NE R-REPNAME
+      UPDATE (UPD.)
+    END-IF
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* READ-IDENTIFICATION-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-IDENTIFICATION-ATTRIBUTES
+************************************************************************
+FNDMOD. FIND REPORT WITH R-REPNAME = EOMRPM-I-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0406
+    COMPRESS *PROGRAM *LINE EOMRPM-I-NAME TO EOMMSG-TEXT
+    COMPRESS EOMRPM-I-NAME ' (' *PROGRAM ',' *LINE ')'
+      TO EOMMSG-TOKEN(1) LEAVING NO
+    ESCAPE BOTTOM (FNDMOD.)
+  END-NOREC
+  IF R-TYPE = 'C'
+    EOMMSG-NR := 0020
+    ESCAPE BOTTOM (FNDMOD.)
+  END-IF
+  RESET R-REMOTE-CODEPAGE /*if ident changed,reset CODEPAGE /*SU8
+  DECIDE ON FIRST VALUE OF EOMRPM-I-ATTRIBUTE-TYPE
+    VALUE REPORT-JES-ATTRIBUTES /*--------------------------------------
+      J := 1
+      FOR I 1 TO 10
+        IF R-IDENT-FILES (I)=MASK('NOM=')
+          ESCAPE TOP
+        END-IF
+        R-IDENT-FILES (I) := EOMRPM-JES-FILES (J)
+        ADD 1 TO J
+      END-FOR
+      RESET R-IDENT (*) I
+      DECIDE FOR EVERY CONDITION
+        WHEN EOMRPM-JES-JOB-NAME NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE  (I) := REPORT-IDENT-JES-JOB-NAME
+          R-IDENT-VALUE (I) := EOMRPM-JES-JOB-NAME
+        WHEN EOMRPM-JES-WRITER NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE  (I) := REPORT-IDENT-JES-WRITER
+          R-IDENT-VALUE (I) := EOMRPM-JES-WRITER
+        WHEN EOMRPM-JES-DESTINATION NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE  (I) := REPORT-IDENT-JES-DESTINATION
+          R-IDENT-VALUE (I) := EOMRPM-JES-DESTINATION
+        WHEN EOMRPM-JES-FORM NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE  (I) := REPORT-IDENT-JES-FORM
+          R-IDENT-VALUE (I) := EOMRPM-JES-FORM
+        WHEN EOMRPM-INTERNAL-NODE-ID-A IS (P11)
+        AND EOMRPM-INTERNAL-NODE-ID NE 0                              /*
+          ADD 1 TO I
+          R-IDENT-TYPE  (I) := REPORT-INTERNAL-NODE-ID
+          R-IDENT-VALUE (I) := EOMRPM-INTERNAL-NODE-ID
+        WHEN EOMRPM-JES-CODEPAGE NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE  (I) := REPORT-IDENT-JES-CODEPAGE
+          R-IDENT-VALUE (I) := EOMRPM-JES-CODEPAGE
+        WHEN NONE IGNORE
+      END-DECIDE
+      R-REMOTE-CODEPAGE := EOMRPM-JES-CODEPAGE /*SU8
+/*SU11 VALUE REPORT-POWER-ATTRIBUTES /*---------------------------------
+    VALUE REPORT-NAF-ATTRIBUTES /*--------------------------------------
+      RESET R-IDENT (*) I
+      DECIDE FOR EVERY CONDITION
+        WHEN EOMRPM-NAF-USER-ID NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE (I)  := REPORT-IDENT-NAF-USER-ID
+          R-IDENT-VALUE (I) := EOMRPM-NAF-USER-ID
+        WHEN EOMRPM-NAF-NATLIB NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE (I)  := REPORT-IDENT-NAF-NATLIB
+          R-IDENT-VALUE (I) := EOMRPM-NAF-NATLIB
+        WHEN EOMRPM-NAF-NATPGM NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE (I)  := REPORT-IDENT-NAF-NATPGM
+          R-IDENT-VALUE (I) := EOMRPM-NAF-NATPGM
+        WHEN EOMRPM-NAF-FORM NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE (I)  := REPORT-IDENT-NAF-FORM
+          R-IDENT-VALUE (I) := EOMRPM-NAF-FORM
+        WHEN EOMRPM-NAF-REPORT-NAME NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE (I)  := REPORT-IDENT-NAF-REPORT-NAME
+          R-IDENT-VALUE (I) := EOMRPM-NAF-REPORT-NAME
+        WHEN EOMRPM-NAF-PROFILE NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE (I)  := REPORT-IDENT-NAF-PROFILE
+          R-IDENT-VALUE (I) := EOMRPM-NAF-PROFILE
+        WHEN NONE IGNORE
+      END-DECIDE
+    VALUE REPORT-BS2-ATTRIBUTES /*--------------------------------------
+      J := 1
+      FOR I 1 TO 10
+        IF R-IDENT-FILES (I)=MASK('NOM=')
+          ESCAPE TOP
+        END-IF
+        R-IDENT-FILES (I) := EOMRPM-BS2-FILES (J)
+        ADD 1 TO J
+      END-FOR
+      RESET R-IDENT (*) I
+      DECIDE FOR EVERY CONDITION
+        WHEN EOMRPM-BS2-USER-ID NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE (I)  := REPORT-IDENT-BS2-USER-ID
+          R-IDENT-VALUE (I) := EOMRPM-BS2-USER-ID
+        WHEN EOMRPM-BS2-JOB-NAME NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE (I)  := REPORT-IDENT-BS2-JOB-NAME
+          R-IDENT-VALUE (I) := EOMRPM-BS2-JOB-NAME
+        WHEN EOMRPM-BS2-FORM NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE (I)  := REPORT-IDENT-BS2-FORM
+          R-IDENT-VALUE (I) := EOMRPM-BS2-FORM
+        WHEN EOMRPM-INTERNAL-NODE-ID-A IS (P11)
+        AND EOMRPM-INTERNAL-NODE-ID NE 0                              /*
+          ADD 1 TO I
+          R-IDENT-TYPE  (I) := REPORT-INTERNAL-NODE-ID
+          R-IDENT-VALUE (I) := EOMRPM-INTERNAL-NODE-ID
+        WHEN EOMRPM-BS2-CODEPAGE NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE  (I) := REPORT-IDENT-BS2-CODEPAGE
+          R-IDENT-VALUE (I) := EOMRPM-BS2-CODEPAGE
+        WHEN NONE IGNORE
+      END-DECIDE
+      R-REMOTE-CODEPAGE := EOMRPM-BS2-CODEPAGE /*SU8
+    VALUE REPORT-CMA-ATTRIBUTES /*--------------------------------------
+      RESET R-IDENT (*) I
+      DECIDE FOR EVERY CONDITION
+        WHEN EOMRPM-CMA-USER-ID NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE (I)  := REPORT-IDENT-CMA-USER-ID
+          R-IDENT-VALUE (I) := EOMRPM-CMA-USER-ID
+        WHEN EOMRPM-CMA-FILENAME NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE (I)  := REPORT-IDENT-CMA-FILE-NAME
+          R-IDENT-VALUE (I) := EOMRPM-CMA-FILENAME
+        WHEN EOMRPM-CMA-FORM NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE (I)  := REPORT-IDENT-CMA-FORM
+          R-IDENT-VALUE (I) := EOMRPM-CMA-FORM
+        WHEN EOMRPM-CMA-WRITER NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE (I)  := REPORT-IDENT-CMA-WRITER
+          R-IDENT-VALUE (I) := EOMRPM-CMA-WRITER
+        WHEN NONE IGNORE
+      END-DECIDE
+    VALUE REPORT-UNIX-ATTRIBUTES /*-------------------------------------
+      IF (EOMRPM-UNIX-NODENAME = ' ' OR EOMRPM-UNIX-PATH = ' ')
+      AND NOT (EOMRPM-UNIX-FILES(*) NE ' ')                           /*
+        EOMRPM-UNIX-FORMAT := 'T' /*SU/EVI 2018-04 was ' '
+      END-IF
+      J := 1
+      FOR I 1 TO 10
+        IF R-IDENT-FILES (I)=MASK('NOM=')
+          ESCAPE TOP
+        END-IF
+        R-IDENT-FILES (I) := EOMRPM-UNIX-FILES (J)
+        ADD 1 TO J
+      END-FOR
+      RESET R-IDENT (*) I
+      DECIDE FOR EVERY CONDITION
+        WHEN EOMRPM-UNIX-NODENAME NE ' ' AND EOMRPM-UNIX-PATH NE ' '
+          ADD 1 TO I
+          R-IDENT-TYPE (I)  := REPORT-IDENT-UNIX-NODENAME
+          R-IDENT-VALUE (I) := EOMRPM-UNIX-NODENAME
+          ADD 1 TO I
+          R-IDENT-TYPE (I)  := REPORT-IDENT-UNIX-PATH
+          R-IDENT-VALUE (I) := EOMRPM-UNIX-PATH
+* Container data currently read from Unix node definition only.
+*     WHEN EOMRPM-UNIX-C-DBID NE 0 ADD 1 TO I
+*         R-IDENT-TYPE (I)  := REPORT-IDENT-UNIX-C-DBID
+*         R-IDENT-VALUE (I) := EOMRPM-UNIX-C-DBID
+*     WHEN EOMRPM-UNIX-C-FNR NE 0 ADD 1 TO I
+*         R-IDENT-TYPE (I)  := REPORT-IDENT-UNIX-C-FNR
+*         R-IDENT-VALUE (I) := EOMRPM-UNIX-C-FNR
+        WHEN EOMRPM-UNIX-FORMAT NE ' '
+          IF NOT (EOMRPM-UNIX-FORMAT = 'B' OR = 'T' OR = 'A')
+            EOMMSG-FIELD-NAME:= 'EOMRPM-UNIX-FORMAT'
+            EOMMSG-NR:= 1119
+            ESCAPE ROUTINE
+          END-IF
+          R-REP-FORMAT  := EOMRPM-UNIX-FORMAT
+        WHEN NONE IGNORE
+      END-DECIDE
+    VALUE REPORT-NOMUSR-ATTRIBUTES /*-----------------------------------
+      R-NOMUSR-INTERFACE := EOMRPM-NOMUSR-INTERFACE
+      FOR I 1 TO 10
+        IF R-IDENT-FILES (I) = MASK ('NOM=')
+          RESET R-IDENT-FILES (I)
+        END-IF
+      END-FOR
+      FOR I 1 TO 10
+        IF EOMRPM-NOMUSR-FILES (I) = ' '
+          ESCAPE TOP
+        END-IF
+        J1. REPEAT
+          ADD 1 TO J
+          IF R-IDENT-FILES (J) = ' '
+            ESCAPE BOTTOM (J1.)
+          END-IF
+        END-REPEAT
+        IF J LE 10
+          COMPRESS 'NOM=' EOMRPM-NOMUSR-FILES (I)
+            TO R-IDENT-FILES (J) LEAVING NO
+        END-IF
+      END-FOR
+*
+      RESET R-IDENT (*) I
+      FOR J 1 4
+        ADD 1 TO I
+        EOMRPM-NOMUSR-IDENT-TYPE (J) :=
+          EOMRPM-NOMUSR-INTERFACE   * 100 + J
+        R-IDENT-TYPE  (I) := EOMRPM-NOMUSR-IDENT-TYPE (J)
+        R-IDENT-VALUE (I) := EOMRPM-NOMUSR-IDENT-VALUE (J)
+      END-FOR
+    NONE
+      PRINT *PROGRAM *LINE 'invalid ident type:' EOMRPM-I-ATTRIBUTE-TYPE
+  END-DECIDE
+  R-LAST-MODIFIED := *TIMX
+  R-MODIFIED-BY   := *USER
+*
+  UPDATE (FNDMOD.)
+*
+END-FIND
+*
+END-SUBROUTINE /* MODIFY-IDENTIFICATION-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE GET-PROMPT-TEXTS
+************************************************************************
+NRM-MONITOR.#NOMUSR           := 'NOMUSR'
+NRM-MONITOR.#NOMUSR-INTERFACE := EOMRPM-NOMUSR-INTERFACE
+*
+FIND (1) NRM-MONITOR WITH M-MONITOR-ID = NRM-MONITOR.M-MONITOR-ID
+  CALLNAT 'RGETLIB' LIBRARY
+  MOVE EDITED LIBRARY (EM=XXXXXX) TO LIBRARY
+  COMPRESS LIBRARY 'U' TO LIBRARY LEAVING NO
+  LANG-CODE := *LANGUAGE
+  FOR I 1 5
+    IF NRM-MONITOR.#NOMUSR-PROMPT (I) = MASK (NNNN' ')
+      ERROR-NUMBER := VAL (NRM-MONITOR.#NOMUSR-PROMPT (I))
+      CALLNAT 'NAT00064' #NAT00064 /*CHECK-NSC CP CP-SUPPORT
+      IF I = 5
+        COMPRESS SHORT-TEXT '....................'
+          TO EOMRPM-NOMUSR-FILES-PROMPT
+      ELSE
+        COMPRESS SHORT-TEXT '....................'
+          TO EOMRPM-NOMUSR-IDENT-PROMPT (I)
+      END-IF
+    END-IF
+  END-FOR
+END-FIND
+*
+END-SUBROUTINE /* GET-PROMPT-TEXTS
+*
+INCLUDE C-EOMERR /*ON ERROR
+*
+END

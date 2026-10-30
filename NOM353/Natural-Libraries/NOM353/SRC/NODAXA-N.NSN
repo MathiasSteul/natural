@@ -1,0 +1,130 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NODAXA-N - NOM API Maintenance XREF of User defined archives
+* Parameters:        ES-KEY-PARM(1) - Archive number
+*
+* Maintenance:
+* XSETGGR  2004-08-25 created
+* xsetggr  2007-07-04 NOM3201 Support P11 format run numbers
+* SU1      2024-04-29 NOM 36  remove unused
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NODAXA-A
+LOCAL
+/*SU1 1 US-ARC VIEW OF NRM-USER-DEFINED-ARCHIVE 2 M-USERARC-NAME
+/*SU1   2 M-USERARC-DESCRIPTION
+1 RP VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-DESC
+  2 R-ARCHIVE-TYPE
+1 AD VIEW OF NRM-ARCHIVE-DATASET
+  2 AD-ARCHIVE-DSNAME
+  2 AD-ARCHIVE-TYPE
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-DESC
+  2 AR-ARCHIVE-TYPE
+1 #IMAX           (I4)
+1 #I              (I4)
+1 #I3             (I4)
+1 #J              (I4)
+1 #MONITOR-ID     (A10) INIT <'USERARC'>
+1 REDEFINE #MONITOR-ID
+  2 #MONITOR-TYPE (A7)
+  2 #ARCHIVE-NR   (N2)
+1 #ISN            (N10)
+1 REDEFINE #ISN
+  2 #ISN-A        (A10)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+************************************************************************
+RESET ES-RC NOXA-NUM-OBJ(*)
+#IMAX := 293
+ES-EOF := 'X'
+IF ES-KEY-PARM(1) NE ' '
+  #ARCHIVE-NR := VAL(ES-KEY-PARM(1))
+END-IF
+IF ES-NEXT-KEY-PARM(1) NE ' '
+  #J := VAL(ES-NEXT-KEY-PARM(1))
+  #ISN-A := ES-NEXT-KEY-PARM(2)
+ELSE
+  #J := 1
+END-IF
+FOR #I = #J TO 3
+  DECIDE ON FIRST VALUE OF #I
+    VALUE 1
+      FRP. FIND RP WITH R-ARCHIVE-TYPE = #ARCHIVE-NR
+        ACCEPT IF #ISN = 0 OR #ISN = *ISN(FRP.)
+        RESET #ISN
+        ADD 1 TO #I3
+        IF #I3 > #IMAX
+          ES-EOF := ' '
+          ES-NEXT-KEY-PARM(1) := #I
+          #ISN := *ISN(FRP.)
+          ES-NEXT-KEY-PARM(2) := #ISN-A
+          ESCAPE ROUTINE
+        ELSE
+          NOXA-REP-NAME(#I3) := R-REPNAME
+          NOXA-DESC(#I3) := R-DESC
+        END-IF
+        NOXA-NUM-OBJ(1) := NOXA-NUM-OBJ(1) + 1
+      END-FIND
+    VALUE 2
+      FAR. FIND AR WITH AR-ARCHIVE-TYPE = #ARCHIVE-NR
+        ACCEPT IF #ISN = 0 OR #ISN = *ISN(FAR.)
+        RESET #ISN
+        ADD 1 TO #I3
+        IF #I3 > #IMAX
+          ES-EOF := ' '
+          ES-NEXT-KEY-PARM(1) := #I
+          #ISN := *ISN(FAR.)
+          ES-NEXT-KEY-PARM(2) := #ISN-A
+          ESCAPE ROUTINE
+        ELSE
+          NOXA-REP-NAME(#I3) := AR-REPNAME
+          NOXA-REP-RNB(#I3)  := AR-REPRNB
+          NOXA-DESC(#I3) := AR-DESC
+        END-IF
+        NOXA-NUM-OBJ(2) := NOXA-NUM-OBJ(2) + 1
+      END-FIND
+    VALUE 3
+      FAD. FIND AD WITH AD-ARCHIVE-TYPE = #ARCHIVE-NR
+        ACCEPT IF #ISN = 0 OR #ISN = *ISN(FAD.)
+        RESET #ISN
+        ADD 1 TO #I3
+        IF #I3 > #IMAX
+          ES-EOF := ' '
+          ES-NEXT-KEY-PARM(1) := #I
+          #ISN := *ISN(FAD.)
+          ES-NEXT-KEY-PARM(2) := #ISN-A
+          ESCAPE ROUTINE
+        ELSE
+          NOXA-ARC-NAME(#I3) := AD-ARCHIVE-DSNAME
+        END-IF
+        NOXA-NUM-OBJ(3) := NOXA-NUM-OBJ(3) + 1
+      END-FIND
+    NONE VALUE IGNORE
+  END-DECIDE
+END-FOR
+*
+END

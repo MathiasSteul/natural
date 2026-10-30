@@ -1,0 +1,112 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Product   SAT 3.1
+* Member    TERMRPC
+* Function  Stop  RPC Server
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* fhi 02-11-29           created
+* 05-09-19 264634   Node number handling, tracing, etc.         SN314Z1
+* 13.12.06 061213   multiple RPC servers                        SN315
+* 20.02.07 070220   more sysout                                 SN315
+* 01.10.08 306102   Allow notation broker:port:protocol         FHI
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2016-07-25 NOM 3.5: remove unused code
+* SU2     2020-04-09 remove unused
+* SU3     2020-06-22 NOMALL-2349 show full msg
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL
+1 NAT31011-PARMS
+  2 FUNCTION        (A10)  /* IN   /* ping, terminate
+  2 SRVNODE         (A192) /* IN
+  2 SRVNAME         (A192) /* IN
+  2 LOGON           (A1)   /* IN   the logon flag
+  2 USER-ID         (A8)   /* IN
+  2 PASSWORD        (A8)   /* IN
+  2 MSG             (A79)  /* OUT
+  2 RC              (I2)   /* OUT  0=O.K., 1=Error Broker, 2=Error API
+*
+1 #WAIT-TIME        (I2) INIT  <1>  /* seconds to wait for RPC shutdown
+1 #SRVNODE          (A50)
+1 #SRVNAME          (A50)
+1 #NODE             (N5)
+1 #WATCH-ERROR-CODE (N4)
+1 #WATCH-ERROR-TEXT (A250)
+1 #I                (I2)
+1 #RPC-TASK-NUMBER  (I2)
+1 #MESSAGE          (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+INPUT (IP=OFF) '=' #SRVNODE '=' #SRVNAME
+  '=' #NODE '=' #RPC-TASK-NUMBER
+*
+FORMAT PS=132
+*
+PERFORM SHUTDOWN-RPC
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SHUTDOWN-RPC
+************************************************************************
+RESET USER-ID PASSWORD MSG
+NAT31011-PARMS.FUNCTION := 'TERMINATE'
+SRVNODE                 := #SRVNODE
+SRVNAME                 := #SRVNAME
+LOGON                   := FALSE
+FOR #I = 1 TO 300 /* try for 5 minutes (#WAIT-TIME = 1 sec)
+  CALLNAT 'NAT31011' NAT31011-PARMS
+  IF RC NE 0
+    IF MSG = SCAN '00070007' /* 'server down' message
+      RESET #WATCH-ERROR-CODE #WATCH-ERROR-TEXT
+      COMPRESS 'All servers' #SRVNAME 'on node' #SRVNODE 'terminated.'
+        TO #MESSAGE
+      WRITE /
+      PRINT *PROGRAM *TIMX #MESSAGE /*SU3 (AL=70)
+    ELSE
+      COMPRESS 'RPC returned error' #WATCH-ERROR-CODE TO #MESSAGE
+      #WATCH-ERROR-CODE := RC
+      #WATCH-ERROR-TEXT := MSG
+      WRITE /
+      PRINT *PROGRAM *TIMX #MESSAGE /*SU3   (AL=70)
+      PRINT *PROGRAM *TIMX #WATCH-ERROR-TEXT /*SU3 (AL=70)
+    END-IF
+    ESCAPE ROUTINE
+  ELSE
+    CALLNAT 'NAT00031' #WAIT-TIME
+  END-IF
+END-FOR
+#WATCH-ERROR-CODE := 99
+COMPRESS 'Some servers' #SRVNAME 'on node' #SRVNODE TO #MESSAGE
+WRITE /
+PRINT *PROGRAM *TIMX #MESSAGE /*SU3 (AL=70)
+WRITE *PROGRAM *TIMX 'could not be terminated.'
+*
+END-SUBROUTINE /* rowdown
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  #WATCH-ERROR-CODE := *ERROR-NR
+  WRITE /
+  WRITE *PROGRAM *TIMX 'Natural error occurred:' #WATCH-ERROR-CODE
+  WRITE *PROGRAM *TIMX 'in line:' *ERROR-LINE
+  WRITE *PROGRAM *TIMX 'Watchdog terminates with error.'
+*
+  TERMINATE #WATCH-ERROR-CODE
+*
+END-ERROR
+*
+END

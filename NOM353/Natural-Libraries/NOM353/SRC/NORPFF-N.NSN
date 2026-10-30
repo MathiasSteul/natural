@@ -1,0 +1,696 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NORPFF-N - NOM API Report Maintenance
+*            Functions rename, copy, delete, mass-delete
+*            Input keys :
+*            ES-KEY-PARM(1)     repname for found
+*            ES-KEY-PARM(2)     new repname for functions copy rename
+*            ES-KEY-PARM(3)     copy authorization (Y/N)
+*
+*           For mass-delete (ES-ORIG-FUNCTION = 'DE')
+*            Input keys :
+*            ES-KEY-PARM(1) -
+*              search-criteria for objects, which will be deleted-
+*               simple -  ABC*,
+*               mask - A?B*CCCB
+*            ES-KEY-PARM(2) - start searching from this object
+*            ES-KEY-PARM(3) -
+*              answer from client:
+*               'N' or 'NA' - don`t delete first object ES-KEY-PARM(2)
+*               'A' - don`t ask for all reports- should they be deleted,
+*                      because they have active reports
+*               'Y' - delete first object - ES-KEY-PARM(2)
+*               'C' - cancel massdel
+*            ES-KEY-PARM(4) - prefix for mask
+*              if  ES-KEY-PARM(4) is H'FF' then no mask is being used
+*              and simple search-criteria(e.g. ABC*)is in ES-KEY-PARM(1)
+*              otherwise  mask is in ES-KEY-PARM(1) and prefix is in
+*              ES-KEY-PARM(4).
+*            ES-KEY-PARM(5) -  search to this object(if it is specified)
+*              it is being used to name object, which shouldn`t be
+*              deleted, because it is open by client in NGC.
+*            ES-NUMBER      -  count of already deleted objects.
+* XSETGGR  2002-02-26 created
+* XSETGGR  2002-03-13 write in log
+* XSETHZ   2002-06-04
+* XSETGGR  2002-12-30 chenge writing in log
+* XSETHZ   2003-05-09 confirm delete, if active reports exist
+* sju 04-11-29 nom31  restow for changed NRM-ORDER
+* sju      2005-10-13 p(270567) only disallow deletion if there are
+*                               orders for this report
+* XSETGGR 2007-03-22  replace call of ES...-N to direct call of module
+* XSETGGR 2007-07-04  NOM3201   Support P11 format run numbers
+* XSETHZ  2008-07-23  p(307577) use full name of ES-APP-SERVER-LIBRARY
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-20 NOMALL-901 correct writing delete operations in log
+* XSETHZ  2011-09-28 NOMALL-860 Direct command DELETE with *
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* XKO     2012-10-09 NOMALL-860 Direct comand DELETE with * changed
+* fhi     2013-08-29 FHI285    Enhance error message 406
+* SU1 2014-02-10 NOMALL-1344 unix - daily cleanup does not delete orders
+* CF1     2016-10-04 NOMALL-.... Correct granting check for copy
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-01-11 NOMALL-1961 Change descriptor of NRM-ORDER
+* SU2     2020-04-01 NOMALL-2379 recat:VREP---L mod:Unix files A26-> A50
+* HEB1    2022-07-12 NOMALL-2558 copy: last update user+date
+************************************************************************
+*
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL USING VREP---L
+LOCAL USING NOMODE-A
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RLOG-L
+LOCAL USING RMODTY-E
+LOCAL
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-MONITOR-ID
+  2 OD-TYPE
+  2 OD-TIME-SCHEDULED
+  2 OD-SOURCE-ID
+  2 OD-PARAMETER           (1:1)
+  2 REDEFINE OD-PARAMETER
+    3 OD-MASTER            (A25)
+1 REPORT-LAYOUT VIEW OF NRM-REP-TARGET
+  2 RD-REPNAME
+1 BUNDLE-REPORT VIEW OF NRM-BUNDLE-REPORT
+  2 BR-REPNAME
+  2 BR-BUNDLE
+1 BUNDLES VIEW OF NRM-BUNDLES
+  2 B-FLUSH-REPORTS        (1:10)
+1 CREATED-REPORTS VIEW OF NRM-REPORTS-NEW
+  2 R-MASTER-REPNAME
+1 GRANTS VIEW OF NRM-GRANTS
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+1 #ES-CONTROL              (A253)
+1 #ES-INPUT-AREA           (A253/1:3)
+1 #OD-TYPE-TIME            (A9)
+1 REDEFINE #OD-TYPE-TIME
+  2 #TYPE                  (B2)
+  2 #TIME                  (P13)
+1 #GR-TYPE-NAME            (A26) INIT <'R'>
+1 REDEFINE #GR-TYPE-NAME
+  2 #GR-TYPE               (A1)
+  2 #GR-NAME               (A25)
+1 #AR-REPORT-RNBS          (A31)
+1 REDEFINE #AR-REPORT-RNBS
+  2 #REPORT                (A25)
+  2 #RNB                   (P11)
+1 #AR-REPORT-RNBE          (A31)
+1 #MAX-IN-PROCESS          (I2) INIT <2522>
+1 #ES-MSG-PREF             (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM            (A3)
+  2 #ES-MSG-NR             (N4)
+1 #COPY-AUTH               (A1)
+1 #REPNAME                 (A25)
+1 #REP                     (A132)
+1 REDEFINE #REP
+  2 #REPNAME-FR            (A25)
+  2 #REPNAME-TO            (A25)
+  2 #FIRST-REP             (A25)
+  2 #LAST-REP              (A25)
+  2 #REPORT-IN-USE         (A25)
+  2 #TIMEOUT               (T)
+1 #NEWNAME                 (A25)
+1 #GRANTS                  (A1/6)
+1 #GR-USER                 (A8)
+1 #ES-SELECT               (A6)
+1 #USER-LIB                (A8)
+1 #FOR-LOG-AND-REFRESH     (A11)
+1 REDEFINE #FOR-LOG-AND-REFRESH
+  2 #LOG-DELETIONS         (A1)
+  2 #NUM-A                 (A5)
+  2 REDEFINE #NUM-A
+    3 #LOG-DEL-CNT         (N5)
+  2 #REFRESH-COUNT         (N5)
+1 #FOR-MASK-CHECK          (A130)
+1 REDEFINE #FOR-MASK-CHECK
+  2 #I                     (I4)
+  2 #J                     (I4)
+  2 #LEN                   (I4)
+  2 #C                     (I4)
+  2 #POS                   (I4)
+  2 #POS2                  (I4)
+  2 #FIN                   (L)
+  2 #W-CARD-PREV           (L)
+  2 #MASK-CORRECT          (L)
+  2 #STRING                (A50)
+  2 REDEFINE #STRING
+    3 #STRING-A1           (A1/1:50)
+  2 #WILDCARD              (A1)
+  2 #MASK-CHAR             (A1)
+  2 #USE-MASK              (L)
+  2 #MASK                  (A50)
+  2 REDEFINE #MASK
+    3 #MASK-A1             (A1/1:50)
+1 #REFRESH-COUNT-INIT      (N5) INIT <1000>
+1 #WILDCARD-INIT           (A1) INIT <'*'>
+1 #MASK-CHAR-INIT          (A1) INIT <'?'>
+1 #LOG-DELETIONS-INIT      (A1) INIT <'N'>
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-MSG-NR ES-MSG-FIELD ES-MSG-TXT
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA (*) := ES-INPUT-AREA(*)
+NOMOD-PARMS := ES-SELECT
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+#REPNAME := ES-KEY-PARM(1)
+#NEWNAME := ES-NEWNAME
+#COPY-AUTH := ES-KEY-PARM(2)
+DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+  VALUE 'RN'
+    PERFORM RENAME-REPORT
+  VALUE 'CP'
+    PERFORM COPY-REPORT
+  VALUE 'DL'
+    PERFORM DELETE-REPORT
+  VALUE 'DE'
+    PERFORM DELETE-MANY-REPORTS
+  ANY VALUE
+    IF ES-RC = 0
+      PERFORM WRITE-LOG-RECORD
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE RENAME-REPORT
+************************************************************************
+PERFORM VALIDATION
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+FNDREN.
+FIND REPORTS WITH R-REPNAME = #REPNAME
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0490
+    ESCAPE BOTTOM (FNDREN.)
+  END-NOREC
+  R-REPNAME := #NEWNAME
+  UPDATE
+  FIND REPORT-LAYOUT WITH RD-REPNAME = #REPNAME
+    RD-REPNAME := #NEWNAME
+    UPDATE
+  END-FIND
+/* rename report in bundle
+  FIND BUNDLE-REPORT
+      WITH BR-REPNAME = #REPNAME
+    BR-REPNAME := #NEWNAME
+    UPDATE
+/* rename in flush report list
+    FIND BUNDLES
+        WITH B-BUNDLE = BR-BUNDLE
+      EXAMINE FULL VALUE OF B-FLUSH-REPORTS(*) FOR FULL VALUE
+        #REPNAME REPLACE #NEWNAME
+      UPDATE
+    END-FIND
+  END-FIND
+/* rename master repnames in other reports
+  FIND CREATED-REPORTS WITH R-MASTER-REPNAME = #REPNAME
+    R-MASTER-REPNAME := #NEWNAME
+    UPDATE
+  END-FIND
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+/* rename repname in grant records
+ES-ORIG-FUNCTION := 'RN'
+PERFORM CHANGE-GRANTS
+RESET ES-RC ES-MSG-NR ES-MSG-TXT ES-MSG-FIELD
+*
+END-SUBROUTINE /* RENAME-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-REPORT
+************************************************************************
+PERFORM VALIDATION
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+FNDCOP.
+FIND REPORTS WITH R-REPNAME = #REPNAME
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0490
+    ESCAPE BOTTOM (FNDCOP.)
+  END-NOREC
+  R-REPNAME := #NEWNAME
+  R-LAST-UPDATE      := *TIMX                           /* HEB1
+  R-LAST-UPDATE-USER := ES-USER                         /* HEB1
+  STORE REPORTS
+  FIND REPORT-LAYOUT WITH RD-REPNAME = #REPNAME
+    RD-REPNAME := #NEWNAME
+    STORE REPORT-LAYOUT
+  END-FIND
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+/* copy or add grant record
+IF #COPY-AUTH = 'Y'
+  ES-ORIG-FUNCTION := 'CP'
+  IF ES-USER-TYPE NE 'A'
+    #REPORT := ES-KEY-PARM(1)
+    CALLNAT 'NOGROU-N' 'R' #REPORT ES-USER #GR-USER #GRANTS(*) /* CF1
+/*      'B' #GR-REPORT ES-USER #GR-USER #GRANTS(*)  /* CF1
+    IF #GRANTS(1) NE 'Y' AND #GRANTS(3) NE 'Y'
+      #ES-SELECT := 'DL'
+    END-IF
+  END-IF
+ELSE
+  ES-KEY-PARM(1) := #NEWNAME
+  ES-ORIG-FUNCTION := 'NW'
+  ES-KEY-PARM(2) := ES-USER
+  ES-KEY-PARM(3) := 'YYYYYY'
+END-IF
+PERFORM CHANGE-GRANTS
+RESET ES-RC ES-MSG-NR ES-MSG-TXT ES-MSG-FIELD
+ES-SELECT := #ES-SELECT
+*
+END-SUBROUTINE /* COPY-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-REPORT
+************************************************************************
+PERFORM VALIDATION
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+*
+#TYPE := OD-CREATE-AR
+RESET  #TIME
+RDORD. READ ORDER BY OD-TYPE-TIME = #OD-TYPE-TIME
+  IF OD-TIME-SCHEDULED > *TIMX
+  OR OD-TYPE > OD-JES3-RETRY-SPOOL-IN-PROCESS                         /*
+    ESCAPE BOTTOM(RDORD.)
+  END-IF
+  IF OD-TYPE LE #MAX-IN-PROCESS AND OD-TIME-SCHEDULED < *TIMX
+    IF (OD-TYPE = OD-CREATE-AR OR = OD-CREATE-AR-IN-PROCESS)
+        AND OD-MASTER = #REPNAME
+      #ES-MSG-NR := 0417                    /* report is in use
+      PERFORM GET-MSG-TXT
+      ESCAPE ROUTINE
+    END-IF
+    FIND ORDER WITH OD-SOURCE-ID = OD-SOURCE-ID
+      IF (OD-TYPE = OD-CREATE-AR OR = OD-CREATE-AR-IN-PROCESS)
+          AND OD-MASTER = #REPNAME
+        #ES-MSG-NR := 0417                    /* report is in use
+        PERFORM GET-MSG-TXT
+        ESCAPE ROUTINE
+      END-IF
+    END-FIND
+  END-IF
+END-READ
+/* NOMALL-860 Direct command DELETE with *
+IF ES-EXTEND-FUNCTION = 'DLP'
+  IF ES-KEY-PARM(2) = ' '
+    #REPNAME-FR := ES-KEY-PARM(1)
+  ELSE
+    #REPNAME-FR := ES-KEY-PARM(2)
+  END-IF
+  IF ES-KEY-PARM(3) = 'N'
+    #FIRST-REP := ES-KEY-PARM(2)
+    ES-KEY-PARM(3) := ' '
+  ELSE
+    #FIRST-REP := ' '
+  END-IF
+  COMPRESS ES-KEY-PARM(1) H'FF' TO #REPNAME-TO LEAVING NO
+  RDELM. READ REPORTS BY R-REPNAME = #REPNAME-FR ENDING AT #REPNAME-TO
+    ACCEPT IF R-REPNAME NE #FIRST-REP
+    IF NOT (ES-KEY-PARM(3) = 'Y' OR = 'A')
+      IF ES-KEY-PARM(3) = 'Y'
+        ES-KEY-PARM(3) := ' '
+      END-IF
+      #REPORT := R-REPNAME
+      #RNB := 99999999999
+      #AR-REPORT-RNBE := #AR-REPORT-RNBS
+      #RNB := 0
+      FNARM. FIND NUMBER ACTIVE-REPORT
+        WITH AR-REPORT-RNB = #AR-REPORT-RNBS THRU #AR-REPORT-RNBE
+      IF *NUMBER(FNARM.) > 0
+        ES-RC := 2
+        ES-KEY-PARM(2) := R-REPNAME
+        END TRANSACTION
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+    #GR-NAME := R-REPNAME
+    FIND GRANTS WITH GR-TYPE-NAME = #GR-TYPE-NAME
+      DELETE
+    END-FIND
+    ES-NUMBER := ES-NUMBER + 1
+    COMPRESS '0073' 'REPORTS' #NUM-A TO LG-MSG
+    LG-USERID      := ES-USER
+    LG-FUNCTION    := 'W'
+    LG-CODE        := 'MO'
+    CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+  END-READ
+  ESCAPE ROUTINE
+END-IF
+FNDDEL. FIND REPORTS WITH R-REPNAME = #REPNAME
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0490
+    ESCAPE BOTTOM (FNDDEL.)
+  END-NOREC
+  IF ES-EXTEND-FUNCTION NE 'DEL'
+    #REPORT := ES-KEY-PARM(1)
+    #RNB := 99999999999
+    #AR-REPORT-RNBE := #AR-REPORT-RNBS
+    #RNB := 0
+    FNAR. FIND NUMBER ACTIVE-REPORT
+      WITH AR-REPORT-RNB = #AR-REPORT-RNBS THRU #AR-REPORT-RNBE
+    IF *NUMBER(FNAR.) > 0
+      ES-RC := 2                            /* active reports exist
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+  GDEL. GET REPORTS *ISN(FNDDEL.)
+  DELETE (GDEL.)
+  FIND REPORT-LAYOUT WITH RD-REPNAME = #REPNAME
+    DELETE
+  END-FIND
+/* delete from reports in bundle
+  FIND BUNDLE-REPORT WITH BR-REPNAME = #REPNAME
+    DELETE
+/* delete from flush reports list in bundle definition
+    FIND BUNDLES WITH B-BUNDLE = BR-BUNDLE
+      EXAMINE FULL VALUE OF B-FLUSH-REPORTS (*)
+        FOR FULL VALUE #REPNAME REPLACE ' '
+      UPDATE
+    END-FIND
+  END-FIND
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+/* delete grant records for specified report
+ES-ORIG-FUNCTION := 'DL'
+ES-EXTEND-FUNCTION := 'DEL'
+PERFORM CHANGE-GRANTS
+RESET ES-RC ES-MSG-NR ES-MSG-TXT ES-MSG-FIELD
+*
+END-SUBROUTINE /* DELETE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-MANY-REPORTS
+************************************************************************
+IF ES-CLIENT-TIMEOUT > 10 AND ES-CLIENT-TIMEOUT < 9999
+  #TIMEOUT := *TIMX + (ES-CLIENT-TIMEOUT - 10) * 10
+ELSE
+  #TIMEOUT := *TIMX + 450
+END-IF
+#TYPE := OD-CREATE-AR
+#WILDCARD  := #WILDCARD-INIT
+#MASK-CHAR := #MASK-CHAR-INIT
+#LOG-DELETIONS := #LOG-DELETIONS-INIT
+#REFRESH-COUNT := #REFRESH-COUNT-INIT
+DIVIDE #REFRESH-COUNT INTO ES-NUMBER
+  GIVING #I REMAINDER #LOG-DEL-CNT /* sets correct #LOG-DEL-CNT
+DECIDE ON FIRST VALUE OF ES-KEY-PARM(3)
+  VALUE 'N'
+    ES-KEY-PARM(3) := ' '
+    #FIRST-REP := ES-KEY-PARM(2)
+  VALUE 'NA' /*After 'Report in use' and 'Confirm del. with act.rep' ev.
+    ES-KEY-PARM(3) := 'A'
+    #FIRST-REP := ES-KEY-PARM(2)
+  VALUE 'C'
+    ESCAPE ROUTINE /*escapes from subrout.and logs previous deleted rep.
+  NONE VALUE
+    #FIRST-REP := ' '
+END-DECIDE
+IF ES-KEY-PARM(4) =  H'FF'
+  #USE-MASK := FALSE
+  EXAMINE #REPNAME FOR #WILDCARD DELETE
+ELSE
+  #USE-MASK := TRUE
+  #MASK := ES-KEY-PARM(1)
+  #REPNAME := ES-KEY-PARM(4)
+END-IF
+IF ES-KEY-PARM(2) = ' '
+  #REPNAME-FR := #REPNAME
+ELSE
+  #REPNAME-FR := ES-KEY-PARM(2)
+END-IF
+IF ES-KEY-PARM(5) NE ' '
+  #LAST-REP := ES-KEY-PARM(5)
+  COMPRESS ES-KEY-PARM(5) H'FF' TO #REPNAME-TO LEAVING NO
+ELSE
+  COMPRESS #REPNAME H'FF' TO #REPNAME-TO LEAVING NO
+END-IF
+RDORDM. READ ORDER BY OD-TYPE-TIME = #OD-TYPE-TIME
+  IF OD-TIME-SCHEDULED > *TIMX
+  OR OD-TYPE > OD-JES3-RETRY-SPOOL-IN-PROCESS                         /*
+    ESCAPE BOTTOM(RDORDM.)
+  END-IF
+  IF OD-TYPE LE #MAX-IN-PROCESS AND OD-TIME-SCHEDULED < *TIMX
+    IF (OD-TYPE = OD-CREATE-AR OR = OD-CREATE-AR-IN-PROCESS)
+    AND OD-MASTER = #REPNAME-FR THRU #REPNAME-TO                      /*
+      IF #USE-MASK
+        #STRING := OD-MASTER
+        PERFORM COMPARE_WITH_MASK
+        IF #MASK-CORRECT = TRUE
+          #REPORT-IN-USE := OD-MASTER
+          ESCAPE BOTTOM(RDORDM.)
+        END-IF
+      ELSE
+        #REPORT-IN-USE := OD-MASTER
+        ESCAPE BOTTOM(RDORDM.)
+      END-IF
+    END-IF
+    FIND ORDER WITH OD-SOURCE-ID = OD-SOURCE-ID
+      IF (OD-TYPE = OD-CREATE-AR OR = OD-CREATE-AR-IN-PROCESS)
+      AND OD-MASTER = #REPNAME-FR THRU #REPNAME-TO                    /*
+        IF #USE-MASK
+          #STRING := OD-MASTER
+          PERFORM COMPARE_WITH_MASK
+          IF #MASK-CORRECT = TRUE
+            #REPORT-IN-USE := OD-MASTER
+            ESCAPE BOTTOM(RDORDM.)
+          END-IF
+        ELSE
+          #REPORT-IN-USE := OD-MASTER
+          ESCAPE BOTTOM(RDORDM.)
+        END-IF
+      END-IF
+    END-FIND
+  END-IF
+END-READ
+RDELDM. READ REPORTS BY R-REPNAME = #REPNAME-FR THRU #REPNAME-TO
+  IF *TIMX > #TIMEOUT
+    ES-RC := 5
+    ES-KEY-PARM(2) := R-REPNAME
+    END TRANSACTION
+    ESCAPE MODULE
+  END-IF
+  IF #USE-MASK
+    #STRING := R-REPNAME
+    PERFORM COMPARE_WITH_MASK
+    IF #MASK-CORRECT = FALSE
+      ESCAPE TOP
+    END-IF
+  END-IF
+  ACCEPT IF R-REPNAME NE #FIRST-REP
+  IF  R-REPNAME = #LAST-REP
+    ES-RC := 4
+    END TRANSACTION
+    ESCAPE MODULE
+  END-IF
+  RESET  #TIME
+  IF R-REPNAME = #REPORT-IN-USE
+    #ES-MSG-NR := 0417
+    PERFORM GET-MSG-TXT
+    ES-KEY-PARM(2) := R-REPNAME
+    ES-RC := 3       /* GET-MSG-TXT asigns 1 to ES-RC
+    END TRANSACTION
+    ESCAPE ROUTINE
+  END-IF
+  IF NOT (ES-KEY-PARM(3) = 'Y' OR = 'A')
+    #REPORT := R-REPNAME
+    #RNB := 99999999999
+    #AR-REPORT-RNBE := #AR-REPORT-RNBS
+    #RNB := 0
+    FNARMD. FIND NUMBER ACTIVE-REPORT
+      WITH AR-REPORT-RNB = #AR-REPORT-RNBS THRU #AR-REPORT-RNBE
+    IF *NUMBER(FNARMD.) > 0
+      ES-RC := 2
+      ES-KEY-PARM(2) := R-REPNAME
+      END TRANSACTION
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+  IF ES-KEY-PARM(3) = 'Y'
+    ES-KEY-PARM(3) := ' '
+  END-IF
+  GDELMD.  GET REPORTS *ISN(RDELDM.)
+  DELETE (GDELMD.)
+  FIND REPORT-LAYOUT WITH RD-REPNAME = R-REPNAME
+    DELETE
+  END-FIND
+  FIND BUNDLE-REPORT WITH BR-REPNAME = R-REPNAME
+    DELETE
+    FIND BUNDLES WITH B-BUNDLE = BR-BUNDLE
+      EXAMINE FULL VALUE OF B-FLUSH-REPORTS (*)
+        FOR FULL VALUE R-REPNAME REPLACE ' '
+      UPDATE
+    END-FIND
+  END-FIND
+  #GR-NAME := R-REPNAME
+  FIND GRANTS WITH GR-TYPE-NAME = #GR-TYPE-NAME
+    DELETE
+  END-FIND
+  ES-NUMBER := ES-NUMBER + 1  /* total number of deleted reports
+  #LOG-DEL-CNT := #LOG-DEL-CNT + 1 /* number of reports for log
+  IF #LOG-DELETIONS = 'Y'
+    COMPRESS '0075' R-REPNAME 'REPORTS' TO LG-MSG
+    LG-USERID      := ES-USER
+    LG-FUNCTION    := 'W'
+    LG-CODE        := 'MO'
+    CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+    COMPRESS '2502' R-REPNAME  TO LG-MSG
+    LG-REPNAME     := R-REPNAME
+    LG-OBJECT-NAME := R-REPNAME
+    LG-USERID      := ES-USER
+    LG-CODE        := 'RM'
+    CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+  END-IF
+  IF #LOG-DEL-CNT EQ #REFRESH-COUNT
+    PERFORM WRITE-LOG-RECORD
+    #LOG-DEL-CNT := 0
+    END TRANSACTION
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* DELETE-MANY-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+IF ES-ORIG-FUNCTION = 'RN' OR = 'CP'
+  IF #NEWNAME = ' '
+    #ES-MSG-NR := 0305                      /* enter report name
+    ESCAPE ROUTINE
+  END-IF
+  FNDRP1. FIND NUMBER REPORTS WITH R-REPNAME = #NEWNAME
+  IF *NUMBER(FNDRP1.) > 0
+    #ES-MSG-NR := 0304                      /* report already defined
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE CHANGE-GRANTS
+************************************************************************
+ES-OBJECT        := 'GR'
+ES-FUNCTION      := 'FF'
+CALLNAT 'NOGRFF-N' ES-CONTROL ES-INPUT-AREA(*)
+IF ES-RC = 1
+  #ES-MSG-NR := ES-MSG-NR
+END-IF
+ES-CONTROL := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+*
+END-SUBROUTINE /* CHANGE-GRANTS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+EXAMINE ES-MSG-TXT FOR ':2:' REPLACE ' '
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+IF ES-ORIG-FUNCTION = 'DL'     /* log delete function
+  COMPRESS '0075' #REPNAME 'REPORTS' TO LG-MSG
+  LG-USERID      := ES-USER
+  LG-FUNCTION    := 'W'
+  LG-CODE        := 'MO'
+  CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+END-IF
+*
+IF ES-ORIG-FUNCTION = 'DE' /* log delete function for many reports
+  #NUM-A := #LOG-DEL-CNT
+  COMPRESS '0073' 'RP' #NUM-A TO LG-MSG
+  LG-USERID      := ES-USER
+  LG-FUNCTION    := 'W'
+  LG-CODE        := 'MO'
+  CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+ELSE
+  IF NOMOD-LOG-TYPES (*) = 'R'
+    DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+      VALUE 'CP'
+        COMPRESS '2504' #REPNAME #NEWNAME TO LG-MSG
+      VALUE 'RN'
+        COMPRESS '2503' #REPNAME #NEWNAME TO LG-MSG
+      VALUE 'DL'
+        COMPRESS '2502' #REPNAME TO LG-MSG
+      ANY VALUE
+        LG-REPNAME     := #REPNAME
+        LG-OBJECT-NAME := #REPNAME
+        LG-USERID      := ES-USER
+        LG-CODE        := 'RM'
+        CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+      NONE VALUE
+        IGNORE
+    END-DECIDE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+************************************************************************
+* copycode defines SUBROUTINE COMPARE_WITH_MASK
+INCLUDE NOXXCM-C '#STRING' '#STRING-A1' '#MASK' '#MASK-A1'
+  '#WILDCARD' '#MASK-CHAR' '#MASK-CORRECT' '#I' '#J' '#LEN'
+  '#C' '#POS' '#POS2' '#FIN' '#W-CARD-PREV'
+*
+END

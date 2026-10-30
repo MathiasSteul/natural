@@ -1,0 +1,339 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RLISUSR - List NOM User-Spool Interfaces
+*
+* Maintenance
+* UUU YY-MM-DD Sagsis Desciption
+* --- -------- ------ --------------------------------------------------
+* gw  94-12-09 214320 created
+* gw  96-10-15 s(231722) TOP doesn't go top
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* fhi     2010-03-05 P307403 Don't use text and binary reports mixed
+* xsetggr 2010-03-16 P307403 restow - RPFKEX-C is cahnged back
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* SU1     2013-07-17 remove empty copy code CSTARTLS
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL  USING RLC----L
+LOCAL  USING RPFK---L
+LOCAL  USING ROT----L
+LOCAL  USING RDEFUSRL
+LOCAL
+*
+1 #NOFLINES                    (P2) INIT < 15 >
+1 #NOFPAGES                    (P2) INIT < 10 >
+1 #END-OF-DATA                 (L)
+*
+1 #CP                          (P3)
+1 #MAXP                        (P3)
+1 #MAXAP                       (P3)
+1 #NEWVAL                      (L)
+1 #BACKWARD                    (L)
+1 #FORWARD                     (L)
+1 #TOP                         (L)
+1 #BOT                         (L)
+1 DISPLAY-IT                   (L)
+1 GET-SCREEN                   (L)
+1 #RSTART                      (A20)
+1 #LAST-KEY                    (A20)
+1 #TOPKEY                      (A20)
+1 #PAGES                       (A20/10)
+1 #POS                         (P3)
+1 #S-PID                       (A8)
+1 #S-PID-T                     (A8)
+1 #S-PID-F                     (A8)
+1 REDEFINE #S-PID-F
+  2 #S-PID-V                   (A1/8)
+1 L-SCREEN                     (15)
+  2 L-IDENT                    (I2)
+  2 L-INTERFACE                (A3)
+  2 L-DESC                     (A50)
+  2 L-MONITOR-ID               (A9)
+  2 L-ISN                      (P10)
+*
+1 L-LCMD                       (15)
+  2 L-MARK                     (A2)
+  2 CV-MARK                    (C)
+*
+1 L-HEADER                     (A78)
+1 I                            (N5)
+1 #CONFIRMED                   (L)
+1 #ALLOWED                     (L)
+1 #UPDATE                      (L)
+1 #DELETE                      (L)
+1 #FATHER-PROG                 (A8) INIT <'RADMIN'>
+1 CV-SELECTION                 (C/1)
+1 REDEFINE CV-SELECTION
+  2 CV-SPID                    (C)
+*
+1 CV-LINES                     (C)
+1 #ADD-PROGRAM                 (A8)
+1 #ACT-MAST                    (A8)
+1 F                            (P2)
+1 #LANGUAGE                    (I1)
+1 #OBJECT-NAME                 (A32)
+1 LOWER-CASE                   (L) CONST <FALSE>
+1 #OBJ                         (A50)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#ADD-PROGRAM := 'RDEFUSR'
+INCLUDE CVIDEO
+RESET G-COMMIT
+CALLNAT 'NARPSEC' G-USER-PROFILE 'DMO'#ALLOWED
+INCLUDE C-NALLOW
+*
+CALLNAT 'NARPSEC' G-USER-PROFILE 'MMO' #UPDATE
+CALLNAT 'NARPSEC' G-USER-PROFILE 'PMO' #DELETE
+PERFORM INIT-PID-KEYS
+*
+G-C-OBJTYPE := 'MONITOR'
+#NEWVAL := TRUE
+*
+MAIN-LOOP. REPEAT
+*
+  PERFORM GET-SCREEN
+  RESET GET-SCREEN
+*
+  INCLUDE C-TOPBOT
+*
+  IF #LANGUAGE NE *LANGUAGE
+    #LANGUAGE := *LANGUAGE
+    CALLNAT 'ROTINI-N' ##EQO-NOMUSR-INTERFACE G-OBJ-TYPE G-OTB
+    PERFORM INIT-PFKEYS
+    PERFORM INIT-LINECOM
+  END-IF
+  PERFORM SET-PFKEYS
+*
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RLISUSR&'
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'WB'
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+    USING MAP 'RLISUSR&'
+  RESET G-NATRP-ERC G-NATRP-ERT
+  INCLUDE RPFKVA-C
+  IF G-PF-FUNC = 'ADD'
+    #NEWVAL := TRUE
+  ELSE
+    RESET #NEWVAL
+  END-IF
+  INCLUDE C-DIRECT
+  RESET #FORWARD #BACKWARD
+  INCLUDE RPFKEX-C
+  PERFORM LINE-COMMANDS
+  IF CV-SPID MODIFIED
+    PERFORM INIT-PID-KEYS
+    #NEWVAL := TRUE
+  END-IF
+*
+END-REPEAT
+*
+RESET G-NATRP-ERT G-NATRP-ERC
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************--
+DEFINE SUBROUTINE GET-SCREEN
+************************************************************************
+IF G-DIRECT-COMMAND = 'TOP'
+  #TOP := TRUE
+END-IF
+* gw 96-10-15 s(231722) end
+RESET L-MARK(*)
+RESET G-NATRP-ERT
+DECIDE FOR EVERY  CONDITION
+  WHEN #NEWVAL OR #TOP
+    RESET #PAGES(*) #MAXP #MAXAP
+    #PAGES(1) := #S-PID-F
+    #CP := 1
+    #MAXAP := 1
+  WHEN #BOT
+    #CP := #MAXAP
+  WHEN #FORWARD
+    IF #END-OF-DATA
+      ESCAPE ROUTINE
+    END-IF
+    IF #CP = #NOFPAGES
+      #PAGES(1 : #NOFPAGES - 1) := #PAGES(2 : #NOFPAGES)
+      RESET #PAGES(#CP)
+      #PAGES(#CP) := #LAST-KEY
+    ELSE
+      ADD 1 TO #CP
+      IF #CP > #MAXAP
+        #PAGES(#CP) := #LAST-KEY
+      END-IF
+    END-IF
+  WHEN #BACKWARD
+    IF #CP < 2
+      IGNORE
+    ELSE
+      SUBTRACT 1 FROM #CP
+    END-IF
+  WHEN GET-SCREEN IGNORE
+  WHEN NONE ESCAPE ROUTINE
+END-DECIDE
+*
+IF #CP >= #MAXAP
+  #MAXAP := #CP
+END-IF
+*
+#RSTART := #PAGES(#CP)
+*
+RESET I L-SCREEN(*) #END-OF-DATA
+CV-MARK(*) := (AD=P)
+*
+IF #RSTART = ' '
+  #RSTART := 'NOMUSR'
+END-IF
+*
+READ-LOOP. READ NRM-MONITOR BY M-MONITOR-ID = #RSTART
+  AT START OF DATA
+    #PAGES(#CP) := #TOPKEY := M-MONITOR-ID
+  END-START
+*
+  IF M-MONITOR-ID NE MASK ('NOMUSR')
+    #END-OF-DATA := TRUE
+    ESCAPE BOTTOM
+  END-IF
+*
+  DISPLAY-IT := TRUE
+  IF NOT(M-MONITOR-ID = #S-PID-F THRU #S-PID-T)
+    DISPLAY-IT := FALSE
+  END-IF
+*
+  REJECT IF NOT DISPLAY-IT
+*
+  ADD 1 TO I
+  IF I > #NOFLINES
+    #LAST-KEY := M-MONITOR-ID
+    ESCAPE ROUTINE
+  END-IF
+  IF I = 1
+    #PAGES(#CP) := M-MONITOR-ID
+  END-IF
+  RESET CV-MARK(I)
+  #LAST-KEY        := M-MONITOR-ID
+  L-INTERFACE  (I) := #NOMUSR-INTERFACE
+  L-DESC       (I) := M-VERSION
+  L-MONITOR-ID (I) := M-MONITOR-ID
+  L-ISN        (I) := *ISN (READ-LOOP.)
+  RESET CV-MARK(I)
+*
+END-READ
+#END-OF-DATA := TRUE
+#MAXP := #CP
+*
+END-SUBROUTINE /* GET-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE LINE-COMMANDS
+************************************************************************
+IF L-MARK(*) = '.'
+  INCLUDE C-ESCAPE
+END-IF
+RESET L-IDENT (*)
+INCLUDE RLCMTI-C
+FOR I 1 TO #NOFLINES
+  IF L-IDENT (I) = ##EQU-DELETE AND NOT #DELETE
+    REINPUT *0020 MARK *L-MARK(I) ALARM
+  END-IF
+END-FOR
+* ---------------------------------------- delete commands ---------------
+FOR I 1 TO #NOFLINES
+  IF L-IDENT(I) = ##EQU-DELETE
+    IF G-CONFIRM
+      G-NATRP-ERC := 0017
+      #OBJECT-NAME := L-MONITOR-ID (I)
+      CALLNAT 'N-CNFRM' #OBJECT-NAME 'M' G-DISPLAY-LONG-NAMES
+        #CONFIRMED G-NATRP-ERT LOWER-CASE
+    ELSE
+      #CONFIRMED := TRUE
+    END-IF
+    IF #CONFIRMED
+      GET NRM-MONITOR L-ISN(I)
+      DELETE RECORD
+      #OBJ := M-MONITOR-ID
+      PERFORM RMLOGDEL #OBJ 'USER'
+      G-NATRP-ERC := 0018
+      GET-SCREEN := TRUE
+      INCLUDE L-COMMIT
+    END-IF
+  END-IF
+END-FOR
+* ---------------------------------------- other line commands -----------
+FOR I 1 TO #NOFLINES
+  DECIDE ON EVERY VALUE OF L-IDENT (I)
+    VALUE ##EQU-DISPLAY
+      G-C-FUNC := 'D'
+      FETCH RETURN 'RDEFUSR' L-MONITOR-ID (I)
+    VALUE ##EQU-MODIFY
+      IF NOT #UPDATE /*OR NOT (L-OPTION(I,1) = 'Y' OR L-OPTION(I,2)= 'Y'
+        G-C-FUNC := 'D'
+      ELSE
+        G-C-FUNC := 'M'
+      END-IF
+      PERFORM COMMIT-WORK
+      FETCH RETURN 'RDEFUSR' L-MONITOR-ID (I)
+      GET-SCREEN := TRUE
+    NONE
+      IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* LINE-COMMANDS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PID-KEYS
+************************************************************************
+#S-PID-F := #S-PID
+IF #S-PID-F = ' '
+  #S-PID-F := '*'
+END-IF
+EXAMINE #S-PID-F '*' GIVING POSITION IN #POS
+IF #POS > 0
+  RESET #S-PID-V(#POS:8)
+  #S-PID-T := #S-PID-F
+  EXAMINE FULL #S-PID-T ' ' REPLACE H'FF'
+ELSE
+  #S-PID-F := #S-PID-T := #S-PID
+END-IF
+*
+END-SUBROUTINE /* INIT-PID-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-LINECOM
+************************************************************************
+G-LC-IDENT (01) := ##EQU-DISPLAY
+G-LC-IDENT (02) := ##EQU-MODIFY
+G-LC-IDENT (03) := ##EQU-DELETE
+G-LC-NUM               := 3
+CALLNAT 'RLCINI-N' G-OBJ-TYPE G-LC G-LCB
+INCLUDE RMVHLP-C
+CALLNAT 'RFLIPG-N' G-LC G-LINECOM (*)
+*
+END-SUBROUTINE /* INIT-LINECOM
+*
+************************************************************************--
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFADD-C
+INCLUDE RPFBRW-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+* ---------------------------------------- set pfkeys --------------------
+INCLUDE RPFSET-C
+*
+END

@@ -1,0 +1,401 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOD3OP-N - NOM API Maintenance of NOM User interface
+**
+** Maintenance:
+** XSETGGR 2002-08-26    created
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2014-06-23 NOMALL-1281 show last update user
+* CF1     2020-04-22 NOMALL-2406 Correct parameter handling
+** --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOD3OP-A
+************************************************************************
+LOCAL     USING NADA2000
+LOCAL     USING NAD-MSG
+LOCAL     USING NAD-FLD
+LOCAL
+1 USER-INTERFACE VIEW OF NRM-MONITOR
+  2 M-TIME-SCHEDULE
+  2 M-MONITOR-ID
+  2 REDEFINE M-MONITOR-ID
+    3 #NOMUSR            (A6)
+    3 #NOMUSR-INTERFACE  (N3)
+  2 M-WAIT-INCREMENT
+  2 M-VERSION
+  2 M-NATRPT-DBID-N5
+  2 M-NATRPT-FNR-N5
+  2 M-CUSTOM-APPL (1:5)
+  2 REDEFINE M-CUSTOM-APPL
+    3 #NOMUSR-ATTR-DEF (20)
+      4 #NOMUSR-ATTR-GRP
+        5 #NOMUSR-TYPE    (A1)
+        5 #NOMUSR-PROMPT  (A20)
+        5 #NOMUSR-OFFSET  (N3)
+        5 #NOMUSR-LENGTH  (N3)
+        5 #NOMUSR-GENERIC (A1)
+        5 #NOMUSR-VAR     (A8)
+        5 #NOMUSR-ORDER   (N2)
+  2 M-LAST-UPDATE      /*SU1
+  2 M-LAST-UPDATE-USER /*SU1
+1 #ES-CONTROL               (A250)
+1 #ES-INPUT-AREA            (A253/1:3)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+  2 REDEFINE #ES-MSG-FIELD-INDEX
+    3 #ES-MSG-FIELD-INDEX1  (N2)
+    3 #ES-MSG-FIELD-INDEX2  (N2)
+1 #LIBRARY-ID               (A8)
+1 #ES-MSG-TXT               (A250)
+1 #MONITOR-ID               (A10) INIT <'NOMUSR'>
+1 REDEFINE #MONITOR-ID
+  2 #MONIT-TYPE             (A6)
+  2 #INTERFACE              (N3)
+1 #I                        (I2)
+1 #J                        (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC
+*
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+#LIBRARY-ID := ES-APP-SERVER-LIBRARY
+IF ES-KEY-PARM(1) > ' '
+  #INTERFACE  := VAL(ES-KEY-PARM(1))
+END-IF
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+  VALUE ' '
+    PERFORM READ-RECORD
+  VALUE 'NEW'
+    PERFORM NEW-RECORD
+    IF ES-RC = 0
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  VALUE 'UPD'
+    PERFORM UPDATE-RECORD
+    IF ES-RC = 0
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  VALUE 'CHK'
+    PERFORM CHECK
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-RECORD
+************************************************************************
+RESET NOD3-PARMS
+RESET #ES-MSG-FIELD #ES-MSG-NR
+FNDUS.
+FIND USER-INTERFACE WITH M-MONITOR-ID = #MONITOR-ID
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0001    /* not defined
+    #ES-MSG-TXT := #MONITOR-ID
+    ESCAPE BOTTOM(FNDUS.)
+  END-NOREC
+  NOD3-NAME                  := #NOMUSR-INTERFACE   /* non modifiable
+  NOD3-ACTIVE                := M-TIME-SCHEDULE
+  NOD3-TIME-LIMIT            := M-WAIT-INCREMENT
+  NOD3-DESCRIPTION           := M-VERSION
+  NOD3-NATRPT-DBID           := M-NATRPT-DBID-N5
+  NOD3-NATRPT-FNR            := M-NATRPT-FNR-N5
+  NOD3-PRIM-ATTR-PROMPT(1:4) := #NOMUSR-PROMPT(1:4)
+  NOD3-PRIM-ATTR-OFFSET(1:4) := #NOMUSR-OFFSET(1:4)
+  NOD3-PRIM-ATTR-LENGTH(1:4) := #NOMUSR-LENGTH(1:4)
+  NOD3-PRIM-ATTR-ORDER(1:4)  := #NOMUSR-ORDER(1:4)
+  NOD3-PRIM-ATTR-GENERIC(1:4):= #NOMUSR-GENERIC(1:4)       /* CF1
+  NOD3-PRIM-ATTR-VAR(1:4)    := #NOMUSR-VAR(1:4)
+  NOD3-FILE-PROMPT           := #NOMUSR-PROMPT(5)
+  NOD3-FILE-LENGTH           := #NOMUSR-LENGTH(5)
+  NOD3-FILE-OFFSET           := #NOMUSR-OFFSET(5)
+  NOD3-ATTR-PROMPT(1:10)     := #NOMUSR-PROMPT(6:15)
+  NOD3-ATTR-OFFSET(1:10)     := #NOMUSR-OFFSET(6:15)
+  NOD3-ATTR-LENGTH(1:10)     := #NOMUSR-LENGTH(6:15)
+  NOD3-LAST-UPDATE-USER      := M-LAST-UPDATE-USER  /*SU1 ->
+  IF M-LAST-UPDATE NE 0
+    MOVE EDITED M-LAST-UPDATE (EM=YYYYMMDDHHIISST) TO NOD3-LAST-UPDATE
+  END-IF /*SU1 <-
+
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* READ-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE NEW-RECORD
+************************************************************************
+* find free interface number
+#J := 99
+READ USER-INTERFACE BY M-MONITOR-ID = 'NOMUSR100'
+  IF M-MONITOR-ID NE MASK ('NOMUSR')
+    ESCAPE BOTTOM
+  END-IF
+  #I := #NOMUSR-INTERFACE - #J
+  IF #I > 1
+    ESCAPE BOTTOM
+  END-IF
+  #J := #NOMUSR-INTERFACE
+END-READ
+#J := #J + 1
+*
+#MONIT-TYPE := 'NOMUSR'
+#INTERFACE := #J
+FNNEW. FIND NUMBER USER-INTERFACE WITH M-MONITOR-ID = #MONITOR-ID
+IF *NUMBER(FNNEW.) > 0
+  #ES-MSG-NR := 0033              /* :1: already defined
+  #ES-MSG-FIELD-NAME := 'NAME'
+  #ES-MSG-TXT := #MONITOR-ID
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+PERFORM VALIDATION-S
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+M-MONITOR-ID := #MONITOR-ID
+NOD3-NAME := #INTERFACE
+IF NOD3-DESCRIPTION = ' '
+  COMPRESS 'NOM User-Spool Interface' NOD3-NAME TO NOD3-DESCRIPTION
+END-IF
+PERFORM ASSIGN-ATTRIBUTE-VALUES
+STORE USER-INTERFACE
+ES-CONTROL := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+*
+END-SUBROUTINE /* NEW-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+FNDMOD. FIND USER-INTERFACE WITH M-MONITOR-ID = #MONITOR-ID
+  IF NO RECORD FOUND
+    #ES-MSG-NR := 0001       /* not defined
+    #ES-MSG-TXT := #INTERFACE
+    ESCAPE BOTTOM(FNDMOD.)
+  END-NOREC
+  PERFORM VALIDATION-S
+  IF #ES-MSG-NR NE 0
+    ESCAPE BOTTOM(FNDMOD.)
+  END-IF
+  GETMOD. GET USER-INTERFACE *ISN(FNDMOD.)
+  PERFORM ASSIGN-ATTRIBUTE-VALUES
+  UPDATE (GETMOD.)
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* UPDATE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK
+************************************************************************
+IF ES-ORIG-FUNCTION = 'NW'
+  #INTERFACE := NOD3-NAME
+END-IF
+FND. FIND NUMBER USER-INTERFACE WITH M-MONITOR-ID = #MONITOR-ID
+IF *NUMBER(FND.) NE 0 AND ES-ORIG-FUNCTION = 'NW'
+  #ES-MSG-NR := 0033          /* :1: already defined
+  #ES-MSG-FIELD-NAME := 'NAME'
+  #ES-MSG-TXT := NOD3-NAME
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+PERFORM VALIDATION-S
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* CHECK
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-ATTRIBUTE-VALUES
+************************************************************************
+RESET #I
+M-TIME-SCHEDULE := NOD3-ACTIVE
+M-VERSION  := NOD3-DESCRIPTION
+M-WAIT-INCREMENT := NOD3-TIME-LIMIT
+M-NATRPT-DBID-N5 := NOD3-NATRPT-DBID
+M-NATRPT-FNR-N5  := NOD3-NATRPT-FNR
+FOR #I = 1 TO 4
+  #NOMUSR-TYPE(#I)   := 'P'      /* Primary selection
+  #NOMUSR-PROMPT(#I) := NOD3-PRIM-ATTR-PROMPT(#I)
+  #NOMUSR-OFFSET(#I) := NOD3-PRIM-ATTR-OFFSET(#I)
+  #NOMUSR-LENGTH(#I) := NOD3-PRIM-ATTR-LENGTH(#I)
+  #NOMUSR-ORDER(#I)  := NOD3-PRIM-ATTR-ORDER(#I)
+  #NOMUSR-GENERIC(#I):= NOD3-PRIM-ATTR-GENERIC(#I)         /* CF1
+  #NOMUSR-VAR(#I)    := NOD3-PRIM-ATTR-VAR(#I)
+END-FOR
+#NOMUSR-TYPE(5)   := 'S'         /* Secondary Selection
+#NOMUSR-PROMPT(5) := NOD3-FILE-PROMPT
+#NOMUSR-LENGTH(5) := NOD3-FILE-LENGTH
+#NOMUSR-OFFSET(5) := NOD3-FILE-OFFSET
+FOR #I = 1 TO 10
+  #NOMUSR-TYPE(#I + 5)   := 'A'  /* Attributes
+  #NOMUSR-PROMPT(#I + 5) := NOD3-ATTR-PROMPT(#I)
+  #NOMUSR-OFFSET(#I + 5) := NOD3-ATTR-OFFSET(#I)
+  #NOMUSR-LENGTH(#I + 5) := NOD3-ATTR-LENGTH(#I)
+END-FOR
+M-LAST-UPDATE      := *TIMX /*SU1
+M-LAST-UPDATE-USER := *USER /*SU1
+*
+END-SUBROUTINE /* ASSIGN-ATTRIBUTE-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION-S
+************************************************************************
+PERFORM VALIDATION
+ES-CONTROL := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+*
+END-SUBROUTINE /* VALIDATION-S
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+RESET #ES-MSG-NR #ES-MSG-FIELD #I
+IF NOD3-DESCRIPTION = ' '
+  COMPRESS 'NOM User-Spool Interface' #INTERFACE TO NOD3-DESCRIPTION
+END-IF
+IF NOT NOD3-ACTIVE = 'Y' OR = 'N' OR = ' '
+  #ES-MSG-NR := 1099
+  #ES-MSG-FIELD-NAME := 'ACTIVE'
+  ESCAPE ROUTINE
+END-IF
+DECIDE FOR FIRST CONDITION
+  WHEN NOT (NOD3-ACTIVE = 'Y' OR = 'N')
+    #ES-MSG-NR := 1099
+    #ES-MSG-FIELD-NAME := 'ACTIVE'
+    ESCAPE ROUTINE
+  WHEN NOD3-DESCRIPTION = ' '
+    #ES-MSG-NR := 9209 /* pleaase enter description
+    #ES-MSG-FIELD-NAME := 'DESCRIPTION'
+    ESCAPE ROUTINE
+  WHEN NOD3-NATRPT-DBID = 0
+    #ES-MSG-NR := 9207 /* Please enter container file DBID
+    #ES-MSG-FIELD-NAME := 'NATRPT-DBID'
+    ESCAPE ROUTINE
+  WHEN NOD3-NATRPT-FNR  = 0
+    #ES-MSG-NR := 9208 /* Please enter container file FNR
+    #ES-MSG-FIELD-NAME := 'NATRPT-FNR'
+    ESCAPE ROUTINE
+  WHEN NOT NOD3-PRIM-ATTR-PROMPT (1:4) NE ' '
+    #ES-MSG-NR := 9201   /* Please enter field prompt for primary attr
+    #ES-MSG-FIELD-NAME := 'PRIM-ATTR-PROMPT'
+    #ES-MSG-FIELD-INDEX := 1
+  WHEN NONE
+    IGNORE
+END-DECIDE
+FOR #I 1 4
+  IF NOD3-PRIM-ATTR-PROMPT  (#I) NE ' ' OR
+      NOD3-PRIM-ATTR-OFFSET  (#I) NE 0   OR
+      NOD3-PRIM-ATTR-LENGTH  (#I) NE 0   OR
+      NOD3-PRIM-ATTR-ORDER   (#I) NE 0   OR
+      NOD3-PRIM-ATTR-GENERIC (#I) NE ' '
+    DECIDE FOR FIRST CONDITION
+      WHEN NOD3-PRIM-ATTR-PROMPT (#I) NE MASK (NNNN)
+        #ES-MSG-NR := 9202 /* enter the four digit number from SYSERR
+        #ES-MSG-FIELD-NAME := 'PRIM-ATTR-PROMPT'
+        #ES-MSG-FIELD-INDEX := #I
+      WHEN NOD3-PRIM-ATTR-OFFSET (#I) = 0
+        #ES-MSG-NR := 9203 /* Please enter offset
+        #ES-MSG-FIELD-NAME := 'PRIM-ATTR-OFFSET'
+        #ES-MSG-FIELD-INDEX := #I
+      WHEN NOD3-PRIM-ATTR-LENGTH (#I) = 0
+        #ES-MSG-NR := 9204  /* Please enter length
+        #ES-MSG-FIELD-NAME := 'PRIM-ATTR-LENGTH'
+        #ES-MSG-FIELD-INDEX := #I
+      WHEN NOD3-PRIM-ATTR-LENGTH (#I) > 8
+        #ES-MSG-NR := 9210  /* Please enter valid length (1-8)
+        #ES-MSG-FIELD-NAME := 'PRIM-ATTR-LENGTH'
+        #ES-MSG-FIELD-INDEX := #I
+      WHEN NOT NOD3-PRIM-ATTR-ORDER (#I) = 1 THRU 4
+        #ES-MSG-NR := 9205  /* enter evaluation order from 1 to 4
+        #ES-MSG-FIELD-NAME := 'PRIM-ATTR-ORDER'
+        #ES-MSG-FIELD-INDEX := #I
+      WHEN NOT NOD3-PRIM-ATTR-GENERIC (#I) = 'Y' OR = 'N'
+        #ES-MSG-NR := 9206  /*  enter 'Y' (yes) or 'N' (no)
+        #ES-MSG-FIELD-NAME := 'PRIM-ATTR-GENERIC'
+        #ES-MSG-FIELD-INDEX := #I
+      WHEN ANY ESCAPE ROUTINE
+      WHEN NONE IGNORE
+    END-DECIDE
+  END-IF
+END-FOR
+DECIDE FOR FIRST CONDITION
+  WHEN NOD3-FILE-PROMPT = ' '
+    #ES-MSG-NR := 9201  /* enter prompt
+    #ES-MSG-FIELD-NAME := 'FILE-PROMPT'
+  WHEN NOD3-FILE-OFFSET = 0
+    #ES-MSG-NR := 9203 /* enter offset
+    #ES-MSG-FIELD-NAME := 'FILE-OFFSET'
+  WHEN NOD3-FILE-LENGTH = 0
+    #ES-MSG-NR := 9204 /* enter length
+    #ES-MSG-FIELD-NAME := 'FILE-LENGTH'
+  WHEN ANY ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+IF ES-MSG-NR = 0033 OR = 0001
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT
+END-IF
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+ES-MSG-FIELD := #ES-MSG-FIELD
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

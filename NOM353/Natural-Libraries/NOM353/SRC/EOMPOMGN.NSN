@@ -1,0 +1,268 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMPOMGN - DB Interface EOM Object Printout
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* gw      1993-07-01           created
+* gw      1994-03-28 s(999999) lower case attributes
+* jwo     1997-09-22 p(165064) new logic to get PO-ID
+* fhi     2000-08-24 QA03      Use NAT23006 for error values
+* sju     2000-11-14 s(999999) SAT log server
+* xsetggr 2007-05-03 NOM3201   restow due changes in EOMPOM-P
+* xsetggr 2007-05-29 p(294790) changes in pda eompom-p,
+*                              add read-next function
+* xsetggr 2007-06-27 NOM3201   support 5 byte node numbers and 11 byte
+*                              run numbers - restow due changes eompom-p
+* fhi     2007-07-11 FHI236    QA detected that error msg is not filled.
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2007-12-04 P(300021) fill EOMPOM-TYPE-TEXT
+* xsetggr 2008-02-26 p(294790) add funtions read-next, readhold-next
+* xsetggr 2008-04-20 p(300028) commented out no more used subroutine
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-11-15 NOMALL-865 restow due to changes in EOMPHTYE
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU3     2016-01-19 NOMALL-1802 do not update Adabas Vista fields
+* SU4     2016-07-20 NOM 3.5: remove unused code
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 EOM-FUNCTION          (I2)
+PARAMETER USING EOMPOM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL USING EOM----E
+LOCAL USING EOMPHTYE
+*
+LOCAL
+1 PRINTOUT VIEW OF NRM-PRINTOUTS
+  2 PO-ESY-USERID
+  2 PO-BUNDLE
+  2 PO-BUNDRNB
+  2 PO-COPIES
+  2 PO-CREATED
+  2 PO-FROM-LINE
+  2 PO-HEADLINES
+  2 PO-ID
+  2 PO-LANGUAGE
+  2 PO-LAST-PRINTED-RECNO
+  2 PO-LAST-PRINTED-SEQNO
+  2 PO-LAYOUT
+    3 PO-LAYOUT-FROM    (1:10)
+    3 PO-LAYOUT-TO      (1:10)
+  2 PO-MSG
+  2 PO-PRINTED
+  2 PO-PRIORITY
+  2 PO-REPNAME
+  2 PO-REPRNB
+  2 PO-SCHEDULED
+  2 PO-STATUS
+  2 PO-TO-LINE
+  2 PO-USERID
+  2 PO-OBJECT-TYPE /*SU2
+  2 PO-OBJECT-TIME /*SU2
+*
+1 #DATE-IN              (A8)
+1 #DATE-OUT             (A10)
+1 #ERC                  (N4)
+1 #ERT                  (A250)
+1 #NEXT-POID            (N7)
+1 #RMPOID-FUNC          (A1)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-READ, EOM-READ-NEXT
+    PERFORM READ-GENERAL-ATTRIBUTES
+  VALUE EOM-READHOLD, EOM-READHOLD-NEXT
+    PERFORM READ-GENERAL-ATTRIBUTES
+  VALUE EOM-ADD
+    PERFORM MODIFY-GENERAL-ATTRIBUTES
+  VALUE EOM-MODIFY
+    PERFORM MODIFY-GENERAL-ATTRIBUTES
+  NONE  IGNORE
+*
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+* ************************************************************************
+DEFINE SUBROUTINE READ-GENERAL-ATTRIBUTES
+************************************************************************
+FNDPO. FIND PRINTOUT WITH PO-ID = EOMPOM-I-ID
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0108
+    ESCAPE BOTTOM (FNDPO.)
+  END-NOREC
+*
+  IF PO-BUNDLE > ' '
+    EOMPOM-NAME := PO-BUNDLE
+    EOMPOM-RUN-NUMBER := PO-BUNDRNB
+    EOMPOM-TYPE := 'B'
+  ELSE
+    EOMPOM-NAME := PO-REPNAME
+    EOMPOM-RUN-NUMBER := PO-REPRNB
+    EOMPOM-TYPE := 'R'
+  END-IF
+  EOMPOM-MSG         := PO-MSG
+  EOMPOM-USERID      := PO-USERID
+  EOMPOM-ESY-USERID  := PO-ESY-USERID
+  EOMPOM-CREATED     := PO-CREATED
+  PERFORM ASSIGN-EOMPOM-CREATED-ALPHA
+*
+  EOMPOM-SCHEDULED   := PO-SCHEDULED
+  PERFORM ASSIGN-EOMPOM-SCHEDULED-ALPHA
+*
+  EOMPOM-PRINTED     := PO-PRINTED
+  PERFORM ASSIGN-EOMPOM-PRINTED-ALPHA
+*
+  EOMPOM-FROM-LINE   := PO-FROM-LINE
+  EOMPOM-TO-LINE     := PO-TO-LINE
+  EOMPOM-STATUS      := PO-STATUS
+  PERFORM ASSIGN-EOMPOM-STATUS
+*
+  EOMPOM-LAST-PRINTED-RECNO := PO-LAST-PRINTED-RECNO
+  EOMPOM-LAST-PRINTED-SEQNO := PO-LAST-PRINTED-SEQNO
+  EOMPOM-LANGUAGE           := PO-LANGUAGE
+*
+  EOMPOM-COPIES      := PO-COPIES
+  EOMPOM-PRIORITY    := PO-PRIORITY
+  EOMPOM-HEADLINES   := PO-HEADLINES
+  EOMPOM-LAYOUT-FROM (*) := PO-LAYOUT-FROM (*)
+  EOMPOM-LAYOUT-TO   (*) := PO-LAYOUT-TO  (*)
+*
+  IF EOM-FUNCTION = EOM-READHOLD OR = EOM-READHOLD-NEXT
+    UPD. GET PRINTOUT *ISN (FNDPO.)
+    IF PO-ID NE PO-ID
+      UPDATE (UPD.)
+    END-IF
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* READ-GENERAL-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-GENERAL-ATTRIBUTES
+************************************************************************
+FNDMOD. FIND PRINTOUT WITH PO-ID = EOMPOM-I-ID
+  IF NO RECORDS FOUND
+    PERFORM GET-NEXT-POID
+  END-NOREC
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN EOM-FUNCTION = EOM-ADD AND *NUMBER (FNDMOD.) = 0
+      PO-ID := #NEXT-POID
+    WHEN EOM-FUNCTION = EOM-ADD AND *NUMBER (FNDMOD.) > 0
+      EOMMSG-NR := 0104
+      BACKOUT TRANSACTION
+      ESCAPE BOTTOM (FNDMOD.)
+    WHEN EOM-FUNCTION = EOM-MODIFY AND *NUMBER (FNDMOD.) = 0
+      EOMMSG-NR := 0108
+      ESCAPE BOTTOM (FNDMOD.)
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+*
+  IF EOMPOM-TYPE = 'B'
+    PO-BUNDLE  := EOMPOM-NAME
+    PO-BUNDRNB := EOMPOM-RUN-NUMBER
+  ELSE
+    PO-REPNAME := EOMPOM-NAME
+    PO-REPRNB := EOMPOM-RUN-NUMBER
+  END-IF
+  PO-USERID             := EOMPOM-USERID
+  PO-ESY-USERID         := EOMPOM-ESY-USERID
+  PO-CREATED            := EOMPOM-CREATED
+  PO-SCHEDULED          := EOMPOM-SCHEDULED
+  PO-PRINTED            := EOMPOM-PRINTED
+  PO-FROM-LINE          := EOMPOM-FROM-LINE
+  PO-TO-LINE            := EOMPOM-TO-LINE
+  PO-STATUS             := EOMPOM-STATUS
+  PO-MSG                := EOMPOM-MSG
+  PO-LAST-PRINTED-RECNO := EOMPOM-LAST-PRINTED-RECNO
+  PO-LAST-PRINTED-SEQNO := EOMPOM-LAST-PRINTED-SEQNO
+  PO-LANGUAGE           := EOMPOM-LANGUAGE
+  PO-COPIES             := EOMPOM-COPIES
+  PO-PRIORITY           := EOMPOM-PRIORITY
+  PO-HEADLINES          := EOMPOM-HEADLINES
+  PO-LAYOUT-FROM (*)    := EOMPOM-LAYOUT-FROM (*)
+  PO-LAYOUT-TO   (*)    := EOMPOM-LAYOUT-TO  (*)
+*
+  IF *NUMBER (FNDMOD.) = 0
+    PO-OBJECT-TYPE := 'PO' /*SU2 SU3 move fields before store
+    PO-OBJECT-TIME := *TIMX /*SU2 SU3
+    STORE PRINTOUT
+  ELSE
+    UPDATE (FNDMOD.)
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* MODIFY-GENERAL-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NEXT-POID
+************************************************************************
+RESET #RMPOID-FUNC
+CALLNAT 'RMPOID-N' #NEXT-POID #ERC #ERT #RMPOID-FUNC
+*
+END-SUBROUTINE /* GET-NEXT-POID
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-EOMPOM-STATUS
+************************************************************************
+CALLNAT 'EOMPOSTN' EOMPOM-PARMS
+*
+END-SUBROUTINE /* ASSIGN-EOMPOM-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-EOMPOM-CREATED-ALPHA
+************************************************************************
+RESET #DATE-IN #DATE-OUT              /* xsetggr 2007-05-30 p(294790) in
+MOVE EDITED EOMPOM-CREATED (EM=YYYYMMDD) TO #DATE-IN
+PERFORM DATE-CONVERSION
+EOMPOM-CREATED-ALPHA := #DATE-OUT
+*
+END-SUBROUTINE /* ASSIGN-EOMPOM-CREATED-ALPHA
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-EOMPOM-SCHEDULED-ALPHA
+************************************************************************
+RESET #DATE-IN #DATE-OUT
+MOVE EDITED EOMPOM-SCHEDULED (EM=YYYYMMDD) TO #DATE-IN
+PERFORM DATE-CONVERSION
+EOMPOM-SCHEDULED-ALPHA := #DATE-OUT
+*
+END-SUBROUTINE /* ASSIGN-EOMPOM-SCHEDULED-ALPHA
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-EOMPOM-PRINTED-ALPHA
+************************************************************************
+RESET #DATE-IN #DATE-OUT
+MOVE EDITED EOMPOM-PRINTED (EM=YYYYMMDD) TO #DATE-IN
+PERFORM DATE-CONVERSION
+EOMPOM-PRINTED-ALPHA := #DATE-OUT
+*
+END-SUBROUTINE /* ASSIGN-EOMPOM-PRINTED-ALPHA
+*
+************************************************************************
+DEFINE SUBROUTINE DATE-CONVERSION
+************************************************************************
+CALLNAT 'IODATE-N' 'M' 'S' #DATE-IN #DATE-OUT EOMPOM-I-DATE-FORMAT
+  #ERC #ERT
+*
+END-SUBROUTINE /* DATE-CONVERSION
+* --------------------------------------- on error ---------------------
+INCLUDE C-EOMERR
+*
+END

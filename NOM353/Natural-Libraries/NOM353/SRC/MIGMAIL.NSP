@@ -1,0 +1,260 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ----------------------------------------------------------------------
+* ÜÜ with NOM 3.5 this is just a utility to correct data NOMALL-2278 ÜÜ
+* ÜÜ It is not part of the migration.                                ÜÜ
+* Member    MIGMAIL
+* Version   3.4.
+* Function  fill new field MA-CURRENT-LOCATION of file NRM-MAIL         >
+*
+* Maintenance
+* uuuuuuu yyyy-mm-dd Issue
+* xsetggr 2012-10-26 ES-104    created
+* xsetggr 2013-03-14 ES-104    corrected
+* fhi     2013-04-17 ES-104    corrected
+* fhi     2013-05-08 NOMALL-1214 Introducing new migration flags
+* fhi     2013-06-04 OPO-36      Fill field AR-ACTIVE, not all tagged
+* fhi     2013-08-27 NOMALL-1252 Add descriptors for NGC filters
+* fhi     2013-12-10 NOMALL-1317 Allow migration during monitor execut.
+* fhi     2013-12-11 NOMALL-1318 Check for partly migrated files
+* raya    2013-12-12 NOMALL-1318 Check for partly migrated files
+* fhi     2014-04-16 NOMALL-1405 Allow entering limitation parameter
+* fhi     2014-05-21 NOMALL-1405 Continue automatically
+* fhi     2016-01-21 NOMALL-1811 Correct restart conditions
+* fhi     2016-01-21 NOMALL-1822 Issue END TRANSACTION always
+* SU1     2019-05-15 NOMALL-2273 performance+check all mail records
+* SU2     2019-05-22 NOMALL-2278 NOM3.5 standalone version
+* SU3     2019-07-09 NOMALL-2302 show processed time for 'no mail rec'
+* SU4     2019-07-25 NOMALL-2302 bad performance on linux - change logic
+*                                (old version on lib NOM34OLD)
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL
+/*SU2 1 MONITOR VIEW OF NRM-MONITOR
+/*SU2   2 M-MONITOR-ID
+/*SU2   2 M-VERSION
+/*SU2   2 REDEFINE M-VERSION
+/*SU2     3 M-VERS-VERSION-N       (N2)
+/*SU2     3 M-VERS-RELEASE-N       (N2)
+/*SU2     3 M-VERS-SP-N            (N2)
+/*SU2     3 M-VERS-CF-N            (N4)
+/*SU2     3 M-VERS-MIGRATION-IN-PROGRESS (A1)
+/*SU2     3 M-VERS-DATE            (A8)
+/*SU2     3 M-VERS-NO-OF-MIG-PROGS (N2)
+/*SU2     3 M-VERS-MIGRATION-COMPL (A1/10)
+1 MAIL VIEW OF NRM-MAIL
+  2 MA-CURRENT-LOCATION
+  2 MA-PROCESS-TIME
+  2 REDEFINE MA-PROCESS-TIME
+    3 MA-PROCESS-TIME_T(T)
+  2 MA-USERID
+  2 MA-PROCESS-TIME-INV
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-CURRENT-LOCATION
+  2 AR-PROCESS-TIME
+  2 AR-PROCESS-TIME-INV
+  2 AR-ARCHIVE
+  2 AR-ACTIVE
+  2 AR-USERID        /*SU3
+  2 AR-MASTER-REPNAME /*SU3
+1 UT VIEW OF NRM-UTILITY   /* remember data to rerun the job
+  2 UT-UTILITY
+  2 UT-DATA
+  2 REDEFINE UT-DATA
+    3 UT-REPNAME          (A25)
+    3 UT-REPRNB           (P11)
+1 #REP-RNB                (A31)
+1 REDEFINE #REP-RNB
+  2 #REPNAME              (A25)
+  2 #REPRNB               (P11)
+1 #CNT-READ               (I4)
+1 #CNT-UPDATED            (I4)
+1 #CNT-MAIL-MISSING       (I4)
+1 #AR-UPDATED             (I4)
+1 #CNT-READ-M             (I4)
+1 #I                      (I4)
+1 #MSG                    (A250)
+1 #MAXREC                 (I4)
+1 #PROGRAM                (A8) INIT <*PROGRAM>
+1 #INCOMPLETE             (L)
+1 #NEW-MA-LOC             (A1) /*MA location
+1 #MA-LOC-USER1           (A18) INIT FULL LENGTH <H'00'>
+1 #MA-LOC-USER2           (A18) INIT FULL LENGTH <H'FF'>
+1 #DETAILS                (L) /*SU2
+1 #WRONG-MA               (I4) /*SU2
+1 #AR-CNT                 (I4) /*SU2
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY ALL
+*
+IF *DEVICE NE 'BATCH'
+  INPUT 15T '* --- MIGMAIL - Migrate NOM MAIL RECORDS --- *' ///
+    'Maximum Mail records to process:' #MAXREC  /
+    'Show details::' #DETAILS (AD=MILT EM='N'/'Y') '(Y/N)' / /*SU2
+    'End with PF3'
+  IF *PF-KEY NE 'ENTR'
+    ESCAPE MODULE
+  END-IF
+ELSE
+  IF *DATA > 0
+    INPUT #MAXREC
+  END-IF
+END-IF
+IF #MAXREC = 0
+  #MAXREC := 999999999
+END-IF
+IF #MAXREC NE 999999999
+  FIND UT WITH UT-UTILITY = #PROGRAM /* start points stored?
+    #REPNAME := UT-REPNAME
+    #REPRNB  := UT-REPRNB
+    PRINT 'MIGMAIL starting at report' #REPNAME 'rnb' #REPRNB
+  END-FIND
+END-IF
+* *****
+* 1. read all act. RP
+* *****
+RDAR. READ AR BY AR-REPORT-RNB = #REP-RNB
+  #REPNAME  := AR-REPNAME
+  #REPRNB   := AR-REPRNB
+  ADD 1 TO #CNT-READ
+  IF AR-CURRENT-LOCATION = 'A'
+    #NEW-MA-LOC := 'A'
+  ELSE
+    #NEW-MA-LOC := 'B'
+  END-IF
+* *****
+* 2. read all mail records for current act. RP
+* *****
+  MA. FIND MAIL WITH MA-REP-RNB = #REP-RNB
+    IF MA-CURRENT-LOCATION = #NEW-MA-LOC
+      ESCAPE TOP /*(MA.)
+    END-IF
+    GETMA. GET MAIL *ISN (MA.)
+    MA-CURRENT-LOCATION := #NEW-MA-LOC
+    MA-PROCESS-TIME     := AR-PROCESS-TIME
+    MA-PROCESS-TIME-INV := AR-PROCESS-TIME-INV
+    UPDATE (GETMA.)
+    PERFORM CHECK-ET
+    ADD 1 TO #CNT-UPDATED
+  END-FIND
+  IF *NUMBER (MA.) = 0
+    PRINT (AD=L) 'No MAIL record for Active Report' AR-REPNAME ','
+      AR-REPRNB 'archive:' AR-ARCHIVE /*SU3
+      'processed:' AR-PROCESS-TIME(EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Master Owner:' AR-USERID /*SU2
+      'Report Definition:' AR-MASTER-REPNAME /*SU3
+    ADD 1 TO #CNT-MAIL-MISSING
+  END-IF
+  ADD *NUMBER (MA.) TO #CNT-READ-M /*SU1
+  ADD 1 TO #AR-CNT
+  DISPLAY (NL=4) ' ' #AR-CNT 'ar' AR-REPNAME 'rnb' AR-REPRNB(NL=8)
+    'loc' AR-CURRENT-LOCATION 'mail' *NUMBER (MA.)
+**'ok' *number (ma-ok.)(zp=off)
+    'not ok:' #WRONG-MA (ZP=OFF)
+    'processed' AR-PROCESS-TIME (EM=YYYY'-'MM'-'DD' 'HH':'II)
+* *****
+  IF AR-ACTIVE = ' ' AND AR-ARCHIVE = ' ' /* OPO
+    GETAR. GET AR *ISN (RDAR.)
+    AR-ACTIVE := 'X'
+    UPDATE (GETAR.)
+    PERFORM CHECK-ET
+    ADD 1 TO #AR-UPDATED
+  END-IF
+  IF #CNT-UPDATED > #MAXREC /*SU1 was: IF #CNT-READ-M > #MAXREC
+    #INCOMPLETE := TRUE
+    PERFORM UPDATE-UT
+    ESCAPE BOTTOM (RDAR.)
+  END-IF
+END-READ /*(RDAR.)
+*
+END TRANSACTION
+************************************************************************
+PRINT  #CNT-READ-M 'records of NRM-MAIL exist.'
+  / #CNT-UPDATED 'records of NRM-MAIL updated,'
+  / #CNT-READ 'records of Active Reports read.'
+  / #AR-UPDATED 'records of Active Reports updated.'
+  / #CNT-MAIL-MISSING 'Active reports without mail records exist.'
+PRINT 'Last Report/Runnumber:' #REPNAME '/' #REPRNB
+IF #INCOMPLETE
+  PRINT 'Migration not yet completed.' /
+    'Continue by entering a maximum number of records at next run' /
+    'or restart from the beginning by omitting the parameter.'
+END-IF
+* *****
+/*SU2 MONITOR.M-MONITOR-ID := *LIBRARY-ID
+/*SU2 FIND MONITOR WITH M-MONITOR-ID = MONITOR.M-MONITOR-ID
+/*SU2   M-VERS-MIGRATION-COMPL (4) := 'Y' /* migration completed
+/*SU2   UPDATE
+/*SU2 END-FIND
+PERFORM UPDATE-UT
+END TRANSACTION
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-UT
+************************************************************************
+ESCAPE ROUTINE /*SU2
+FNDUT. FIND UT WITH UT-UTILITY = #PROGRAM
+  IF NO RECORDS FOUND
+    UT-UTILITY := #PROGRAM
+    UT-REPNAME := #REPNAME
+    UT-REPRNB  := #REPRNB
+    STORE UT
+    ESCAPE BOTTOM (FNDUT.)
+  END-NOREC
+  IF NOT #INCOMPLETE
+    DELETE
+  ELSE
+    UT-REPNAME := #REPNAME
+    UT-REPRNB  := #REPRNB
+    UPDATE
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-UT
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-ET
+************************************************************************
+ADD 1 TO #I
+IF #I > 100
+  RESET #I
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* CHECK-ET
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  #INCOMPLETE := TRUE
+  PRINT #CNT-UPDATED 'records of NRM-MAIL updated until now,'
+    / #CNT-READ-M 'records of NRM-MAIL read until now.'
+    / #CNT-READ 'records of Active Reports read.'
+    / #AR-UPDATED 'records of Active Reports updated until now.'
+  PRINT 'Last Report/Runnumber:' #REPNAME '/' #REPRNB
+  CALLNAT 'C-NATERN' #MSG
+  PRINT #MSG
+  PERFORM UPDATE-UT
+  END TRANSACTION
+  PRINT 'Migration aborted with error.' /
+    'Continue by entering a maximum number of records at next run' /
+    'or restart from the beginning by omitting the parameter.'
+  TERMINATE 16
+END-ERROR
+*
+END

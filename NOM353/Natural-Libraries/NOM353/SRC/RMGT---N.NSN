@@ -1,0 +1,69 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMGT---N  - Get Top of Current Page (General Interface)
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* mrs     1992-12-03 s(999999) created
+* mrs     1993-11-09 s(999999) seq. Files MVS added
+* mrs     1994-03-01 s(999999) seq. Files BS2 added
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* xsetggr 2005-11-28 p(271774) support more than 40 Power segments
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2017-01-18 NOMALL-1916 Use binary NPR RECORD* fields
+* fhi     2017-01-27 NOMALL-1961 Show node name in errors
+* SU1     2018-09-06             NOM 3.5:include RMGTJES,
+* SU2     2024-03-07 ES-34613    NOM 3.6 Remove power
+************************************************************************
+DEFINE DATA
+PARAMETER USING RMGT---P
+PARAMETER
+1 P-SOURCE-ISN (P10)
+************************************************************************
+LOCAL USING RMSR---E             /* supported sources
+LOCAL USING RCCTYP-E             /* supported cc Types
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-ERROR-CODE P-ERROR-TEXT P-TOP-RECORD
+*
+IF NOT (P-CC-TYPE = BS2000-CC OR= ASA-CODE  OR= MACHINE-CODE)
+OR (P-CC-TYPE = BS2000-CC AND P-SOURCE-TYPE=JES2 OR=JES3)             /*
+  P-ERROR-CODE := 9999
+  COMPRESS 'illegal CC Type:' P-CC-TYPE TO P-ERROR-TEXT
+  ESCAPE ROUTINE
+END-IF
+DECIDE ON FIRST P-SOURCE-TYPE
+  VALUE JES2, JES3          CALLNAT 'RMGTJES'  RMGT-PARMS
+/*SU2  VALUE POWER         CALLNAT 'RMGTPWR'  RMGT-PARMS P-SOURCE-ISN
+  VALUE NOM-DATA-BASE       CALLNAT 'RMGTDB'   RMGT-PARMS
+  VALUE SEQUENTIAL-FILE-MVS CALLNAT 'RMGTFMVS' RMGT-PARMS
+  VALUE SEQUENTIAL-FILE-BS2 CALLNAT 'RMGTFBS2' RMGT-PARMS
+/*SU2  VALUE SEQUENTIAL-FILE-VSE CALLNAT 'RMGTFVSE' RMGT-PARMS
+  NONE VALUE
+    P-ERROR-CODE := 9999
+    COMPRESS 'illegal source type:' P-SOURCE-TYPE TO P-ERROR-TEXT
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  P-ERROR-CODE := 9999
+  CALLNAT 'C-NATERN' P-ERROR-TEXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

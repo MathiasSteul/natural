@@ -1,0 +1,206 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMIGRPCO
+* Function:  copy reports from source to target environment
+*
+* Maintenance:
+* mrs 91-11-04  check of related users/dlist corrected
+* mrs 91-11-05  copy user layout definitions
+* mrs 92-04-22  s(149179) dynamic definition creation (new Field)
+* wcd 00-04-01 CE 7267   re-cat VMREP--L, VTREP--L changes
+* xsiszha 2000-08-02 (CE7461) Extend Report and Bundle Names
+* sju 02-04-23 NOM221   Check user-defined archive type exists
+* sju 04-06-22 p(252751) Transfer authorizations
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #P-MSG                 (N4)
+1 #P-USER                (A8)
+1 #P-REPORT              (A25)
+1 #P-COPY-AUTH           (A1)
+* ----------------------------------------------------------------------
+LOCAL USING VMREP--L
+LOCAL USING VTREP--L
+LOCAL USING VTGRAN-L
+LOCAL USING VTRPDI-L
+LOCAL USING VRPDIS-L
+LOCAL USING VGRANT-L
+* ----------------------------------------------------------------------
+LOCAL
+1 MIGRATE-PRINTERS          VIEW OF NRM-MIGRATE-PRINTERS
+1 MIGRATE-USERS             VIEW OF NRM-MIGRATE-USERS
+1 MIGRATE-DISTRIBUTION-LIST VIEW OF NRM-MIGRATE-DISTRIBUTION-LIST
+1 MIGRATE-USERARC           VIEW OF NRM-MIGRATE-USER-DEFINED-ARCHIVE
+1 MIGRATE-LISTS             VIEW OF NRM-MIGRATE-DISTRIBUTION-LIST
+*
+1 #I                     (P2)
+1 #PRINTER-ID            (A8)
+1 #SUPER                 (A34)
+1 REDEFINE #SUPER
+  2 #SP-OBJECT-TYPE      (A1)
+  2 #SP-USERID           (A8)
+  2 #SP-OBJECT-NAME      (A25)
+1 #USERARC-ID            (A10) INIT <'USERARC00'>
+1 REDEFINE #USERARC-ID
+  2 #USERARC-ID-CONSTANT (A8)
+  2 #USERARC-ID-NUMBER   (N1)
+1 #GRANT-SUPER           (A26) INIT <'R'>
+1 REDEFINE #GRANT-SUPER
+  2 #GRANT-TYPE          (A1)
+  2 #GRANT-NAME          (A25)
+1 #ET-COUNT              (I02)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #P-MSG
+FNDS. FIND REPORTS WITH R-REPNAME = #P-REPORT
+  IF NO RECORDS FOUND
+    #P-MSG := 4009
+    ESCAPE BOTTOM (FNDS.)
+  END-NOREC
+  PERFORM CHECK-RELATED-OBJECTS
+  IF #P-MSG NE 0
+    ESCAPE BOTTOM (FNDS.)
+  END-IF
+  FNDT.
+  FIND MIGRATE-REPORTS WITH R-REPNAME = #P-REPORT
+    IF NO RECORDS FOUND
+      ENTER
+    END-NOREC
+    MOVE BY NAME REPORTS TO MIGRATE-REPORTS
+    IF *NUMBER (FNDT.) = 0
+      STORE MIGRATE-REPORTS
+    ELSE
+      UPDATE (FNDT.)
+    END-IF
+    PERFORM COPY-USER-LAYOUT
+    PERFORM GRANT-USER
+  END-FIND
+END-FIND
+END OF TRANSACTION
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GRANT-USER
+************************************************************************
+#SP-OBJECT-TYPE := 'R'
+#SP-USERID      := #P-USER
+#SP-OBJECT-NAME := #P-REPORT
+FNDG. FIND MIGRATE-GRANTS WITH GR-SUPER = #SUPER
+  IF NO RECORDS FOUND
+    MIGRATE-GRANTS.GR-USERID := #P-USER
+    MIGRATE-GRANTS.GR-OBJECT-TYPE := 'R'
+    MIGRATE-GRANTS.GR-OBJECT-NAME := #P-REPORT
+  END-NOREC
+  MIGRATE-GRANTS.GR-OPTION(*) := 'Y'
+  IF *NUMBER (FNDG.) = 0
+    STORE MIGRATE-GRANTS
+  ELSE
+    UPDATE
+  END-IF
+END-FIND
+IF #P-COPY-AUTH = 'Y'
+  #GRANT-NAME:= #P-REPORT
+  COPG. FIND GRANTS WITH GR-TYPE-NAME = #GRANT-SUPER
+    #SP-USERID:= GRANTS.GR-USERID
+    COPM. FIND MIGRATE-GRANTS WITH GR-SUPER = #SUPER
+      IF NO RECORDS FOUND
+        ENTER
+      END-NOREC
+      MOVE BY NAME GRANTS TO MIGRATE-GRANTS
+      IF *NUMBER (COPM.) = 0
+        STORE MIGRATE-GRANTS
+      ELSE
+        UPDATE
+      END-IF
+      ADD 1 TO #ET-COUNT
+      IF #ET-COUNT GE 50
+        RESET #ET-COUNT
+        END TRANSACTION
+      END-IF
+    END-FIND
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* GRANT-USER
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-RELATED-OBJECTS
+************************************************************************
+DECIDE FOR EVERY CONDITION
+  WHEN #P-MSG = 0
+    FORU. FOR #I = 1 TO REPORTS.C*R-NATRPT-DIST
+      FNDU. FIND NUMBER MIGRATE-USERS
+        WITH USER-ID = REPORTS.R-NATRPT-DIST (#I)
+      IF *NUMBER (FNDU.) = 0
+        FNDDL. FIND NUMBER MIGRATE-DISTRIBUTION-LIST
+          WITH D-LIST-NAME = REPORTS.R-NATRPT-DIST (#I)
+        IF *NUMBER (FNDDL.) = 0
+          #P-MSG := 4011
+          ESCAPE BOTTOM (FORU.)
+        END-IF
+      END-IF
+    END-FOR
+  WHEN #P-MSG = 0
+    FORP. FOR #I = 1 TO REPORTS.C*R-PRINTERS
+      #PRINTER-ID := REPORTS.R-PRINTERS (#I) /*A12->A8
+      IF NOT(#PRINTER-ID = ' ' OR = 'DUMMY')
+        FNDP. FIND NUMBER MIGRATE-PRINTERS WITH P-ID = #PRINTER-ID
+        IF *NUMBER (FNDP.) = 0
+          #P-MSG := 4012
+          ESCAPE BOTTOM (FORP.)
+        END-IF
+      END-IF
+    END-FOR
+  WHEN #P-MSG = 0
+    IF REPORTS.R-ARCHIVE-TYPE GT 0
+      #USERARC-ID-NUMBER:= REPORTS.R-ARCHIVE-TYPE
+      FIND NUMBER MIGRATE-USERARC WITH M-MONITOR-ID = #USERARC-ID
+      IF *NUMBER = 0
+        #P-MSG:= 1108
+      END-IF
+    END-IF
+  WHEN #P-MSG = 0 AND #P-COPY-AUTH = 'Y'
+    #GRANT-NAME:= #P-REPORT
+    CHKG. FIND GRANTS WITH GR-TYPE-NAME = #GRANT-SUPER
+      IF GR-USERID(CHKG.) = 'PUBLIC'
+        ESCAPE TOP
+      END-IF
+      FNRU. FIND NUMBER MIGRATE-USERS WITH USER-ID = GR-USERID(CHKG.)
+      IF *NUMBER(FNRU.) = 0
+        FNRD. FIND NUMBER MIGRATE-LISTS WITH D-LIST-NAME = GR-USERID(CHKG.)
+        IF *NUMBER(FNRD.) = 0
+          #P-MSG:= 4029
+        END-IF
+      END-IF
+    END-FIND
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-USER-LAYOUT
+************************************************************************
+FNDD. FIND MIGRATE-REPORT-DISTRIBUTION WITH RD-REPNAME = #P-REPORT
+  DELETE
+END-FIND
+SKIP 1
+FNDC. FIND REPORT-DISTRIBUTION WITH RD-REPNAME = #P-REPORT
+  MOVE BY NAME REPORT-DISTRIBUTION TO MIGRATE-REPORT-DISTRIBUTION
+  STORE MIGRATE-REPORT-DISTRIBUTION
+END-FIND
+*
+END-SUBROUTINE /* COPY-USER-LAYOUT
+*
+END

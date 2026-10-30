@@ -1,0 +1,153 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RCTPRPCO - copy reports from source to target environment
+*
+* wcd 00-04-01 CE 7267   re-cat VMREP-L changes
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* sju 04-06-22 p(252751) Transfer authorizations
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #P-MSG     (N4)
+1 #P-USERID  (A8)
+1 #P-NAME    (A8)
+1 #P-COPY-AUTH (A1)
+************************************************************************
+LOCAL USING VTDLIS-L
+LOCAL USING VDISTS-L
+LOCAL USING VTGRAN-L
+LOCAL USING VGRANT-L
+LOCAL
+1 MIGRATE-USERS VIEW OF NRM-MIGRATE-USERS
+1 MIGRATE-LIST VIEW OF NRM-MIGRATE-DISTRIBUTION-LIST
+1 MIGRATE-LISTS VIEW OF NRM-MIGRATE-DISTRIBUTION-LIST
+1 #I         (P2)
+1 #SUPER     (A34)
+1 REDEFINE #SUPER
+  2 #SP-OBJECT-TYPE (A1)
+  2 #SP-USERID      (A8)
+  2 #SP-OBJECT-NAME (A25)
+1 #GRANT-SUPER        (A26) INIT <'L'>
+1 REDEFINE #GRANT-SUPER
+  2 #GRANT-TYPE       (A1)
+  2 #GRANT-NAME       (A25)
+1 #ET-COUNT           (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #P-MSG
+FNDS. FIND DISTRIBUTION-LIST WITH D-LIST-NAME = #P-NAME
+  IF NO RECORDS FOUND
+    #P-MSG := 4017
+    ESCAPE BOTTOM (FNDS.)
+  END-NOREC
+  PERFORM CHECK-RELATED-OBJECTS
+  IF #P-MSG NE 0
+    ESCAPE BOTTOM (FNDS.)
+  END-IF
+  FNDT.
+  FIND MIGRATE-DISTRIBUTION-LIST WITH D-LIST-NAME = #P-NAME
+    IF NO RECORDS FOUND
+      ENTER
+    END-NOREC
+    MOVE BY NAME DISTRIBUTION-LIST TO MIGRATE-DISTRIBUTION-LIST
+    IF *NUMBER (FNDT.) = 0
+      STORE MIGRATE-DISTRIBUTION-LIST
+    ELSE
+      UPDATE (FNDT.)
+    END-IF
+    PERFORM GRANT-USER
+  END-FIND
+END-FIND
+END OF TRANSACTION
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GRANT-USER
+************************************************************************
+#SP-OBJECT-TYPE := 'L'
+#SP-USERID      := #P-USERID
+#SP-OBJECT-NAME := #P-NAME
+FNDG. FIND MIGRATE-GRANTS WITH GR-SUPER = #SUPER
+  IF NO RECORDS FOUND
+    MIGRATE-GRANTS.GR-USERID := #P-USERID
+    MIGRATE-GRANTS.GR-OBJECT-TYPE := 'L'
+    MIGRATE-GRANTS.GR-OBJECT-NAME := #P-NAME
+  END-NOREC
+  MIGRATE-GRANTS.GR-OPTION(*) := 'Y'
+  IF *NUMBER (FNDG.) = 0
+    STORE MIGRATE-GRANTS
+  ELSE
+    UPDATE
+  END-IF
+END-FIND
+* SJU 04-06-22 p(252751) start
+IF #P-COPY-AUTH = 'Y'
+  #GRANT-NAME:= #P-NAME
+  COPG. FIND GRANTS WITH GR-TYPE-NAME = #GRANT-SUPER
+    #SP-USERID:= GRANTS.GR-USERID
+    COPM. FIND MIGRATE-GRANTS WITH GR-SUPER = #SUPER
+      IF NO RECORDS FOUND
+        ENTER
+      END-NOREC
+      MOVE BY NAME GRANTS TO MIGRATE-GRANTS
+      IF *NUMBER (COPM.) = 0
+        STORE MIGRATE-GRANTS
+      ELSE
+        UPDATE
+      END-IF
+      ADD 1 TO #ET-COUNT
+      IF #ET-COUNT GE 50
+        RESET #ET-COUNT
+        END TRANSACTION
+      END-IF
+    END-FIND
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* GRANT-USER
+************************************************************************
+DEFINE SUBROUTINE CHECK-RELATED-OBJECTS
+************************************************************************
+FOR #I = 1 TO DISTRIBUTION-LIST.C*D-USER-LIST
+  FNDU. FIND NUMBER MIGRATE-USERS
+    WITH USER-ID = DISTRIBUTION-LIST.D-USER-LIST (#I)
+  IF *NUMBER (FNDU.) = 0
+    FNDL.
+    FIND NUMBER MIGRATE-LIST
+      WITH D-LIST-NAME = DISTRIBUTION-LIST.D-USER-LIST (#I)
+    IF *NUMBER = 0
+      #P-MSG := 4018
+      ESCAPE BOTTOM
+    END-IF
+  END-IF
+END-FOR
+IF #P-MSG = 0 AND #P-COPY-AUTH = 'Y'
+  #GRANT-NAME:= #P-NAME
+  CHKG. FIND GRANTS WITH GR-TYPE-NAME = #GRANT-SUPER
+    IF GR-USERID(CHKG.) = 'PUBLIC'
+      ESCAPE TOP
+    END-IF
+    FNRU. FIND NUMBER MIGRATE-USERS WITH USER-ID = GR-USERID(CHKG.)
+    IF *NUMBER(FNRU.) = 0
+      FNRD. FIND NUMBER MIGRATE-LISTS WITH D-LIST-NAME=GR-USERID(CHKG.)
+      IF *NUMBER(FNRD.) = 0
+        #P-MSG:= 4029
+      END-IF
+    END-IF
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* CHECK-RELATED-OBJECTS
+*
+END

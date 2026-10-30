@@ -1,0 +1,832 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOADFF-N - NOM API Maintenance of Archive Datasets
+*            Functions  delete, mark for condense
+*            Input keys :
+*            ES-KEY-PARM(1)  archive dsname
+*            ES-KEY-PARM(2)  confirmation of uncatalog data set
+*
+* XSETGGR  2005-01-30 created
+* XSETGGR  2005-05-23 changes
+* XSETGGR  2005-06-28 changes
+* XSETGGR  2005-08-22 change assigning values to passing parm
+* fhi      2005-06-23 p(266530) Make Monitor NPR Mainframe independent
+* xsetggr  2006-03-15 available more than 8 steplibs
+* xsetggr  2007-05-07 NOM3201 support 5 byte node numbers
+* xsetggr  2007-07-13 NOM3201 Support P11 format run numbers
+* xsetggr  2008-01-06 NRT2488 add new fun ctions 'Rename dsn' and
+*                     'Modify Volser'
+* xsetggr  2008-02-26 NRT2488 changes
+* XSETHZ   2008-02-27 NRT2488 modified
+* xsetggr 2009-02-24 P300323   make steplib handling unix compliant
+* XSETHZ  2009-10-13 P316054  GET-VOLSERS-FROM-CATALOG
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-20 NOMALL-901 correct log deletion
+* raya    2011-12-27 NOMALL-98 check member to avoid err 82
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* raya    2012-04-04 NOMALL-98 remove-steplib when added
+* xsetggr 2012-12-18 NOMALL-1223 add deleting of unix files
+* raya    2013-01-09 NOMALL-1214 check cat date of user exit
+* xsetggr 2013-04-25 NOMALL-1223 insert GET-VOLSERS-FROM-CATALOG and
+*                    add deleting of unix files
+* xsetggr 2013-05-23 NOMALL-1223 correct delete unix files
+* SU1     2013-07-30 NOMALL-1223 correct delete unix files
+* SU2     2014-07-02 NOMALL-1279 fill fields for Adabas Vista
+* fhi     2014-08-21 NOMALL-1454 Restow, XXUX---P changed.
+* BLI     2014-08-28 NOMALL-1422 Multivolume handling
+* BLI     2014-08-28 NOMALL-1223 correct delete unix files
+* SU3     2014-11-05 NOMALL-1450 fill fields for Adabas Vista
+* SU4     2015-11-23 NOMALL-1784 avoid NAT1301 (P10->B4/I4 - big ISNs)
+* SU5     2016-01-15 NOMALL-1802 do not update Adabas Vista fields
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU6     2020-05-18 NOMALL-2349 use N-CHKCAT + N-ESYLG
+* SU3     2020-12-01 NOMALL-2440 UX-EMAIL-RECIPIENTS
+* BLI1    2022-11-07 NOMALL-2582 Volser check in catalog
+* BLI2    2023-01-24 NOMALL-2612 Error handling 'File not found'
+* -------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL USING NOMODE-A
+LOCAL USING NOADOP-A
+LOCAL USING VUSARC-L
+LOCAL USING NOMUDA-P
+LOCAL USING SAT00009
+LOCAL USING RLOG-L
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING XXUX---P
+LOCAL USING VUXDEF-L
+*
+LOCAL
+1 ARCHIVE-DATASET VIEW OF NRM-ARCHIVE-DATASET
+  2 AD-ARCHIVE-DSNAME
+  2 AD-ARCHIVE-TYPE
+  2 AD-VOLSERS       (1:191)
+  2 C*AD-VOLSERS
+  2 AD-MARK-FOR-CONDENSE
+1 ARCHIVE-TASK VIEW OF NRM-ARCHIVE-TASK
+  2 M-ARCHIVE-PREFIX
+1 DR VIEW OF NRM-DATASET-REPORT
+  2 DR-REPNAME
+  2 DR-ARCHIVE-DSNAME
+  2 DR-REPRNB
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-ARCHIVE-VOLSER   (2)
+  2 AR-ARCHIVE-DATA-SET
+1 VTOC-UPDATE VIEW OF VTOC-UPDATE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+1 CATALOG VIEW OF CATALOG
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 CLASS
+  2 VOLSER
+  2 DSNAME
+1 CATALOG-UPDATE  VIEW  OF  CATALOG-UPDATE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+* *****
+1 #ES-MSG-PREF             (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM            (A3)
+  2 #ES-MSG-NR             (N4)
+1 #ES-MSG-TXT              (A250)
+1 #LIBRARY-ID              (A8)
+1 #DSNAME                  (A44)
+1 #USERARC-EXIT            (L)
+1 #TEMP-STRING             (A60)
+1 #I-VOL                   (P10)
+1 #I-VOL-RESET             (N7)                     /* BLI NOMALL-1422
+1 #MONITOR-ID              (A10) INIT <'USERARC'>
+1 REDEFINE #MONITOR-ID
+  2 #MONITOR-TYPE          (A7)
+  2 #USERARC-NUMBER        (N2)
+1 #EXITMEM                 (A8)
+1 #EXITLIB                 (A8)
+1 #STEPLIB-ADDED           (L)
+1 #PARM                    (A21)
+1 REDEFINE #PARM
+  2 #AD-MSG                (A1)
+  2 #AD-OPTIONS            (A2/1:10)
+1 #COUNT                   (I2)
+1 #REP-COUNT               (I4)
+1 #REP-COUNT-LOG           (A10)
+1 #AR-KEY                  (A31)
+1 REDEFINE #AR-KEY
+  2 #AR-REP                (A25)
+  2 #AR-RNB                (P11)
+1 #ET-COUNT                (I4)   INIT <100>
+1 #STEPLIB-EXIST           (L)
+1 #USER-LIB                (A8)
+1 #UX-FUNCTION             (A8)
+1 #STACK-FUNCTION          (A10) /*Stack for Unix parameters
+1 #STACK-RC                (N1)  /* Return code for stack
+1 #CAT-DATE-1              (A10)
+1 #CAT-DATE-2              (A10)
+1 #UPDATED                 (L)
+1 #AD-ISN                  (P10)
+1 #MF                      (L)
+1 #CALLER                  (A8) INIT <*PROGRAM>
+1 SATSL-USER               (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *MACHINE-CLASS = 'MAINFRAME'
+  #MF := TRUE
+END-IF
+*
+RESET ES-RC ES-MSG-NR ES-MSG-FIELD ES-MSG-TXT
+NOMOD-PARMS := ES-SELECT
+#LIBRARY-ID := ES-APP-SERVER-LIBRARY
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+#DSNAME     := ES-KEY-PARM(1)
+DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+  VALUE 'DT'
+    PERFORM DELETE-RECORD
+  VALUE 'OD'
+    PERFORM MARK-FOR-CONDENSE
+  VALUE 'RN'             /* rename data set name
+    IF ES-EXTEND-FUNCTION = 'UPD'
+      PERFORM RENAME-DSN
+    END-IF
+  VALUE 'MV'             /* modify volser
+    DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+      VALUE 'RD'
+        PERFORM READ-VOLSER
+      VALUE 'UPD'
+        PERFORM MODIFY-VOLSER
+      NONE VALUE IGNORE
+    END-DECIDE
+  ANY VALUE
+    IF #ES-MSG-NR = 0
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+      PERFORM GET-MSG-TXT
+      ESCAPE ROUTINE
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-RECORD
+************************************************************************
+FNDDEL. FIND ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = #DSNAME
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0034             /* :1: does not exist
+    #ES-MSG-TXT := #DSNAME
+    ESCAPE BOTTOM (FNDDEL.)
+  END-NOREC
+*
+  #AD-ISN := *ISN(FNDDEL.)
+  PERFORM GET-VOLSERS-FROM-CATALOG
+  FNDR. FIND NUMBER DR WITH DR-ARCHIVE-DSNAME = #DSNAME
+  IF *NUMBER(FNDR.) > 0
+    #ES-MSG-NR := 0424 /* Cannot delete archive dataset
+    ESCAPE BOTTOM(FNDDEL.)
+  END-IF
+*
+  IF AD-ARCHIVE-TYPE NE 0
+    PERFORM READ-USERARC
+  END-IF                                     /* NOMALL-1223 BLI in
+  IF #USERARC-EXIT                  /* archive type based on userexit
+    PERFORM ADD-STEPLIB
+    NOMUDA-API-VERSION:= 2
+    NOMUDA-FUNCTION:= 'D'
+    NOMUDA-DATA-SET-NAME-1 := #DSNAME
+    NOMUDA-ARCHIVE-NAME := NRM-USER-DEFINED-ARCHIVE.M-USERARC-NAME
+    NOMUDA-ARCHIVE-NUMBER := NRM-USER-DEFINED-ARCHIVE.M-USERARC-NUMBER
+    NOMUDA-ESY-USERID := ES-USER
+    NOMUDA-ESY-NODE   := NOMOD-MONITOR-NODE
+    IF NAT00009-RESPONSE EQ 0
+      CALLNAT 'N-CHKCAT' #ES-MSG-NR #ES-MSG-TXT #EXITMEM /*SU6
+        #EXITLIB #CALLER #CAT-DATE-1 #CAT-DATE-2
+
+    END-IF
+    IF #ES-MSG-NR EQ 0
+      CALLNAT #EXITMEM NOMUDA-API-VERSION NOMUDA-PARMS(*)
+    ELSE
+      LG-CODE := 'MO'
+      COMPRESS '1079' #EXITMEM TO LG-MSG
+      CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+      END TRANSACTION
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Member ' #EXITMEM' not defined in lib' #EXITLIB
+    END-IF
+    IF #STEPLIB-ADDED
+      PERFORM REMOVE-STEPLIB
+    END-IF
+    IF #ES-MSG-NR = 1591 OR=1592
+      ESCAPE BOTTOM
+    END-IF
+  ELSE                           /* archive-type not based on userexit
+    PERFORM NON-USEREXIT
+    IF #ES-MSG-NR NE 0
+      ESCAPE BOTTOM(FNDDEL.)
+    END-IF
+  END-IF
+** END-IF                                  /* NOMALL-1223 BLI out
+  DEL. GET ARCHIVE-DATASET *ISN(FNDDEL.)
+  DELETE
+  #ES-MSG-NR := 0075        /* deleted
+  PERFORM WRITE-LOG
+END-FIND
+*
+END-SUBROUTINE /* DELETE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE RENAME-DSN
+************************************************************************
+RESET #COUNT #REP-COUNT #REP-COUNT-LOG
+#NOADOP := ES-LINE
+RESET #NOADOP.#REPORT-COUNT
+PERFORM VALIDATION
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+*
+FNDRN. FIND ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = #DSNAME
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0479
+    ESCAPE BOTTOM(FNDRN.)
+  END-NOREC
+  AD-ARCHIVE-DSNAME := #NOADOP.#DSN
+  UPDATE
+  IF #COUNT GE #ET-COUNT
+    RESET #COUNT
+    END TRANSACTION
+  END-IF
+END-FIND
+IF #ES-MSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+FIND DR WITH DR-ARCHIVE-DSNAME = #DSNAME
+  #AR-REP := DR-REPNAME
+  #AR-RNB := DR-REPRNB
+  DR-ARCHIVE-DSNAME := #NOADOP.#DSN
+  UPDATE
+  ADD 1 TO #COUNT
+  IF #COUNT GE #ET-COUNT
+    RESET #COUNT
+    END TRANSACTION
+  END-IF
+  ARDSN. FIND AR WITH AR-REPORT-RNB = #AR-KEY
+    AR-ARCHIVE-DATA-SET := #NOADOP.#DSN
+    UPDATE (ARDSN.)
+    IF #LOG = 'Y'
+      COMPRESS DR-REPNAME '/' DR-REPRNB TO LG-OBJECT-NAME
+      #ES-MSG-NR := 0480        /* dsname changed for :1:
+      PERFORM WRITE-LOG
+    END-IF
+    ADD 1 TO #COUNT
+    ADD 1 TO #REP-COUNT
+    IF #COUNT GE #ET-COUNT
+      RESET #COUNT
+      END TRANSACTION
+    END-IF
+  END-FIND
+END-FIND
+#ES-MSG-NR := 0481
+#NOADOP.#REPORT-COUNT := #REP-COUNT
+ES-LINE := #NOADOP
+#REP-COUNT-LOG := #REP-COUNT
+PERFORM WRITE-LOG
+*
+END-SUBROUTINE /* RENAME-DSN
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG
+************************************************************************
+DECIDE ON FIRST VALUE OF #ES-MSG-NR
+  VALUE 480
+    COMPRESS '0480' #NOADOP.#DSN TO LG-MSG
+  VALUE 484
+    COMPRESS '0484' #NOADOP.#VOLSER TO LG-MSG
+  VALUE 481
+    COMPRESS '0481' #REP-COUNT-LOG TO LG-MSG
+    LG-OBJECT-NAME := #DSNAME
+  VALUE 485
+    COMPRESS '0485' #REP-COUNT-LOG TO LG-MSG
+  VALUE 75
+    COMPRESS '0075' #DSNAME 'ARCHIVE-DATASET' TO LG-MSG
+    LG-OBJECT-NAME := #DSNAME
+    LG-FUNCTION := 'W'
+  NONE VALUE IGNORE
+END-DECIDE
+LG-USERID  := ES-USER
+LG-CODE    := 'MO'
+CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+RESET #ES-MSG-NR
+*
+END-SUBROUTINE /* WRITE-LOG
+*
+*
+************************************************************************
+DEFINE SUBROUTINE READ-VOLSER
+************************************************************************
+RDVOL.  FIND ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = #DSNAME
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0479
+    ESCAPE BOTTOM(RDVOL.)
+  END-NOREC
+  IF C*AD-VOLSERS > 1
+    #ES-MSG-NR := 0482       /* more than 1 volser, use condense
+    ESCAPE BOTTOM(RDVOL.)
+  END-IF
+  #NOADOP.#VOLSER := AD-VOLSERS(1)
+  ES-LINE := #NOADOP
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* READ-VOLSER
+*
+************************************************************************
+DEFINE SUBROUTINE GET-VOLSERS-FROM-CATALOG
+************************************************************************
+IF NOT #MF OR AD-ARCHIVE-TYPE > 0
+  ESCAPE ROUTINE
+END-IF
+*
+IF NOMOD-SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP' AND NOT #USERARC-EXIT
+  RESET #UPDATED
+  #I-VOL-RESET := C*AD-VOLSERS                      /* BLI NOMALL-1422
+  CAT. FIND CATALOG  WITH DSNAME = AD-ARCHIVE-DSNAME
+      AND NODE   = NOMOD-MONITOR-NODE AND PREFIX = 'NO' /*BLI1
+    IF ERROR-CODE NE 0
+      #ES-MSG-NR  := 5
+      #ES-MSG-TXT := ERROR-TEXT
+      ESCAPE ROUTINE
+    END-IF
+    #UPDATED := TRUE
+    #I-VOL   := *COUNTER
+* get rid of * in ARCHIVE-DATASET VOLSER          NOMALL-1422 BLI start
+    IF VOLSER EQ '*' AND
+        #I-VOL-RESET LT #I-VOL                   /* already reset
+      RESET #I-VOL-RESET
+      ESCAPE BOTTOM
+    END-IF
+    IF ARCHIVE-DATASET.AD-VOLSERS(#I-VOL) NE VOLSER OR
+        VOLSER EQ '*'
+      UPDARCDS. GET ARCHIVE-DATASET #AD-ISN
+      IF VOLSER EQ '*'
+        RESET  ARCHIVE-DATASET.AD-VOLSERS(#I-VOL:#I-VOL-RESET)
+        RESET #I-VOL-RESET
+      ELSE
+        ARCHIVE-DATASET.AD-VOLSERS(#I-VOL) := VOLSER
+      END-IF
+      IF #I-VOL-RESET EQ 0
+        ESCAPE BOTTOM
+      END-IF                                   /* NOMALL-1422 BLI end
+      UPDATE (UPDARCDS.)
+      END TRANSACTION
+    END-IF
+  END-FIND
+**IF NOT #UPDATED AND C*AD-VOLSERS > 0  BLI1 out, below in
+  IF #I-VOL-RESET GT #I-VOL /* more volsers (NE *) in AD than in CATALOG
+    RESARCDS. GET ARCHIVE-DATASET #AD-ISN
+**  RESET VOLSER ARCHIVE-DATASET.AD-VOLSERS(*) BLI1 out, below in
+    RESET ARCHIVE-DATASET.AD-VOLSERS(#I-VOL + 1:#I-VOL-RESET)
+    UPDATE (RESARCDS.)
+    END TRANSACTION
+  END-IF
+  GET ARCHIVE-DATASET #AD-ISN
+END-IF
+*
+END-SUBROUTINE /* GET-VOLSERS-FROM-CATALOG
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-VOLSER
+************************************************************************
+RESET #COUNT #REP-COUNT
+#NOADOP := ES-LINE
+RESET #NOADOP.#REPORT-COUNT
+*
+PERFORM VALIDATION
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+*
+FNDMV. FIND ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = #DSNAME
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0479
+    ESCAPE BOTTOM(FNDMV.)
+  END-NOREC
+  IF C*AD-VOLSERS > 1
+    #ES-MSG-NR := 0482
+    ESCAPE BOTTOM(FNDMV.)
+  END-IF
+  RESET #USERARC-EXIT
+  IF #MF
+    IF AD-ARCHIVE-TYPE > 0
+      READ NRM-USER-DEFINED-ARCHIVE BY M-MONITOR-ID = #MONITOR-ID
+        IF M-MONITOR-ID NE MASK('USERARC')
+          ESCAPE BOTTOM
+        END-IF
+        IF M-USERARC-NUMBER = AD-ARCHIVE-TYPE
+        AND M-USERARC-EXITLIB NE ' ' AND M-USERARC-EXITMEM NE ' '     /*
+          #USERARC-EXIT := TRUE
+        END-IF
+      END-READ
+    END-IF
+    IF (NOMOD-SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP')
+    AND NOT #USERARC-EXIT                                             /*
+      CTLG. FIND CATALOG WITH DSNAME = AD-ARCHIVE-DSNAME
+      AND NODE = NOMOD-MONITOR-NODE                                   /*
+        IF ERROR-CODE NE 0
+          #ES-MSG-NR := 5
+          #ES-MSG-TXT := ERROR-TEXT
+          ESCAPE BOTTOM(FNDMV.)
+        END-IF
+        IF #NOADOP.#VOLSER NE VOLSER
+          #ES-MSG-NR := 959
+          ESCAPE BOTTOM(FNDMV.)
+        END-IF
+      END-FIND
+    END-IF
+  END-IF
+  AD-VOLSERS(1) := #NOADOP.#VOLSER
+  UPDATE
+  ADD 1 TO #COUNT
+  IF #COUNT GE #ET-COUNT
+    RESET #COUNT
+    END TRANSACTION
+  END-IF
+END-FIND
+*
+IF #ES-MSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+FIND DR WITH DR-ARCHIVE-DSNAME = #DSNAME
+  #AR-REP:= DR-REPNAME
+  #AR-RNB:= DR-REPRNB
+  ARVOL. FIND AR WITH AR-REPORT-RNB = #AR-KEY
+    IF AR-ARCHIVE-VOLSER(1) NE AR-ARCHIVE-VOLSER(2)
+      COMPRESS DR-REPNAME '/' DR-REPRNB TO LG-OBJECT-NAME
+      #ES-MSG-NR := 0483
+      PERFORM WRITE-LOG
+    END-IF
+    AR-ARCHIVE-VOLSER(1):= AR-ARCHIVE-VOLSER(2):= #NOADOP.#VOLSER
+    UPDATE (ARVOL.)
+    IF #LOG = 'Y'
+      COMPRESS DR-REPNAME '/' DR-REPRNB TO LG-OBJECT-NAME
+      #ES-MSG-NR := 0484
+      PERFORM WRITE-LOG
+    END-IF
+    ADD 1 TO #COUNT
+    ADD 1 TO #REP-COUNT
+    IF #COUNT GE #ET-COUNT
+      RESET #COUNT
+      END TRANSACTION
+    END-IF
+  END-FIND
+END-FIND
+#ES-MSG-NR := 0485
+#NOADOP.#REPORT-COUNT := #REP-COUNT
+#REP-COUNT-LOG := #REP-COUNT
+ES-LINE := #NOADOP
+PERFORM WRITE-LOG
+*
+END-SUBROUTINE /* MODIFY-VOLSER
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+IF ES-ORIG-FUNCTION = 'RN'
+  IF #NOADOP.#DSN = ' '
+    #ES-MSG-NR := 4116                    /* enter data set name
+    ESCAPE ROUTINE
+  END-IF
+  FNDNEW. FIND ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = #NOADOP.#DSN
+    #ES-MSG-NR := 0478
+    ESCAPE BOTTOM(FNDNEW.)
+  END-FIND
+END-IF
+IF ES-ORIG-FUNCTION = 'MV' AND #NOADOP.#VOLSER = ' '
+  #ES-MSG-NR := 0110
+END-IF
+IF NOT (#NOADOP.#LOG = 'Y' OR = 'N')
+  #ES-MSG-NR := 1099                   /* specify 'Y' or 'N'
+END-IF
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE MARK-FOR-CONDENSE
+************************************************************************
+RESET #PARM
+FNDCND. FIND ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = #DSNAME
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0034                        /* :1: does not exist
+    #ES-MSG-TXT := ES-KEY-PARM(1)
+    ESCAPE BOTTOM (FNDCND.)
+  END-NOREC
+*
+  #AD-ISN := *ISN(FNDCND.)
+  PERFORM GET-VOLSERS-FROM-CATALOG
+  IF #ES-MSG-NR NE 0
+    ESCAPE BOTTOM (FNDCND.)
+  END-IF
+  PERFORM MARK-FOR-CONDENSE-MAIN /* BLI-NOMALL-1223
+END-FIND
+* return data
+FNDRP. FIND NUMBER DR WITH DR-ARCHIVE-DSNAME = #DSNAME
+IF *NUMBER(FNDRP.) = 0
+  IF #AD-MSG = ' '
+    #AD-MSG := 'D'
+  END-IF
+  #AD-OPTIONS(2) := 'LD'
+ELSE
+  #AD-OPTIONS(2) := 'DT'
+END-IF
+IF C*AD-VOLSERS = 0
+  #AD-OPTIONS(3) := 'LV'
+END-IF
+ES-KEY-PARM(2) := #PARM
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE MARK-FOR-CONDENSE-MAIN    /* BLI-NOMALL-1223
+************************************************************************
+#TEMP-STRING := #DSNAME
+IF ARCHIVE-TASK.M-ARCHIVE-PREFIX = ' ' /*do it once
+  FIND (1) ARCHIVE-TASK WITH M-MONITOR-ID = 'ARCHIVE'
+  END-FIND
+END-IF
+EXAMINE #TEMP-STRING FOR ARCHIVE-TASK.M-ARCHIVE-PREFIX DELETE
+IF #TEMP-STRING = MASK ('.G'NNNN'V'NN) AND #MF
+  FIND CATALOG WITH NODE = NOMOD-MONITOR-NODE
+  AND DSNAME = ARCHIVE-TASK.M-ARCHIVE-PREFIX                          /*
+    IF DSNAME = #DSNAME
+      #ES-MSG-NR := 0953
+      #AD-OPTIONS(1):= 'OD'
+      /*  Not allowed to condense the oldest data set in a GDG
+    END-IF
+    ESCAPE BOTTOM
+  END-FIND
+  IF #ES-MSG-NR NE 0
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+CND. GET ARCHIVE-DATASET *ISN (FNDCND.)
+IF ARCHIVE-DATASET.AD-MARK-FOR-CONDENSE = 'X'
+  RESET ARCHIVE-DATASET.AD-MARK-FOR-CONDENSE #AD-MSG
+ELSE
+  ARCHIVE-DATASET.AD-MARK-FOR-CONDENSE := 'X'
+  #AD-MSG := 'C'
+END-IF
+UPDATE (CND.)
+*
+END-SUBROUTINE /* MARK-FOR-CONDENSE-MAIN
+*
+************************************************************************
+DEFINE SUBROUTINE READ-USERARC
+************************************************************************
+RESET #USERARC-EXIT                                /* NOMALL-1223 BLI in
+#USERARC-NUMBER := AD-ARCHIVE-TYPE
+FIND NRM-USER-DEFINED-ARCHIVE WITH M-MONITOR-ID = #MONITOR-ID
+  IF M-USERARC-EXITLIB NE ' ' AND M-USERARC-EXITMEM NE ' '
+    #USERARC-EXIT := TRUE
+  END-IF
+  #EXITMEM := M-USERARC-EXITMEM
+  #EXITLIB := M-USERARC-EXITLIB
+END-FIND
+*
+END-SUBROUTINE /* READ-USERARC
+*
+************************************************************************
+DEFINE SUBROUTINE NON-USEREXIT
+************************************************************************
+IF NOT #MF /* unix
+  #STACK-FUNCTION := 'PUSH' /* stack parameter for XXUX---N
+  CALLNAT 'XXUXST-N' #STACK-FUNCTION #STACK-RC XXUX---P
+  IF #STACK-RC NE 0
+    #ES-MSG-NR := 5
+    COMPRESS *PROGRAM  *LINE 'Internal error: Stack overflow'
+      TO #ES-MSG-TXT
+    ESCAPE ROUTINE
+  END-IF
+  READ UX-NODES BY UX-NODE-NAME
+    REJECT IF UX-NODES.UX-NODE-SUSPEND NE 'M'
+      AND UX-NODES.UX-NODE-SUSPEND NE 'L'
+    ESCAPE BOTTOM /* take the first matching one
+  END-READ
+*
+  COMPRESS '$EOM_ARC/' #DSNAME TO P-FILE-NAME LEAVING NO
+  #UX-FUNCTION := 'DELETE'
+  PERFORM UNIX-FUNCTION
+  IF #ES-MSG-NR  = 2036               /* BLI2
+      OR #ES-MSG-TXT = SCAN('NPR3339')
+    RESET #ES-MSG-NR #ES-MSG-TXT      /* already deleted. No error.
+  END-IF
+  #STACK-FUNCTION := 'POP' /* restore parameter for XXUX---N
+  CALLNAT 'XXUXST-N' #STACK-FUNCTION #STACK-RC XXUX---P
+  IF #STACK-RC NE 0
+    #ES-MSG-NR := 5
+    COMPRESS *PROGRAM  *LINE 'Internal error: Stack overflow'
+      TO #ES-MSG-TXT
+  END-IF
+  IF #ES-MSG-NR NE 0
+    ESCAPE ROUTINE
+  END-IF
+*
+ELSE           /* it is on mainframe:
+  IF (NOMOD-SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP'
+  OR (NOMOD-SYSTEM-TYPE = SCAN 'BS2' AND #DSNAME = MASK ('$')))       /*
+    ES-KEY-PARM(2) := 'Y'             /* confirmation
+  END-IF
+  IF NOMOD-SYSTEM-TYPE = SCAN 'BS2' AND ES-KEY-PARM(2) = 'Y'
+    SEPARATE SUBSTRING (#DSNAME,2) INTO SATSL-USER IGNORE
+    PERFORM LOGON-TO-ESY              /* using satsl-user
+    FIND(1) VTOC-UPDATE WITH NODE = NOMOD-MONITOR-NODE
+    AND DSNAME = #DSNAME AND FUNCTION = 'SCRATCH'                     /*
+      /*error handling:see below
+    END-FIND
+    SATSL-USER := ES-USER
+    PERFORM LOGON-TO-ESY
+    IF VTOC-UPDATE.ERROR-CODE > 0
+      #ES-MSG-NR := 5
+      #ES-MSG-TXT := VTOC-UPDATE.ERROR-TEXT
+      ESCAPE ROUTINE
+    END-IF
+  ELSE /* ................... when not BS2
+    CT. FIND CATALOG WITH NODE = NOMOD-MONITOR-NODE AND DSNAME = #DSNAME
+    AND PREFIX = 'NO'                                                 /*
+      IF ERROR-CODE GT 0
+        IF ES-KEY-PARM(2) = 'Y'    /* uncat dsn = y
+          #ES-MSG-NR := 5
+          #ES-MSG-TXT := ERROR-TEXT
+          ESCAPE BOTTOM(CT.)
+        END-IF
+      ELSE  /* ..............when error-code = 0
+        IF CLASS = 'DASD' AND ES-KEY-PARM(2) = 'Y'
+          FIND VTOC-UPDATE WITH NODE = NOMOD-MONITOR-NODE
+          AND DSNAME = #DSNAME AND VOLSER = VOLSER AND FUNCTION ='PURGE'
+            /*
+          END-FIND
+        END-IF
+      END-IF
+    END-FIND /* ..... end of Find Catalog
+    IF #ES-MSG-NR NE 0
+      ESCAPE ROUTINE
+    END-IF
+    IF ES-KEY-PARM(2) = 'Y'
+      UNCAT. FIND CATALOG-UPDATE WITH NODE = NOMOD-MONITOR-NODE
+      AND DSNAME = #DSNAME AND FUNCTION = 'UNCATLG'                   /*
+        IF ERROR-CODE > 0 AND ERROR-CODE NE 658
+          #ES-MSG-NR := 5
+          #ES-MSG-TXT := ERROR-TEXT
+          ESCAPE BOTTOM(UNCAT.)
+        END-IF
+      END-FIND
+      IF #ES-MSG-NR NE 0
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* NON-USEREXIT
+*
+************************************************************************
+DEFINE SUBROUTINE LOGON-TO-ESY
+************************************************************************
+IF #MF
+  CALLNAT 'N-ESYLG' 1X NOMOD-MONITOR-NODE SATSL-USER #CALLER
+    #ES-MSG-NR #ES-MSG-TXT 1X
+  IF #ES-MSG-NR NE 0
+    #ES-MSG-NR  := 1534    /* SAT error :1: occured
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* LOGON-TO-ESY
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-STEPLIB
+************************************************************************
+RESET NAT00009-RESPONSE
+IF #MF
+** check existence of po-exitlib in steplib table
+  CALLNAT 'RLIBACT' #EXITLIB #STEPLIB-EXIST
+  IF NOT #STEPLIB-EXIST
+    NAT00009-LIBRARY  := #EXITLIB           /* userarc exitlib
+    RESET  NAT00009-FNR NAT00009-DBID
+    NAT00009-APPLIC   := #LIBRARY-ID
+    NAT00009-FUNCTION := 08
+    CALLNAT 'NAT00009' NAT00009-PARMS
+    IF NAT00009-RESPONSE EQ 0
+      #STEPLIB-ADDED := TRUE
+    ELSE
+      RESET #STEPLIB-ADDED
+      LG-CODE   := 'MO'
+      COMPRESS  '1078' #EXITLIB TO LG-MSG
+      CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+      END TRANSACTION
+     WRITE NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+        'Unable to add steplib' #EXITLIB
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* ADD-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE REMOVE-STEPLIB
+************************************************************************
+** IF *MACHINE-CLASS NE 'PC'                    /* BLI NOMALL-1223 out
+IF #MF /* BLI NOMALL-1223 in
+  IF NOT #STEPLIB-ADDED
+    ESCAPE ROUTINE
+  END-IF
+*
+  CALLNAT 'RLIBACT' #EXITLIB #STEPLIB-EXIST
+  IF #STEPLIB-EXIST
+    NAT00009-LIBRARY  := #EXITLIB
+    RESET  NAT00009-FNR NAT00009-DBID
+    NAT00009-APPLIC   := #LIBRARY-ID
+    NAT00009-FUNCTION := 16     /* delete
+    CALLNAT 'NAT00009' NAT00009-PARMS
+  END-IF
+  #STEPLIB-ADDED := FALSE
+END-IF
+*
+END-SUBROUTINE /* REMOVE-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE UNIX-FUNCTION
+************************************************************************
+P-NODE-NAME       := UX-NODE-NAME
+P-NODE-SUSPEND    := UX-NODE-SUSPEND
+P-FUNCTION        := #UX-FUNCTION
+P-USERID          := UX-NODE-USERID
+P-CIPHER-PASSWORD := UX-NODE-PASSWORD
+P-GROUP           := UX-NODE-GROUP
+*
+CALLNAT 'XXUX---N' XXUX---P
+*
+IF XXUX---P.P-ERC NE 0
+  COMPRESS 'Error=' XXUX---P.P-ERC ':' P-ERT TO #ES-MSG-TXT LEAVING NO
+  IF P-ERC EQ 2036  /* File not found  BLI2 start
+    #ES-MSG-NR := 2036
+  ELSE
+    #ES-MSG-NR := 5
+  END-IF            /* BLI2 end
+END-IF
+*
+END-SUBROUTINE /* UNIX-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+IF ES-MSG-NR = 5
+  ES-MSG-TXT := #ES-MSG-TXT
+ELSE
+  ES-MSG-TXT := SHORT-MSG
+END-IF
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

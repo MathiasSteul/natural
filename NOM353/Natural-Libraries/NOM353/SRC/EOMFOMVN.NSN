@@ -1,0 +1,259 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMFOMVN - DB Interface EOM Object Folder (delete, copy, rename)
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* mrs     1993-08-03             created
+* fhi     2000-08-24 QA03        Use NAT23006 for error values
+* fhi     2007-07-12 NOM3202     C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2007-12-19 p(300375)   add fo-default-location to nrm-folders
+* fhi     2011-05-02 NOMALL-901  Log any online delete operation
+* xsetggr 2011-05-03 NOMALL-902  add Folder maintenance API
+* xsetggr 2011-09-12 NOMALL-1058 log delete of folder if called from API
+* xsetggr 2012-12-06 NOMALL-89   maintain folder grants when copy
+* xsetggr 2013-02-24 NOMALL-1232 add deletion of folder links
+* xsetggr 2013-05-28 NOMALL-89   correct copy folder
+* BLI     2018-01-08 NOMALL-1963 Don't delete also linked folder
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING EOM----P
+PARAMETER USING EOMFOM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL USING EOM----E
+LOCAL USING EOMGRM-P
+LOCAL
+1 NEW-FOLDER VIEW OF NRM-FOLDER
+  2 FO-USER-FO-ID
+  2 REDEFINE FO-USER-FO-ID
+    3 FO-USER              (A8)
+    3 FO-NEWID             (B2)
+1 FOLDER VIEW OF NRM-FOLDER
+  2 FO-USER-ID
+  2 FO-NAME
+  2 FO-ID
+  2 FO-LINKED-FO-ID
+1 LINK-FOLD VIEW OF NRM-FOLDER
+  2 FO-USER-ID
+  2 FO-NAME
+  2 FO-LINKED-FO-ID
+1 GRANT VIEW OF NRM-GRANTS
+  2 GR-OBJECT-TYPE
+  2 GR-OBJECT-NAME
+  2 GR-USERID
+1 FOLDER-ATTRIBUTES VIEW OF NRM-FOLDER
+  2 FO-ID
+  2 FO-NAME
+  2 FO-USER-ID
+  2 FO-DESC
+  2 FO-MAP-LAYOUT
+  2 FO-LINKED-FO-ID
+  2 FO-DEFAULT-LOCATION
+*
+1 #FO-USER-NAME            (A24)
+1 REDEFINE #FO-USER-NAME
+  2 #FO-USER-ID            (A8)
+  2 #FO-NAME               (A16)
+1 #FOLDER                  (I4)
+1 #S-USER-FO-ID            (A10)
+1 REDEFINE #S-USER-FO-ID
+  2 #S-USER                (A8)
+  2 #S-FO-ID               (B2)
+1 #T-USER-FO-ID            (A10)
+1 REDEFINE #T-USER-FO-ID
+  2 #T-USER                (A8)
+  2 #T-FO-ID               (B2)
+1 #OBJ                     (A50)
+1 #USER                    (A8)
+1 #APPL                    (A8)
+1 #FO-ID-N                 (N5)
+1 REDEFINE #FO-ID-N
+  2 #FO-ID-A               (A5)
+1 #FO-USER-FO-ID           (A10)
+1 REDEFINE #FO-USER-FO-ID
+  2 #FO-USER               (A8)
+  2 #FO-ID                 (B2)
+1 #GR-N                    (A25)
+1 #GR-TYPE-NAME            (A26)
+1 REDEFINE #GR-TYPE-NAME
+  2 #GR-TYPE               (A1)
+  2 #GR-NAME               (A25)
+1 #FO-LINKED-FO-ID         (A10)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-DELETE PERFORM DELETE-FOLDER
+  VALUE EOM-RENAME PERFORM RENAME-FOLDER
+  VALUE EOM-COPY   PERFORM COPY-FOLDER
+  NONE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-FOLDER
+************************************************************************
+#FO-USER-ID := EOMFOM-I-USER
+#FO-NAME    := EOMFOM-I-NAME
+*
+DELFO. FIND FOLDER WITH FO-USER-NAME = #FO-USER-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0352
+    ESCAPE BOTTOM (DELFO.)
+  END-NOREC
+  #FO-USER := FOLDER.FO-USER-ID    /* to delete links
+  #FO-ID   := FOLDER.FO-ID
+  #FO-LINKED-FO-ID := FO-LINKED-FO-ID
+  IF #FO-LINKED-FO-ID = ' '
+    #FO-ID-N := FOLDER.FO-ID
+    COMPRESS FO-USER-ID #FO-ID-A TO #GR-NAME LEAVING NO
+  END-IF
+  DELETE
+  COMPRESS #FO-USER-ID '/' #FO-NAME TO #OBJ LEAVING NO
+  #USER := EOM-USER
+  #APPL := EOM-LIBRARY
+  PERFORM RMLOGDEL #OBJ 'FOLDER' #USER #APPL
+END-FIND
+IF #FO-LINKED-FO-ID = ' ' /* deleted folder has no link to another, but
+  PERFORM DELETE-LINKS    /* check folders linked to deleted folder
+END-IF
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-LINKS
+************************************************************************
+#GR-TYPE := 'F'
+* read authorization/granting records of deleted folder
+FNDGR. FIND GRANT WITH GR-TYPE-NAME = #GR-TYPE-NAME
+  #FO-USER-ID := GR-USERID
+  RESET #FO-NAME
+* read all folders of authorized users
+  RDFO. READ LINK-FOLD WITH FO-USER-NAME = #FO-USER-NAME
+    IF LINK-FOLD.FO-USER-ID NE GR-USERID
+      ESCAPE BOTTOM(RDFO.)
+    END-IF
+    IF LINK-FOLD.FO-LINKED-FO-ID = ' '
+      ESCAPE TOP
+    END-IF
+*
+    IF LINK-FOLD.FO-LINKED-FO-ID > ' '
+        AND LINK-FOLD.FO-LINKED-FO-ID = #FO-USER-FO-ID
+* BLI 2018-01-08 NOMALL-1963 start
+* only reset links to deleted folder - insert reset and update
+      RESET LINK-FOLD.FO-LINKED-FO-ID
+      UPDATE (RDFO.)
+* no automatic deletion of folders, comment deletion and its log
+**    DELETE (RDFO.)
+**    COMPRESS #FO-USER '/' LINK-FOLD.FO-NAME TO #OBJ LEAVING NO
+**    PERFORM RMLOGDEL #OBJ 'FOLDER' #USER #APPL
+* BLI 2018-01-08 NOMALL-1963 end
+    END-IF
+  END-READ
+END-FIND
+*
+END-SUBROUTINE /* DELETE-LINKS
+*
+************************************************************************
+DEFINE SUBROUTINE RENAME-FOLDER
+************************************************************************
+#FO-USER-ID := EOMFOM-I-USER
+#FO-NAME    := EOMFOM-I-NEWNAME
+*
+FNDNFO. FIND NUMBER FOLDER WITH FO-USER-NAME = #FO-USER-NAME
+IF *NUMBER (FNDNFO.) > 0
+  EOMMSG-NR := 0033
+  EOMMSG-TOKEN (1)  := EOMFOM-I-NEWNAME
+  EOMMSG-FIELD-NAME := 'EOMFOM-I-NEWNAME'
+  ESCAPE ROUTINE
+END-IF
+#FO-USER-ID := EOMFOM-I-USER
+#FO-NAME    := EOMFOM-I-NAME
+RENFO. FIND FOLDER WITH FO-USER-NAME = #FO-USER-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0352
+    ESCAPE BOTTOM (RENFO.)
+  END-NOREC
+  FO-NAME := EOMFOM-I-NEWNAME
+  UPDATE
+END-FIND
+*
+END-SUBROUTINE /* RENAME-FOLDER
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-FOLDER
+************************************************************************
+#FO-USER-ID := EOMFOM-I-USER
+#FO-NAME    := EOMFOM-I-NEWNAME
+*
+FNDNFOC. FIND NUMBER FOLDER WITH FO-USER-NAME = #FO-USER-NAME
+IF *NUMBER (FNDNFOC.) > 0
+  EOMMSG-NR := 0033
+  EOMMSG-TOKEN (1)  := EOMFOM-I-NEWNAME
+  EOMMSG-FIELD-NAME := 'EOMFOM-I-NEWNAME'
+  ESCAPE ROUTINE
+END-IF
+#FO-USER-ID := EOMFOM-I-USER
+#FO-NAME    := EOMFOM-I-NAME
+COPYFO. FIND FOLDER-ATTRIBUTES WITH FO-USER-NAME = #FO-USER-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0352
+    ESCAPE BOTTOM (COPYFO.)
+  END-NOREC
+  #S-USER := #FO-USER-ID
+  RESET  #S-FO-ID
+  #T-USER  := #FO-USER-ID
+  #T-FO-ID := H'FFFF'
+  HISTOGRAM NEW-FOLDER FOR FO-USER-FO-ID FROM #S-USER-FO-ID
+      ENDING AT     #T-USER-FO-ID
+    #FOLDER := FO-NEWID
+  END-HISTOGRAM
+  IF #FOLDER < 100
+    #FOLDER := 100
+  END-IF
+  ADD 1 TO #FOLDER
+  GFO. GET FOLDER-ATTRIBUTES *ISN(COPYFO.)
+  FO-ID := #FOLDER
+  FO-NAME := EOMFOM-I-NEWNAME
+  STORE FOLDER-ATTRIBUTES
+  IF FO-LINKED-FO-ID = ' '
+    #FO-ID-N := #FOLDER
+    COMPRESS FO-USER-ID #FO-ID-A TO #GR-N LEAVING NO
+    EOMGRM-I-NAME := #GR-N
+    EOMGRM-I-TYPE := 'F'
+    EOMGRM-I-USER := FO-USER-ID
+    CALLNAT 'EOMGRM-N' EOM-READHOLD EOMGRM-PARMS EOMMSG-PARMS
+    DECIDE FOR FIRST CONDITION
+      WHEN EOMMSG-NR = 0  AND EOMGRM-OPTION(*) NE 'Y'
+        CALLNAT 'EOMGRM-N'      /* record already exists due error
+          EOM-DELETE      /* caused NOMALL-1232
+          EOMGRM-PARMS EOMMSG-PARMS
+        END TRANSACTION
+        EOMGRM-OPTION (*) := 'Y'
+        CALLNAT 'EOMGRM-N' EOM-ADD EOMGRM-PARMS EOMMSG-PARMS
+      WHEN EOMMSG-NR NE 0
+        /* the same recordalready exists not deleted by error
+        RESET EOMMSG-NR
+        EOMGRM-OPTION (*) := 'Y'
+        CALLNAT 'EOMGRM-N' EOM-ADD EOMGRM-PARMS EOMMSG-PARMS
+      WHEN NONE IGNORE
+    END-DECIDE
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* COPY-FOLDER
+*
+INCLUDE C-EOMERR /*ON ERROR
+*
+END

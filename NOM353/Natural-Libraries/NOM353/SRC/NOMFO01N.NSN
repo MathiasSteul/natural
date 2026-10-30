@@ -1,0 +1,164 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMFO01N - Folder Maintenance API
+*
+* Maintenance:
+* uuu     yyyy-mm-dd s(999999) ....
+* xsetggr 2011-05-02 NOMALL-902 created
+* xsetggr 2011-09-09 NOMALL-902 corrected
+* SU1     2018-04-09 use fct to get error
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING NOMFO--P
+************************************************************************
+LOCAL USING NOMFO--E
+LOCAL USING EOM----P
+LOCAL USING EOM----E
+LOCAL USING EOMFOM-P
+LOCAL USING EOMMSG-P
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+LOCAL
+1 #NOM-DBID-OLD (N5)
+1 #NOM-FNR-OLD  (N5)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET NOMFO-ERROR-CODE NOMFO-ERROR-TEXT
+*
+DECIDE FOR EVERY CONDITION
+  WHEN NOMFO-NOM-FNR NE 0 AND NOMFO-NOM-DBID NE 0
+    PERFORM GET-NOM-LFILE
+    PERFORM SET-NOM-LFILE
+  WHEN SATLF-ERROR-CODE = 0
+    PERFORM FO-MAINTENANCE
+  WHEN SATLF-ERROR-CODE = 0 AND #NOM-FNR-OLD NE 0 AND #NOM-DBID-OLD NE 0
+    PERFORM SET-OLD-NOM-LFILE
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NOM-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'GET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+#NOM-DBID-OLD := SATLF-DBID-N5
+#NOM-FNR-OLD  := SATLF-FNR-N5
+*
+END-SUBROUTINE /* GET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+SATLF-LFILE           := 206
+SATLF-FUNCTION := 'SET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := NOMFO-NOM-DBID
+SATLF-FNR-N5  := NOMFO-NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-OLD-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := #NOM-DBID-OLD
+SATLF-FNR-N5  := #NOM-FNR-OLD
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-OLD-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-INTERNAL-API
+************************************************************************
+RESET EOMMSG-PARMS
+CALLNAT 'EOMFOM-N' EOM-PARMS EOMFOM-PARMS EOMMSG-PARMS
+IF EOMMSG-NR NE 0
+  NOMFO-ERROR-CODE := EOMMSG-NR
+  IF EOMMSG-TEXT = ' ' /*SU1
+    NOMFO-ERROR-TEXT := F#GETMSG (<NOMFO-ERROR-CODE, EOMMSG-TOKEN(1:3)>)
+  ELSE
+    NOMFO-ERROR-TEXT := EOMMSG-TEXT
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CALL-INTERNAL-API
+*
+************************************************************************
+DEFINE SUBROUTINE FO-MAINTENANCE
+************************************************************************
+CALLNAT 'RGETLIB' EOM-LIBRARY
+COMPRESS EOM-LIBRARY 'U' TO EOM-USER-LIBRARY LEAVING NO
+IF NOT (NOMFO-LANGUAGE = 1 OR = 2)
+  EOM-LANGUAGE := *LANGUAGE
+ELSE
+  EOM-LANGUAGE := NOMFO-LANGUAGE
+END-IF
+EOM-USER         := NOMFO-USERID
+EOM-VERSION      := NOMFO-NOMVERS
+EOM-FUNCTION     := NOMFO-FUNCTION
+EOMFOM-I-NEWNAME := NOMFO-NEWNAME
+EOMFOM-I-NAME    := NOMFO-NAME
+EOMFOM-I-USER    := NOMFO-USER-ID
+DECIDE ON FIRST VALUE OF EOM-FUNCTION
+  VALUE EOM-READ,EOM-READ-NEXT, EOM-READHOLD, EOM-READHOLD-NEXT
+    RESET EOMFOM-ATTRIBUTES
+  VALUE EOM-ADD
+    EOMFOM-DESC := NOMFO-DESC
+    EOMFOM-MAP-LAYOUT := NOMFO-MAP-LAYOUT
+    EOMFOM-LINKED-FOLDER-USERID := NOMFO-LINKED-FOLDER-USERID
+    EOMFOM-LINKED-FOLDER-NAME := NOMFO-LINKED-FOLDER-NAME
+    EOMFOM-DEFAULT-LOCATION := NOMFO-DEFAULT-LOCATION
+  NONE VALUE
+    EOMFOM-ATTRIBUTES := NOMFO-ATTR
+END-DECIDE
+PERFORM CALL-INTERNAL-API
+IF EOMMSG-NR=0 AND NOMFO-FUNCTION=NOMFO-FCT-READ OR=NOMFO-FCT-READ-NEXT
+OR = NOMFO-FCT-READ-HOLD OR = NOMFO-FCT-READ-HOLD-NEXT                /*
+  NOMFO-ATTR := EOMFOM-ATTRIBUTES
+  NOMFO-EOF  := EOMFOM-EOF
+END-IF
+*
+END-SUBROUTINE /* FO-MAINTENANCE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF #NOM-FNR-OLD NE 0 AND #NOM-DBID-OLD NE 0
+    PERFORM SET-OLD-NOM-LFILE
+  END-IF
+  IF *ERROR-NR = 3009 OR = 3145
+    NOMFO-ERROR-CODE := *ERROR-NR
+  ELSE
+    IF *ERROR-NR = 82
+      WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+        'Missing NOM steplibs' //
+      'Please call NOM steplib routine NOMGSTEP before call of NOM API.'
+    END-IF
+    NOMFO-ERROR-CODE := 21
+    CALLNAT 'C-NATERN' NOMFO-ERROR-TEXT 'W'
+  END-IF
+  NOMFO-ERROR-TEXT :=F#GETMSG(<NOMFO-ERROR-CODE,NOMFO-ERROR-TEXT>) /*SU1
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

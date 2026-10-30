@@ -1,0 +1,387 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMASSDEN - On-line Mass Deletion of Reports, Bundles
+*              Active Reports, Active Bundles
+*              Created from NOM_MDEL
+* Version      2.1
+*
+* Note: Since NOMALL-2491 RMASSDEN and related modules are replaced by
+* adapted RNMASSDN (and more)Ü The old modules will be kept for QE with
+* *USER NATQA5 (compare NRMCPR). Especailly maps MUST NOT be changed for
+* compatibility with a lot of test recordingsÜ
+*
+* Parameters:  INPUT - LENGTH 54 BYTES
+*         1  = Wild Card Character supplied by User
+*         2  = Masking Character supplied by User
+*              If User does not supply any the default is used
+*              which will be   '*' for Wild Card '?' for Masking
+*       3-4  = Accepted Values are
+*              RP = Reports
+*              BU = Bundles
+*              AB = Active Bundles
+*              AR = Active Reports
+*      5-29    Bundle Name, Active Bundle Name, Active Report Name
+*              The Wildcard char. is enter here after the name.
+*              * = Wildcard char. must be followed by blanks
+*                  example: UN-ab*
+*                  here all active bundles which start with UN-ab will
+*                  be deleted.
+*                  Anything after * is ignored.
+*                  allowed UN-ab**,the first '*' is part of name.
+*     30-54    Masking string.
+*                  example : ? = Masking char.
+*                  example : Bundle name = 'UN-1234567'
+*                  example : Masking       '   ??'
+*                  Program will start reading from UN-1234567
+*                  When any Bundle name that has '12'
+*                  in position 4 and 5 will be deleted.
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* sju 00-08-22 CE 7465   Created for on-line usage from NOM_MDEL
+* XSETHZ 2003-04-10 s(202763) confirm deletion of archived reports
+* xsetggr 2003-08-19 p(240465) accept non-defined userid
+* xsetggr 2007-05-03 NOM3201   support P11 format run numbers
+* xsetggr 2008-05-05 p(304350) restow due changes in EOMARM-P
+* fhi     2009-05-20 N3463     restow due changes in EOMARM-P
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* CF1     2015-07-08 NOMALL-1669 Set unique log types
+* fhi     2016-04-15 NOMALL-1837 Introduce +DEVICE for testing
+* fhi     2016-06-09 NOMALL-1884 Delete everything for admin users
+* BLI1    2024-02-05 NOMALL-2661 Info about usage of MASSDEL modules
+* --------------------------------------------------------------------
+DEFINE DATA
+GLOBAL USING NRM-GL
+*
+PARAMETER
+1 #INPARAM   (A54) /* Input parameter, see note at start of program
+1 #DISPLAY-LONG-NAMES (L)
+1 P-ET-COUNT          (I2)
+1 P-SCREEN-COUNT      (I2)
+1 P-LOG-DELETIONS     (A1)
+1 P-USERID            (A8)
+1 P-DELETE-COUNT      (N9)
+1 P-OBJECT            (A32)
+1 P-DEL-ARCHIVED      (A1)
+1 P-RC                (N4)
+1 P-USER-TYPE         (A1)    /* NOMALL-1884 fhi in
+*
+* fhi      2016-04-15 NOMALL-1837 start insertion
+INDEPENDENT
+1 +DEVICE              (A8)
+* fhi      2016-04-15 NOMALL-1837 end   insertion
+*
+LOCAL  USING EOM----E
+LOCAL  USING EOM----P
+LOCAL  USING EOMARM-P
+LOCAL  USING EOMMSG-P
+LOCAL  USING EOMRPM-P
+LOCAL  USING RLOG-L
+LOCAL
+1  ACTIVE-REPORTS VIEW  OF  NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-EXPIRATION
+  2 AR-RETENTION-ACTION
+  2 AR-ARCHIVE
+1 ACTIVE-BUNDLES VIEW OF NRM-ACTIVE-BUNDLES
+  2 AB-BUNDLE
+  2 AB-BUNDRNB
+  2 C*AB-FLUSH-EVENTS
+  2 AB-FLUSH-EVENTS
+    3 AB-FLUSH-REPORTS(10)
+    3 AB-REPORT-STATUS(10)
+1  BUNDLE         VIEW  OF  NRM-BUNDLES
+  2 B-BUNDLE
+  2 B-MASTER-REPNAME
+  2 B-BUNDRNB
+1 REPORT VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+1 USERS VIEW OF NRM-USERS
+  2 USER-PROFILE
+  2 REDEFINE USER-PROFILE
+    3 PROF-TYPE      (A1)
+*
+1 #COMPARE-KEY       (A52)
+1 REDEFINE #COMPARE-KEY
+  2 #COMP-MASK       (A25)
+  2 #COMP-KEY        (A25)
+  2 #COMP-RESULT     (A1)
+  2 #COMP-MASK-C     (A1)
+*
+1 #GOOD-MASK   (A1) INIT <'Y'>
+1 #DEL-CNT     (P7)
+1 #ERROR-NO    (A7)
+1 #ERROR-TEXT  (A250)
+1 #AR-REP-RNB  (A31)
+1 REDEFINE #AR-REP-RNB
+  2 #AR-REP    (A25)
+  2 #AR-RNB    (P11)
+*
+1 #OUTPARAM       (A200) /* OUT param
+1 REDEFINE #OUTPARAM
+  2 #PARAM-WILD-C (A1)  /* User supplied Wild Card Charc.
+  2 #PARAM-MASK-C (A1)  /* User supplied Masking Charc.
+  2 #PARAM-TYPE   (A2)  /* What is to be deleted AR,AB or BU
+  2 #PARAM-NAME   (A25) /* The Name of Report or Bundle
+  2 REDEFINE #PARAM-NAME
+    3 #PARAM-NAMEI(A1/1:25)
+  2 #PARAM-MASK   (A25) /* The Mask to be used for Mask Delete
+  2 REDEFINE #PARAM-MASK
+    3 #PARAM-MASK-VAL (A1/1:25)
+  2 #DEL-AR       (L) /* The following logical values will be
+  2 #DEL-AB       (L) /* returned.
+  2 #DEL-BU       (L) /*
+  2 #DEL-RP       (L) /*
+  2 #DEL-MASK     (L) /*
+  2 #PARM-RC      (I2) /* Error code
+  2 #KEY-START    (A25) /* Start key for read
+  2 #KEY-TO       (A25) /* End key
+  2 #KEY-MASK     (A25) /* The mask key that is use to compare
+*                       /* the positonal value.
+1 #ET-COUNT       (I2)
+1 #SCREEN-COUNT   (I2)
+1 #RNB-NUM        (N11)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE WINDOW RECORDS-DELETED SIZE 5*40 BASE 08/15 CONTROL SCREEN
+*
+LG-USERID:= P-USERID
+G-DISPLAY-LONG-NAMES :=        #DISPLAY-LONG-NAMES
+RESET P-RC #OUTPARAM
+#OUTPARAM := #INPARAM
+CALLNAT 'NOM_MPAR' #OUTPARAM
+*
+IF #PARM-RC = 0
+  EOM-FUNCTION  := EOM-DELETE
+  EOM-USER      := P-USERID
+  EOM-USER-TYPE := P-USER-TYPE /* NOMALL-1884 fhi in
+* xsetggr 2003-08-19 p(240465) insert lines
+  FIND (1) USERS WITH USER-ID = P-USERID
+    IF NO RECORDS FOUND
+      EOM-DEF-USER := 'Y'
+      FIND USERS WITH USER-ID = 'DEFAULT'
+        EOM-USER-PROFILE := USER-PROFILE
+        EOM-USER-TYPE    := PROF-TYPE
+      END-FIND
+    END-NOREC
+  END-FIND
+* xsetggr 2003-08-19 p(240465) end
+  RESET EOMMSG-PARMS #DEL-CNT
+  DECIDE FOR FIRST CONDITION
+    WHEN #DEL-AR
+      /*LG-CODE:= 'AD'                                     /* CF1
+      LG-CODE:= 'AR'                                       /* CF1
+      PERFORM DEL-ACT-REP
+    WHEN #DEL-AB
+      LG-CODE:= 'AB'
+      PERFORM DEL-ACT-BUN
+    WHEN #DEL-BU
+      LG-CODE:= 'BM'
+      PERFORM DELETE-BUN
+    WHEN #DEL-RP
+      LG-CODE:= 'RM'
+      PERFORM DELETE-REPORT
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+ELSE
+  IF +DEVICE = 'BATCH'   /* NOMALL-1837 +DEVICE
+    *ERROR := #PARM-RC
+  END-IF
+  P-RC:= #PARM-RC
+END-IF
+P-DELETE-COUNT:= #DEL-CNT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DEL-ACT-REP
+************************************************************************
+#AR-REP := #KEY-START
+#AR-RNB := 0
+RDRAR. READ ACTIVE-REPORTS BY AR-REPORT-RNB STARTING FROM #AR-REP-RNB
+  IF AR-REPNAME > #KEY-TO
+    ESCAPE BOTTOM
+  END-IF
+  IF AR-ARCHIVE NE ' ' AND P-DEL-ARCHIVED = 'N'
+    ESCAPE TOP
+  END-IF
+  PERFORM CHECK-SCREEN-COUNT
+  IF #DEL-MASK
+    RESET #COMP-KEY #COMP-RESULT #COMP-MASK
+    #COMP-MASK   := #KEY-MASK
+    #COMP-KEY    := AR-REPNAME
+    #COMP-MASK-C := #PARAM-MASK-C
+    CALLNAT 'NOM_MASK' #COMPARE-KEY
+    IF #COMP-RESULT NE #GOOD-MASK
+      ESCAPE TOP
+    END-IF
+  END-IF
+*
+  EOMARM-I-NAME := AR-REPNAME
+  EOMARM-I-RNB  := AR-REPRNB
+  #RNB-NUM := AR-REPRNB
+  COMPRESS AR-REPNAME '/' #RNB-NUM TO P-OBJECT LEAVING NO
+  CALLNAT 'EOMARMVN' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+  IF EOMMSG-NR = 0
+    ADD 1 TO #DEL-CNT
+  END-IF
+  PERFORM CHECK-ET-COUNT
+*
+END-READ
+END TRANSACTION
+*
+END-SUBROUTINE /* DEL-ACT-REP
+*
+************************************************************************
+DEFINE SUBROUTINE DEL-ACT-BUN
+************************************************************************
+RDRAB. READ ACTIVE-BUNDLES BY AB-BUNDLE-RNB STARTING FROM #KEY-START
+  IF AB-BUNDLE > #KEY-TO
+    ESCAPE BOTTOM
+  END-IF
+*
+  PERFORM CHECK-SCREEN-COUNT
+  IF #DEL-MASK
+    RESET #COMP-KEY #COMP-RESULT #COMP-MASK
+    #COMP-MASK   := #KEY-MASK
+    #COMP-KEY    := AB-BUNDLE
+    #COMP-MASK-C := #PARAM-MASK-C
+    CALLNAT 'NOM_MASK' #COMPARE-KEY
+    IF #COMP-RESULT NE #GOOD-MASK
+      ESCAPE TOP
+    END-IF
+  END-IF
+*
+  #RNB-NUM := AB-BUNDRNB
+  COMPRESS AB-BUNDLE '/'#RNB-NUM INTO P-OBJECT LEAVING NO
+  G-C-BUNDLE  := AB-BUNDLE
+  G-C-BUNDRNB := AB-BUNDRNB
+  FETCH RETURN 'RDELAB'
+  ADD 1 TO #DEL-CNT
+  PERFORM CHECK-ET-COUNT
+*
+END-READ
+END TRANSACTION
+*
+END-SUBROUTINE /* DEL-ACT-BUN
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-BUN
+************************************************************************
+RDRBU. READ BUNDLE  BY B-BUNDLE STARTING FROM #KEY-START
+  IF B-BUNDLE > #KEY-TO
+    ESCAPE BOTTOM
+  END-IF
+*
+  PERFORM CHECK-SCREEN-COUNT
+  IF #DEL-MASK
+    RESET #COMP-KEY #COMP-RESULT #COMP-MASK
+    #COMP-MASK   := #KEY-MASK
+    #COMP-KEY    := B-BUNDLE
+    #COMP-MASK-C := #PARAM-MASK-C
+    CALLNAT 'NOM_MASK' #COMPARE-KEY
+    IF #COMP-RESULT NE #GOOD-MASK
+      ESCAPE TOP
+    END-IF
+  END-IF
+*
+  P-OBJECT:= B-BUNDLE
+  G-C-BUNDLE := B-BUNDLE
+  CALLNAT 'RDELBU' G-C-BUNDLE G-USERID G-DISPLAY-LONG-NAMES
+    G-CONFIRM G-NATRP-ERC
+  ADD 1 TO #DEL-CNT
+  PERFORM CHECK-ET-COUNT
+*
+END-READ
+END TRANSACTION
+*
+END-SUBROUTINE /* DELETE-BUN
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-REPORT
+************************************************************************
+HDEL. HISTOGRAM REPORT  R-REPNAME STARTING FROM #KEY-START
+    ENDING AT #KEY-TO
+*
+  PERFORM CHECK-SCREEN-COUNT
+  IF #DEL-MASK
+    RESET #COMP-KEY #COMP-RESULT #COMP-MASK
+    #COMP-MASK   := #KEY-MASK
+    #COMP-KEY    := R-REPNAME
+    #COMP-MASK-C := #PARAM-MASK-C
+    CALLNAT 'NOM_MASK' #COMPARE-KEY
+    IF #COMP-RESULT NE #GOOD-MASK
+      ESCAPE TOP
+    END-IF
+  END-IF
+*
+  EOM-FUNCTION := EOM-DELETE
+  EOMRPM-I-NAME := R-REPNAME
+  P-OBJECT:= R-REPNAME
+  CALLNAT 'EOMRPM-N' EOM-PARMS EOMRPM-PARMS EOMMSG-PARMS
+  IF EOMMSG-NR NE 0
+    P-RC:= EOMMSG-NR
+    P-OBJECT:= EOMRPM-I-NAME
+    ESCAPE ROUTINE
+  END-IF
+  ADD 1 TO #DEL-CNT
+  PERFORM CHECK-ET-COUNT
+*
+END-HISTOGRAM
+END TRANSACTION
+*
+END-SUBROUTINE /* DELETE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-ET-COUNT
+************************************************************************
+IF P-LOG-DELETIONS = 'Y'
+  LG-OBJECT-NAME:= P-OBJECT
+  COMPRESS '0075' LG-OBJECT-NAME #PARAM-TYPE
+    INTO LG-MSG
+  CALLNAT 'RLOG' PL-PARMS
+  ADD 1 TO #ET-COUNT
+  ADD 1 TO #SCREEN-COUNT
+END-IF
+ADD 1 TO #ET-COUNT
+IF #ET-COUNT GT P-ET-COUNT
+  RESET #ET-COUNT
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* CHECK-ET-COUNT
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-SCREEN-COUNT
+************************************************************************
+ADD 1 TO #SCREEN-COUNT
+IF #SCREEN-COUNT GT P-SCREEN-COUNT
+  RESET #SCREEN-COUNT
+  SET CONTROL 'N'
+  INPUT WINDOW = 'RECORDS-DELETED' (AD=OI)
+    /  'Deleted' #DEL-CNT 'objects'
+END-IF
+*
+END-SUBROUTINE /* CHECK-SCREEN-COUNT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  P-RC:= *ERROR-NR
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

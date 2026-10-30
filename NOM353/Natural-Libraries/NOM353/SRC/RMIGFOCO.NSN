@@ -1,0 +1,236 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMIGFOCO
+* Function:  copy folders from source to target environment
+*
+* Maintenance
+* xsetggr 2011-01-31 NOMALL-851 created from RMIGUSCO
+* XSETHZ  2011-04-15 NOMALL-958 corrections
+* xsetggr 2011-04-19 NOMALL-851 corrections
+* xsetggr 2011-07-28 nomall-1031 corrections
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+PARAMETER
+1 #P-MSG         (N4)           /* out
+1 #P-USER        (A8)           /* in
+1 #P-ID          (B2)           /* in
+1 #P-NAME        (A25)          /* in/out
+1 #P-COPY-AUTH   (A1)           /* in
+*
+LOCAL USING VTFOLD-L
+LOCAL USING VGRANT-L
+LOCAL USING VTGRAN-L
+**  LOCAL USING VTUSER-L /*SU1 out
+LOCAL USING VFOLD-L
+**  LOCAL USING RTXT---L /*SU1 out
+LOCAL
+*
+1 NEW-TARGET-FOLDER VIEW OF NRM-MIGRATE-FOLDER
+  2 FO-USER-FO-ID
+  2 REDEFINE FO-USER-FO-ID
+    3 FO-USER            (A8)
+    3 FO-NEWID           (B2)
+1 LINKED-FO VIEW OF NRM-FOLDER
+  2 FO-NAME
+1 MIGRATE-USERS VIEW OF NRM-MIGRATE-USERS /*SU1 in
+1 MIGRATE-LISTS VIEW OF NRM-MIGRATE-DISTRIBUTION-LIST
+1 LINKED-MIGRATE-FOLDER VIEW OF NRM-MIGRATE-FOLDER
+*
+**1 #FOLDER-NAME (A70) /*SU1 out
+1 #GRANT-SUPER          (A26) INIT <'F'>
+1 REDEFINE #GRANT-SUPER
+  2  #GRANT-TYPE       (A1)
+  2  #GRANT-NAME       (A25)
+1 #SUPER                (A34)
+1 REDEFINE #SUPER
+  2 #SP-OBJECT-TYPE     (A1)
+  2 #SP-USERID          (A8)
+  2 #SP-OBJECT-NAME     (A25)
+1 #GR-FOLDER             (A25)
+**1 #ET-COUNT              (I2) /*SU1 out
+1 #FO-NR                 (N5)
+1 REDEFINE #FO-NR
+  2 #FO-NR-A             (A5)
+1 #FO-USER-NAME          (A24)
+1 REDEFINE #FO-USER-NAME
+  2 #FO-USER             (A8)
+  2 #FO-NAME             (A16)
+1 #LINK-USER-NAME        (A24)
+1 REDEFINE #LINK-USER-NAME
+  2 #LINK-USER           (A8)
+  2 #LINK-NAME           (A16)
+/*1 #FO-USER-ID            (A10)  /* XSETHZ  2011-04-15 NOMALL-958
+/*1 REDEFINE #FO-USER-ID          /* XSETHZ  2011-04-15 NOMALL-958
+/*   2 #FO-USERID           (A8)   /* XSETHZ  2011-04-15 NOMALL-958
+/*   2 #FO-ID               (B2)   /* XSETHZ  2011-04-15 NOMALL-958
+1 #ID                    (I4)
+1 #S-USER-ID             (A10)
+1 REDEFINE #S-USER-ID
+  2 #S-USER              (A8)
+  2 #S-ID                (B2)
+1 #T-USER-ID             (A10)
+1 REDEFINE #T-USER-ID
+  2 #T-USER              (A8)
+  2 #T-ID                (B2)
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #P-MSG
+#FO-USER   := #P-USER
+/*#FO-USERID := #P-USER      /* XSETHZ  2011-04-15 NOMALL-958
+#FO-NAME   := SUBSTRING(#P-NAME,1,16)
+/*#FO-ID     := #P-ID        /* XSETHZ  2011-04-15 NOMALL-958
+*
+FNDF. FIND FOLDER WITH FO-USER-NAME  = #FO-USER-NAME
+/*   AND FO-USER-FO-ID = #FO-USER-ID  /* XSETHZ  2011-04-15 NOMALL-958
+*
+  IF NO RECORDS FOUND
+    #P-MSG := 4034              /* folder not found in Source DB
+    ESCAPE BOTTOM (FNDF.)
+  END-NOREC
+/* XSETHZ  2011-04-15 NOMALL-958  --->
+  IF #FO-NAME = '#Inbasket' OR = '#Listeneingang'
+    #FO-NAME := '#Inbasket'
+    FT1. FIND NUMBER MIGRATE-FOLDER WITH FO-USER-NAME = #FO-USER-NAME
+    IF *NUMBER(FT1.) = 0
+      #FO-NAME := '#Listeneingang'
+      FT2. FIND NUMBER MIGRATE-FOLDER WITH FO-USER-NAME = #FO-USER-NAME
+      IF *NUMBER(FT2.) = 0
+        #FO-NAME := SUBSTRING(#P-NAME,1,16)
+      END-IF
+    END-IF
+  END-IF
+/* XSETHZ  2011-04-15 NOMALL-958  <---
+*
+  PERFORM CHECK-LINKED-FOLDERS
+  IF #P-MSG NE 0
+    ESCAPE BOTTOM (FNDF.)
+  END-IF
+  FNDT.
+  FIND MIGRATE-FOLDER WITH FO-USER-NAME = #FO-USER-NAME
+    IF NO RECORDS FOUND
+      ENTER
+    END-NOREC
+    #ID := MIGRATE-FOLDER.FO-ID
+    MOVE BY NAME FOLDER TO MIGRATE-FOLDER
+    IF *NUMBER(FNDT.) = 0
+      PERFORM GET-NEW-ID
+      STORE MIGRATE-FOLDER
+    ELSE
+* xsetggr 2011-07-27 NOMALL-1031 insert next line
+      GETMF. GET MIGRATE-FOLDER *ISN(FNDT.)
+      MIGRATE-FOLDER.FO-ID := #ID
+      UPDATE (GETMF.)    /* xsetggr 2011-07-27 NOMALL-1031 was (FNDT.)
+    END-IF
+    IF FOLDER.FO-LINKED-FO-ID > ' '
+      ESCAPE BOTTOM
+    END-IF
+    PERFORM COPY-FOLDER-GRANTS
+  END-FIND
+END-FIND
+END TRANSACTION
+* -------------------- get new id --------------------------------------
+DEFINE SUBROUTINE GET-NEW-ID
+RESET #ID
+*
+IF FOLDER.FO-NAME = '#Inbasket' OR = '#Listeneingang'
+  #ID := 1
+  MIGRATE-FOLDER.FO-ID := #ID
+  ESCAPE ROUTINE
+ELSE
+  #S-USER := #P-USER
+  RESET  #S-ID
+  #T-USER := #P-USER
+* #T-ID          := H'FFFF'
+* xsetggr 2011-07-28 NOMALL-1031 line above out, next 2 lines in
+  #ID            := 999999999
+  #T-ID          := #ID
+  HISTOGRAM NEW-TARGET-FOLDER FOR FO-USER-FO-ID
+      STARTING FROM #S-USER-ID
+      ENDING AT     #T-USER-ID
+    #ID := NEW-TARGET-FOLDER.FO-NEWID
+  END-HISTOGRAM
+*
+  IF #ID < 100
+    #ID := 100
+  END-IF
+END-IF
+ADD 1 TO #ID
+MIGRATE-FOLDER.FO-ID := #ID
+END-SUBROUTINE
+* ------------------------------copy folder grants ---------------------
+DEFINE SUBROUTINE COPY-FOLDER-GRANTS
+IF #P-COPY-AUTH = 'Y'
+  #GRANT-TYPE := 'F'
+  #GRANT-NAME := #GR-FOLDER
+  COPG. FIND GRANTS WITH GR-TYPE-NAME = #GRANT-SUPER
+    #SP-USERID:= GRANTS.GR-USERID
+    #SP-OBJECT-TYPE := GRANTS.GR-OBJECT-TYPE
+    #SP-OBJECT-NAME := GRANTS.GR-OBJECT-NAME
+    COPM. FIND MIGRATE-GRANTS WITH GR-SUPER = #SUPER
+      IF NO RECORDS FOUND
+        ENTER
+      END-NOREC
+      MOVE BY NAME GRANTS TO MIGRATE-GRANTS
+      IF *NUMBER (COPM.) = 0
+        STORE MIGRATE-GRANTS
+      ELSE
+        UPDATE
+      END-IF
+      END TRANSACTION
+    END-FIND
+  END-FIND
+END-IF
+END-SUBROUTINE
+* ----------------------------------------- check-linked-folders ------
+DEFINE SUBROUTINE CHECK-LINKED-FOLDERS
+RESET #LINK-USER-NAME
+*
+DECIDE FOR EVERY CONDITION
+  WHEN #P-MSG = 0
+    IF FOLDER.FO-LINKED-FO-ID > ' '
+      FIND LINKED-FO WITH FO-USER-FO-ID = FOLDER.FO-LINKED-FO-ID
+        #LINK-NAME := LINKED-FO.FO-NAME
+        #LINK-USER := FOLDER.FO-LINKED-USER-ID
+      END-FIND
+      FNDFL.  FIND NUMBER LINKED-MIGRATE-FOLDER WITH
+        FO-USER-NAME = #LINK-USER-NAME
+      IF *NUMBER (FNDFL.) = 0
+        #P-MSG := 4037        /* linked folder not defined in target DB
+        COMPRESS #LINK-USER '/' #LINK-NAME TO #P-NAME LEAVING NO
+      END-IF
+      #FO-NR := FOLDER.FO-LINKED-ID
+      COMPRESS FOLDER.FO-LINKED-USER-ID #FO-NR-A TO #GR-FOLDER
+        LEAVING NO
+    ELSE
+      #FO-NR := FOLDER.FO-ID
+      COMPRESS FOLDER.FO-USER-ID #FO-NR-A INTO #GR-FOLDER LEAVING NO
+    END-IF
+  WHEN #P-MSG = 0 AND #P-COPY-AUTH = 'Y'
+    #GRANT-NAME := #GR-FOLDER
+    #GRANT-TYPE := 'F'
+    CHKG.
+    FIND GRANTS WITH GR-TYPE-NAME = #GRANT-SUPER
+      IF GR-USERID(CHKG.) = 'PUBLIC'
+        ESCAPE TOP
+      END-IF
+      FNRU.
+      FIND NUMBER MIGRATE-USERS WITH USER-ID = GR-USERID(CHKG.)
+      IF *NUMBER(FNRU.) = 0
+        F. FIND NUMBER MIGRATE-LISTS WITH D-LIST-NAME = GR-USERID(CHKG.)
+        IF *NUMBER(F.) = 0
+          #P-MSG:= 4029    /* Authorised user not defined in target DB
+        END-IF
+      END-IF
+    END-FIND  /* (CHKG.)
+  WHEN NONE IGNORE
+END-DECIDE
+END-SUBROUTINE
+END

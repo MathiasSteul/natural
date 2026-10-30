@@ -1,0 +1,167 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMDISSO - List Source ID(s) with depending Active Report
+*
+* Maintenance:
+* uuu     yyyy-mm-dd iTrac       Comment
+* fhi     2014-10-31 NOMALL-1514 Created
+* SU1     2018-04-27 NOMALL-1823 remove SAP - nothing to do here
+* SU2     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL USING RMSPL--L
+LOCAL USING RMSR---L
+LOCAL USING RMSR---E
+LOCAL
+1 SR VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-TYPE
+  2 SR-ATTRIBUTES-IDENT
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-ORDER-ID
+  2 AR-SOURCE-ID
+  2 AR-SPOOL-ATTRIBUTES
+*
+1 #DBID                              (N5)
+1 #FNR                               (N5)
+1 #SR-ID                             (I4)
+1 #SR-TYPE-I2                        (I2)
+1 #OUT                               (A250)
+1 #SOURCE-TYPES                      (A30/17) CONST < /*NOMTRIG NOMDISSO
+  /*SU1 SU2 old entries must stay to be upward compatible
+  'JES2',                 /* 1
+  'JES3',                 /* 2
+  'POWER',                /* 3 SU2
+  'NOM-DATA-BASE',        /* 4
+  'SEQUENTIAL-FILE-MVS',  /* 5
+  'SEQUENTIAL-FILE-VSE',  /* 6 SU2
+  'SEQUENTIAL-FILE-BS2',  /* 7
+  'LMS',                  /* 8
+  'EPS',                  /* 9
+  'NAT',                  /*10
+  'NAF',                  /*11
+  'JES2-QUEUE-ENTRY',     /*12
+  'JES3-QUEUE-ENTRY',     /*13
+  'CMASPOOL',             /*14
+  'SAPSPOOL',             /*15 SU1
+  'SEQUENTIAL-FILE-UNIX', /*16
+  'DIRECT-INPUT'>         /*17
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *DEVICE NE 'BATCH'
+  SET KEY ALL
+  EJECT
+  REPEAT
+    INPUT NO ERASE (AD=MILT'_')
+ '* --------------------------------------------------------------- *' /
+ '*                             NOMDISSO                            *' /
+ '*                             --------                            *' /
+ '* Utility to enter a source ID which will show the corresponding  *' /
+ '* Active Report                                                   *' /
+ '* Source ID 0 shows all IDs present.                              *' /
+ '*                                                                 *' /
+ '* For Batch execution call this program using parameters:         *' /
+ '* NOMDISSO <sr-id> <dbid> <fnr>                                   *' /
+ '*                                                                 *' /
+ '* --------------------------------------------------------------- *' /
+      '(End: PF-Key)'                                //
+      'Source-ID:'        20T ' ' #SR-ID             //
+      'System File DBID:' 20T ' ' #DBID (AD=MILT'_') /
+      'System File FNR:'  20T ' ' #FNR  (AD=MILT'_') //
+    IF *PF-KEY NE 'ENTR'
+      ESCAPE ROUTINE
+    END-IF
+    IF #DBID = 0 OR #FNR = 0 OR #DBID = 255 OR #FNR = 255
+      REINPUT 'DBID/FNR must not be 0 or 255'
+    END-IF
+    FETCH RETURN 'SETNRMLF' #DBID #FNR 91
+    PERFORM SHOW-RECORDS
+    EJECT
+  END-REPEAT
+ELSE
+  INPUT '=' #SR-ID '=' #DBID '=' #FNR
+  IF #DBID = 0 OR #FNR = 0 OR #DBID = 255 OR #FNR = 255
+    WRITE 'DBID/FNR must not be 0 or 255'
+    ESCAPE ROUTINE
+  END-IF
+  FETCH RETURN 'SETNRMLF' #DBID #FNR 91
+  PERFORM SHOW-RECORDS
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE OUT
+************************************************************************
+#SPOOL-ATTRIBUTES  := AR-SPOOL-ATTRIBUTES
+#SOURCE-ATTRIBUTES := SR-ATTRIBUTES-IDENT
+#SR-TYPE-I2        := SR-TYPE
+CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SR-TYPE-I2
+CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES SR-TYPE
+PRINT 'Source-ID:' SR-ID
+PRINT 'Source-Type:' #SOURCE-TYPES (#SR-TYPE-I2)
+PRINT 'Source-Identification:' SR-ATTRIBUTES-IDENT
+PRINT (AD=L) 'Report/Runnumber:' AR-REPNAME  '/' AR-REPRNB
+  '--- Order-ID:' AR-ORDER-ID
+PERFORM GET-NODE
+PRINT / '---' /
+*
+END-SUBROUTINE /* OUT
+*
+************************************************************************
+DEFINE SUBROUTINE SHOW-RECORDS
+************************************************************************
+IF #SR-ID NE 0
+  FIND SR WITH SR-ID = #SR-ID
+    FIND AR WITH AR-SOURCE-ID = SR-ID
+      PERFORM OUT
+    END-FIND
+  END-FIND
+ELSE
+  READ SR BY SR-ID
+    FIND AR WITH AR-SOURCE-ID = SR-ID
+      PERFORM OUT
+    END-FIND
+  END-READ
+END-IF
+*
+END-SUBROUTINE /* SHOW-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NODE
+************************************************************************
+DECIDE ON FIRST VALUE SR-TYPE
+/*SU2 VALUE POWER COMPRESS 'Spool Power Node' #SPOOL-POWER-NODE
+/*SU2 '--- Source Power Node:' #POWER-NODE TO #OUT
+  VALUE JES2-QUEUE-ENTRY
+    COMPRESS 'JES Queue Node:' #JES-QUEUE-NODE TO #OUT
+  VALUE JES2
+    COMPRESS 'JES Spool Node:' #SPOOL-JES-NODE
+      '--- JES Source Node:' #JES-NODE TO #OUT
+/*SU2  VALUE SEQUENTIAL-FILE-VSE
+/*SU2  COMPRESS 'VSE File Node:' #FVSE-NODE TO #OUT
+  VALUE SEQUENTIAL-FILE-MVS
+    COMPRESS 'MVS File Node:' #FMVS-NODE TO #OUT
+  VALUE SEQUENTIAL-FILE-BS2
+    COMPRESS 'Spool BS2 Node' #SPOOL-BS2-NODE
+      '--- Source BS2 Node:' #FBS2-NODE TO #OUT
+  NONE
+    #OUT := 'No node information in source record.'
+END-DECIDE
+PRINT #OUT
+*
+END-SUBROUTINE /* GET-NODE
+*
+END

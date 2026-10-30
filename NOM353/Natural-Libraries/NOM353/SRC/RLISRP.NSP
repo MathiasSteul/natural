@@ -1,0 +1,756 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RLISRP - List all Reports (ADMIN) or Reports granted to a user
+*          (General User)
+*
+* Maintenance
+* mrs 94-05-17 s(999999) reduce sort fliplines
+* gw  96-10-15 s(231722) TOP doesn't go top
+* gw  98-03-13 s(278970) save search values in independent variables
+* xsisjl 99-05-27 s(269402) retrieve active reports by keyword
+* xsisjl 99-05-27 s(999999) removed pre 96 comments to improve
+*                           readability
+* fhi    00-01-27 s(191368) version taken from NOM142 and stowed for NOM211
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsiszha 2000-08-07 (CE7461) Extend Report and Bundle Names
+* xsetoba 2002-03-26 (CE5903) BOT doesn't work
+* xsetggr 2004-05-31 (CE5903)
+* LP      2004-12-15 CHANGE THE NAME OF THE LDA "REPORT" TO "NRM-REPORT"
+*                    "REPORT" IS A RESERVED WORD IN NATURAL
+* xsetggr 2010-01-07 P300184 use G-LANGUAGE for checking language
+* fhi     2010-03-05 P307403 Don't use text and binary reports mixed
+* xsetggr 2010-03-16 P307403 out previous changes from 2010-03-05
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2012-09-19 NOMALL-89 implement line command validation check
+* xsetggr 2013-06-19 NOMALL-1198 restow due correctons in C-CHKLC
+* SU1     2013-07-17 remove empty copy code CSTARTLS
+* SU2     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* BLI     2017-07-17 NOMALL-1984 differ MODIFY/DISPLAY (C-CHKLC)
+* SU3     2021-04-12 NOMALL-2444 remove bulk(not reachable code)
+* SU4     2023-06-13 ES-33831    KY 1 -> 4 + AND/OR
+************************************************************************---
+*
+DEFINE DATA
+GLOBAL USING NRM-GL
+INDEPENDENT
+1 +G-RLISRP-SEL-REPNAME       (A25)
+1 +G-RLISRP-SEL-AUTHORIZATION (A8)
+1 +G-RLISRP-SEL-REPORT-TYPE   (A1)
+* *****
+LOCAL USING RLC----L
+LOCAL USING RPFK---L
+LOCAL USING ROT----L
+LOCAL USING VGRANT-L
+*
+LOCAL
+1 NRM-REPORT VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-TYPE
+  2 R-DESC
+1 LIST VIEW OF NRM-DISTRIBUTION-LIST
+*
+1 #NOFPAGES              (P3) INIT <50>
+1 #BROWSE-FLAGS
+  2 #NEWVAL              (L)
+  2 #TOP                 (L)
+  2 #BOT                 (L)
+  2 #FORWARD             (L)
+  2 #BACKWARD            (L)
+  2 GET-SCREEN           (L)
+  2 #SCROLL-AMOUNT       (N3)
+1 #END-OF-DATA           (L)
+1 #MAXP                  (P3)
+1 DISPLAY-IT             (L)
+1 #ISN                   (P10)
+1 L-HEADER               (A78)
+1 CV-SELECTION           (C/7)
+1 REDEFINE    CV-SELECTION
+  2 CV-SKEY              (C)
+  2 CV-SREP              (C)
+  2 CV-SRTYPE            (C)
+  2 CV-SAUTH             (C)
+1 #NOFLINES              (P2) CONST<15>
+1 #MAX-SEG               (I2) CONST <13> /*SU4
+1 L-SCREEN
+  2 L-SCREEN-NO-SAVE
+    3 L-SCR-NO           (1:#NOFLINES)
+      4 L-AUTHORIZATION  (A8)
+      4 L-USERID         (A8)
+      4 L-REPORT-TYPE    (A1)
+      4 L-DESC           (A50)
+      4 CV-MARK          (C)
+      4 CVU              (C)
+  2 L-SCREEN-SEGMENT     (A200/1:#MAX-SEG)
+  2 REDEFINE L-SCREEN-SEGMENT
+    3 L-SCREEN-SEG       (#MAX-SEG)
+      4 L-SCREEN-SEG-F   (A199)
+      4 L-SCREEN-SEG-L   (A1)
+  2 REDEFINE L-SCREEN-SEGMENT
+    3 L-SCREEN-SAVE-AREA
+      4 L-SCR            (1:#NOFLINES)
+        5 L-IDENT        (I2)
+        5 L-REPORT       (A25)
+        5 L-ISN          (P10)
+        5 L-OPTION       (A1/1:6)
+        5 L-MARK         (A2)
+      4 #CP              (P3)
+      4 #MAXAP           (P3)
+      4 #START-KEY       (A25)
+      4 #RSTART          (A25)
+      4 #LAST-KEY        (A25)
+      4 #TOPKEY          (A25)
+      4 #S-REPNAME       (A25)
+      4 #S-AUTHORIZATION (A8)
+      4 #S-REPORT-TYPE   (A1)
+      4 #S-REPNAME-F     (A25)
+      4 #S-REPNAME-T     (A25)
+      4 #PAGES           (A34/50)
+      4 REDEFINE    #PAGES
+        5 #FROM-KEYS     (50)
+          6 #F-TYPE      (A1)
+          6 #F-USERID    (A8)
+          6 #F-OBJECT-NAME (A25)
+      4 #T-KEY           (A34)
+      4 REDEFINE    #T-KEY
+        5 #T-TYPE        (A1)
+        5 #T-USERID      (A8)
+        5 #T-OBJECT-NAME (A25)
+      4 #PANEL           (I1)
+  2 L-SCREEN-SEG-FLAG    (L/1:#MAX-SEG)
+1 I                      (N5)
+1 #ALLOWED               (L)
+1 #UPDATE                (L)
+1 #DELETE                (L)
+1 #FATHER-PROG           (A8) INIT <'RMENU'>
+1 GRANTED                (L)
+1 #LEN                   (N3)
+1 CV-LINES               (C)
+1 #ADD-PROGRAM           (A8) INIT <'RDEFRP'>
+1 #ACT-MAST              (A8) INIT <'RLISAC'>
+1 F                      (P2)
+1 #LANGUAGE              (I1)
+1 #STACK-PGM             (A8)
+1 #FLIP-LINES            (A78/1:2)
+1 #L-KEYWORD             (A15/1:4) /*SU4
+1 #S-AND                 (L) /*SU4
+1 #I                     (N2)
+1 #HP                    (N3)
+1 #ARCHIVE               (L)
+1 #REVIVE                (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET L-SCREEN-SAVE-AREA /*SU4
+CALLNAT 'NARPSEC' G-USER-PROFILE 'DRP' #ALLOWED
+INCLUDE C-NALLOW
+CALLNAT 'NARPSEC' G-USER-PROFILE 'MRP' #UPDATE
+CALLNAT 'NARPSEC' G-USER-PROFILE 'PRP' #DELETE
+*
+G-C-OBJTYPE := 'REPORTS'
+*
+IF *DATA = 5
+  PERFORM READ-FROM-STACK
+  PERFORM INIT-LINECOM
+  PERFORM LINE-COMMANDS
+  PERFORM INIT-SELECTION-KEYS
+  GET-SCREEN := TRUE
+ELSE
+  #NEWVAL := TRUE
+END-IF
+*
+#ADD-PROGRAM:= 'RDEFRP'
+#ACT-MAST:= 'RLISAC'
+RESET G-BROWSE-FLAGS
+G-PGM-TYPE := 'L'
+INCLUDE CVIDEO
+*
+RESET G-COMMIT
+*
+IF *DATA > 0
+  IF G-DISPLAY-LONG-NAMES
+    IF #PANEL = 2
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+        USING MAP 'RLISRP2&'
+    ELSE
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+        USING MAP 'RLISRPL&'
+    END-IF
+  ELSE
+    RESET #PANEL
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RLISRPM&'
+  END-IF
+END-IF
+IF #S-REPNAME = ' ' AND #S-AUTHORIZATION = ' ' AND #S-REPORT-TYPE = ' '
+  #S-REPNAME       := +G-RLISRP-SEL-REPNAME
+  #S-AUTHORIZATION := +G-RLISRP-SEL-AUTHORIZATION
+  #S-REPORT-TYPE   := +G-RLISRP-SEL-REPORT-TYPE
+ELSE
+  +G-RLISRP-SEL-REPNAME         := #S-REPNAME
+  +G-RLISRP-SEL-AUTHORIZATION := #S-AUTHORIZATION
+  +G-RLISRP-SEL-REPORT-TYPE     := #S-REPORT-TYPE
+END-IF
+IF G-USER-TYPE = 'G' AND #S-REPNAME = ' '  AND #S-AUTHORIZATION = ' '
+  #S-AUTHORIZATION := G-USERID
+END-IF
+*
+MAIN-LOOP. REPEAT
+  G-C-FUNC := 'L'
+  PERFORM GET-SCREEN
+  RESET GET-SCREEN
+  IF #LANGUAGE NE *LANGUAGE
+    MOVE G-LANGUAGE TO #LANGUAGE *LANGUAGE
+    CALLNAT 'ROTINI-N' ##EQO-REPORT G-OBJ-TYPE G-OTB
+    PERFORM INIT-PFKEYS
+    PERFORM INIT-LINECOM
+    RESET #FLIP-LINES (*)
+  END-IF
+  IF #FLIP-LINES (1) = ' '
+    CALLNAT 'RFLIPG-N' G-LC #FLIP-LINES (*)
+  END-IF
+  G-LINECOM (*) := #FLIP-LINES (*)
+  PERFORM SET-PFKEYS
+  INCLUDE RMVHLP-C
+  IF G-NATRP-ERC = 0
+    DECIDE FOR EVERY CONDITION
+      WHEN #END-OF-DATA
+        G-NATRP-ERC := 12
+      WHEN #CP = 1  AND NOT #END-OF-DATA
+        G-NATRP-ERC := 11
+      WHEN #CP = 1  AND  #END-OF-DATA
+        G-NATRP-ERC := 14
+      WHEN NONE
+        G-NATRP-ERC := 13
+        COMPRESS '****** Page:' #CP 'Of' #MAXAP '******' TO G-NATRP-ERT
+    END-DECIDE
+  END-IF
+  SET CONTROL 'M21'
+*
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RLISRPM&'
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'WB'
+  IF G-DISPLAY-LONG-NAMES
+    IF #PANEL = 2
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+        USING MAP 'RLISRP2&'
+    ELSE
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+        USING MAP 'RLISRPL&'
+    END-IF
+  ELSE
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RLISRPM&'
+  END-IF
+  INCLUDE RPFKVA-C
+  RESET G-NATRP-ERC G-NATRP-ERT #BROWSE-FLAGS
+  INCLUDE C-DIRECT
+  INCLUDE C-LOCCMD
+  INCLUDE RPFKEX-C
+  INCLUDE REXQRY-C
+/*SU3 IF G-PF-FUNC = 'BULK' FETCH RETURN 'RBLKRP' END-IF
+  IF G-SUPPORT-LONG-NAMES
+    DECIDE ON FIRST VALUE OF G-PF-FUNC
+      VALUE 'EXT'
+        RESET #LANGUAGE
+        IF G-DISPLAY-LONG-NAMES
+          G-DISPLAY-LONG-NAMES := FALSE
+        ELSE
+          G-DISPLAY-LONG-NAMES := TRUE
+        END-IF
+      VALUE 'RIGHT'
+        #PANEL := 2
+      VALUE 'LEFT'
+        #PANEL := 1
+      ANY VALUE
+        GET-SCREEN := TRUE
+      NONE VALUE IGNORE
+    END-DECIDE
+  ELSE
+    RESET #PANEL
+  END-IF
+*
+  PERFORM LINE-COMMANDS
+  IF CV-SELECTION(*) MODIFIED
+    #NEWVAL := TRUE
+    +G-RLISRP-SEL-REPNAME       := #S-REPNAME
+    +G-RLISRP-SEL-AUTHORIZATION := #S-AUTHORIZATION
+    +G-RLISRP-SEL-REPORT-TYPE   := #S-REPORT-TYPE
+  END-IF
+*
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE LINE-COMMANDS
+************************************************************************
+IF L-MARK (*) = '.'
+  INCLUDE C-ESCAPE
+END-IF
+*
+INCLUDE RLCMTI-C
+INCLUDE C-CHKLC
+FOR I 1 TO #NOFLINES
+  IF L-IDENT (I) =  ##EQU-DELETE
+    G-C-REPORT := L-REPORT (I)
+    FETCH RETURN 'RDELRP'
+    GET-SCREEN := TRUE
+    INCLUDE L-COMMIT
+    RESET L-MARK (I) L-IDENT (I)
+  END-IF
+END-FOR
+*
+FOR I 1 TO #NOFLINES
+  DECIDE ON FIRST VALUE OF L-IDENT (I)
+    VALUE ##EQU-LOG
+      RESET L-MARK (I) L-IDENT (I)
+      PERFORM STACK-SCREEN
+      FETCH 'RLISLG' 'RM' L-REPORT(I)
+    VALUE ##EQU-LIST-AREPORT
+      RESET L-MARK (I) L-IDENT (I)
+      PERFORM COMMIT-WORK
+      PERFORM STACK-SCREEN
+      FETCH 'RLIACE' L-REPORT (I) /*see RLIACE *DATA=1
+    VALUE ##EQU-LIST-AREPORT-BY-KEYWORD
+      RESET L-MARK (I) L-IDENT (I) #L-KEYWORD (*) /*SU4
+      PERFORM COMMIT-WORK
+      PERFORM STACK-SCREEN
+*
+      CALLNAT 'N-KY' #L-KEYWORD (*) #S-AND /*SU4
+      IF *PF-KEY = 'PF3' /*SU4a
+        ESCAPE ROUTINE
+      END-IF
+/*SU4 SET CONTROL 'Y41' SET CONTROL 'WC8L29B7/24F' REPEAT
+/*SU4 INPUT USING MAP 'RINPARK&' IF *PF-KEY = 'PF3' SET CONTROL 'WB'
+/*SU4 ESCAPE ROUTINE END-IF UNTIL *PF-KEY = 'ENTR' END-REPEAT
+/*SU4 SET CONTROL 'WB'
+      /*see RLIACE *DATA=6 :
+      FETCH 'RLIACE' L-REPORT (I) #L-KEYWORD (*) #S-AND /*SU4
+    VALUE ##EQU-MODIFY
+      RESET L-MARK (I) L-IDENT (I)
+      G-C-FUNC := 'M'
+      PERFORM COMMIT-WORK
+      PERFORM STACK-SCREEN
+      G-C-REPORT := L-REPORT(I)
+      FETCH 'RDEFRP'
+    VALUE ##EQU-DISPLAY
+      RESET L-MARK (I) L-IDENT (I)
+      G-C-REPORT := L-REPORT(I)
+      G-C-FUNC := 'D'
+      PERFORM STACK-SCREEN
+      FETCH 'RDEFRP'
+    VALUE ##EQU-COPY
+      PERFORM COMMIT-WORK
+      G-C-REPORT := L-REPORT(I)
+      FETCH RETURN 'RCOPRP'
+      GET-SCREEN := TRUE
+      ESCAPE TOP
+    VALUE ##EQU-RENAME
+      PERFORM COMMIT-WORK
+      G-C-REPORT := L-REPORT(I)
+      FETCH RETURN 'RRENRP'
+      GET-SCREEN := TRUE
+      ESCAPE TOP
+    VALUE ##EQU-AUTHORIZE
+      PERFORM COMMIT-WORK
+      G-C-OBJNAME := L-REPORT(I)
+      G-FATHER-PROG := *PROGRAM
+      G-C-OBJTYPE := 'R'
+      G-C-GRANTS(1:6) := L-OPTION(I,1:6)
+      FETCH RETURN 'RLISGR'
+    ANY   RESET L-MARK (I) L-IDENT (I)
+    NONE  IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* LINE-COMMANDS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SCREEN
+************************************************************************
+IF G-DIRECT-COMMAND = 'TOP'
+  #TOP := TRUE
+END-IF
+RESET L-MARK(*) L-IDENT (*)
+IF #S-AUTHORIZATION = ' ' OR = '*' OR = 'ADMIN'
+  PERFORM READ-ALL-REPORTS
+ELSE
+  PERFORM READ-GRANTED-REPORTS
+END-IF
+*
+END-SUBROUTINE /* GET-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ALL-REPORTS
+************************************************************************
+DECIDE FOR EVERY  CONDITION
+  WHEN #NEWVAL OR #TOP
+    RESET #PAGES(*) #MAXP #MAXAP
+    PERFORM INIT-SELECTION-KEYS
+    #PAGES(1) := #START-KEY
+    #CP := 1
+    #MAXAP := 1
+  WHEN #BOT
+    #HP := #NOFPAGES / 2.
+    #I := 0
+    READ NRM-REPORT BY R-REPNAME = #PAGES(1) THRU #S-REPNAME-T
+      #I := #I + 1
+      IF #I = 16
+        IF #CP = #NOFPAGES
+          #PAGES(#HP - 1 : #NOFPAGES - 1) := #PAGES(#HP : #NOFPAGES)
+          RESET #PAGES(#CP)
+          SUBTRACT 1 FROM #CP
+        END-IF
+        ADD 1 TO #CP
+        #PAGES(#CP) := R-REPNAME
+        #I := 1
+      END-IF
+    END-READ
+    #MAXAP := #CP
+/*SU3 #CP := 1
+    #CP := #MAXAP
+  WHEN #FORWARD
+    IF #END-OF-DATA
+      ESCAPE ROUTINE
+    END-IF
+    IF #CP = #NOFPAGES
+      #PAGES(1 : #NOFPAGES - 1) := #PAGES(2 : #NOFPAGES)
+      RESET #PAGES(#CP)
+      #PAGES(#CP) := #LAST-KEY
+    ELSE
+      IF #SCROLL-AMOUNT < 1
+        #SCROLL-AMOUNT := 1
+      END-IF
+      IF #CP + #SCROLL-AMOUNT <= #MAXAP
+        ADD #SCROLL-AMOUNT TO #CP
+      ELSE
+        IF #SCROLL-AMOUNT > 1
+          #CP := #MAXAP
+        ELSE
+          ADD 1 TO #CP
+        END-IF
+      END-IF
+      IF #CP > #MAXAP
+        #PAGES(#CP) := #LAST-KEY
+      END-IF
+    END-IF
+  WHEN #BACKWARD
+    IF #CP GE 2
+      IF #SCROLL-AMOUNT < 1
+        #SCROLL-AMOUNT := 1
+      END-IF
+      SUBTRACT #SCROLL-AMOUNT FROM #CP
+      IF #CP < 1
+        #CP := 1
+      END-IF
+    END-IF
+  WHEN GET-SCREEN IGNORE
+  WHEN NONE ESCAPE ROUTINE
+END-DECIDE
+*
+IF #CP >= #MAXAP
+  #MAXAP := #CP
+END-IF
+*
+#RSTART := #PAGES(#CP)
+*
+RESET I L-SCR (*) L-SCR-NO (*) #END-OF-DATA
+CV-MARK(*) := (AD=P)
+*
+READ-LOOP. READ NRM-REPORT BY R-REPNAME = #RSTART THRU #S-REPNAME-T
+  AT START OF DATA
+    #PAGES(#CP) := #TOPKEY := R-REPNAME
+  END-START
+*
+  DISPLAY-IT := TRUE
+  PERFORM SELECT-RECORD
+  REJECT IF NOT DISPLAY-IT
+  IF G-USER-TYPE = 'A'
+    GRANTED := TRUE
+    GRANTS.GR-OPTION(*) := 'Y'
+    GRANTS.GR-USERID := 'ADMIN'
+  ELSE
+    GRANTS.GR-USERID := G-USERID
+    CALLNAT 'RGRANT-N' GRANTS.GR-USERID 'R' R-REPNAME GRANTED
+      GRANTS.GR-OPTION(*)
+  END-IF
+*
+  REJECT IF NOT GRANTED
+*
+  ADD 1 TO I
+  IF I > #NOFLINES
+    #LAST-KEY := R-REPNAME
+    ESCAPE ROUTINE
+  END-IF
+  IF I = 1
+    #PAGES(#CP) := R-REPNAME
+  END-IF
+*
+  #ISN := *ISN (READ-LOOP.)
+  PERFORM DATA-TO-SCREEN
+END-READ
+#END-OF-DATA := TRUE
+#MAXP := #CP
+*
+END-SUBROUTINE /* READ-ALL-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-GRANTED-REPORTS
+************************************************************************
+DECIDE FOR EVERY  CONDITION
+  WHEN #NEWVAL OR #TOP
+    RESET #PAGES(*) #MAXP #MAXAP
+    PERFORM INIT-SELECTION-KEYS
+    #CP := 1
+    #MAXAP := 1
+  WHEN #BOT
+    #HP := #NOFPAGES / 2
+    #I := 0
+    READ GRANTS BY GR-SUPER STARTING FROM #PAGES (1)
+      ADD 1 TO #I
+      IF #I = 16
+        IF #CP = #NOFPAGES
+          #PAGES(#HP - 1 : #NOFPAGES - 1) := #PAGES(#HP : #NOFPAGES)
+          RESET #PAGES(#CP)
+          SUBTRACT 1 FROM #CP
+        END-IF
+        ADD 1 TO #CP
+        #PAGES(#CP) := R-REPNAME
+        #I := 1
+      END-IF
+    END-READ
+    #MAXAP := #CP
+/*SU3 #CP:=1
+    #CP := #MAXAP
+  WHEN #FORWARD
+    IF #END-OF-DATA
+      ESCAPE ROUTINE
+    END-IF
+    IF #CP = #NOFPAGES
+      #PAGES(1 : #NOFPAGES - 1) := #PAGES(2 : #NOFPAGES)
+      RESET #PAGES(#CP)
+      #F-TYPE (#CP) := 'R'
+      #F-USERID (#CP) := #S-AUTHORIZATION
+      #F-OBJECT-NAME (#CP) := #LAST-KEY
+    ELSE
+      IF #SCROLL-AMOUNT < 1
+        #SCROLL-AMOUNT := 1
+      END-IF
+      IF #CP + #SCROLL-AMOUNT <= #MAXAP
+        ADD #SCROLL-AMOUNT TO #CP
+      ELSE
+        ADD 1 TO #CP
+      END-IF
+      IF #CP > #MAXAP
+        #F-TYPE (#CP) := 'R'
+        #F-USERID (#CP) := #S-AUTHORIZATION
+        #F-OBJECT-NAME (#CP) := #LAST-KEY
+      END-IF
+    END-IF
+  WHEN #BACKWARD
+    IF #CP GE 2
+      IF #SCROLL-AMOUNT < 1
+        #SCROLL-AMOUNT := 1
+      END-IF
+      SUBTRACT #SCROLL-AMOUNT FROM #CP
+      IF #CP < 1
+        #CP := 1
+      END-IF
+    END-IF
+  WHEN GET-SCREEN IGNORE
+  WHEN NONE ESCAPE ROUTINE
+END-DECIDE
+*
+IF #CP >= #MAXAP
+  #MAXAP := #CP
+END-IF
+RESET I L-SCR (*) L-SCR-NO (*) #END-OF-DATA
+CV-MARK(*) := (AD=P)
+READ-LOOP-GRANT. READ GRANTS BY GR-SUPER = #PAGES (#CP)
+  IF GR-OBJECT-TYPE NE #T-TYPE OR GR-USERID NE #T-USERID
+  OR GR-OBJECT-NAME > #T-OBJECT-NAME                                  /*
+    ESCAPE BOTTOM (READ-LOOP-GRANT.)
+  END-IF
+  FIND-LOOP. FIND NRM-REPORT WITH R-REPNAME = GR-OBJECT-NAME
+    DISPLAY-IT := TRUE
+    PERFORM SELECT-RECORD
+    REJECT IF NOT DISPLAY-IT
+    IF G-USER-TYPE = 'A'
+      GRANTS.GR-OPTION(*) := 'Y'
+    END-IF
+    GRANTED := TRUE
+    ADD 1 TO I
+    IF I > #NOFLINES
+      #LAST-KEY := NRM-REPORT.R-REPNAME
+      ESCAPE ROUTINE
+    END-IF
+    IF I = 1
+      #F-OBJECT-NAME (#CP) := NRM-REPORT.R-REPNAME
+    END-IF
+    #ISN := *ISN (FIND-LOOP.)
+    PERFORM DATA-TO-SCREEN
+  END-FIND
+END-READ
+#END-OF-DATA := TRUE
+#MAXP := #CP
+*
+END-SUBROUTINE /* READ-GRANTED-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-SELECTION-KEYS
+************************************************************************
+PERFORM VALIDATE-SELECTION-KEYS
+IF G-DISPLAY-LONG-NAMES
+  #LEN := 25
+ELSE
+  #LEN := 17
+END-IF
+CALLNAT 'SELALPHA' #S-REPNAME #S-REPNAME-F #S-REPNAME-T #LEN
+*
+#START-KEY := #S-REPNAME-F
+IF #S-AUTHORIZATION NE ' '
+  #F-USERID (1) := #T-USERID :=#F-USERID(1):=#T-USERID:=#S-AUTHORIZATION
+  #F-TYPE        (1) := 'R'
+  #F-OBJECT-NAME (1) := #S-REPNAME-F
+  #T-TYPE            := 'R'
+  #T-OBJECT-NAME     := #S-REPNAME-T
+END-IF
+*
+END-SUBROUTINE /* INIT-SELECTION-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-LINECOM
+************************************************************************
+G-LC-IDENT (01) := ##EQU-DELETE
+G-LC-IDENT (02) := ##EQU-MODIFY
+G-LC-IDENT (03) := ##EQU-DISPLAY
+G-LC-IDENT (04) := ##EQU-COPY
+G-LC-IDENT (05) := ##EQU-AUTHORIZE
+G-LC-IDENT (06) := ##EQU-LOG
+G-LC-IDENT (07) := ##EQU-RENAME
+G-LC-IDENT (08) := ##EQU-LIST-AREPORT
+G-LC-IDENT (09) := ##EQU-LIST-AREPORT-BY-KEYWORD
+G-LC-NUM        := 9
+CALLNAT 'RLCINI-N' G-OBJ-TYPE G-LC G-LCB
+*
+END-SUBROUTINE /* INIT-LINECOM
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+RESET G-PF
+INCLUDE RPFSTD-C
+INCLUDE RPFADD-C
+INCLUDE RPFBRW-C
+INCLUDE RPFQEX-C
+IF G-DISPLAY-LONG-NAMES
+  INCLUDE RPFLR--C
+END-IF
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE DEFINE-QUERY
+************************************************************************
+PERFORM STACK-SCREEN
+FETCH 'RFNDRP'
+*
+END-SUBROUTINE /* DEFINE-QUERY
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-TO-SCREEN
+************************************************************************
+RESET CV-MARK(I)
+#LAST-KEY := L-REPORT(I) := NRM-REPORT.R-REPNAME
+L-ISN           (I) := #ISN
+L-REPORT        (I) := NRM-REPORT.R-REPNAME
+L-DESC          (I) := NRM-REPORT.R-DESC
+L-REPORT-TYPE   (I) := NRM-REPORT.R-TYPE
+L-OPTION        (I,1:6) := GRANTS.GR-OPTION(1:6)
+L-AUTHORIZATION (I) := GRANTS.GR-USERID
+*
+END-SUBROUTINE /* DATA-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE SELECT-RECORD
+************************************************************************
+DECIDE FOR EVERY CONDITION
+  WHEN NRM-REPORT.R-REPNAME = 'NOM-CONTROL-REC'
+    DISPLAY-IT := FALSE
+  WHEN #S-REPORT-TYPE = 'M' OR = 'S' OR = 'C' OR = 'D'
+  AND #S-REPORT-TYPE NE NRM-REPORT.R-TYPE                             /*
+    DISPLAY-IT := FALSE
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* SELECT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-SELECTION-KEYS
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN (G-USER-TYPE = 'A' AND #S-AUTHORIZATION = 'ADMIN')
+  OR (#S-AUTHORIZATION = '*' OR = ' ')                                /*
+    RESET #S-AUTHORIZATION
+  WHEN #S-AUTHORIZATION = G-USERID OR #S-AUTHORIZATION = 'PUBLIC'
+    IGNORE
+  WHEN NONE
+    IF G-USER-TYPE NE 'A'
+      FNDL. FIND NUMBER LIST WITH D-LIST-NAME = #S-AUTHORIZATION
+      AND D-USER-LIST = G-USERID                                      /*
+      IF *NUMBER (FNDL.) = 0
+        REINPUT *0911 MARK *#S-AUTHORIZATION ALARM
+      END-IF
+    END-IF
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATE-SELECTION-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE STACK-SCREEN
+************************************************************************
+FOR F = 1 TO *OCC(L-SCREEN-SEG-L) /*SU4
+  IF L-SCREEN-SEG-L (F) = H'00'
+    L-SCREEN-SEG-L (F) := H'01'
+    L-SCREEN-SEG-FLAG (F) := TRUE
+  ELSE
+    L-SCREEN-SEG-FLAG (F) := FALSE
+  END-IF
+END-FOR
+STACK TOP DATA FORMATTED L-SCREEN-SEGMENT (*) L-SCREEN-SEG-FLAG (*)
+#STACK-PGM := *PROGRAM
+STACK TOP DATA FORMATTED #STACK-PGM 'X' 'X' 'X' 'X'
+STACK TOP COMMAND *PROGRAM
+RESET F
+*
+END-SUBROUTINE /* STACK-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE READ-FROM-STACK
+************************************************************************
+INPUT #STACK-PGM
+IF #STACK-PGM NE *PROGRAM
+  *ERROR-NR := 999 /* internal error, should not occur SU4
+END-IF
+INPUT (LS=202) L-SCREEN-SEGMENT (*) L-SCREEN-SEG-FLAG (*)
+FOR F = 1 TO *OCC(L-SCREEN-SEG-L) /*SU4
+  IF L-SCREEN-SEG-FLAG (F) = TRUE
+    L-SCREEN-SEG-L (F) := H'00'
+  END-IF
+END-FOR
+*
+END-SUBROUTINE
+*
+INCLUDE RPFSET-C /*set pfkeys
+*
+END

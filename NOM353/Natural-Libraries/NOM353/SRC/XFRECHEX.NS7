@@ -1,0 +1,134 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ----------------------------------------------------------------------
+* Version   3.5
+* Function  Convert fields RECORD-HEX1,2,3 fields from NPR views
+*           views READ-FILE and READ-SPOOL to record using local
+*           node codepage.
+*           Invoke via:
+*           F#CONVERT-RECORD-HEX (<RECORD-HEX1,RECORD-HEX2,RECORD-HEX3  )
+*           ?,TRACING]?,SOURCE-CODEPAGE]?,REPORT-NAME]>)
+*
+* Note:     If SOURCE-CODEPAGE is specified it is preferred
+*           regardless of REPORT-NAME
+*
+* ----------------------------------------------------------------------
+* Maintenance
+* -----------
+* uuuuuu  yyyy-mm-dd iTrac       Remark
+* fhi     2017-01-18 NOMALL-1916 Use binary NPR RECORD* fields
+* SU      2018-09-06             Created
+* fhi     2018-10-09 NOMALL-2061 Omit RMCONV, use XFGETCP and XXMVENC
+*                                Rewritten, no tags
+* fhi     2018-10-16 NOMALL-2061 same, honour changes in XFGETCP
+* SU1     2019-07-17 NOMALL-2297 check target CP here (performance
+* SU2     2020-04-27 NOMALL-2349 remove unused
+* ----------------------------------------------------------------------
+*
+DEFINE FUNCTION F#CONVERT-RECORD-HEX RETURNS RECORD (A253)
+  DEFINE DATA PARAMETER
+  1 RECORD-HEX1  (B96)          /*1.part of the hexadecimal record field
+  1 RECORD-HEX2  (B96)          /*2.part of the hexadecimal record field
+  1 RECORD-HEX3  (B61)          /*3.part of the hexadecimal record field
+  1 TRACING      (L)   OPTIONAL /*  TRUE: Tracing switched on
+  1 CP           (A64) OPTIONAL /*Codepage to be used.
+    /* If not specified or empty, either report name must be specified
+    /* to get the record from the report codepage, or CP will fall back
+    /* to node codepage or *CODEPAGE.
+  1 REPNAME      (A25) OPTIONAL /* Name of report-definition.
+************************************************************************
+/*SU2 LOCAL USING VAREP-L
+  LOCAL USING NADA2000
+  LOCAL USING NAD-MSG
+  LOCAL USING NAD-FLD
+*
+  LOCAL
+  1 #RECORD-HEX                    (A253)
+  1 REDEFINE #RECORD-HEX
+    2 #RECORD-HEX1                 (B96)
+    2 #RECORD-HEX2                 (B96)
+    2 #RECORD-HEX3                 (B61)
+  1 #TRACING                       (L)
+  1 #TRACE-MSG                     (A250)
+  1 #CP                            (A64)
+  1 #ERC                           (N4)
+  1 #ERT                           (A250)
+* ÜÜ NAT LUW requires INDEPENDENT below LOCAL ÜÜÜ
+  INDEPENDENT
+  1 +NOD-LOCAL-CODEPAGE            (A64)
+*
+  END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF +NOD-LOCAL-CODEPAGE = ' ' /*target cp empty->no translation Ü /*SU1
+  #RECORD-HEX1 := RECORD-HEX1
+  #RECORD-HEX2 := RECORD-HEX2
+  #RECORD-HEX3 := RECORD-HEX3
+  RECORD := #RECORD-HEX
+  ESCAPE ROUTINE
+END-IF
+IF TRACING SPECIFIED
+  #TRACING := TRACING
+END-IF
+DECIDE FOR FIRST CONDITION
+  WHEN   (CP NOT SPECIFIED AND REPNAME NOT SPECIFIED)
+  OR     (CP SPECIFIED AND CP = ' ' AND REPNAME NOT SPECIFIED)        /*
+    #CP := F#GETCP (<1X,#TRACING>)
+  WHEN    CP SPECIFIED AND CP NE ' '
+    #CP := CP
+  WHEN REPNAME SPECIFIED
+    #CP := F#GETCP (<REPNAME,#TRACING>)
+  WHEN NONE
+    *ERROR-NR := 999 /* Should not occur: Parameters wrong
+END-DECIDE
+*
+#RECORD-HEX1  := RECORD-HEX1
+#RECORD-HEX2  := RECORD-HEX2
+#RECORD-HEX3  := RECORD-HEX3
+CALLNAT 'XXMVENC' #RECORD-HEX 1X #CP
+  RECORD 1X +NOD-LOCAL-CODEPAGE #ERC #ERT #TRACING
+* NOMALL-2172: line above #TRACING added
+DECIDE FOR EVERY CONDITION
+  WHEN #TRACING
+    COMPRESS 'XXMVENC returned' #ERC #ERT TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  WHEN #ERC = 9170 /*NOM9170 Codepage :1: not found in line :2:
+    COMPRESS '5' #ERT *LINE TO #ERT
+    PERFORM XXRLOG-WRITE-LOG 'W' #ERT
+    ESCAPE ROUTINE
+  WHEN #ERC NE 0 /* Get error text:
+    NATA2000.VERSION        := 0
+    NADA2000.ERROR-NUMBER   := ABS(#ERC) /* NOMALL-1918 ABS added
+    NADA2000.OPT-INSERT-DYN := TRUE
+    NADA2000.OBJECT-KIND    := 'N' /*NAT /'U'ser
+    NADA2000.LIBRARY        := ' ' /* #LIBRARY-ID
+    NADA2000.OPT-LANGUAGE := 1 /*NAT LUW only english SU2
+    CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+    MOVE EDITED NADA2000.ERROR-NUMBER (EM=9999) TO #TRACE-MSG
+    COMPRESS 'NAT' #TRACE-MSG TO #TRACE-MSG LEAVING NO
+    COMPRESS #TRACE-MSG SHORT-MSG TO #TRACE-MSG
+    COMPRESS #TRACE-MSG *LINE TO #TRACE-MSG
+    DECIDE ON FIRST VALUE OF #ERC
+      VALUE 3413 /*NAT3413 Conv. error,atLeast1codePointNotTranslated:1:
+        EXAMINE #TRACE-MSG FOR 'H'' ''' REPLACE WITH 'line'
+        EXAMINE #TRACE-MSG FOR 'H''Subprogram''' REPLACE WITH 'line'
+      NONE IGNORE
+    END-DECIDE
+    PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+  WHEN #ERC =3413 /*NAT3413 Conv. error,atLeast1codePointNotTranslated:1
+    #TRACE-MSG := '7233' /*NOM7233 Load the data in binary or 'X' format
+    PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG /* to get it converted
+  WHEN #ERC = 0 OR = 3413
+    RESET #ERC #ERT
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-FUNCTION /* F#CONVERT-RECORD-HEX
+*
+END

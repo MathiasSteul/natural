@@ -1,0 +1,146 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMBLS-N - EOM API Distribution List Members
+*
+* Maintenance:
+* XSETHZ   2002-01-16 created
+* XSETGGR  2002-04-04 read header texts from SYSERR
+* XSETGGR  2002-06-07 change name of subroutine
+* XSETGGR  2002-11-14 p(307577) use new parameter ES-APP-SERVER-LIBRARY
+* xsetggr  2012-04-23 NOMALL-1136 corrections of using grants
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOMBLS-A
+************************************************************************
+LOCAL USING ESMCONSL
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL
+1 DL VIEW OF NRM-DISTRIBUTION-LIST
+  2 D-USER-LIST (191)
+  2 C*D-USER-LIST
+1 DLM VIEW OF NRM-DISTRIBUTION-LIST
+  2 D-LIST-DESC
+1 US VIEW OF NRM-USERS
+  2 LAST-NAME
+  2 FIRST-NAME
+1 #I            (I4)
+1 #I2           (I4)
+1 #IMAX         (I4)
+1 #OPTIONS      (A2/1:1)
+1 #MSG-NR       (N4)  CONST <6105>
+1 #LIST-NAME    (A25)
+1 #GRANTS       (A1/6)
+1 #LIST         (L)
+1 #GR-USER      (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-NUMBER ES-SORTKEY ES-SORTORDER ES-STARTINDEX
+RESET #GRANTS(*) #GR-USER
+*
+ES-OPTION-COUNT := 1
+IF ES-EXPAND = 'E'
+  #IMAX := 2529
+  ES-FIELD-COUNT := 1
+  NOMBEX-FIELD-LENGTH(1) := 8
+ELSE
+  #IMAX := 414
+  ES-FIELD-COUNT := 3
+  NOMBLS-FIELD-LENGTH(1) := 8
+  NOMBLS-FIELD-LENGTH(2) := 1
+  NOMBLS-FIELD-LENGTH(3) := 50
+END-IF
+ES-EOF := 'X'
+IF ES-EXPAND NE 'E'
+  ES-STARTINDEX := 3
+  #I2 := 2
+  RESET SHORT-MSG LONG-MSG(*) NOMBLS-HEADER(1)
+  VERSION := 0
+  NADA2000.OBJECT-KIND := 'U'
+  NADA2000.ERROR-NUMBER := #MSG-NR
+  NADA2000.OPT-INSERT-DYN := FALSE
+  NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+  NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+  CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+  COMPRESS LONG-MSG(1) C-HEADER-DELIMITER LONG-MSG(2)
+    C-HEADER-DELIMITER TO NOMBLS-HEADER(1) LEAVING NO
+  NOMBLS-HEADER(2) := LONG-MSG(3)
+END-IF
+PERFORM READ-MEMBERS
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-MEMBERS
+************************************************************************
+IF ES-USER-TYPE NE 'A'
+  #LIST-NAME := ES-KEY-PARM(1)
+  CALLNAT 'NOGROU-N' 'L' #LIST-NAME ES-USER #GR-USER #GRANTS(*)
+ELSE
+  #GRANTS(*) := 'Y'
+END-IF
+*
+RESET #I
+FIND DL WITH D-LIST-NAME = ES-KEY-PARM(1)
+  FOR #I = 1 TO C*D-USER-LIST
+    PERFORM DATA-TO-PDA
+  END-FOR
+END-FIND
+*
+END-SUBROUTINE /* READ-MEMBERS
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-TO-PDA
+************************************************************************
+ADD 1 TO #I2
+FNDNR. FIND DLM WITH D-LIST-NAME = D-USER-LIST(#I)
+END-FIND
+IF *NUMBER (FNDNR.) > 0
+  #OPTIONS(1) := ' '
+  #LIST := TRUE
+ELSE
+  #OPTIONS(1) := 'FF'
+  RESET #LIST
+END-IF
+DECIDE FOR EVERY CONDITION
+  WHEN #GRANTS(1) NE 'Y' AND #GRANTS (3) NE 'Y'
+    #OPTIONS(1) := 'FF'            /* delete member
+  WHEN NONE IGNORE
+END-DECIDE
+*
+IF ES-EXPAND = 'E'
+  NOMBEX-MEMBER(#I2)    := D-USER-LIST(#I)
+  NOMBEX-OPTIONS (#I,1) := #OPTIONS(1)
+ELSE
+  NOMBLS-MEMBER(#I2)    := D-USER-LIST(#I)
+  NOMBLS-OPTIONS(#I2,1) := #OPTIONS(1)
+  IF #LIST
+    NOMBLS-LIST-USER(#I2) := 'L'
+    NOMBLS-DESC(#I2) := D-LIST-DESC
+  ELSE
+    NOMBLS-LIST-USER(#I2) := 'U'
+    FIND US WITH USER-ID = D-USER-LIST(#I)
+      COMPRESS LAST-NAME ','  TO NOMBLS-DESC(#I2) LEAVING NO
+      COMPRESS NOMBLS-DESC(#I2) FIRST-NAME TO NOMBLS-DESC(#I2)
+    END-FIND
+  END-IF
+END-IF
+ES-NUMBER := #I2
+*
+END-SUBROUTINE /* DATA-TO-PDA
+*
+END

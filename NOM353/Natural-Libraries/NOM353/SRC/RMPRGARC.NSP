@@ -1,0 +1,216 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPRGARC  PURGE REPORTS WITH ARCHIVE RETENTION PERIOD EXPIRED
+*
+* MAINTENANCE:
+*
+* SJU 91-07-19  AVOID LP/HQ FILLING UP
+* mrs 91-10-15  delete report by new field expiration date
+* mrs 92-07-10  delete also mail records
+* mrs 92-07-10  cancel sysout is done in rmdelsc by time schedule
+* sju 00-03-22  p(192484) add ended message
+* jwo 01-02-19 s(206182) Invoke NOMEX008 after delete
+* fhi 02-06-13 s(225125) Add email notificaton, NOMEX010
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* fhi     2010-03-29 P324700   Pass correct file to GETHOLD
+* raya    2012-11-29 NOMALL-1214 check cat date of nomex*
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* raya    2013-05-09 NOMALL-1214 backout check cat date of nomex*
+* fhi     2013-09-24 NOMALL-932 Change NOMEX08L to NOMEXP08
+* fhi     2014-10-21 NOMALL-79   Introduce long filenames
+* SU2     2014-11-05 NOMALL-1450 restructure only
+* SU3     2015-08-11 NOMALL-1690 XXHASH restructure
+* SU4     2015-12-30 NOMALL-1722 support long path names
+* SU5     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2018-12-14 NOM 3.5     Improve CPU measures, no tags
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE           (L/1:20)
+* -----------------------------LDAs-------------------------------------
+LOCAL USING NOMEXP08 /* NOMALL-932 fhi was  NOMEX08L
+LOCAL USING NOMEX08E
+LOCAL USING VFSYS-L
+LOCAL USING VDSNRP-L
+LOCAL USING SUPER-L
+LOCAL USING RACTLF-A
+LOCAL USING XXHASH-P   /* NOMALL-79 fhi in
+LOCAL USING RMSR---E   /* NOMALL-79 fhi in
+LOCAL USING RMSPL--L   /* NOMALL-79 fhi in
+LOCAL
+* 1 #MONITID          (A8) /* NOMALL-1961 fhi out
+1 #ADA-RC           (N4)
+1 #ARC-ISN          (P10)
+1 #REP-ISN          (P10)
+1 #COUNT            (N3)
+1 #START-DATE       (A8)
+1 #END-DATE         (A8)
+1 #DATE             (D)
+* fhi      2012-11-09 NOMALL-1143 start insertion
+1 RMSETTIM
+  2 FUNCTION                 (A1)
+  2 ERC                      (N4)
+  2 MSG                      (A250)
+  2 TIME                     (I4)
+* fhi      2012-11-09 NOMALL-1143 end   insertion
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+/*SU5 OPTIONS MCG=OFF
+*
+* #MONITID := *LIBRARY-ID /* NOMALL-1961 fhi out
+***
+#DATE := *DATX - 1
+#START-DATE := '00000102'
+MOVE EDITED #DATE (EM=YYYYMMDD) TO #END-DATE
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'Start ARCHIVE cleanup - expiration date LE ' #END-DATE
+READ DATASET-REPORT BY DR-EXPIRATION-DATE = #START-DATE THRU #END-DATE
+  #ARC-ISN := *ISN
+  #AR-REPNAME := #AC-REPNAME := #F-REPNAME := DR-REPNAME
+  #AR-REPRNB := #AC-REPRNB := #F-REPRNB := DR-REPRNB
+  RESET RACTLF-ERROR-LOGGING RACTLF-LOGGING #ADA-RC
+  RACTLF-LFILE-1   := 91
+  CALLNAT 'RACTLF-N' RACTLF-PARMS
+  IF RACTLF-ERROR-CODE = 0
+    CALLNAT 'GETHOLD' RACTLF-DBID-1 RACTLF-FNR-1 #ARC-ISN 'BS' #ADA-RC
+  END-IF
+  IF #ADA-RC = 145
+    BACKOUT TRANSACTION
+    ESCAPE TOP
+  END-IF
+  GETARC. GET DATASET-REPORT #ARC-ISN
+  DELETE RECORD(GETARC.)
+  REP1. FIND ACTIVE-REPORTS WITH AR-REPORT-RNB = #AR-REPORT-RNB
+    #REP-ISN := *ISN(REP1.)
+    IF RACTLF-ERROR-CODE = 0
+      CALLNAT 'GETHOLD' RACTLF-DBID-1 RACTLF-FNR-1 #REP-ISN 'BS' #ADA-RC
+    ELSE
+      RESET #ADA-RC
+    END-IF
+    IF #ADA-RC = 145
+      BACKOUT TRANSACTION
+      ESCAPE BOTTOM (REP1.)
+    END-IF
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Report' AR-REPNAME AR-REPRNB 'purged'
+    GETREP. GET ACTIVE-REPORTS #REP-ISN
+    DELETE RECORD (GETREP.)
+    RESET #AC-SEQ #F-SEQ
+* fhi     2014-10-21 NOMALL-79 start insertion
+    #SPOOL-ATTRIBUTES := AR-SPOOL-ATTRIBUTES
+    CALLNAT 'RMSPL7-N'#SPOOL-ATTRIBUTES #SPOOL-TYPE
+    DECIDE ON EVERY VALUE OF #SPOOL-TYPE
+      VALUE SEQUENTIAL-FILE-UNIX
+        XXHASH-PARMS.P-SHORT-NAME := #SPOOL-UNIX-FILE-NAME
+      VALUE DIRECT-INPUT
+        XXHASH-PARMS.P-SHORT-NAME := #SPOOL-DI-PATH /*SU4 ->
+        XXHASH-PARMS.P-FUNCTION   := 'D' /*delete entry
+        PERFORM XXHASH XXHASH-PARMS /*SU4 <-
+        XXHASH-PARMS.P-SHORT-NAME := #SPOOL-DI-FILENAME
+      ANY
+        XXHASH-PARMS.P-FUNCTION   := 'D' /*delete entry
+        PERFORM XXHASH XXHASH-PARMS
+      NONE
+        IGNORE
+    END-DECIDE
+* fhi     2014-10-21 NOMALL-79 end   insertion
+    CONTENTS. READ REPORT-CONTENTS BY AC-REP-RNB-SEQ = #AC-REP-RNB-SEQ
+      IF AC-REPNAME NE #AC-REPNAME OR AC-REPRNB NE #AC-REPRNB
+        ESCAPE BOTTOM
+      END-IF
+      #REP-ISN := *ISN(CONTENTS.)
+      RESET RACTLF-ERROR-LOGGING RACTLF-LOGGING #ADA-RC
+      RACTLF-LFILE-1   := 91
+      CALLNAT 'RACTLF-N' RACTLF-PARMS
+      IF RACTLF-ERROR-CODE = 0
+      CALLNAT 'GETHOLD' RACTLF-DBID-1 RACTLF-FNR-1 #REP-ISN 'BS' #ADA-RC
+      END-IF
+      IF #ADA-RC = 145
+        BACKOUT TRANSACTION
+        ESCAPE BOTTOM (REP1.)
+      END-IF
+      GETCONT. GET REPORT-CONTENTS #REP-ISN
+      DELETE RECORD (GETCONT.)
+    END-READ /*(CONTENTS.)
+    TEXT. READ REPORT-TEXT BY F-REPNAME-RNB-SEQ = #F-REP-RNB-SEQ
+      IF F-REPNAME NE #F-REPNAME OR F-REPRNB NE #F-REPRNB
+        ESCAPE BOTTOM
+      END-IF
+      #REP-ISN := *ISN(TEXT.)
+      IF RACTLF-ERROR-CODE = 0
+        CALLNAT 'GETHOLD' RACTLF-DBID-1 RACTLF-FNR-1 #REP-ISN 'BS'
+          #ADA-RC
+      ELSE
+        RESET #ADA-RC
+      END-IF
+      IF #ADA-RC = 145
+        BACKOUT TRANSACTION
+        ESCAPE BOTTOM (REP1.)
+      END-IF
+      GETTEXT. GET REPORT-TEXT #REP-ISN
+      DELETE RECORD(GETTEXT.)
+      ADD 1 TO #COUNT
+      IF #COUNT GE 100
+        RESET #COUNT
+        END TRANSACTION
+      END-IF
+    END-READ
+    CALLNAT 'RDELMA-N' #F-REPNAME #F-REPRNB
+*
+* CANCEL SYSOUT
+  END-FIND
+  END TRANSACTION
+  IF +G-NOMEXIT-ACTIVE (8)
+    PERFORM USER-EXIT-8
+  END-IF
+END-READ
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'normal end'
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE USER-EXIT-8
+************************************************************************
+RESET NOMEX008-PARMS (1) NOMEX008-ERROR-CODE NOMEX008-FROMLINE
+  NOMEX008-TOLINE NOMEX008-RECORD-LENGTH NOMEX008-NODE
+*
+NOMEX008-FUNCTION := NOMEX008-FCT-DELETE
+NOMEX008-REPNAME  := #F-REPNAME
+NOMEX008-REPRNB   := #F-REPRNB
+*
+* fhi      2012-11-09 NOMALL-1143 start insertion
+IF G-TRACE > 1
+  RMSETTIM.FUNCTION := 'S'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+END-IF
+* fhi      2012-11-09 NOMALL-1143 end   insertion
+*
+CALLNAT 'NOMEX008' NOMEX008-PARMS(*)
+*
+* fhi      2012-11-09 NOMALL-1143 start insertion
+IF G-TRACE > 1
+  MOVE 'CPU consumed by user exit NOMEX008:' TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+END-IF
+*
+* fhi      2012-11-09 NOMALL-1143 end   insertion
+*
+END-SUBROUTINE /* USER-EXIT-8
+*
+END

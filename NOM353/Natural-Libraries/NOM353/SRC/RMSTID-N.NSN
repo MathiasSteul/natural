@@ -1,0 +1,76 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMSTID-N
+* Function  Issue unique Source Text ID
+* Version   1.3
+*
+* Maintenance
+* uuuuuuuu yyyy-mm-dd P999999 Action
+*      mrs 1993-02-05         created
+*      fhi 2009-04-07 P315934 Give more detailed error message
+*      fhi 2009-04-14 P315934 but without error transaction and monitor retries
+*      fhi 2009-04-16 P315934 Correct output field format
+*      fhi 2010-09-03 NOMALL-97 Extend message line
+*      fhi 2013-06-03 NOMALL-1251 Use standard error routine
+*      fhi 2017-03-13 NOMALL-XXXX Add trace output of text-id
+* ---------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 P-ID                   (P10)
+1 P-ERC                  (N4)
+1 P-ERT                  (A250)
+* *****
+LOCAL
+1 SOURCE-TEXT VIEW OF NRM-SOURCE-TEXT
+  2 ST-ID
+  2 ST-LINE-START
+  2 ST-LINE-END
+*
+1 #ST-ID-LINE           (A10)
+1 REDEFINE #ST-ID-LINE
+  2 #ST-ID              (P10)
+  2 #ST-LINE            (B4)
+* fhi 2017-03-13 NOMALL-XXXX start insertion
+1 #LASTPROG             (A8)
+1 #TRACING              (L)
+1 #TRACE-MSG            (A250)
+* fhi 2017-03-13 NOMALL-XXXX end   insertion
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#ST-ID   := 9999999999
+#ST-LINE := H'FFFFFFFF'
+PERFORM RMGTRACE-GET-SETTINGS #TRACING /* NOMALL-XXXX fhi in
+FNDST. FIND SOURCE-TEXT WITH ST-ID-LINE = #ST-ID-LINE
+  IF NO RECORDS FOUND
+    ST-ID       := 9999999999
+    ST-LINE-END := H'FFFFFFFF'
+    RESET  ST-LINE-START
+  END-NOREC
+*
+  P-ID := ST-LINE-START
+  ADD 1 TO P-ID
+  ST-LINE-START := P-ID
+*
+  IF *NUMBER (FNDST.) = 0
+    STORE SOURCE-TEXT
+  ELSE
+    UPDATE
+  END-IF
+*
+END-FIND
+* fhi 2017-03-13 NOMALL-XXXX start insertion
+IF #TRACING
+  PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG
+  COMPRESS #LASTPROG 'got new text id:' P-ID TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+* fhi 2017-03-13 NOMALL-XXXX end   insertion
+END OF TRANSACTION
+*
+END

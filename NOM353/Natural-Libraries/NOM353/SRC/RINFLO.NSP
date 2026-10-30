@@ -1,0 +1,137 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RINFLO - DISPLAY FULL INFO FOR A LOG RECORD
+*
+* gw  91-07-31  correct window control
+* gw  94-01-11  display user name
+* gw  94-01-26  p(126059) handle more than one line command 'IN'
+* jvd 97-10-09 p(163166) Replace Callnat 'OUTDATE' with 'IODATE-N'
+*                        Y2C and use only one date routine for NOM
+* jwo 97-10-15 p(163166) y2k dates
+* gw  98-06-19 p(171778) long object name for log
+* sju 00-11-14 s(999999) SAT logging
+* fhi     2005-04-14   NOM3107 Added Support for 7 byte jobnumbers
+* xsetggr 2005-10-26   p(270950) ISN fields must be P10, not P8
+* xsetggr 2007-08-30   NOM3201   Support P11 format run numbers
+* xsetggr 2008-05-03   p(303852) use SATLGR2P/N
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* raya    2013-06-19 NOMALL-1259 USE SATLGR3P/N
+* SU2     2015-01-26 NOMALL-1388 avoid S0C7/(SAT-288:SATLGR3P changed)
+* fhi     2015-09-30 NOMALL-1579 Add field Module (LOG-JOB-ID)
+* fhi     2017-01-04 NOMALL-1913 Use microseconds for logging
+* fhi     2018-04-12 NOMALL-1913 Show microseconds in long display
+* -----------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING SATLGR4P
+LOCAL USING SATLG01E
+LOCAL
+1 #ISN                        (N10)
+1 #DATE                       (A8)
+1 #TIME                       (A15)
+1 #MICROSEC                   (A5)
+1 #TIME-ZONE                  (A5)
+1 USER VIEW OF NRM-USERS
+  2 FIRST-NAME
+  2 LAST-NAME
+1 #USER-NAME                  (A50)
+1 #FORMATED-DATE              (A10)
+1 #ERROR-CODE                 (N4)
+1 #ERROR-TEXT                 (A250)
+1 #L-TYPE                     (A2)
+1 #L-MSG-ARRAY                (12)
+  2 #L-MSG                    (A60)
+  2 REDEFINE #L-MSG
+    3 #L-MSG-A4               (A4)
+1 #L-OBJECT-NAME              (A60)
+1 #L-REPNAME                  (A25)
+1 #L-REPRNB                   (P11)
+1 #L-BUNDLE                   (A25)
+1 #L-BUNDRNB                  (P11)
+1 #L-JOBNAME                  (A8)
+1 #L-JOBNO                    (N7)
+1 #L-MODULE                   (A10)
+1 #L-USERID                   (A8)
+1 #L-PRINTER                  (A8)
+1 #I                          (I2)
+1 #J                          (I2)
+1 #L                          (I2)
+1 #L-MSG-ALL                  (A) DYNAMIC
+1 #WRAP-MESSAGE               (A60/*)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY PF3
+DEFINE WINDOW SHOWINF FRAMED
+INPUT #ISN
+SATLGR-ACCESS-TYPE := SATLG-GET
+SATLGR-START-ISN   := #ISN
+CALLNAT 'SATLGR4N' SATLGR-PARMS
+MOVE EDITED SATLGR-TIME(1) (EM=HH':'II':'SS'.'T) TO #TIME
+MOVE EDITED SATLGR-MICROSEC(1) (EM=99999)        TO #MICROSEC
+MOVE        #MICROSEC                            TO SUBSTR(#TIME,11)
+MOVE EDITED SATLGR-TIME(1) (EM=YYYYMMDD) TO #DATE
+#TIME-ZONE :=        SATLGR-TIME-ZONE(1)          /* NOMALL-1913 in
+#L-BUNDLE  := SATLGR-NOM-BUNDLE(1)
+#L-BUNDRNB := SATLGR-NOM-BUNDRNB(1)
+#L-JOBNAME := SATLGR-JOB(1)
+IF SATLGR-JOB-ID(1) IS (N10)
+  #L-JOBNO := VAL(SATLGR-JOB-ID(1))
+  RESET #L-MODULE
+ELSE
+  RESET #L-JOBNO
+  #L-MODULE := SATLGR-JOB-ID(1)
+END-IF
+#L-OBJECT-NAME := SATLGR-NOM-OBJECT-NAME(1)
+#L-PRINTER     := SATLGR-NOM-PRINTER(1)
+#L-REPNAME     := SATLGR-NOM-REPNAME(1)
+#L-REPRNB      := SATLGR-NOM-REPRNB(1)
+#L-TYPE        := SATLGR-NOM-TYPE(1)
+#L-USERID      := SATLGR-EXEC-USERID(1)
+CALLNAT 'IODATE-N' 'M' 'L' #DATE #FORMATED-DATE G-DATE-FORMAT
+  #ERROR-CODE #ERROR-TEXT
+FIND (1) USER WITH USER-ID = #L-USERID
+  COMPRESS LAST-NAME ',' TO #USER-NAME LEAVING NO
+  COMPRESS #USER-NAME FIRST-NAME TO #USER-NAME
+END-FIND
+IF SATLGR-USER-DATA (1) = ' ' AND SATLGR-MESSAGE (1) NE ' '
+  SATLGR-USER-DATA (1) := SATLGR-MESSAGE (1) /* old stuff ...
+END-IF
+REDUCE DYNAMIC #L-MSG-ALL TO 0
+FOR #I = 1 TO 20
+  IF SATLGR-USER-DATA (#I) = ' '
+    ESCAPE BOTTOM
+  END-IF
+  CALLNAT 'RSUBMSGN' SATLGR-USER-DATA (#I)
+  COMPRESS #L-MSG-ALL SATLGR-USER-DATA (#I) TO #L-MSG-ALL
+END-FOR
+PERFORM XXWRAP-WORD-WRAP 'L' #L-MSG-ALL #WRAP-MESSAGE (*) 60
+RESET #L
+#J := 1
+DISP. REPEAT
+  FOR #I = #J TO *OCC (#WRAP-MESSAGE)
+    #L := #L + 1
+    IF #L = 13
+      ESCAPE BOTTOM
+    END-IF
+    #L-MSG (#L) := #WRAP-MESSAGE (#I)
+  END-FOR
+  INPUT WINDOW = 'SHOWINF' USING MAP 'RINFLOM&'
+  IF *PF-KEY = 'PF3'
+    ESCAPE BOTTOM (DISP.)
+  END-IF
+  IF #L = 13
+    RESET #L-MSG (*) #L
+    #J := #I
+  END-IF
+  UNTIL #L NE 13
+END-REPEAT
+*
+END

@@ -1,0 +1,230 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMCHKARN - Return highest Expiration Date of Reports to be archived
+*           and Statistical Data
+*
+* Maintenance
+* uuu yy-mm-dd s(999999)  ...
+* gw  92-09-16            use N-INUSE to check if report is still in use
+* jvd 98-11-24 s(284191) incorporate 'Archive Immediate' functionality
+*                        from UKSJU. Thank you, Steve!
+* xsiszha 2000-08-01 (CE7461) Extend Report and Bundle Names
+* xsisgg  2000-09-06 (CE7265) additional parameters to schedule archive
+*                             job from NOP
+* sju     2001-06-11 p(206490) Trace archive errors
+* sju     2002-08-07 NOM221    User defined archive types
+* sju   04-12-06 NOM31     Add date and time (tenths of second) to trace
+* fhi     2005-06-23 p(266530) Make Monitor NPR Mainframe independent
+* xsetggr 2007-05-04 NOM3201   Support 5 byte node numbers
+* xsetggr 2007-09-04 NOM3201   Support P11 format run numbers
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2020-04-27 NOMALL-2349 use N-ESYLG
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+*
+1 P-PARMS
+  2 P-ARCHIVE-INFO           (1:10)
+    3 P-EXPIRATION-DATE     (A8)
+    3 P-EXPIRATION-DATE-D   (D)
+    3 P-EXPIRATION-DATE-J   (A8)
+    3 P-ARCHIVED            (P10)
+    3 P-ARCHIVE-MARKED      (P10)
+    3 P-ARCHIVE-ERRORS      (P10)
+    3 P-ARCHIVE-IN-USE      (P10)
+  2 P-SCHEDULE-FROM-NOP      (L)
+  2 P-SYSTEM-TYPE            (A8)
+  2 P-NODE                   (N5)
+  2 P-TRACE                  (L)
+************************************************************************
+LOCAL USING N-INUSEA
+LOCAL USING SUPER-L
+LOCAL USING RMSR---L
+LOCAL USING VUSARC-L
+LOCAL
+1 ACTIVE-REPORTS VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-ARCHIVE-RETENTION
+  2 AR-CURRENT-LOCATION
+  2 AR-SOURCE-ID
+  2 AR-ARCHIVE-TYPE
+1 ARCHIVE-TASK VIEW OF NRM-ARCHIVE-TASK
+  2 M-ARCHIVE-RETENTION
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-TYPE
+*
+1 IN-USE                     (L)
+1 SPOOL-ERROR                (L)
+1 #ERROR-CODE                (N4)
+1 #ERROR-TEXT                (A250)
+1 EXIST                      (L)
+1 #DEFAULT-PERIOD            (A5/1:10)
+1 #PERIOD                    (A5)
+1 #DATE-IN                   (D)
+1 #DATE-OUT                  (D)
+1 #EXPIRATION-DATE           (A8)
+1 #KEY                       (A35)
+1 REDEFINE #KEY
+  2 #K-REPNAME               (A25)
+  2 #K-REPRNB                (P11)
+  2 #K-SEQ                   (B4)
+1 J                          (N2)
+1 K                          (N2)
+1 L                          (N2)
+1 #BS2-USER                  (A8)
+1 #ARCTYPE-INDEX             (N2)
+1 #CALLER                    (A8) INIT <*PROGRAM>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-EXPIRATION-DATE (*) P-EXPIRATION-DATE-J (*) P-ARCHIVE-MARKED (*)
+  P-ARCHIVE-ERRORS (*) P-ARCHIVE-IN-USE (*) P-ARCHIVED       (*)
+*
+PERFORM GET-ARCHIVE-RETENTION
+PERFORM COMPUTE-EXPIRATION-DATE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE COMPUTE-EXPIRATION-DATE
+************************************************************************
+READ-ACTIVE. FIND ACTIVE-REPORTS WITH AR-ARCHIVE = 'A' OR = 'I'
+  #ARCTYPE-INDEX:= AR-ARCHIVE-TYPE + 1
+  ADD 1 TO P-ARCHIVE-MARKED(#ARCTYPE-INDEX)
+  RESET IN-USE SPOOL-ERROR
+*
+  #AR-REPNAME := #PO-REPNAME := #AC-REPNAME := #K-REPNAME := AR-REPNAME
+  #AR-REPRNB := #PO-REPRNB := #AC-REPRNB := #K-REPRNB := AR-REPRNB
+  RESET #K-SEQ
+*
+  #INUSE.P-REPORT    := AR-REPNAME
+  #INUSE.P-REPRNB    := AR-REPRNB
+  #INUSE.P-USER-TYPE := 'A'
+  CALLNAT 'N-INUSE' #INUSE
+  IN-USE := #INUSE.P-IN-USE
+*
+  IF IN-USE
+    ADD 1 TO P-ARCHIVE-IN-USE(#ARCTYPE-INDEX)
+    IF P-TRACE
+      WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+        AR-REPNAME AR-REPRNB 'not archived - in use'
+        / #INUSE.P-RC #INUSE.P-MSG
+    END-IF
+  ELSE
+    IF ACTIVE-REPORTS.AR-CURRENT-LOCATION = 'S'
+      PERFORM CHECK-SOURCE
+      IF SPOOL-ERROR
+        ADD 1 TO P-ARCHIVE-ERRORS(#ARCTYPE-INDEX)
+        IF P-TRACE
+          WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+            AR-REPNAME AR-REPRNB
+            'not archived - spool error'
+          PRINT *PROGRAM #ERROR-CODE #ERROR-TEXT /*SU2 (AL=70)
+        END-IF
+      END-IF
+    END-IF
+  END-IF
+  IF NOT IN-USE AND NOT SPOOL-ERROR
+    ADD 1 TO P-ARCHIVED(#ARCTYPE-INDEX)
+    PERFORM CHECK-EXPIRATION
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* COMPUTE-EXPIRATION-DATE
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-SOURCE
+************************************************************************
+RESET #ERROR-CODE #ERROR-TEXT EXIST
+CALLNAT 'RMSRCK-N' #ERROR-CODE #ERROR-TEXT ACTIVE-REPORTS.AR-SOURCE-ID
+  EXIST
+*
+IF EXIST AND #ERROR-CODE = 0
+  ESCAPE ROUTINE
+END-IF
+IF P-SCHEDULE-FROM-NOP AND P-SYSTEM-TYPE = SCAN 'BS2'
+  FIND (1) SOURCE WITH SR-ID = ACTIVE-REPORTS.AR-SOURCE-ID
+    #SOURCE-ATTRIBUTES := SR-ATTRIBUTES-IDENT
+    CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES SR-TYPE
+  END-FIND
+  EXAMINE #FBS2-DSNAME FOR '$' GIVING POSITION IN J
+  EXAMINE #FBS2-DSNAME FOR '.' GIVING POSITION IN K
+  IF J>0 AND K>0
+    L := K - L - 1
+    ADD 1 TO J
+  END-IF
+  #BS2-USER := SUBSTR(#FBS2-DSNAME,J,L)
+  CALLNAT 'N-ESYLG' 1X P-NODE #BS2-USER #CALLER
+    #ERROR-CODE #ERROR-TEXT 1X
+  IF #ERROR-CODE = 0
+    RESET EXIST #ERROR-CODE #ERROR-TEXT
+    CALLNAT 'RMSRCK-N' #ERROR-CODE #ERROR-TEXT
+      ACTIVE-REPORTS.AR-SOURCE-ID EXIST
+    IF NOT EXIST OR #ERROR-CODE NE 0
+      SPOOL-ERROR := TRUE
+    END-IF
+  END-IF
+ELSE
+  SPOOL-ERROR := TRUE
+END-IF
+*
+END-SUBROUTINE /* CHECK-SOURCE
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-EXPIRATION
+************************************************************************
+IF ACTIVE-REPORTS.AR-ARCHIVE-RETENTION NE ' '
+  #PERIOD := ACTIVE-REPORTS.AR-ARCHIVE-RETENTION
+ELSE
+  #PERIOD := #DEFAULT-PERIOD(#ARCTYPE-INDEX)
+END-IF
+#DATE-IN := *DATX
+CALLNAT 'RSCHRP-N' #DATE-IN #PERIOD #DATE-OUT
+MOVE EDITED #DATE-OUT (EM=YYYYMMDD) TO #EXPIRATION-DATE
+IF #EXPIRATION-DATE > P-EXPIRATION-DATE(#ARCTYPE-INDEX)
+  P-EXPIRATION-DATE(#ARCTYPE-INDEX)          := #EXPIRATION-DATE
+  P-EXPIRATION-DATE-D(#ARCTYPE-INDEX) := #DATE-OUT
+  MOVE EDITED #DATE-OUT (EM=YYYY'/'JJJ) TO
+    P-EXPIRATION-DATE-J(#ARCTYPE-INDEX)
+END-IF
+*
+END-SUBROUTINE /* CHECK-EXPIRATION
+*
+************************************************************************
+DEFINE SUBROUTINE GET-ARCHIVE-RETENTION
+************************************************************************
+FIND ARCHIVE-TASK WITH M-MONITOR-ID = 'ARCHIVE'
+  IF NO RECORDS FOUND
+    ENTER
+  END-NOREC
+  IF M-ARCHIVE-RETENTION NE ' '
+    #DEFAULT-PERIOD(1) := M-ARCHIVE-RETENTION
+  ELSE
+    #DEFAULT-PERIOD(1) := '6M'
+  END-IF
+END-FIND
+FIND NRM-USER-DEFINED-ARCHIVE
+    WITH M-MONITOR-ID = 'USERARC01' THRU 'USERARC09'
+  #ARCTYPE-INDEX:= M-USERARC-NUMBER + 1
+  IF M-USERARC-RETENTION NE ' '
+    #DEFAULT-PERIOD(#ARCTYPE-INDEX) := M-USERARC-RETENTION
+  ELSE
+    #DEFAULT-PERIOD(#ARCTYPE-INDEX) := '6M'
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* GET-ARCHIVE-RETENTION
+*
+END

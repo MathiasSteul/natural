@@ -1,0 +1,95 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+************************************************************************
+* Export NOM Container File
+*
+* fhi      2009-09-15 P320367 Use compression routine NOMCOMPR,rewritten
+* SPLILDAV 2012-06-27 NOMALL-1078 SUPPORT COMPRESSION 16K BYTE RECORDS
+* raya     2012-09-27 NOMALL-1143 work with lob fields
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-01-27 NOMALL-1341 remove LA-fields
+************************************************************************
+*
+DEFINE DATA
+LOCAL
+1 ST VIEW OF NRM-SOURCE-TEXT
+  2 ST-ID-LINE
+  2 ST-TEXT                             (1:66)
+  2 REDEFINE ST-TEXT
+    3 ST-TEXT-LOB                         (A16381)
+*
+1 #PARM-DBID                            (N5) INIT <9>
+1 #PARM-FNR                             (N5) INIT <246>
+1 #PARM-LFILE                           (N5) INIT <158>
+1 #PARM-PASSWORD                        (A8)
+1 #PARM-CIPHER                          (A8)
+1 #PARM-RC                              (I4)
+1 #ST-ID-LINE-FROM                      (A10)
+1 REDEFINE #ST-ID-LINE-FROM
+  2 #ST-ID-FROM                         (P10)
+  2 #ST-LINE-FROM                       (B4)
+1 #ST-ID-LINE-TO                        (A10)
+1 REDEFINE #ST-ID-LINE-TO
+  2 #ST-ID-TO                           (P10)
+  2 #ST-LINE-TO                         (B4)
+1 #NSMCOMP-CB                           (B40)
+1 REDEFINE #NSMCOMP-CB
+  2 #NSMCOMP-COMMAND                    (A1)
+  2 #NSMCOMP-CODE                       (B1)
+  2 #NSMCOMP-INLENGTH-OLD               (B1)
+  2 #NSMCOMP-OUTLENGTH-OLD              (B1)
+  2 #NSMCOMP-INLENGTH                   (B2)
+  2 #NSMCOMP-OUTLENGTH                  (B2)
+* NOMALL-1078 END INSERT
+1 #NSMCOMP-RC                           (B2)
+1 #NSMCOMP-WORK                         (B4)
+1 #NSMCOMP-LINE                         (A251)
+1 #NSMCOMP-BUFFER-LENGTH                (B4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY ALL
+#NSMCOMP-COMMAND :=  'D'
+* NOMALL-1078 REPLACE 1 LINE
+* #NSMCOMP-CODE :=  H'01'
+#NSMCOMP-CODE :=  'N'   /* 'N' - new parm list
+RESET #ST-LINE-FROM
+PERFORM SET-LFILE
+REPEAT
+  INPUT '=' #ST-ID-FROM
+  IF *PF-KEY NE 'ENTR'
+    ESCAPE ROUTINE
+  END-IF
+  #ST-ID-LINE-TO := #ST-ID-LINE-FROM
+  #ST-LINE-TO := H'FFFFFFFF'
+  READ ST BY ST-ID-LINE = #ST-ID-LINE-FROM ENDING AT #ST-ID-LINE-TO
+    REPEAT
+      UNTIL #NSMCOMP-RC = 4
+      INCLUDE C-NSMCMP 'ST.ST-TEXT-LOB'
+      IF #NSMCOMP-RC = 0
+        WRITE WORK FILE 1 #NSMCOMP-LINE
+      END-IF
+    END-REPEAT
+  END-READ
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+CALLNAT 'SETNRMLN' #PARM-DBID #PARM-FNR #PARM-LFILE #PARM-PASSWORD
+  #PARM-CIPHER #PARM-RC
+*
+END-SUBROUTINE /* SET-LFILE
+*
+END

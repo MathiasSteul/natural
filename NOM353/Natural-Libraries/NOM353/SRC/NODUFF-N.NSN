@@ -1,0 +1,227 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NODUFF-N - NOM API Maintenance of NOM Mainframe and Unix nodes -delete
+*            Input keys :
+*            ES-KEY-PARM(1)     node name
+*
+* Maintenance:
+* xsetggr 2012-01-12 NOMALL-1020 write language dependant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* CF      2017-10-17 NOMALL-2044 Rework for Mainframe/UNIX nodes
+* CF1     2018-10-29 NOMALL-2044 Prevent delete on Monitor/Local node
+* SU2     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+/* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RLOG-L
+LOCAL
+1 UX-NODES VIEW OF NRM-UX-NODES
+  2 UX-NODE-SUSPEND             /* CF1
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU2 was MONITOR VIEW OF NRM-MONITOR
+  2 MF-INTERNAL-NODE-ID
+  2 MF-TYPE                      /* CF1
+/*
+1 #ES-CONTROL              (A253)
+1 #ES-INPUT-AREA           (A253/1:3)
+1 #ES-MSG-PREF             (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM            (A3)
+  2 #ES-MSG-NR             (N4)
+1 #ES-RC                   (N3)
+1 #ES-MSG-TXT              (A250)
+1 #ES-NUMBER               (N8)
+1 #LIBRARY-ID              (A8)
+1 #USER-LIB                (A8)
+/*
+1 #NODE-TYPE               (A1)
+1 #INTERNAL-NODE-ID        (P11)
+1 #MONITOR-ID              (A20) INIT <'R-'>
+1 REDEFINE #MONITOR-ID
+  2 FILLER                  2X
+  2 #MF-NODE-NAME          (A16)
+1 #NODE-NAME-ID            (A16)
+/*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-MSG-NR ES-MSG-FIELD ES-MSG-TXT
+*
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA (*) := ES-INPUT-AREA(*)
+*
+#LIBRARY-ID  := ES-APP-SERVER-LIBRARY
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+#MF-NODE-NAME := ES-KEY-PARM(1)
+/*
+/* Identify if node is UNIX or Mainframe type
+/* ------------------------------------------
+/*
+/* Check if Mainframe node
+FFMF. FIND MF-NODE WITH MF-MONITOR-ID = #MONITOR-ID /*SU2
+  IF NO RECORDS FOUND
+    #NODE-TYPE := 'U'
+    ESCAPE BOTTOM(FFMF.)
+  END-NOREC
+  #INTERNAL-NODE-ID := MF-INTERNAL-NODE-ID /*SU2
+  #NODE-TYPE := 'M'
+END-FIND
+/*
+IF #NODE-TYPE = 'M'
+  /* Node type : Mainframe
+  DECIDE ON FIRST VALUE OF  ES-ORIG-FUNCTION
+    VALUE 'DL'
+      #NODE-NAME-ID := #INTERNAL-NODE-ID
+      PERFORM CHECK-NODE-SPOOL-USAGE
+      IF ES-RC = 0
+        PERFORM DELETE-NODE-MF
+        IF ES-RC = 0
+          PERFORM WRITE-LOG
+          END TRANSACTION
+        ELSE
+          BACKOUT TRANSACTION
+        END-IF
+      END-IF
+    NONE VALUE IGNORE
+  END-DECIDE
+ELSE
+  /* Node type : UNIX
+  DECIDE ON FIRST VALUE OF  ES-ORIG-FUNCTION
+    VALUE 'DL'
+      #NODE-NAME-ID := ES-KEY-PARM(1)
+      PERFORM CHECK-NODE-SPOOL-USAGE
+      IF ES-RC = 0
+        PERFORM DELETE-NODE
+        IF ES-RC = 0
+          PERFORM WRITE-LOG
+          END TRANSACTION
+        ELSE
+          BACKOUT TRANSACTION
+        END-IF
+      END-IF
+    NONE VALUE IGNORE
+  END-DECIDE
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-NODE
+************************************************************************
+FNDDEL. FIND UX-NODES WITH UX-NODE-NAME = ES-KEY-PARM(1)
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 2024   /* Node definition does not exist
+    ESCAPE BOTTOM(FNDDEL.)
+  END-NOREC
+  IF UX-NODES.UX-NODE-SUSPEND = 'M' OR= 'L'                /* CF1 ->
+    #ES-MSG-NR := 2012   /* Monitor/Local node may not be deleted
+  ELSE                                                     /* CF1 <-
+    DELETE(FNDDEL.)
+  END-IF                                                   /* CF1
+END-FIND
+/*
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+/*
+END-SUBROUTINE /* DELETE-NODE
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-NODE-MF
+************************************************************************
+FNDDELMF. FIND MF-NODE WITH MF-MONITOR-ID = #MONITOR-ID  /*SU2
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 2024   /* Node definition does not exist
+    ESCAPE BOTTOM(FNDDELMF.)
+  END-NOREC
+  IF MF-NODE.MF-TYPE = 'M'                                 /* CF1 ->
+    #ES-MSG-NR := 2012   /* Monitor node may not be deleted
+  ELSE                                                     /* CF1 <-
+    DELETE(FNDDELMF.)
+  END-IF                                                   /* CF1
+END-FIND
+/*
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+/*
+END-SUBROUTINE /* DELETE-NODE-MF
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG
+************************************************************************
+IF ES-ORIG-FUNCTION = 'DL'
+  COMPRESS '0075' ES-KEY-PARM(1) 'NODE' TO LG-MSG
+  LG-USERID   := ES-USER
+  LG-CODE     := 'MO'
+  LG-FUNCTION := 'W'
+  CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+END-IF
+/*
+END-SUBROUTINE /* WRITE-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+ES-RC := 1
+/*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-NODE-SPOOL-USAGE
+************************************************************************
+/* Backup original buffers
+RESET #ES-RC
+#ES-CONTROL       := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+ES-SELECT         := #NODE-NAME-ID
+CALLNAT 'NORPND-N' ES-CONTROL ES-INPUT
+IF ES-RC NE 0
+  #ES-RC        := ES-RC
+  #ES-MSG-NR    := ES-MSG-NR
+  #ES-MSG-TXT   := ES-MSG-TXT
+  #ES-NUMBER    := ES-NUMBER
+END-IF
+/* Restore original buffers
+ES-CONTROL       := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+IF #ES-RC NE 0
+  ES-RC        := #ES-RC
+  ES-MSG-NR    := #ES-MSG-NR
+  ES-MSG-TXT   := #ES-MSG-TXT
+  DECIDE ON FIRST ES-RC
+    VALUE 2
+      PERFORM GET-MSG-TXT
+    VALUE 3
+      ES-NUMBER := #ES-NUMBER
+    NONE IGNORE
+  END-DECIDE
+END-IF
+*
+END-SUBROUTINE /* CHECK-NODE-SPOOL-USAGE
+*
+END

@@ -1,0 +1,100 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Program  NOMDISCP
+*
+* Function Codepage support: Execute a MOVE ENCODED and check the result
+*
+*
+* MAINTENANCE:
+* User ID yyyy-mm-dd itrac       Comment
+* ------- ---------- ----------- ---------------------------------------
+* fhi     2018-10-12             NOM 3.5 Created
+************************************************************************
+*
+DEFINE DATA
+LOCAL
+*
+1 #A-INPUT             (A78)
+1 #A-INPUT2            (A78)
+1 #U-INPUT             (U78)
+1 #A-OUTPUT            (A78)
+1 #OUTPUT-CP           (A64)
+*
+1 ERC                  (N4)
+1 ERT                  (A250)
+*
+1 #I                   (I4)
+1 #C                   (C)
+*
+1 #HEXHIGH-SOURCE      (A78)
+1 #HEXLOW-SOURCE       (A78)
+1 #RULER-SOURCE        (A78)
+*
+1 #HEXHIGH-TARGET      (A78)
+1 #HEXLOW-TARGET       (A78)
+1 #RULER-TARGET        (A78)
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+* Prepare the input string
+* ------------------------
+*
+MOVE
+  U'ABCDEFGHIJKLMNOPQRSTUVWXYZ'-
+  U'abcdefghijklmnopqrstuvwxyz'-
+  U'1234567890'
+  TO #U-INPUT
+MOVE
+  UH'00C400D600DC00E400F600FC00DF00B500B000B200B300BC00BD00BE00E020AC'
+*    ?   \   ?   ?   ?   ?   ?   ?   °   2   3   1/4 1/2 3/4 ?   euro
+  TO SUBSTR(#U-INPUT,63)
+*
+CALLNAT 'XXMVENC' 1X #U-INPUT 1X #A-INPUT 2X ERC ERT
+PERFORM XXHEXPRT #A-INPUT
+  #HEXHIGH-SOURCE #HEXLOW-SOURCE #RULER-SOURCE
+  1X TRUE
+*
+* Do the codepage operations:
+* ---------------------------
+*
+SET KEY ALL
+RESET #A-OUTPUT ERC ERT
+REPEAT
+  UNTIL *PF-KEY NE 'ENTR'
+  INPUT USING MAP 'NOMDISCM'
+  IF NOT #C MODIFIED
+    CALLNAT 'XXMVENC' 1X #U-INPUT 1X #A-INPUT 2X ERC ERT
+    PERFORM XXHEXPRT #A-INPUT
+      #HEXHIGH-SOURCE #HEXLOW-SOURCE #RULER-SOURCE
+      1X TRUE
+  ELSE
+    RESET ERC ERT
+  END-IF
+  #A-INPUT2 := #A-INPUT
+  CALLNAT 'XXMVENC' #A-INPUT 2X #A-OUTPUT 1X #OUTPUT-CP ERC ERT
+  PERFORM XXHEXPRT #A-INPUT
+    #HEXHIGH-SOURCE #HEXLOW-SOURCE #RULER-SOURCE
+    1X TRUE
+  PERFORM XXHEXPRT #A-OUTPUT
+    #HEXHIGH-TARGET #HEXLOW-TARGET #RULER-TARGET
+    1X TRUE
+  IF ERT = MASK('3') /* Natural returned something
+    PERFORM XXRLOG-WRITE-LOG 'M' ERT 2X 'N' /* Resolve Natural Message
+  ELSE
+    PERFORM XXRLOG-WRITE-LOG 'M' ERT        /* Resolve NOM     Message
+  END-IF
+END-REPEAT
+*
+*
+************************************************************************
+* End of main line
+************************************************************************
+*
+************************************************************************
+END

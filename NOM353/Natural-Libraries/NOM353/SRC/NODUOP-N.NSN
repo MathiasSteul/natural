@@ -1,0 +1,645 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NODUOP-N - NOM API Maintenance of Unix nodes
+*
+* Maintenance:
+* XSETGGR 2002-08-30    created
+* XSETGGR 2005-01-04    use NODUST-N to get unix node status text
+* XSETGGR 2005-07-06 p(266530) Make mointor NPR mainframe independent
+* XSETGGR 2006-03-06    add parameter for call NODUST-N
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* XSETHZ  2008-12-08   P312501  set error messsage text
+* XSETHZ  2009-03-17 P312501   NODE-SUSPEND only displayed (Status)
+* XSETHZ  2009-04-02 P312501   backouted display-only because of misunderstanding
+* XSETHZ  2009-07-23 P309612   Status 'E nnnn' ---> 'error'
+* XSETHZ  2009-09-09 P309612   Schow message with error in open
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-11-01 NOMALL-97 #P-SESSION-ID --> #P-SESSION-ID-INT
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* xsetggr 2012-05-17 NOMALL-1136 not suspend err messages
+* su1     2013-01-23 xref        remove unused subroutine WRITE-LOG-MSG
+* SU2     2013-01-31 unused      Deactivate unused data areas
+* fhi     2012-04-17 NOMALL-1245 Change suspend field to new values.
+* CF1     2017-08-08 NOMALL-2044 Adapt to handle Mainframe/UNIX nodes
+* bli     2018-07-20 NOMALL-2088 error handling
+* fhi     2018-10-29 NOMALL-2125 Don't use Unix node code pages
+* BLI     2019-01-28 NOMALL-2219 Don't set status 'S' for UNIX nodes
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU3     2020-12-01 NOMALL-2440 del. UX-EMAIL-RECIPIENTS
+* HEB     2021-09-14 NOMALL-2493 check node logon if status set 'Active'
+* SU4     2022-12-21 NOMALL-2600 status changed: msg 2072 -> log +
+*         2023-01-05 fill status changed timestamp(NOMALL-2505)
+* HEB1    2023-01-06 NOMALL-2604 Add field for NOM2071 time interval
+* SU5     2023-03-22 NOMALL-2629 PWD: SY-TST-N -> SATTS01N
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NODUOP-A
+************************************************************************
+INDEPENDENT
+1 +P-SESSION-ID             (N10)
+*
+LOCAL USING VUXDEF-L
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING XXUX---P
+LOCAL USING RLOG-L /*SU4
+LOCAL
+1 MONITOR VIEW OF NRM-MONITOR /*CF1
+* *****
+1 #ES-CONTROL               (A250)
+1 #ES-INPUT-AREA            (A253/1:3)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+  2 REDEFINE #ES-MSG-FIELD-INDEX
+    3 #ES-MSG-FIELD-INDEX1  (N2)
+    3 #ES-MSG-FIELD-INDEX2  (N2)
+1 #L-PATH                   (A70)
+1 REDEFINE #L-PATH
+  2 #L-PATH-A               (A1/70)
+1 #LIBRARY-ID               (A8)
+1 #I                        (I2)
+1 #J                        (I2)
+1 #NODE-NAME                (A16)
+1 #ES-RC                    (N3)
+1 #ES-NUMBER                (N8)   /* CF1
+1 #ES-MSG-TXT               (A250)
+1 #P-SESSION-ID-INT         (N10)
+1 #NODE-STATUS              (A16)
+1 #NODE-SUSPEND             (A1)
+1 #USER-LIB                 (A8)
+1 #CP-NAME                  (A60)  /* CF1 ->
+1 #MONITOR-ID               (A20) INIT <'R-'>
+1 REDEFINE #MONITOR-ID
+  2 FILLER                  2X
+  2 #MF-NODE-NAME           (A16) /* CF1 <-
+1 P-VERSION-CLIENT          (A10) /* HEB1
+1 P-ERC-4                   (N4)  /* HEB1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+ON ERROR
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+RESET ES-RC
+*
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+*
+/* Get client version from ES-CONTROL
+CALLNAT 'ESMAVC-N' 'N' P-VERSION-CLIENT P-ERC-4 ES-CONTROL    /* HEB1
+*
+#LIBRARY-ID := ES-APP-SERVER-LIBRARY
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+#NODE-NAME  := #MF-NODE-NAME := ES-KEY-PARM(1)             /* CF1 ->
+/* Identify if node is UNIX or Mainframe type
+/* ------------------------------------------
+/* Check if Mainframe node and call separate routine
+IF ES-EXTEND-FUNCTION = ' '   /* Function READ
+  FFMF. FIND NUMBER MONITOR WITH M-MONITOR-ID = #MONITOR-ID
+  IF *NUMBER(FFMF.) GT 0
+    NODU-NODE-TYPE := 'M'
+  END-IF
+END-IF
+IF NODU-NODE-TYPE = 'M'
+  CALLNAT 'NODUOP1N' ES-CONTROL ES-INPUT NODU-PARMS
+  ESCAPE ROUTINE
+END-IF
+#MF-NODE-NAME := NODU-NAME
+/*
+/* Node must be UNIX type, proceed with routine
+/*                                                         /* CF1 <-
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+  VALUE ' '
+    PERFORM READ-RECORD
+    IF ES-RC NE 1                                          /* CF1 ->
+      PERFORM CHECK-NODE-SPOOL-USAGE
+    END-IF                                                 /* CF1 <-
+  VALUE 'NEW'
+    PERFORM NEW-RECORD
+    IF ES-RC = 0
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  VALUE 'UPD'
+    PERFORM UPDATE-RECORD
+    IF ES-RC = 0
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  VALUE 'CHK'
+    PERFORM CHECK
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-RECORD
+************************************************************************
+RESET NODU-PARMS #ES-MSG-FIELD #ES-MSG-NR
+NODU-NODE-TYPE := 'U'     /* Node type UNIX                /* CF1
+FNDUX. FIND UX-NODES WITH UX-NODE-NAME = #NODE-NAME
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 2024    /* Node definition does not exist
+    ESCAPE BOTTOM(FNDUX.)
+  END-NOREC
+  NODU-NAME    := UX-NODE-NAME
+  NODU-SUSPEND := UX-NODE-SUSPEND
+  DECIDE ON FIRST NODU-SUSPEND                             /* CF1 ->
+    VALUE 'N'   NODU-SUSPEND := 'A' /* New activated code
+    VALUE 'Y'   NODU-SUSPEND := 'S' /* New suspended code
+    NONE IGNORE
+  END-DECIDE
+  NODU-MCLASS  := *MACHINE-CLASS
+  IF UX-NODE-SUSPEND = 'M' OR = 'L'
+    NODU-PRODUCT-NAME := *OS
+    NODU-SYSTEM-TYPE  := *MACHINE-CLASS
+  ELSE
+    NODU-PRODUCT-NAME := NODU-SYSTEM-TYPE  := 'Unix'
+* *****
+* HEB1 >
+    IF UX-NODE-SUSPENDED NE 0
+      MOVE EDITED UX-NODE-SUSPENDED (EM=YYYYMMDDHHIISST)
+        TO NODU-NODE-SUSPENDED
+    END-IF
+    IF NOT (UX-NODE-SUSP-TIME-INT_A4 IS (N4))
+      RESET UX-NODE-SUSP-TIME-INT
+    END-IF
+    NODU-SUSP-TIME-INT := UX-NODE-SUSP-TIME-INT
+* HEB1 <
+  END-IF
+  NODU-LAST-UPDATE-USER := UX-LAST-UPDATE-USER
+  IF UX-LAST-UPDATE NE 0
+    MOVE EDITED UX-LAST-UPDATE (EM=YYYYMMDDHHIISST)
+      TO NODU-LAST-UPDATE
+  END-IF                                                   /* CF1 <-
+  NODU-DESCRIPTION     := UX-NODE-DESCRIPTION
+  NODU-TEMPDIR         := UX-NODE-TEMPDIR
+  NODU-USERID          := UX-NODE-USERID
+  CALLNAT 'SATTS01N' 'U' NODU-PASSWORD UX-NODE-PASSWORD /*SU5
+  NODU-PASSWORD-CONF   := NODU-PASSWORD
+  NODU-GROUP           := UX-NODE-GROUP
+  PERFORM NODE-STATUS
+  IF #ES-RC = 1
+    ES-RC := 2
+    ES-MSG-NR := #ES-MSG-NR
+    ES-MSG-TXT := #ES-MSG-TXT
+    ES-MSG-FIELD := #ES-MSG-FIELD
+  END-IF
+  FOR #I = 1 TO C*UX-NODE-ACCESS
+    NODU-PATH(#I) := UX-NODE-PATH(#I)
+    NODU-DB(#I)   := UX-NODE-CONTAINER-DB(#I)
+    NODU-FNR(#I)  := UX-NODE-CONTAINER-FNR(#I)
+  END-FOR
+  RESET NODU-OPTIONS(*)
+END-FIND
+*
+END-SUBROUTINE /* READ-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE NEW-RECORD
+************************************************************************
+FNNEW. FIND NUMBER UX-NODES WITH UX-NODE-NAME = NODU-NAME
+IF *NUMBER(FNNEW.) > 0
+  #ES-MSG-NR := 2022    /* Node definition already exists
+  #ES-RC     := 1
+  #ES-MSG-FIELD-NAME := 'NAME'                             /* CF1
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+/* Check if node name exists as mainframe node             /* CF1 ->
+FNMF. FIND NUMBER MONITOR WITH M-MONITOR-ID = #MONITOR-ID
+IF *NUMBER(FNMF.) > 0
+  #ES-MSG-NR := 2022    /* Node definition already exists
+  #ES-RC     := 1
+  #ES-MSG-FIELD-NAME := 'NAME'
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+/*                                                         /* CF1 <-
+#NODE-SUSPEND := NODU-SUSPEND
+PERFORM VALIDATION-S
+IF ES-RC = 1
+  ESCAPE ROUTINE
+END-IF
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+UX-NODE-NAME := NODU-NAME
+RESET NODU-OPTIONS(*)
+#NODE-NAME   := NODU-NAME
+PERFORM NODE-STATUS
+PERFORM ASSIGN-ATTRIBUTE-VALUES
+STORE UX-NODES
+*
+END-SUBROUTINE /* NEW-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+FNDMOD. FIND UX-NODES WITH UX-NODE-NAME = #NODE-NAME
+  IF NO RECORD FOUND
+    #ES-MSG-NR := 2024        /* Node definition does not exist
+    ESCAPE BOTTOM(FNDMOD.)
+  END-NOREC
+  NODU-NAME := #NODE-NAME
+  #NODE-SUSPEND := UX-NODE-SUSPEND
+  PERFORM VALIDATION-S
+  IF ES-RC = 1
+    ESCAPE ROUTINE
+  END-IF
+  IF #ES-MSG-NR NE 0
+    ESCAPE BOTTOM(FNDMOD.)
+  END-IF
+  RESET NODU-OPTIONS(*)
+  PERFORM NODE-STATUS
+  GETMOD. GET UX-NODES *ISN(FNDMOD.)
+  IF UX-NODE-SUSPEND NE NODU-SUSPEND /*status changed SU4 ->
+    IF NOT (UX-NODE-SUSPEND ='M' OR='L')
+      UX-NODE-TIME-STORED := NODU-SUSPEND /*status
+      UX-NODE-SUSPENDED := *TIMX /*timestamp of staus change
+      RESET UX-NODE-SUSP-MAX-MSG
+    END-IF
+    COMPRESS '2072' UX-NODE-NAME UX-NODE-SUSPEND NODU-SUSPEND
+      TO LG-MSG /*status changed
+    LG-CODE     := 'MO'
+    LG-USERID   := ES-USER
+    CALLNAT 'RLOG' PL-PARMS /*ET/BT will be done here Ü
+  END-IF /*SU4 <-
+  PERFORM ASSIGN-ATTRIBUTE-VALUES
+  UPDATE (GETMOD.)
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* UPDATE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK
+************************************************************************
+IF ES-ORIG-FUNCTION = 'NW'
+  FND. FIND NUMBER UX-NODES WITH UX-NODE-NAME = NODU-NAME
+  /*IF *NUMBER(FND.) NE 0 AND ES-ORIG-FUNCTION = 'NW'      /* CF1
+  IF *NUMBER(FND.) NE 0                                    /* CF1
+    #ES-MSG-NR := 2022    /* Node definition already exists
+    #ES-RC     := 1
+    #ES-MSG-FIELD-NAME := 'NAME'                           /* CF1
+    PERFORM GET-MSG-TXT
+    ESCAPE ROUTINE
+  END-IF
+  /* Check if node name exists as mainframe node           /* CF1 ->
+  FNCMF. FIND NUMBER MONITOR WITH M-MONITOR-ID = #MONITOR-ID
+  IF *NUMBER(FNCMF.) > 0
+    #ES-MSG-NR := 2022    /* Node definition already exists
+    #ES-RC     := 1
+    #ES-MSG-FIELD-NAME := 'NAME'
+    PERFORM GET-MSG-TXT
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+/*                                                         /* CF1 <-
+PERFORM VALIDATION-S
+IF ES-RC = 1
+  ESCAPE ROUTINE
+END-IF
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* CHECK
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-ATTRIBUTE-VALUES
+************************************************************************
+RESET #I
+UX-LAST-UPDATE      := *TIMX
+UX-LAST-UPDATE-USER := ES-USER
+UX-NODE-SUSPEND     := NODU-SUSPEND
+UX-NODE-DESCRIPTION := NODU-DESCRIPTION
+UX-NODE-TEMPDIR     := NODU-TEMPDIR
+UX-NODE-USERID      := NODU-USERID
+CALLNAT 'SATTS01N'  'S' NODU-PASSWORD UX-NODE-PASSWORD /*SU5
+UX-NODE-GROUP       := NODU-GROUP
+UX-NODE-PATH(*)     := NODU-PATH(*)
+UX-NODE-CONTAINER-DB(*)  := NODU-DB(*)
+UX-NODE-CONTAINER-FNR(*) := NODU-FNR(*)
+IF P-VERSION-CLIENT GE '0305020007'               /* HEB1
+  IF NODU-SUSP-TIME-INT-A4 IS (N4)                /* HEB1
+    UX-NODE-SUSP-TIME-INT := NODU-SUSP-TIME-INT
+  END-IF                                          /* HEB1
+END-IF                                            /* HEB1
+*
+END-SUBROUTINE /* ASSIGN-ATTRIBUTE-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION-S
+************************************************************************
+PERFORM VALIDATION
+ES-CONTROL := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+IF #ES-MSG-NR > 0
+  #ES-RC := 2
+END-IF
+IF #ES-RC = 1
+  ES-RC := 1
+  ES-MSG-NR := #ES-MSG-NR
+  ES-MSG-TXT := #ES-MSG-TXT
+  ES-MSG-FIELD := #ES-MSG-FIELD
+END-IF
+*
+END-SUBROUTINE /* VALIDATION-S
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+RESET #ES-MSG-NR #ES-MSG-FIELD #I
+DECIDE FOR EVERY CONDITION
+  WHEN NODU-NAME = ' '
+    #ES-MSG-NR := 2000      /* Please, enter name
+    #ES-MSG-FIELD-NAME := 'NAME'
+    ESCAPE ROUTINE
+  WHEN NODU-TEMPDIR = ' ' AND NOT(NODU-SUSPEND ='M' OR='L')
+    #ES-MSG-NR := 2128     /* temdir for unix node required
+    #ES-MSG-FIELD-NAME := 'TEMPDIR'
+    ESCAPE ROUTINE
+  WHEN NODU-TEMPDIR NE ' '
+    #L-PATH := NODU-TEMPDIR
+    FOR #J = 1 TO 70
+      IF #L-PATH-A (#J) NE MASK (C)
+          AND #L-PATH-A (#J) NE '/' /* Path
+          AND #L-PATH-A (#J) NE '-' /* special character
+          AND #L-PATH-A (#J) NE '_' /* special character
+          AND #L-PATH-A (#J) NE ':' /* Windows drive
+          AND #L-PATH-A (#J) NE '.' /* Windows extension
+          AND #L-PATH-A (#J) NE '$' /* Unix environment var.
+          AND #L-PATH-A (#J) NE '%' /* Windows environm. var.
+          AND NODU-TEMPDIR NE ' '
+        #ES-MSG-NR := 2042   /* not allowed symbols in path
+        #ES-MSG-FIELD-NAME := 'TEMPDIR'
+        ESCAPE ROUTINE
+      END-IF
+    END-FOR
+  WHEN NODU-TEMPDIR NE MASK (*'/'/) /* path must end with '/'
+    COMPRESS NODU-TEMPDIR '/' TO NODU-TEMPDIR LEAVING NO
+  WHEN NODU-REMOTE-CODEPAGE NE ' '
+    #CP-NAME := NODU-REMOTE-CODEPAGE
+    CALLNAT 'N-CP-CH2' #CP-NAME #ES-MSG-NR #ES-MSG-TXT
+    IF #ES-MSG-NR NE 0
+      #ES-MSG-FIELD-NAME := 'UNIX-CODEPAGE'
+      ESCAPE ROUTINE
+    END-IF
+  WHEN NONE IGNORE
+END-DECIDE
+FOR #I = 1 TO 10
+  IF NODU-PATH (#I) = NODU-TEMPDIR
+    #ES-MSG-NR := 2045 /* Temp dir must be different from any path
+    #ES-MSG-FIELD-NAME := 'PATH'
+    #ES-MSG-FIELD-INDEX := #I
+  END-IF
+END-FOR
+DECIDE FOR FIRST CONDITION
+  WHEN NOT(NODU-SUSPEND ='A' OR='D' OR='M' OR='L')
+    /*  'N' 'Y' /* Remove old code  CF1
+    /*  'S'     /* Remove 'S' BLI NOMALL-2219
+    /*  #ES-MSG-NR :=  2127  /* valid Unix node status: A,S,D
+    #ES-MSG-NR :=  9213  /* Please enter 'A' or 'D' BLI NOMALL-2219
+    #ES-MSG-FIELD-NAME := 'SUSPEND'
+  WHEN NODU-USERID= ' '
+    #ES-MSG-NR :=  0048         /* userid required
+    #ES-MSG-FIELD-NAME := 'USERID'
+  WHEN NODU-PASSWORD NE NODU-PASSWORD-CONF
+    #ES-MSG-NR := 2025     /* Please confirm password
+    #ES-MSG-FIELD-NAME := 'PASSWORD-CONF'
+    RESET NODU-PASSWORD-CONF
+  WHEN ANY ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+FOR #I = 1 TO 10
+  IF #I = 1
+    IF NODU-PATH(#I) = ' '
+      #ES-MSG-NR := 2023  /* Please enter a path
+      #ES-MSG-FIELD-NAME := 'PATH'
+      #ES-MSG-FIELD-INDEX := 1
+      ESCAPE ROUTINE
+    END-IF
+    IF (NODU-DB (#I) = 0 OR NODU-FNR (#I) = 0 OR NODU-DB  (#I) = 255
+    OR NODU-DB  (#I) > 65535 OR NODU-FNR (#I) > 65535                 /*
+    OR NODU-FNR (#I) > 65535)                  /*SU3 ???? see above ????
+    AND NOT(NODU-SUSPEND ='M' OR='L')                                 /*
+      #ES-MSG-NR := 2021 /* /* Container file definition invalid
+      #ES-MSG-FIELD-NAME := 'DB'
+      #ES-MSG-FIELD-INDEX := #I
+      ESCAPE ROUTINE
+    END-IF
+  ELSE
+    IF NODU-PATH (#I) = ' ' AND (NODU-DB(#I) NE 0 OR NODU-FNR (#I) NE 0)
+      #ES-MSG-NR := 2023    /* Please, enter a path
+      #ES-MSG-FIELD-NAME := 'PATH'
+      #ES-MSG-FIELD-INDEX := #I
+      ESCAPE ROUTINE
+    END-IF
+    IF NODU-PATH (#I) NE ' ' AND (NODU-DB(#I) NE 0 OR NODU-FNR(#I) NE 0)
+    AND (NODU-DB(#I) = 0 OR NODU-FNR (#I) = 0 OR NODU-DB (#I) = 255   /*
+    OR NODU-DB     (#I) > 65535 OR NODU-FNR    (#I) > 65535 )         /*
+      #ES-MSG-NR := 2021  /* Container file definition invalid
+      #ES-MSG-FIELD-NAME := 'DB'
+      #ES-MSG-FIELD-INDEX := #I
+      ESCAPE ROUTINE
+    END-IF
+    IF NODU-PATH (#I) NE ' '
+      #L-PATH := NODU-PATH (#I)
+      FOR #J = 1 TO 70
+        IF #L-PATH-A (#J) NE MASK (C)
+            AND #L-PATH-A (#J) NE '/' /* Path
+            AND #L-PATH-A (#J) NE '-' /* special character
+            AND #L-PATH-A (#J) NE '_' /* special character
+            AND #L-PATH-A (#J) NE ':' /* Windows drive
+            AND #L-PATH-A (#J) NE '.' /* Windows extension
+            AND #L-PATH-A (#J) NE '$' /* Unix environment var.
+            AND #L-PATH-A (#J) NE '%' /* Windows environm. var.
+          #ES-MSG-NR := 2042
+          #ES-MSG-FIELD-NAME := 'PATH'
+          #ES-MSG-FIELD-INDEX := #I
+          ESCAPE ROUTINE
+        END-IF
+      END-FOR
+      IF NODU-PATH (#I) NE MASK (*'/'/) /* path must end with '/'
+          AND NODU-PATH (#I) NE ' '
+        COMPRESS NODU-PATH (#I) '/' TO NODU-PATH (#I) LEAVING NO
+      END-IF
+    END-IF
+  END-IF
+END-FOR
+PERFORM NODE-STATUS
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE NODE-STATUS
+************************************************************************
+/* get unix node status text
+IF *MACHINE-CLASS NE 'PC'
+  RESET XXUX---P
+  #NODE-STATUS   := NODU-MESSAGE
+  P-NODE-NAME    := NODU-NAME
+  P-USERID       := NODU-USERID
+  P-PASSWORD     := NODU-PASSWORD
+  P-GROUP        := NODU-GROUP
+  P-NODE-SUSPEND := NODU-SUSPEND
+  RESET  P-ERC
+  IF NOT (NODU-SUSPEND ='Y' OR='D' OR='M' OR='L' OR = 'S')
+    P-FUNCTION := 'INFO'                   /* GENERAL INFO AND OPSYS
+    #P-SESSION-ID-INT := +P-SESSION-ID
+    RESET +P-SESSION-ID
+    CALLNAT 'XXUX---N' XXUX---P
+    IF P-ERC = 0           /* NOMALL-2493 ->
+      IF ES-EXTEND-FUNCTION = ' ' /* Read
+        IF NODU-SUSPEND = 'E'
+          NODU-MESSAGE := 'F'
+        ELSE
+          NODU-MESSAGE := NODU-SUSPEND
+          NODU-SYSTEM-TYPE := P-OPSYS
+        END-IF
+      ELSE /* ES-EXTEND-FUNCTION NE ' '
+        COMPRESS 'A=' P-OPSYS TO NODU-MESSAGE LEAVING NO /* NODE ACTIVE
+        P-FUNCTION := 'LOGON'             /* CHECK USER FOR ADD/MOD
+        CALLNAT 'XXUX---N' XXUX---P
+        IF P-ERC = 0
+          IF P-OPSYS NE ' '
+            NODU-SYSTEM-TYPE := P-OPSYS
+          END-IF
+          P-FUNCTION := 'LOGOUT'
+          CALLNAT 'XXUX---N' XXUX---P
+        END-IF
+      END-IF
+    END-IF /* P-ERC = 0    /* NOMALL-2493 <-
+    +P-SESSION-ID := #P-SESSION-ID-INT
+    RESET #ES-MSG-NR
+    DECIDE FOR FIRST CONDITION
+**    WHEN P-ERC = 0              /* NOMALL-2493 del ->
+**      IF P-OPSYS NE ' '                        /* CF1 ->
+**        NODU-SYSTEM-TYPE := P-OPSYS
+**      END-IF                                   /* CF1 <-
+**      COMPRESS 'A=' P-OPSYS TO NODU-MESSAGE LEAVING NO /* NODE ACTIVE
+**                                /* NOMALL-2493 del <-
+      WHEN P-ERC = 5 AND SUBSTR(P-ERT,1,7)='SAT1115'/* NOMALL-2088
+        NODU-MESSAGE := 'I'             /* node inactive
+      WHEN P-ERC = 5 AND SUBSTR(P-ERT,1,7)='SAT1114'/* NOMALL-2088
+        NODU-MESSAGE := 'F'
+      WHEN P-ERC NE 0
+        NODU-MESSAGE := #NODE-STATUS
+*       NODU-SUSPEND := #NODE-SUSPEND      /* NOMALL-2493 del
+        NODU-MESSAGE := 'F' /*             /* NOMALL-2493 added
+      WHEN ANY
+        IF NOT (P-ERC = 0 OR
+            (P-ERC = 5 AND                       /* NOMALL-2088 ->
+            (SUBSTR(P-ERT,1,7)='SAT1114' OR
+            SUBSTR(P-ERT,1,7)='SAT1115')))       /* NOMALL-2088 <-
+          #ES-MSG-NR := P-ERC
+          #ES-MSG-TXT := P-ERT
+          #ES-MSG-FIELD-NAME := 'SUSPEND'
+          #ES-RC := 1
+        END-IF
+      WHEN NONE IGNORE
+    END-DECIDE
+* END-IF /* 6.9.
+  ELSE
+    NODU-MESSAGE := NODU-SUSPEND
+  END-IF
+ELSE
+  NODU-MESSAGE := 'PC'
+END-IF
+*
+END-SUBROUTINE /* NODE-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND    := 'U'
+NADA2000.ERROR-NUMBER   := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+NADA2000.LIBRARY        := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+IF NOT (#ES-MSG-NR = 2032 OR = 2047 OR = 2031 OR = 2049 )
+  ES-MSG-NR    := #ES-MSG-NR
+  ES-MSG-TXT   := SHORT-MSG
+  EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+  IF ES-MSG-NR = 5 /* ES-MSG-NR 5 SET IN 'XXUX---N'    /* NOMALL-2493 ->
+*   EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT => NAT1308
+    ES-MSG-TXT := #ES-MSG-TXT
+  ELSE                                                 /* NOMALL-2493 <-
+    EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+  END-IF                                               /* NOMALL-2493
+  ES-MSG-FIELD := #ES-MSG-FIELD
+  ES-RC := #ES-RC   /* was 1
+END-IF
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-NODE-SPOOL-USAGE
+************************************************************************
+IF NODU-NAME = ' '
+  ESCAPE ROUTINE
+END-IF
+/* Backup original buffers
+RESET #ES-RC
+#ES-CONTROL       := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+ES-SELECT         := NODU-NAME
+CALLNAT 'NORPND-N' ES-CONTROL ES-INPUT
+IF ES-RC NE 0
+  #ES-RC        := ES-RC
+  #ES-MSG-NR    := ES-MSG-NR
+  #ES-MSG-TXT   := ES-MSG-TXT
+  #ES-MSG-FIELD := ES-MSG-FIELD
+  #ES-NUMBER    := ES-NUMBER
+END-IF
+/* Restore original buffers
+ES-CONTROL       := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+IF #ES-RC NE 0
+  ES-RC        := #ES-RC
+  ES-MSG-NR    := #ES-MSG-NR
+  ES-MSG-TXT   := #ES-MSG-TXT
+  ES-MSG-FIELD := #ES-MSG-FIELD
+  ES-NUMBER    := #ES-NUMBER
+  IF #ES-RC = 2
+    #ES-RC := 1
+    PERFORM GET-MSG-TXT
+  END-IF
+END-IF
+/*
+END-SUBROUTINE /* CHECK-NODE-SPOOL-USAGE
+/*
+END

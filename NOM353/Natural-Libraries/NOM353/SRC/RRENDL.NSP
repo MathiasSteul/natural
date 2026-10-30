@@ -1,0 +1,117 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* PROGRAM  : RRENDL
+* FUNCTION : RENAME DISTRIBUTION LIST
+*            RENAME IT ALSO IN MASTER REPORT
+*            RENAME IT ALSO IN GRANT (TWICE)
+*
+* Maintenance
+* mrs 91-12-27 s(141159) support languages other than english
+* mrs 92-02-06 s(144000) window size, error messages changed
+* gw  98-07-22 p(172469) check existance of defined user
+* xsiszha 2000-08-07 (CE7461) Extend Report and Bundle Names
+* xsetggr 2012-02-01 NOMALL-1100 write language independant msgs to log
+* xsetggr 2012-09-21 NOMALL-89 implement external security sheck subrout
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2018-12-03 NOMALL-2182 Reject reserved names 'ADMIN'+'PUBLIC'
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING RLOG-L
+LOCAL USING ROT----L
+LOCAL USING VDISTS-L
+LOCAL
+1 USERS VIEW OF NRM-USERS
+1 LISTS VIEW OF NRM-DISTRIBUTION-LIST
+  2 D-LIST-NAME
+1 MASTER-REP VIEW OF NRM-REPORTS-NEW
+  2 C*R-NATRPT-DIST
+  2 R-NATRPT-DIST (1:10)
+*
+1 #NEWNAME        (A8)
+1 I               (I2)
+1 #PROG           (A8)
+1 #FATHER-PROG    (A8) INIT <'RLISDL'>
+1 #NAME           (A25)
+1 #ALLOWED        (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+CALLNAT 'ROTINI-N' ##EQO-LIST G-OBJ-TYPE G-OTB
+* xsetggr 2012-09-21 NOMALL-89 insert next 4 lines
+#PROG := *PROGRAM
+#NAME := G-C-LIST
+PERFORM XXSECURITY-CHECK #PROG #NAME #ALLOWED
+INCLUDE C-NALLOW
+*
+SET KEY PF3
+*
+SET CONTROL 'WC11L47B06/25F'
+SET CONTROL 'MT'
+INPUT USING MAP 'RRENDLM&'
+IF *PF-KEY = 'PF3' ESCAPE ROUTINE  END-IF
+*
+DECIDE ON FIRST VALUE OF G-C-LIST
+  VALUE ' '       REINPUT *0606 MARK *#NEWNAME ALARM
+  VALUE 'ADMIN'   REINPUT *0517 MARK *#NEWNAME ALARM /*SU2
+  VALUE 'PUBLIC'  REINPUT *0518 MARK *#NEWNAME ALARM /*SU2
+  NONE IGNORE
+END-DECIDE
+*
+F1. FIND NUMBER LISTS  WITH D-LIST-NAME = #NEWNAME
+IF *NUMBER(F1.) > 0
+  REINPUT *0033, G-OBJ-TYPE ALARM
+END-IF
+FINDNUM. FIND NUMBER USERS WITH USER-ID = #NEWNAME
+IF *NUMBER(FINDNUM.) > 0
+  REINPUT *507 ALARM
+END-IF
+*
+MR. FIND LISTS WITH D-LIST-NAME  = G-C-LIST
+  D-LIST-NAME := #NEWNAME
+  UPDATE
+END-FIND
+* ------
+* UPDATE GRANT ENTRIES
+* -------
+FETCH RETURN 'RRENGR' 'L' G-C-LIST  #NEWNAME
+* -----
+* UPDATE MASTER REPORT RECORD
+* -----
+FIND MASTER-REP WITH R-NATRPT-DIST = G-C-LIST
+  FOR I 1 TO C*R-NATRPT-DIST
+    IF R-NATRPT-DIST(I) = G-C-LIST
+      R-NATRPT-DIST(I) := #NEWNAME
+    END-IF
+  END-FOR
+  UPDATE
+END-FIND
+* -------
+* UPDATE GRANTED BU USER LIST
+* -------
+* xsetggr NOMALL-89 out next lines, moved to RRENGR
+FNDRL. FIND DISTRIBUTION-LIST WITH D-USER-LIST = G-C-LIST
+  FOR I = 1 TO C*D-USER-LIST
+    IF D-USER-LIST (I) = G-C-LIST
+      D-USER-LIST (I) := #NEWNAME
+    END-IF
+  END-FOR
+  UPDATE
+END-FIND
+* -----
+* LOG RECORD
+* -----
+LG-CODE := 'DM'
+LG-USERID := G-USERID
+LG-OBJECT-NAME := #NEWNAME
+COMPRESS '0763' G-C-LIST #NEWNAME TO LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+*
+END

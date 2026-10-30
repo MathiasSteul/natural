@@ -1,0 +1,136 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+*
+* Member    N-CHKSRC
+* Function  Check if Source Module exist
+* Version   1.3
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* gw  93-06-08           created
+* HH 04-12-09 use callnat NATA1100 instead of SYSTEM-FNAT/SYSTEM-FUSER
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #INLIB             (A8)
+1 #INMEM             (A8)
+1 #EXISTS            (L)
+************************************************************************
+LOCAL USING NAD-MSG   /* Data for message exchange
+LOCAL USING NAD-FLD   /* Description of the field in error
+*
+LOCAL
+1 NADA1100
+  2 OBJEKT-KEY
+    3 DBID           (N5)
+    3 FNR            (N5)
+    3 PASSWORD       (A8)
+    3 CIPHERCODE     (N8)
+    3 OBJECT-CLASS   (I1)
+    3 LIBRARY        (A8)
+    3 OBJECT-NAME    (A32)
+    3 OBJECT-TYPE    (A2)
+    3 OBJECT-KIND    (A1)
+*
+  2 INPUTS
+    3 OPT-ACCESS     (A1)
+    3 OPT-ET         (L)
+    3 OPT-REPLACE    (A1)
+    3 OPT-LINE-NUM   (A1)
+    3 OPT-STEPLIBS   (L)
+    3 OPT-REDEF-DIR  (L)
+    3 OPT-STREAM     (A1)
+    3 OPT-AMOUNT     (I2)
+    3 OPT-LINESIZE   (I2)
+/*
+  2 INPUT-OUTPUTS
+    3 INT-HANDLE     (I4)
+    3 NEXT-SEQ       (I4)
+    3 NEXT-NUM       (I2)
+/*
+  2 OUTPUTS                        /* Output for READ, input for WRITE
+    3 RETURNED       (I2)
+    3 SRC-NUM        (I2/1:20)
+    3 SRC-TEXT       (A1/1:20,1:92)
+    3 REDEFINE SRC-TEXT
+      4 SRC-GROUP    (1:20)
+        5 SRC-LINE   (A92)
+    3 SRC-SEQ        (I4/1:20)
+    3 SRC-LONG       (A1/1:20)
+*
+1 NATA1100
+  2 VERSION          (I1)     INIT <1>
+  2 V1-NSC-CHECK     (A1)  /* Check against NSC
+1 REDEFINE NATA1100
+  2 EXTENDED-PARMS
+    3 EXTENDED-DATA  (A1/1:2)
+*
+1 I                  (N3)
+1 #CH                (A250)
+1 REDEFINE #CH
+  2 #FIL             (A28)
+  2 #LIBB            (A8)
+  2 #MEMB            (A8)
+1 #REC               (N3)
+1 K1                 (A18)
+1 REDEFINE K1
+  2 #L1              (A8)
+  2 #M1              (A8)
+  2 #S1              (B2)
+1 K2                 (A18)
+1 REDEFINE K2
+  2 #L2              (A8)
+  2 #M2              (A8)
+  2 #S2              (B2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #EXISTS
+#L1 := #L2 := #INLIB
+#M1 := #M2 := #INMEM
+RESET #S1
+#S2 := H'FFFF'
+*
+*
+LIBRARY      := #INLIB
+OBJECT-NAME  := #INMEM
+OPT-LINE-NUM := 'Y'
+OPT-AMOUNT   := 20
+OPT-LINESIZE := 79
+OPT-STREAM   := 'B'
+V1-NSC-CHECK := 'Y'
+OPT-ACCESS   := 'O'
+*
+REPEAT
+  CALLNAT 'NATA1100' NADA1100 NATA1100.EXTENDED-PARMS NAD-MSG NAD-FLD
+  OPT-ACCESS := 'R'
+  IF NOT (NAD-MSG.MSG-NR =0 OR=100)
+    ESCAPE BOTTOM
+  END-IF
+  IF SUBSTR(OBJECT-NAME,1,8) NE #INMEM OR LIBRARY NE #INLIB
+    PERFORM CLOSE-NATA1100              /* EOF
+    ESCAPE BOTTOM
+  END-IF
+  #EXISTS := TRUE
+  PERFORM CLOSE-NATA1100
+  ESCAPE ROUTINE
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-NATA1100
+************************************************************************
+OPT-ACCESS := 'C'
+CALLNAT 'NATA1100' NADA1100 NATA1100.EXTENDED-PARMS NAD-MSG NAD-FLD
+END-SUBROUTINE /* CLOSE-NATA1100
+*
+END

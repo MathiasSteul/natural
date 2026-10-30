@@ -1,0 +1,326 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RDEFRP-N (template:CHCKIDNT)
+* Version   3.5
+* Function  Check if Report definition contain (more than one) or
+*           (invalid (SAP+Power(VSE))) Idents
+*
+* Maintenance
+* user    date       iTrac       Comment
+* SU      2018-05-11 NOMALL-1924 created (NOMALL-1737)
+* SU1     2018-12-14             adapted
+* SU2     2019-02-04 NOMALL-2225 handle unix node during add
+* SU3     2019-02-15 NOMALL-2235 reset R-IDENT-FILES(NOM=)
+* SU4     2022-01-13 NOMALL-2514 show attr.: File identification
+* SU5     2022-04-22 NOMALL-2454 avoid reset R-IDENT-FILES (SU3)
+* SU6     2022-10-07 NOMALL-2580 allow unix node modification /
+*                                if path in new node, no deletion
+* SU7     2024-01-24 ES-34613    3.6 remove: Power+SAP:warning
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 #FUNC               (A1)  /*in:
+  /* '+'=convert name->type
+  /* '#'=convert type->name
+  /* '-'=ident changed->remove old ident+store unix NODENAME
+  /* G-C-FUNC:
+  /* 'M'od - check ident/confirm/update
+  /* 'D'is - return first ident type
+1 #RP-IN              (A25) /*in
+1 #LEAVE              (L)   /*out
+1 #UNIX-NODENAME      (A16) /*out SU1
+1 #IDENT-NAME         (A8)  /*out SU1
+1 #IDENT-TYPE         (I2)  /*out EOMRPM-E SU1
+************************************************************************
+LOCAL USING EOMRPM-E /*ident types
+LOCAL
+1 UX-NODE VIEW OF NRM-UX-NODES /*SU6
+  2 UX-NODE-ACCESS
+    3 UX-NODE-PATH (1:10)
+1 INUM                (I2) CONST <15>
+1 RP VIEW OF NRM-REPORTS-NEW
+  2 C*R-IDENT
+  2 R-IDENT-FILES     (1:10) /*SU3
+  2 R-IDENT           (1:INUM)
+  2 REDEFINE R-IDENT
+    3 R-IDENT-TAB     (1:INUM)
+      4 R-IDENT-TYPE  (I2)
+      4 R-IDENT-VALUE (A80)
+  2 R-REPNAME         (A25)
+  2 R-INTERNAL-NODE-ID (P11)
+* *****
+1 #ID-MAX             (I2) CONST <8> /*SU7 <8>
+1 #GR                 (1:#ID-MAX)
+  2 #ID-FROM          (I2) CONST
+    < 1,    5,      8,      14,      17,        21,    23,   10000 >
+  2 #ID-TO            (I2) CONST
+    < 4,    7,     13,      16,      20,        22,    24,   32767 >
+1 #GROUPS             (A8/1:#ID-MAX) CONST
+  <'JES','POWER','NATURAL','BS2000','CA SPOOL','SAP','UNIX','3GL' >
+1 REDEFINE #GROUPS
+  2 #JES      (A8)
+  2 #POWER    (A8)
+  2 #NATURAL  (A8)
+  2 #BS2000   (A8)
+  2 #CA-SPOOL (A8)
+  2 #SAP      (A8)
+  2 #UNIX     (A8)
+  2 #3GL      (A8)
+1 #GR1                (1:#ID-MAX)
+  2 #C                (C) INIT ALL <(AD=NP)>
+  2 #USED             (L)
+  2 #OK               (L)
+1 #I                  (I2)
+1 #J                  (I2)
+1 #FOUND              (I2)
+1 #MARKED             (I2)
+1 #INVALID            (I2)
+1 #VALID              (I2)
+1 #MSG-INV            (A35)
+1 #MSG-REM            (A35)
+1 #MSG                (A79)
+1 #TIT                (A79)
+1 #FILE-IDENT         (A40) /*SU4
+1 #IND                (I2)
+1 #UNIX-PATH          (A82) /*SU6
+1 #REMOVE-NODE        (L) /*SU7
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+**PRINT (AD=L) '=' #FUNC '=' #RP-IN 'ux-nodce:' #UNIX-NODENAME
+**  '=' #IDENT-NAME '=' #IDENT-TYPE
+DECIDE ON FIRST VALUE OF #FUNC
+  VALUE '+' /*convert name->type
+    RESET #IDENT-TYPE
+    PERFORM GET-IDENT-TYPE
+  VALUE '#' /*convert type->name
+    RESET #IDENT-NAME
+    PERFORM GET-IDENT-NAME
+  ANY
+    ESCAPE MODULE /* <<== STOP
+  NONE IGNORE
+END-DECIDE
+*
+IF #FUNC NE '-' /*ident changed
+  RESET #UNIX-NODENAME #IDENT-NAME #IDENT-TYPE
+END-IF
+RESET #LEAVE
+COMPRESS 'Report' #RP-IN TO #TIT
+DEFINE WINDOW WIN SIZE 22*65 TITLE #TIT CONTROL WINDOW /*SU4 was 21*48
+  FRAMED ON POSITION OFF
+*
+#RP. FIND RP WITH R-REPNAME = #RP-IN
+**PRINT (AD=L) 'C*R-IDENT:' C*R-IDENT '=' #ID-MAX
+  IDENTS.  FOR #I = 1 TO C*R-IDENT
+    IF R-IDENT(#I) =' '
+      ESCAPE TOP
+    END-IF
+    TYPES. FOR #J = 1 TO #ID-MAX
+      IF NOT(R-IDENT-TYPE(#I) = #ID-FROM(#J) THRU #ID-TO(#J))
+        ESCAPE TOP
+      END-IF
+      IF #FUNC = '-' AND #GROUPS (#J) NE #IDENT-NAME /*ident changed
+        #INVALID := 1
+        ESCAPE BOTTOM (IDENTS.)
+      END-IF
+      IF NOT #USED(#J)
+        #C(#J) := (AD=I)
+        ADD 1 TO #FOUND
+        #IND := #J
+      END-IF
+      IF R-IDENT-TYPE(#I) = REPORT-IDENT-UNIX-NODENAME
+      AND #FUNC NE '-' /*SU6                                          /*
+        #UNIX-NODENAME := R-IDENT-VALUE (#I)
+      END-IF
+      IF #FUNC = 'D' /*Display - use 1. ident type
+        ESCAPE BOTTOM (IDENTS.)
+      END-IF
+      IF #GROUPS (#J) = #SAP OR= #POWER /*SU7 ->
+        IF #GROUPS (#J) = #POWER
+          #REMOVE-NODE := TRUE
+        END-IF /*SU7 <-
+        #C (#J) := (AD=P)
+        ADD 1 TO #INVALID
+      ELSE
+        ADD 1 TO #VALID
+      END-IF
+      #USED(#J) := TRUE
+    END-FOR /*(TYPES.)
+  END-FOR /*(IDENTS.)
+  IF #FUNC = '-' /*ident changed
+    IF #INVALID = 0 AND (#UNIX-NODENAME =' '
+    OR NOT(#IDENT-NAME = #UNIX OR=' ')) /*SU2                         /*
+      ESCAPE MODULE /* <<== STOP
+    END-IF
+  ELSE
+    IF #FOUND LE 1 AND #INVALID = 0 /*ok Ü 0 or 1 valid ident Ü
+      IF #FOUND = 1
+        #IDENT-NAME := #GROUPS (#IND)
+        PERFORM GET-IDENT-TYPE
+      END-IF
+      ESCAPE MODULE /* <<== STOP
+    END-IF
+    COMPRESS R-IDENT-FILES (*) TO #FILE-IDENT /*SU4
+    IF R-IDENT-FILES (*) = MASK('NOM=') /*SU5
+      COMPRESS '>>' #FILE-IDENT TO #FILE-IDENT
+    END-IF
+    PERFORM #CONFIRM
+  END-IF
+* *****
+* Update record
+* *****
+  #UPD. GET RP *ISN (#RP.)
+  IF #REMOVE-NODE /*SU7
+    RESET R-INTERNAL-NODE-ID /*reset to monitor node
+  END-IF
+  IDENTS2.  FOR #I = 1 TO C*R-IDENT
+    IF R-IDENT(#I) = ' '
+      ESCAPE TOP
+    END-IF
+    IF #FUNC = '-' AND #IDENT-NAME = #UNIX OR=' ' /*SU6
+    AND R-IDENT-TYPE(#I) = REPORT-IDENT-UNIX-PATH                     /*
+      FIND UX-NODE WITH UX-NODE-NAME = #UNIX-NODENAME
+        IF UX-NODE-PATH (*) = R-IDENT-VALUE(#I)
+          #UNIX-PATH := R-IDENT-VALUE(#I) /*remeber path
+        END-IF
+      END-FIND
+    END-IF
+    TYPES2. FOR #J = 1 TO #ID-MAX
+      IF #FUNC = '-' /*ident changed
+        IF #GROUPS (#J) NE #IDENT-NAME
+          RESET R-IDENT(#I)
+        END-IF
+        ESCAPE TOP
+      END-IF
+      IF R-IDENT-TYPE(#I) = #ID-FROM(#J) THRU #ID-TO(#J) AND NOT #OK(#J)
+        RESET R-IDENT(#I)
+      END-IF
+    END-FOR
+  END-FOR
+  IF #FUNC = '-' AND #IDENT-NAME = #UNIX OR=' ' /*ident changed SU3
+    FOR #I = 1 TO C*R-IDENT
+      IF R-IDENT(#I) = ' '
+        ESCAPE BOTTOM
+      END-IF
+    END-FOR
+    R-IDENT-VALUE (#I)   := #UNIX-NODENAME
+    R-IDENT-TYPE  (#I)   := REPORT-IDENT-UNIX-NODENAME
+    R-IDENT-VALUE (#I+1) := #UNIX-PATH /*SU6
+    R-IDENT-TYPE  (#I+1) := REPORT-IDENT-UNIX-PATH /*SU6
+  END-IF
+  IF R-IDENT-FILES (*) = MASK('NOM=') /*SU5
+    RESET R-IDENT-FILES (*) /*SU3
+  END-IF
+  UPDATE (#UPD.)
+  END TRANSACTION
+  IF #FUNC = '-' /*ident changed
+    ESCAPE MODULE /* <<== STOP
+  END-IF
+  IDENTS3. FOR #IND = 1 TO #ID-MAX
+    IF #OK(#IND)
+      #IDENT-NAME := #GROUPS (#IND)
+      PERFORM GET-IDENT-TYPE
+    END-IF
+    IF #USED (#IND) AND NOT #OK(#IND)
+      COMPRESS #MSG #GROUPS(#IND) ',' TO #MSG LEAVING NO
+    END-IF
+  END-FOR
+  EXAMINE #MSG FOR ' ' GIVING LENGTH #J
+  MOVE ' ' TO SUBSTR(#MSG,#J,1) /*remove last ','
+  PRINT 'Definitions deleted for' 'Report' R-REPNAME ':' #MSG
+  IF #REMOVE-NODE /*SU7
+    PRINT 'Node set to monitor node.'
+  END-IF
+END-FIND
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-IDENT-TYPE
+************************************************************************
+DECIDE ON FIRST #IDENT-NAME
+  VALUE #JES       #IDENT-TYPE := REPORT-JES-ATTRIBUTES
+/*SU7 VALUE #POWER     #IDENT-TYPE := REPORT-POWER-ATTRIBUTES
+  VALUE #NATURAL   #IDENT-TYPE := REPORT-NAF-ATTRIBUTES
+  VALUE #BS2000    #IDENT-TYPE := REPORT-BS2-ATTRIBUTES
+  VALUE #CA-SPOOL  #IDENT-TYPE := REPORT-CMA-ATTRIBUTES
+  VALUE #UNIX      #IDENT-TYPE := REPORT-UNIX-ATTRIBUTES
+  VALUE #3GL       #IDENT-TYPE := REPORT-NOMUSR-ATTRIBUTES
+  NONE  PRINT *PROGRAM 'invalid ident name:' #IDENT-NAME
+END-DECIDE
+*
+END-SUBROUTINE /* GET-IDENT-TYPE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-IDENT-NAME
+************************************************************************
+DECIDE ON FIRST #IDENT-TYPE
+  VALUE REPORT-JES-ATTRIBUTES    #IDENT-NAME := #JES
+/*SU7  VALUE REPORT-POWER-ATTRIBUTES  #IDENT-NAME := #POWER
+  VALUE REPORT-NAF-ATTRIBUTES    #IDENT-NAME := #NATURAL
+  VALUE REPORT-BS2-ATTRIBUTES    #IDENT-NAME := #BS2000
+  VALUE REPORT-CMA-ATTRIBUTES    #IDENT-NAME := #CA-SPOOL
+  VALUE REPORT-UNIX-ATTRIBUTES   #IDENT-NAME := #UNIX
+  VALUE REPORT-NOMUSR-ATTRIBUTES #IDENT-NAME := #3GL
+  NONE  PRINT *PROGRAM 'invalid ident type:' #IDENT-TYPE
+END-DECIDE
+*
+END-SUBROUTINE /* GET-IDENT-NAME
+*
+************************************************************************
+DEFINE SUBROUTINE #CONFIRM
+************************************************************************
+IF #INVALID NE 0
+  #MSG-INV := 'or no longer supported'
+END-IF
+IF #VALID > 0
+  #MSG-REM := 'Mark one definition to remain.'
+ELSE
+  #MSG-REM := 'Press enter to remove invalid.'
+END-IF
+SET KEY ALL
+INPUT WINDOW='WIN' (IP=OFF AD=OILT)
+  'Report contains definitions for'
+  / 'more than one' #MSG-INV
+  / 'identification source.'
+  / #MSG-REM /
+  / 'Name    Exist Mark'
+  / '------- ----- ----'
+  / #GROUPS(1)(CV=#C(1)) #USED(1)(CV=#C(1)) 6X #OK(1)(AD=A CV=#C(1))
+  / #GROUPS(2)(CV=#C(2)) #USED(2)(CV=#C(2)) 6X #OK(2)(AD=A CV=#C(2))
+  / #GROUPS(3)(CV=#C(3)) #USED(3)(CV=#C(3)) 6X #OK(3)(AD=A CV=#C(3))
+  / #GROUPS(4)(CV=#C(4)) #USED(4)(CV=#C(4)) 6X #OK(4)(AD=A CV=#C(4))
+  / #GROUPS(5)(CV=#C(5)) #USED(5)(CV=#C(5)) 6X #OK(5)(AD=A CV=#C(5))
+  / #GROUPS(6)(CV=#C(6)) #USED(6)(CV=#C(6)) 6X #OK(6)(AD=A CV=#C(6))
+  / #GROUPS(7)(CV=#C(7)) #USED(7)(CV=#C(7)) 6X #OK(7)(AD=A CV=#C(7))
+  / #GROUPS(8)(CV=#C(8)) #USED(8)(CV=#C(8)) 6X #OK(8)(AD=A CV=#C(8))
+  / 'File / Data Set ..' #FILE-IDENT /*SU4
+  // 'End with any PF-key.'
+IF *PF-KEY NE 'ENTR'
+  #LEAVE := TRUE
+  ESCAPE MODULE /* <<== STOP
+END-IF
+IF #FOUND > 1
+  RESET #MARKED
+  FOR #I = 1 TO #ID-MAX
+    IF #OK (#I)
+      ADD 1 TO #MARKED
+    END-IF
+  END-FOR
+  IF #MARKED NE 1
+    REINPUT 'Mark one definition.'
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* #CONFIRM
+*
+END

@@ -1,0 +1,411 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOFOFF-N - NOM API Folder Maintenance - Functions: delete, rename,copy
+*
+* Maintenance:
+* XSETHZ  2002-06-14 created
+* XSETGGR 2002-11-14 use new parameter ES-APP-SERVER-LIBRARY
+* XSETGGR 2007-03-22 replace call of ES...-N to direct call of module
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* XSETHZ  2008-02-08 Option LS, if AR not exist
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* XSETHZ  2010-12-15 NOMALL-907
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-20 NOMALL-901 correct writing delete operations in log
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* xsetggr 2013-01-02 NOMALL-89   maintain folder grants
+* XSETHZ  2013-02-14 ES-1499 (new descriptors in NRM-MAIL)
+* SU1     2016-08-05 NOM 3.5: remove unused code
+* CF1     2019-01-16 NOMALL-1964 Correct folder delete and copy
+* fhi     2019-05-13 NOMALL-2272 Correct evaluation of time inverted
+* SU2     2024-04-24 NOM36       remove unused
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RLOG-L
+LOCAL USING VGRANT-L
+LOCAL USING CONST-L
+LOCAL
+1 FO VIEW OF NRM-FOLDER
+  2 FO-NAME
+  2 FO-USER-ID
+  2 FO-ID
+  2 FO-DESC
+  2 FO-MAP-LAYOUT
+  2 FO-LINKED-FO-ID
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER-ID  (A8)
+    3 FO-LINKED-ID       (B2)
+1 NEW-FO VIEW OF NRM-FOLDER
+  2 FO-USER-FO-ID
+  2 REDEFINE FO-USER-FO-ID
+    3 FO-USER            (A8)
+    3 FO-NEWID           (B2)
+1 LINKED-FO VIEW OF NRM-FOLDER
+  2 FO-LINKED-FO-ID
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER-ID  (A8)
+    3 FO-LINKED-ID       (B2)
+1 FO-LINK VIEW OF NRM-FOLDER
+*  2 FO-USER-FO-ID                     /* CF1
+  2 FO-USER-ID
+  2 FO-ID
+  2 FO-NAME
+  2 FO-LINKED-FO-ID
+1 MA-EXT VIEW OF NRM-MAIL
+  2 MA-FOLDER-TIME
+1 #ES-CONTROL                (A250)
+1 #ES-INPUT-AREA             (A253/1:3)
+1 #ES-MSG-PREF               (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM              (A3)
+  2 #ES-MSG-NR               (N4)
+1 #ES-MSG-FIELD              (A32)
+1 #S-USER-FO-ID              (A10)
+1 REDEFINE #S-USER-FO-ID
+  2 #S-USER                  (A8)
+  2 #S-FO-ID                 (B2)
+1 #E-USER-FO-ID              (A10)
+1 REDEFINE #E-USER-FO-ID
+  2 #E-USER                  (A8)
+  2 #E-FO-ID                 (B2)
+1 #FO-USER-NAME              (A24)
+1 REDEFINE #FO-USER-NAME
+  2 #FO-USER-ID              (A8)
+  2 #FO-NAME                 (A16)
+1 #LINK-USER-NAME            (A24)
+1 REDEFINE #LINK-USER-NAME
+  2 #LINK-USER               (A8)
+  2 #LINK-NAME               (A16)
+1 #F-FOLDER-TIME             (A17)
+1 REDEFINE #F-FOLDER-TIME
+  2 #F-USER-ID               (A8)
+  2 #F-FO-ID                 (B2)
+  2 #F-TIME                  (P13)
+1 #T-FOLDER-TIME             (A17)
+1 REDEFINE #T-FOLDER-TIME
+  2 #T-USER-ID               (A8)
+  2 #T-FO-ID                 (B2)
+  2 #T-TIME                  (P13)
+1 #MA-FOLDER-REP             (A41)
+1 REDEFINE #MA-FOLDER-REP
+  2 #MA-USERID               (A8)
+  2 #MA-FO-ID                (B2)
+  2 #MA-REPNAME              (A25)
+1 #MA-FOLDER-REP-E           (A41)
+1 #FOLDER                    (I4)
+1 #FO-NUMBER                 (N5)
+1 #OBJ                       (A50)
+1 #USER-LIB                  (A8)
+1 #FO-ID-N                   (N5)
+1 REDEFINE #FO-ID-N
+  2 #FO-ID-A                 (A5)
+/*SU2 1 #CNT (I4) 1 #GR-SUPER (A34) 1 REDEFINE #GR-SUPER
+/*SU2 2 #GR-T (A1) 2 #GR-U (A8) 2 #GR-N (A25)
+1 #FOLDER-NAME               (A25)
+1 #FOLDER-USER-ID            (A10)
+1 REDEFINE #FOLDER-USER-ID
+  2 #FOLDER-USER             (A8)
+  2 #FOLDER-ID               (B2)
+1 #FO-LINKED-FO-ID           (A10)
+1 REDEFINE #FO-LINKED-FO-ID
+  2 #FO-LINKED-USER          (A8)
+  2 #FO-LINKED-ID            (B2)
+1 #GR-TYPE-NAME              (A26)
+1 REDEFINE #GR-TYPE-NAME
+  2 #GR-TYPE                 (A1)
+  2 #GR-NAME                 (A25)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC
+#ES-CONTROL       := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+RESET #ES-MSG-FIELD #ES-MSG-NR
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+IF ES-KEY-PARM-COUNT = 1
+  #FO-USER-ID := ES-USER
+  #FO-NAME    := ES-KEY-PARM(1)
+ELSE
+  #FO-USER-ID := ES-KEY-PARM(1)
+  #FO-NAME    := ES-KEY-PARM(2)
+END-IF
+IF #FO-NAME = ' '
+  #ES-MSG-NR := 0351
+  #ES-MSG-FIELD := 'NAME'
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+IF #FO-NAME = '#Inbasket' OR= '#Listeneingang'   /* CF1 ->
+  #S-USER := #FO-USER-ID
+  #S-FO-ID := 1
+  FIND FO WITH FO-USER-FO-ID = #S-USER-FO-ID
+    #FO-NAME := FO.FO-NAME
+  END-FIND
+END-IF                                           /* CF1 <-
+/*
+FFO. FIND FO WITH FO-USER-NAME = #FO-USER-NAME
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0352                 /* Folder not defined
+    #ES-MSG-FIELD := 'NAME'
+    PERFORM GET-MSG-TXT
+    ESCAPE ROUTINE
+  END-NOREC
+  #FO-NUMBER       := FO.FO-ID
+  #FO-LINKED-FO-ID := FO-LINKED-FO-ID
+  #FOLDER-USER     := FO.FO-USER-ID
+  #FOLDER-ID       := FO.FO-ID
+  PERFORM GET-NAME-FOR-GRANTS
+END-FIND
+/*
+DECIDE ON EVERY VALUE OF ES-ORIG-FUNCTION
+  VALUE 'DL'
+    IF #FO-NUMBER = 1 THRU 100
+      #ES-MSG-NR := 0358               /* Protected folder: no delete
+      #ES-MSG-FIELD := 'NAME'
+      PERFORM GET-MSG-TXT
+      ESCAPE ROUTINE
+    END-IF
+    #F-USER-ID := FO.FO-USER-ID
+    #F-FO-ID   := FO.FO-ID
+    RESET  #F-TIME
+    #T-FOLDER-TIME := #F-FOLDER-TIME
+    #T-TIME    := #CONST-INV-TIME
+    HISMA. HISTOGRAM (1) MA-EXT FOR MA-FOLDER-TIME FROM #F-FOLDER-TIME
+        ENDING AT     #T-FOLDER-TIME
+      #ES-MSG-NR := 0354
+      #ES-MSG-FIELD := 'NAME'
+      PERFORM GET-MSG-TXT
+      ESCAPE ROUTINE
+    END-HISTOGRAM
+    GDL. GET FO *ISN(FFO.)
+    DELETE (GDL.)
+    PERFORM WRITE-LOG
+    PERFORM UPDATE-FOLDER-GRANTS
+  VALUE 'RN','CP'
+    IF ES-NEWNAME = ' '
+      #ES-MSG-NR := 0351
+      #ES-MSG-FIELD := 'NEWNAME'
+      PERFORM GET-MSG-TXT
+      ESCAPE ROUTINE
+    END-IF
+    IF ES-NEWNAME = '#Inbasket' OR = '#Listeneingang'
+      #ES-MSG-NR := 0353
+      #ES-MSG-FIELD := 'NEWNAME'
+      PERFORM GET-MSG-TXT
+      ESCAPE ROUTINE
+    END-IF
+    #FO-NAME := ES-NEWNAME
+    FNFO. FIND NUMBER NEW-FO WITH FO-USER-NAME = #FO-USER-NAME
+    IF *NUMBER (FNFO.) > 0
+      #ES-MSG-NR := 0353
+      #ES-MSG-FIELD := 'NEWNAME'
+      PERFORM GET-MSG-TXT
+      ESCAPE ROUTINE
+    END-IF
+  VALUE 'RN'
+    IF #FO-NUMBER = 1 THRU 100
+      #ES-MSG-NR := 0367
+      #ES-MSG-FIELD := 'NAME'
+      PERFORM GET-MSG-TXT
+      ESCAPE ROUTINE
+    END-IF
+    GRN. GET FO *ISN(FFO.)
+    FO.FO-NAME := ES-NEWNAME
+    UPDATE (GRN.)
+  VALUE 'CP'
+    IF ES-KEY-PARM-COUNT = 1
+      #S-USER := ES-USER
+    ELSE
+      #S-USER := ES-KEY-PARM(1)
+    END-IF
+    RESET  #S-FO-ID
+    #E-USER := #S-USER
+    #E-FO-ID := H'FFFF'
+    HISTOGRAM NEW-FO FOR FO-USER-FO-ID
+        STARTING FROM #S-USER-FO-ID ENDING AT #E-USER-FO-ID
+      #FOLDER := FO-NEWID
+    END-HISTOGRAM
+    IF #FOLDER < 100
+      #FOLDER := 100
+    END-IF
+    #FOLDER := #FOLDER + 1
+    FO.FO-ID := #FOLDER
+    FO.FO-NAME := ES-NEWNAME
+    STORE FO
+    IF FO.FO-LINKED-FO-ID = ' '
+      #FO-ID-N := FO.FO-ID
+      COMPRESS FO.FO-USER-ID #FO-ID-A TO GR-OBJECT-NAME LEAVING NO
+      GR-USERID := FO.FO-USER-ID
+      GR-OBJECT-TYPE := 'F'
+      GR-OPTION(*) := 'Y'
+      STORE GRANTS
+    END-IF
+    ES-SELECT := 'LS'
+    IF FO.FO-LINKED-FO-ID NE ' '
+      PERFORM GET-OPTIONS
+    END-IF
+  ANY VALUE
+    END TRANSACTION
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-FOLDER-GRANTS
+************************************************************************
+/*                                               /* CF1 ->
+IF #FO-LINKED-FO-ID > ' '
+  /*
+  /* --> Delete a folder-link:
+  /*     delete the folder record only, no grants
+  /*
+  /*     (a folder-link has no own grants, but uses the grants
+  /*      of the base folder given to the folder-link owner)
+  /*
+  IGNORE
+  /*
+ELSE
+  /*
+  /* --> Delete a base folder:
+  /*     delete also all folder grant records
+  /*     remove link from folder-links associated with the base folder
+  /*
+  #GR-TYPE := 'F'
+  #GR-NAME := #FOLDER-NAME
+  /* Find all grants of the base folder
+  DELGR. FIND GRANTS WITH GR-TYPE-NAME = #GR-TYPE-NAME
+    #LINK-USER := GR-USERID
+    RESET #LINK-NAME
+    /* Get all folder-links of the current granted user,
+    /* associated with the base folder
+    RDLNK. READ FO-LINK WITH FO-USER-NAME = #LINK-USER-NAME
+      IF FO-LINK.FO-USER-ID NE #LINK-USER
+        ESCAPE BOTTOM(RDLNK.)
+      END-IF
+      IF FO-LINK.FO-LINKED-FO-ID = #FOLDER-USER-ID
+        /* Remove linked base folder from folder-link
+        /* --> decouple folder-link
+        UPDLNK. GET FO-LINK *ISN(RDLNK.)
+        RESET FO-LINK.FO-LINKED-FO-ID
+        UPDATE (UPDLNK.)
+      END-IF
+    END-READ
+    /*
+    /* Delete all grants of a base folder
+    GDELB. GET GRANTS *ISN(DELGR.)
+    DELETE (GDELB.)
+    /*
+  END-FIND
+END-IF
+/*                                               /* CF1 <-
+END-SUBROUTINE /* UPDATE-FOLDER-GRANTS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NAME-FOR-GRANTS
+************************************************************************
+IF FO-LINKED-FO-ID > ' '
+  /* Folder is a link to a base folder:
+  /* build grants key with linked base folder name
+  #FO-ID-N := FO-LINKED-ID
+  COMPRESS FO-LINKED-USER-ID #FO-ID-A TO #FOLDER-NAME LEAVING NO
+ELSE
+  /* Folder is a base folder:
+  /* build grants key with folder name
+  #FO-ID-N := FO-ID
+  COMPRESS FO-USER-ID #FO-ID-A TO #FOLDER-NAME LEAVING NO
+END-IF
+*
+END-SUBROUTINE /* GET-NAME-FOR-GRANTS
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG
+************************************************************************
+IF ES-ORIG-FUNCTION = 'DL'
+  COMPRESS FO.FO-USER-ID '/' FO.FO-NAME TO #OBJ LEAVING NO
+  COMPRESS '0075' #OBJ 'FOLDER' TO LG-MSG
+  LG-USERID   := ES-USER
+  LG-CODE     := 'MO'
+  LG-FUNCTION := 'W'
+  CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+EXAMINE SHORT-MSG FOR #ES-MSG-PREF DELETE
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+IF ES-MSG-NR = 354
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #FO-NAME
+ELSE
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ES-NEWNAME
+END-IF
+ES-MSG-FIELD := #ES-MSG-FIELD
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE GET-OPTIONS
+************************************************************************
+LINKED-FO.FO-LINKED-FO-ID := FO.FO-LINKED-FO-ID
+R. REPEAT WHILE LINKED-FO.FO-LINKED-FO-ID NE ' ' AND ES-SELECT = 'LS'
+  #S-USER := LINKED-FO.FO-LINKED-USER-ID
+  #S-FO-ID := LINKED-FO.FO-LINKED-ID
+  FIND LINKED-FO WITH FO-USER-FO-ID = #S-USER-FO-ID
+    IF NO RECORDS FOUND
+      ESCAPE BOTTOM (R.)
+    END-NOREC
+    IF LINKED-FO.FO-LINKED-FO-ID NE ' '
+      PERFORM READ-MAIL
+    END-IF
+  END-FIND
+END-REPEAT
+*
+END-SUBROUTINE /* GET-OPTIONS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-MAIL
+************************************************************************
+#MA-USERID := LINKED-FO.FO-LINKED-USER-ID
+#MA-FO-ID := LINKED-FO.FO-LINKED-ID
+#MA-REPNAME := H'FF'
+#MA-FOLDER-REP-E := #MA-FOLDER-REP
+#MA-REPNAME := H'00'
+FMA. FIND NUMBER MA-EXT
+  WITH MA-FOLDER-REP-RNB = #MA-FOLDER-REP THRU #MA-FOLDER-REP-E
+IF *NUMBER(FMA.) > 0
+  ES-SELECT := ' '
+END-IF
+*
+END-SUBROUTINE /* READ-MAIL
+*
+END

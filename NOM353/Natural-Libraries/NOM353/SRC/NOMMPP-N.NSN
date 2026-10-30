@@ -1,0 +1,314 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMMPP-N - NOM Monitor task management
+* Input Keys: ES-KEY-PARM(1) - task number
+*             If no parms - main monitor-task
+*
+* Maintenance:
+* XSETGGR 2004-10-07       created
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2015-02-09 NOMALL-1450 'ST'->'SI'
+* fhi     2016-11-10 NOMALL-1917 use correct node number
+* fhi     2016-11-11 NOMALL-1961 Duplicate monitor copy task
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* CF1     2018-10-15 NOMALL-2055 Adapt to increased SubTask number
+* SU3     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU4     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* ------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOMMPP-A
+************************************************************************
+/*SU3 LOCAL     USING VMONIT-L
+/*SU3 LOCAL     USING VMONITUL            /* NOMALL-1917
+LOCAL USING VSUBT-L
+LOCAL USING NOMODE-A
+LOCAL USING RLOG-L
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RMTASK-P
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR /*SU3 was VMONIT-L
+  2 M-WAIT-CURRENT         (P9)
+  2 M-MONITOR-ID           (A20)
+  2 M-WAIT-MINIMUM         (P9)
+  2 M-WAIT-MAXIMUM         (N9)
+  2 M-WAIT-INCREMENT       (N3)
+1 UX-NODES  VIEW OF NRM-UX-NODES                           /* CF1 ->
+  2 UX-NODE-NAME            (A16)
+/*SU  2 UX-NODE-SUSPEND         (A1)                           /* CF1 <-
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU3
+  2 MF-REMOTE-CODEPAGE      (A64)
+  2 MF-PRODUCT-NAME         (A16)
+  2 MF-INTERNAL-NODE-ID     (P11)
+  2 MF-LAST-UPDATE          (T)
+  2 MF-LAST-UPDATE-USER     (A16)
+  2 MF-TYPE                 (A1)
+  2 MF-NPR-USERID           (A8)
+  2 MF-TIME-SCHEDULE        (A1)
+  2 MF-MONITOR-DESCRIPTION  (A50)
+  2 MF-SPOOL-TYPE           (A8)
+  2 MF-SYSTEM-TYPE          (A8)
+  2 MF-MONITOR-ID           (A20)
+  2 MF-MONITOR-NODE         (N5)
+  2 MF-TEMP-CLASS           (A4)
+  2 MF-PRINT-CLASS          (A1)
+  2 MF-CLASSES              (A1/1:20)
+  2 MF-JES3-OUTPUT-CLASSES  (A1/1:20)
+  2 MF-BS2-DEST             (A8/1:4)
+  2 MF-ERR-CLASS            (A1)
+* *****
+/*SU3 1 #STATUS-CODE              (A1)
+1 #LIBRARY-ID               (A8)
+1 #ES-MSG-PREF              (A7)  INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1  REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+1 #ES-MSG-TXT               (A250)
+1 #USER-LIB                 (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+ES-RC :=0
+IF ES-KEY-PARM(1) > ' '
+  RMTASK-P.SUBTASK-NUMBER  := VAL(ES-KEY-PARM(1))
+END-IF
+NOMOD-PARMS  := ES-SELECT
+#LIBRARY-ID  := ES-APP-SERVER-LIBRARY
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+*
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+  VALUE 'UPD'
+    PERFORM UPDATE-RECORD
+    IF ES-RC = 0
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  VALUE ' '
+    PERFORM READ-RECORD
+  VALUE  'CHK'
+    PERFORM CHECK
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-RECORD
+************************************************************************
+RESET NOMM-PARMS
+/*
+/* The parameters of the main task are called with              /* CF1 >
+/* different code, depending on where the request was started:
+/*   0 - from monitor node
+/*   1 - from list of tasks (main task)
+* IF RMTASK-P.SUBTASK-NUMBER  = 1
+IF RMTASK-P.SUBTASK-NUMBER LE 1                                 /* CF1 <
+  PERFORM READ-MAIN-TASK
+ELSE
+  PERFORM READ-MAIN-TASK /* Read base first                     /* CF1
+  PERFORM READ-SUBTASK
+END-IF
+IF ES-RC NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* READ-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE READ-MAIN-TASK
+************************************************************************
+*
+RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)                /* CF1
+FNDMO. FIND NRM-MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 1516   /* Monitor not installed correctly
+    ESCAPE BOTTOM
+  END-NOREC
+  NOMM-MONITOR-ID     := M-MONITOR-ID         /* non modifiable
+  NOMM-WAIT-MINIMUM   := M-WAIT-MINIMUM
+  NOMM-WAIT-MAXIMUM   := M-WAIT-MAXIMUM
+  NOMM-WAIT-INCREMENT := M-WAIT-INCREMENT
+  NOMM-WAIT-CURRENT   := M-WAIT-CURRENT       /* non modifiable
+END-FIND
+IF #ES-MSG-NR = 0
+  RESET MF-NODE
+  IF *MACHINE-CLASS = 'MAINFRAME'                          /* CF1
+    READ(1) MF-NODE BY MF-TYPE-ID = 'MR-'
+    END-READ
+    IF MF-TYPE NE 'M' OR MF-MONITOR-ID NE MASK('R-')
+      #ES-MSG-NR := 1516   /* Monitor not installed correctly
+      ESCAPE BOTTOM
+    END-IF
+    NOMM-MONITOR-NODE   := MF-MONITOR-NODE
+    NOMM-MONITOR-NAME   := SUBSTR(MF-MONITOR-ID,3)       /* CF1
+    NOMM-SYSTEM-TYPE    := 'MAINFRAME'                   /* CF1
+  ELSE /* *MACHINE-CLASS = 'UNIX'     (? 'PC', 'VMS' ?)    /* CF1 ->
+    /* Possible Monitor identifier: L= Local(none-RPC), M= Monitor(RPC)
+    RMD-UX. FIND UX-NODES WITH UX-SUSP-NAME = 'L'-H'00' THRU 'M'-H'FF'
+      NOMM-MONITOR-NAME   := UX-NODES.UX-NODE-NAME
+      NOMM-SYSTEM-TYPE    := 'UNIX'
+    END-FIND
+    NOMM-MONITOR-NODE   := 0
+  END-IF                                                   /* CF1 <-
+END-IF
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* READ-MAIN-TASK
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SUBTASK
+************************************************************************
+RMTASK-P.FUNCTION       := 'S'
+CALLNAT 'RMTASKID' RMTASK-P
+FNDSBT. FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = RMTASK-P.TASK-ID
+  NOMM-MONITOR-ID     := ST-SUBTASK-ID
+*  NOMM-MONITOR-NODE   := NOMOD-MONITOR-NODE               /* CF1
+  NOMM-WAIT-MINIMUM   := ST-WAIT-MINIMUM
+  NOMM-WAIT-MAXIMUM   := ST-WAIT-MAXIMUM
+  NOMM-WAIT-INCREMENT := ST-WAIT-INCREMENT
+  NOMM-WAIT-CURRENT   := ST-WAIT-CURRENT
+END-FIND
+*
+END-SUBROUTINE /* READ-SUBTASK
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+IF RMTASK-P.SUBTASK-NUMBER LE 1           /* main monitor-task
+  RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)                   /* CF1 <
+  FNDMMOD. FIND NRM-MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+    PERFORM VALIDATION
+    IF #ES-MSG-NR NE 0
+      ESCAPE BOTTOM(FNDMMOD.)
+    END-IF
+    COMPRESS M-WAIT-MINIMUM '/' NOMM-WAIT-MINIMUM ':' M-WAIT-MAXIMUM
+      '/' NOMM-WAIT-MAXIMUM ':' M-WAIT-INCREMENT '/'
+      NOMM-WAIT-INCREMENT TO LG-OBJECT-NAME LEAVING NO
+    GETMOD. GET NRM-MONITOR *ISN(FNDMMOD.)
+    M-WAIT-MINIMUM   := NOMM-WAIT-MINIMUM
+    M-WAIT-MAXIMUM   := NOMM-WAIT-MAXIMUM
+    M-WAIT-INCREMENT := NOMM-WAIT-INCREMENT
+    UPDATE (FNDMMOD.)
+    PERFORM WRITE-LOG-RECORD
+  END-FIND
+ELSE                                            /* subtasks
+  RMTASK-P.FUNCTION       := 'S'                                /* CF1
+  CALLNAT 'RMTASKID' RMTASK-P                                   /* CF1
+  FNDSTMOD. FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = RMTASK-P.TASK-ID
+    PERFORM VALIDATION
+    IF #ES-MSG-NR NE 0
+      ESCAPE BOTTOM (FNDSTMOD.)
+    END-IF
+    COMPRESS ST-WAIT-MINIMUM '/' NOMM-WAIT-MINIMUM ':'
+      ST-WAIT-MAXIMUM '/' NOMM-WAIT-MAXIMUM ':'
+      ST-WAIT-INCREMENT '/' NOMM-WAIT-INCREMENT
+      TO LG-OBJECT-NAME LEAVING NO
+    GETSBT. GET NRM-SUBTASK-INFO *ISN(FNDSTMOD.)
+    ST-WAIT-MINIMUM   := NOMM-WAIT-MINIMUM
+    ST-WAIT-MAXIMUM   := NOMM-WAIT-MAXIMUM
+    ST-WAIT-INCREMENT := NOMM-WAIT-INCREMENT
+    UPDATE (GETSBT.)
+    PERFORM WRITE-LOG-RECORD
+  END-FIND
+END-IF
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* UPDATE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK
+************************************************************************
+PERFORM VALIDATION
+IF #ES-MSG-NR > 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* CHECK
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+DECIDE FOR EVERY CONDITION
+  WHEN NOMM-WAIT-MAXIMUM < NOMM-WAIT-MINIMUM
+    #ES-MSG-NR := 0628  /* Max wait time must be >= to min wait time
+    #ES-MSG-FIELD-NAME := 'WAIT-MAXIMUM'
+  WHEN NOMM-WAIT-MINIMUM + NOMM-WAIT-INCREMENT > NOMM-WAIT-MAXIMUM
+    #ES-MSG-NR := 0631  /* Increment should be < max wait time
+    #ES-MSG-FIELD-NAME := 'WAIT-INCREMENT'
+  WHEN ANY ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+ES-MSG-FIELD := #ES-MSG-FIELD
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+LG-USERID := ES-USER
+LG-CODE := 'MO'
+IF ES-LANGUAGE = 2
+  #ES-MSG-TXT := 'Aktive'
+ELSE
+  #ES-MSG-TXT := 'Active'
+END-IF
+COMPRESS '0681' #ES-MSG-TXT RMTASK-P.SUBTASK-NUMBER-A TO LG-MSG
+CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

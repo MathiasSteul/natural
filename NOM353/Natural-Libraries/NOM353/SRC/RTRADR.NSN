@@ -1,0 +1,218 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RTRADR - Display content of a selected record
+*
+* uuu yy-mm-dd s(999999) ....
+* mrs 93-05-17           rewritten
+* mrs 94-03-07 s(999999) BS2
+* fhi 00-03-03 S(192651) Line length > 253 not stored in DB
+* fhi 05-04-19 NOM31107  Support 7-byte job numbers
+* xsetggr 2005-11-28 p(271774) tolerate more than 40 Power segments
+*                              (only 40 will be traced)
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2017-01-18 NOMALL-1916 Use binary NPR RECORD* fields
+* fhi     2017-01-27 NOMALL-1961 Show node name in errors
+* fhi     2017-07-11 NOMALL-2021 NPR error: use RECORD temporarily ÜÜÜ
+* SU1     2021-10-12 ES-31134    Unix:BS2:use ESA transl/no hex
+* SU2     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 P-SOURCE-TYPE           (I2)
+1 P-SOURCE-ATTRIBUTES     (A250)
+1 P-RECORD-NUMBER         (P10)
+1 P-ERROR-CODE            (N4)
+1 P-ERROR-TEXT            (A250)
+1 P-CODEPAGE              (A64)
+************************************************************************
+INDEPENDENT
+1 +NOD-CURRENT-NAME       (A16)
+*
+LOCAL USING RMSR---E
+LOCAL USING RMSR---L
+/*SU2 LOCAL USING RMPWRL-P
+LOCAL
+1 READ-SPOOL VIEW OF READ-SPOOL
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD   /*MUST stay for HEX
+  2 RECORD-HEX1
+  2 RECORD-HEX2
+  2 RECORD-HEX3
+1 READ-FILE VIEW OF READ-FILE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD /*not used, but must defined to get HEX fields filled
+  2 RECORD-HEX1
+  2 RECORD-HEX2
+  2 RECORD-HEX3
+  2 SEGMENT-LENGTH
+  2 SEGMENT-NUMBER
+1 READ-FILE-ESA VIEW OF READ-FILE /*SU1
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD
+  2 SEGMENT-LENGTH
+  2 SEGMENT-NUMBER
+*
+1 #HEX-CODE         (A50)
+1 REDEFINE #HEX-CODE
+  2 #HEX            (25)
+    3 #H1           (A1)
+    3 #H2           (A1)
+1 L-SCREEN          (1:10)
+  2 L-SEQ           (P3)
+  2 L-TEXT          (A25)
+  2 L-HEX1          (A25)
+  2 REDEFINE L-HEX1
+    3 L-H1          (A1/1:25)
+  2 L-HEX2          (A25)
+  2 REDEFINE L-HEX2
+    3 L-H2          (A1/1:25)
+1 #I                (P2)
+1 #TI               (N7)          INIT <1>
+/*SU2 1 #START-SEGMENT (P3) 1 #SEGMENT (P3) 1 #FROMLINE         (P10)
+1 #P-SOURCE-TYPE-BIN(B2)
+1 #RECORD           (A253)
+1 REDEFINE #RECORD
+  2 REC             (10)
+    3 REC-ELE       (A25)
+1 #USE-ESA          (L)   /*SU1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM PF-KEYS
+#SOURCE-ATTRIBUTES := P-SOURCE-ATTRIBUTES
+#P-SOURCE-TYPE-BIN := P-SOURCE-TYPE
+CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES #P-SOURCE-TYPE-BIN
+*
+DECIDE ON FIRST VALUE OF P-SOURCE-TYPE
+  VALUE JES2, JES3           PERFORM DISPLAY-JES-RECORD
+/*SU2  VALUE POWER                PERFORM DISPLAY-POWER-RECORD
+  VALUE SEQUENTIAL-FILE-BS2  PERFORM DISPLAY-FBS2-RECORD
+  NONE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DISPLAY-JES-RECORD
+************************************************************************
+FNDJES. FIND READ-SPOOL WITH NODE = #JES-NODE
+AND JOB-NUMBER = #JES-JOB-NUMBER AND TYPE = #JES-TYPE                 /*
+AND DATA-SET-KEY = #JES-DATA-SET-KEY AND RECORD-NUMBER = P-RECORD-NUMBER
+  IF NO RECORDS FOUND
+    P-ERROR-CODE := 4111
+    ESCAPE BOTTOM (FNDJES.)
+  END-NOREC
+  #RECORD := F#CONVERT-RECORD-HEX
+    (<READ-SPOOL.RECORD-HEX1,READ-SPOOL.RECORD-HEX2,
+    READ-SPOOL.RECORD-HEX3,1X,P-CODEPAGE>)
+  IF ERROR-CODE > 0
+    P-ERROR-CODE := 0005
+    COMPRESS ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE
+      TO P-ERROR-TEXT
+    ESCAPE BOTTOM (FNDJES.)
+  END-IF
+  PERFORM SCREEN-IO
+END-FIND
+*
+END-SUBROUTINE /* DISPLAY-JES-RECORD
+*
+/*SU2 DEFINE SUBROUTINE DISPLAY-POWER-RECORD
+/*SU2 DEFINE SUBROUTINE INDICATE-LINE-WITHIN-POWER-SEGMENT
+*
+************************************************************************
+DEFINE SUBROUTINE DISPLAY-FBS2-RECORD
+************************************************************************
+IF *MACHINE-CLASS NE 'MAINFRAME' /*SU1
+  IF F#ESA (<#FBS2-NODE>) /*must be separate IF ÜÜ
+   CALLNAT 'NOMESA' #FBS2-NODE(AD=O) +NOD-CURRENT-NAME(AD=O) 1X #USE-ESA
+  END-IF
+END-IF
+IF #USE-ESA /*SU1
+  #ESA. FIND READ-FILE-ESA WITH NODE =#FBS2-NODE AND DSNAME=#FBS2-DSNAME
+  AND RECORD-NUMBER  = P-RECORD-NUMBER AND SEGMENT-LENGTH = 251       /*
+    MOVE BY NAME READ-FILE-ESA TO READ-FILE
+    PERFORM HANDLE-IT_READ-FILE
+  END-FIND
+ELSE
+  FNDBS2. FIND READ-FILE WITH NODE = #FBS2-NODE AND DSNAME=#FBS2-DSNAME
+  AND RECORD-NUMBER  = P-RECORD-NUMBER AND SEGMENT-LENGTH = 251       /*
+    PERFORM HANDLE-IT_READ-FILE
+  END-FIND
+END-IF
+IF *NUMBER(#ESA.)=0 AND *NUMBER(FNDBS2.)=0
+  P-ERROR-CODE := 4111
+END-IF
+*
+END-SUBROUTINE /* DISPLAY-FBS2-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-IT_READ-FILE
+************************************************************************
+IF READ-FILE.ERROR-CODE > 0
+  P-ERROR-CODE := 0005
+  COMPRESS READ-FILE.ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM
+    '/' *LINE TO P-ERROR-TEXT
+  ESCAPE BOTTOM
+END-IF
+IF #USE-ESA /*SU1
+  #RECORD := READ-FILE.RECORD
+ELSE
+  #RECORD := F#CONVERT-RECORD-HEX (<READ-FILE.RECORD-HEX1,
+    READ-FILE.RECORD-HEX2, READ-FILE.RECORD-HEX3,1X,P-CODEPAGE>)
+END-IF
+IF READ-FILE.SEGMENT-NUMBER > 1 AND READ-FILE.SEGMENT-LENGTH < 251
+  COMPRESS '§' #RECORD TO #RECORD LEAVING NO
+  EXAMINE SUBSTRING (#RECORD,1,1) FOR '§' REPLACE WITH ' ' /* cc char.
+END-IF
+PERFORM SCREEN-IO
+*
+END-SUBROUTINE /* HANDLE-IT_READ-FILE
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+FOR #I = 1 TO 10
+  L-SEQ (#I) := ((#I - 1) * 25) + 1
+  MOVE EDITED REC-ELE (#I) (EM=H(50)) TO #HEX-CODE
+  L-H1 (#I,*) := #H1 (*)
+  L-H2 (#I,*) := #H2 (*)
+  L-TEXT (#I) := REC-ELE (#I)
+END-FOR
+*
+SET CONTROL 'WMFL66C20B02/14'
+*
+REPEAT
+  SET CONTROL 'M15'
+  INPUT USING MAP 'RTRADRM&'
+  DECIDE ON FIRST *PF-KEY
+    VALUE 'PF7' #TI := 1
+    VALUE 'PF8' #TI := 6
+    VALUE 'PF3' ESCAPE BOTTOM
+    NONE        IGNORE
+  END-DECIDE
+END-REPEAT
+*
+SET CONTROL 'WMB'
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+*
+END-SUBROUTINE /* PF-KEYS
+*
+END

@@ -1,0 +1,226 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RSELCA-N
+* Version   1.3
+* Function  Select a Calendar from a List
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-09-17           rewritten
+* xsiszha 2000-08-02 (CE7461) Extend Report and Bundle Names
+* xsetggr 2001-10-05 p(208009) pass calendar year as a parameter
+* sju     2003-03-04 QE        year selection
+* SU1     2016-08-30 NOM3.5 beautification
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #CALENDAR                  (A8)
+1 #YEAR                      (N4)
+* ------------------------------View's----------------------------------
+LOCAL
+1 CALENDAR VIEW OF NRM-CALENDARS
+  2 CA-CALENDAR-ID
+  2 REDEFINE CA-CALENDAR-ID
+    3 CA-CALENDAR-NAME       (A8)
+    3 CA-CALENDAR-YEAR       (N4)
+* *****
+1 #I                         (P2)
+1 #J                         (P2)
+1 #NOFLINES                  (I2)  CONST <10>
+1 #SCREEN                    (1:#NOFLINES)
+  2 L-CALENDAR               (A8)
+  2 L-YEAR                   (N4)
+1 CV-MARK                    (C/1:#NOFLINES)
+1 L-MARK                     (A2/1:#NOFLINES)
+1 CV-SCAL                    (C)
+1 END-OF-PROCESSING          (L)
+1 END-OF-DISPLAY             (L)
+1 END-OF-DATA                (L)
+1 NEW-SEARCH                 (L)
+1 #ERC                       (N4)
+1 #PAGE                      (P3)  INIT <1>
+1 #NOFPAGES                  (I2)  CONST <20>
+1 #S-CALENDAR                (A25/1:#NOFPAGES)
+1 #E-CALENDAR                (A25)
+1 #LEN (N3)
+1 #S-CAL                     (A25)
+1 #OLD-CALENDAR              (A25)
+1 #COUNTER                   (P10)
+1 #CA-ID-F                   (A12)
+1 REDEFINE #CA-ID-F
+  2 #CALENDAR-F              (A8)
+  2 #YEAR-F                  (N4)
+1 #CA-ID-T                   (A12)
+1 REDEFINE #CA-ID-T
+  2 #CALENDAR-T              (A8)
+  2 #YEAR-T                  (N4)
+1 #SEL-YEAR                  (N4)
+1 REDEFINE #SEL-YEAR
+  2 #SEL-YEAR-A              (A4)
+1 #CV-YEAR                   (C)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#SEL-YEAR:= #YEAR
+PERFORM PF-KEYS
+IF #CALENDAR = SCAN '*'
+  #S-CAL := #CALENDAR
+END-IF
+*
+PERFORM INIT-SELECTION-KEYS
+#CALENDAR-T := #E-CALENDAR
+#YEAR-F:= #SEL-YEAR
+#YEAR-T:= #SEL-YEAR
+*
+MAIN. REPEAT
+  UNTIL END-OF-PROCESSING
+  RESET #I #COUNTER END-OF-DATA NEW-SEARCH
+  #CALENDAR-F := #S-CALENDAR(#PAGE)
+  REA. READ CALENDAR BY CA-CALENDAR-ID = #CA-ID-F ENDING AT #CA-ID-T
+    IF  #SEL-YEAR NE 0 AND CA-CALENDAR-YEAR NE #SEL-YEAR
+      ESCAPE TOP
+    END-IF
+    IF #I = #NOFLINES
+      PERFORM SCREEN-IO
+      IF END-OF-PROCESSING OR NEW-SEARCH
+        ESCAPE BOTTOM (REA.)
+      END-IF
+    END-IF
+    ADD 1 TO #I
+    ADD 1 TO #COUNTER
+    PERFORM CALENDAR-TO-SCREEN
+  END-READ
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN #I > 0 OR #COUNTER = 0
+      END-OF-DATA := TRUE
+    WHEN ANY
+      PERFORM SCREEN-IO
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+IF #I < #NOFLINES
+  CV-MARK (#I+1:#NOFLINES) := (AD=DP)
+END-IF
+*
+RESET END-OF-DISPLAY
+*
+REPEAT
+  DECIDE FOR FIRST CONDITION
+    WHEN #ERC NE 0
+      IGNORE
+    WHEN END-OF-DATA AND #PAGE > 1
+      #ERC := 12                   /* bottom of data
+    WHEN END-OF-DATA AND #PAGE = 1
+      #ERC := 14                   /* all
+    WHEN NOT END-OF-DATA AND #PAGE = 1
+      #ERC := 11                   /* top of data
+    WHEN NONE
+      #ERC := 13                   /* more
+  END-DECIDE
+  SET CONTROL 'WFC20L35B01/35'
+  SET CONTROL 'M16'
+  INPUT WITH TEXT *#ERC USING MAP 'RSELCAM&'
+  SET CONTROL 'M21'
+  RESET #ERC
+  PERFORM COMMAND-PF-KEY
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+RESET #I #SCREEN (*)
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE CALENDAR-TO-SCREEN
+************************************************************************
+L-CALENDAR (#I) := CALENDAR.CA-CALENDAR-NAME
+L-YEAR     (#I) := CALENDAR.CA-CALENDAR-YEAR
+CV-MARK    (#I) := (AD=I)
+*
+END-SUBROUTINE /* CALENDAR-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+FOR #J = 1 TO #I
+  IF L-MARK (#J) NE ' '
+    #CALENDAR := L-CALENDAR (#J)
+    END-OF-PROCESSING := END-OF-DISPLAY    := TRUE
+    ESCAPE ROUTINE
+  END-IF
+END-FOR
+*
+DECIDE ON FIRST *PF-KEY
+  VALUE 'PF3'
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+  VALUE 'PF7'
+    IF #PAGE > 1
+      #PAGE := #PAGE - 1
+      END-OF-DATA := FALSE
+      END-OF-DISPLAY := NEW-SEARCH := TRUE
+    END-IF
+  VALUE 'PF8'
+    IF NOT END-OF-DATA
+      #PAGE := #PAGE + 1
+      IF #PAGE > #NOFPAGES
+        #PAGE := #NOFPAGES
+        #S-CALENDAR (1:19) := #S-CALENDAR (2:20)
+      END-IF
+      #S-CALENDAR (#PAGE) := CALENDAR.CA-CALENDAR-NAME
+      END-OF-DISPLAY := TRUE
+    END-IF
+  NONE           IGNORE
+END-DECIDE
+*
+IF #S-CAL NE #OLD-CALENDAR
+  RESET INITIAL #PAGE
+  RESET #S-CALENDAR (*)
+  PERFORM INIT-SELECTION-KEYS
+  NEW-SEARCH := TRUE
+  END-OF-DISPLAY := TRUE
+END-IF
+IF #CV-YEAR MODIFIED
+  #YEAR-F:= #YEAR-T:= #SEL-YEAR
+  RESET INITIAL #PAGE
+  RESET #S-CALENDAR (*)
+  NEW-SEARCH := TRUE
+  END-OF-DISPLAY := TRUE
+END-IF
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-SELECTION-KEYS
+************************************************************************
+#LEN := 8
+CALLNAT 'SELALPHA' #S-CAL #S-CALENDAR (1) #E-CALENDAR #LEN
+#OLD-CALENDAR := #S-CAL
+#CALENDAR-F   := #S-CALENDAR(1)
+#CALENDAR-T   := #E-CALENDAR
+*
+END-SUBROUTINE /* INIT-SELECTION-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+*
+END-SUBROUTINE /* PF-KEYS
+*
+END

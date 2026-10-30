@@ -1,0 +1,116 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+************************************************************************
+* Member: RJ-C   Common coding for RJARC/RJCON/RJREVC
+*   INCLUDE RJ-C ''' ''' /*without add. info in case of error
+*   INCLUDE RJ-C '#CURRENT-CNT' /*see RJARCHIV/RJARCUX + &1&
+*
+* Maintenance:
+* SU      2020-05-13 NOMALL-2349 created
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-STEPLIB
+************************************************************************
+RESET #STEPLIB-ADDED
+** check existence of po-exitlib in steplib table
+CALLNAT 'RLIBACT' #NATLIB #STEPLIB-EXIST
+IF #STEPLIB-EXIST
+  ESCAPE ROUTINE
+END-IF
+NAT00009-LIBRARY := #NATLIB
+RESET NAT00009-FNR NAT00009-DBID
+CALLNAT 'RGETLIB' NAT00009-APPLIC
+NAT00009-FUNCTION := 08
+CALLNAT 'NAT00009' NAT00009-PARMS
+IF NAT00009-RESPONSE EQ 0
+  #STEPLIB-ADDED := TRUE
+  RESET G-NATRP-ERC
+ELSE
+  G-NATRP-ERC := 1078
+  COMPRESS '1078' #NATLIB TO LG-MSG
+  PERFORM #RLOG
+  WRITE NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+    'Unable to add steplib' #NATLIB
+END-IF
+*
+END-SUBROUTINE /* ADD-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE REMOVE-STEPLIB
+************************************************************************
+CALLNAT 'RLIBACT' #NATLIB #STEPLIB-EXIST
+IF #STEPLIB-EXIST
+  NAT00009-FUNCTION := 16
+  CALLNAT 'NAT00009' NAT00009-PARMS
+END-IF
+RESET #STEPLIB-ADDED
+*
+END-SUBROUTINE /* REMOVE-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-NAT_LIB_MEM
+************************************************************************
+IF #NATLIB = ' ' OR #NATMEM = ' '
+  ESCAPE ROUTINE
+END-IF
+IF G-NATRP-ERC = 0 /*steplib ok
+  CALLNAT 'N-CHKCAT' G-NATRP-ERC G-NATRP-ERT #NATMEM /*SU8
+    #NATLIB #CALLER #CAT-DATE-1 #CAT-DATE-2
+/*PERFORM NOMCHCKP-CHECK-PROG #NATMEM G-NATRP-ERC G-NATRP-ERT #NATLIB
+END-IF
+IF G-NATRP-ERC NE 0
+  IF #STEPLIB-ADDED
+    PERFORM REMOVE-STEPLIB
+  END-IF
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Member' #NATMEM 'not defined in lib' #NATLIB
+  PRINT (AD=L) G-NATRP-ERC G-NATRP-ERT
+  TERMINATE 50 /*===>>> STOP ÜÜ
+END-IF
+*
+END-SUBROUTINE /* CHECK-NAT_LIB_MEM
+*
+************************************************************************
+DEFINE SUBROUTINE #RLOG
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN *PROGRAM = MASK('RJARC') /*RJARCHIV RJARCUX
+    LG-CODE   := #_LG-ARCHIVE-CONDENSE /*'A1'
+    LG-USERID := #_ARCHIVE
+  WHEN *PROGRAM = MASK('RJCND') /*RJCNDUX2 RJCNDUX3 RJCONDNS RJCONDUX
+    LG-CODE   := #_LG-ARCHIVE-CONDENSE /*'A1'
+    LG-USERID := #_CONDENSE /*'CONDENSE' or 'ARCHIVE' ??
+  WHEN *PROGRAM = MASK('RJREV') /*RJREVIVE RJREVUX RJREVUX2 RJREVUX3
+    LG-CODE   := #_LG-REVIVE /*'R1'
+    LG-USERID := #_REVIVE    /*'REVIVE'
+  WHEN NONE /*just to be sure
+    LG-CODE   := 'MO'
+    LG-USERID := G-MONITOR-ID
+END-DECIDE
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+*
+END-SUBROUTINE /* #RLOG
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  PRINT NOTITLE NOHDR (AD=L) *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    #FUNCTION 'abnormal termination'
+  CALLNAT 'C-NATERN' LG-MSG
+  IF &1& NE ' ' /*RJARCHIV/RJARCUX: #CURRENT-CNT
+    COMPRESS LG-MSG 'counter:' &1& TO LG-MSG
+  END-IF
+  PRINT NOTITLE NOHDR *PROGRAM 10T
+    *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II) '0021' LG-MSG
+  COMPRESS '0021' LG-MSG TO LG-MSG
+  PERFORM #RLOG
+  TERMINATE 50 /*===>>> STOP ÜÜ
+*
+END-ERROR
+* End of Copycode RJ-C ******************************************************

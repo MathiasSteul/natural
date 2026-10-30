@@ -1,0 +1,126 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* XXTABLE2 - Maintain a table (x-array) of values in memory
+*  In contrast to XXTABLE this version is a 2-dimensional table
+*
+*  Parameters:
+*  &1& = Function: A=add, D=delete, F=find
+*  &2& = X-Array to keep the table in memory        (A/*,&8&)
+*  &3& = Tuple to be checked and returned X-Y-value (A,&8&)
+*  &4& = Current index variable                     (I4)
+*  &5& = Last    index variable                     (I4)
+*  &6& = Numeric temporary variable                 (I4)
+*  &7& = Numeric temporary variable                 (I4)
+*  &8& = Number of columns in the table             (I4)
+*  &9& = Return code of function                    (N4)
+*
+*  Functions:
+*  A = Add variable &3&(*) to table &2& if not already present
+*  D = Delete variable &3&(*) from table &2& if present
+*  F = Find variable &3&(1) in table &2& and return index in &4& and
+*      values in &3&(2:&8&)
+*  U = Update table-entry with tuple &3&(*) if &3&(1) was found
+*  R = Read  table &2& sequ. and return record in &3& and index in &4&
+*      Return code &9& = 1 if EOF
+*  B = Read  table &2& from end, return record in &3& and index in &4&
+*      Return code &9& = 1 if record 1 reached
+*  W = Write table &2& sequ. with record &3&, return index in &4&
+*  S = Set current index to start of table for sequential read
+*  E = Set current index to end   of table for sequential read backw.
+*  K = Kill table (set to occurrence 0)
+*
+*******************************************************************************
+*  Maintenance
+*  User ID   yyyy-mm-dd Issue       Remark
+* -----------------------------------------------------------------------------
+*  fhi       2016-05-12 NOMALL-1869 Created from XXTABLE
+*  fhi       2016-10-12 NOMALL-1934 Add sequential functions, no tags
+*******************************************************************************
+IF *OCC(&2&) = 0
+  RESET &4& &5& &6& &7&
+  EXPAND ARRAY &2& TO (1:1,1:&8&)
+END-IF
+RESET &9& /* return code
+DECIDE ON FIRST VALUE OF &1&
+  VALUE 'F' /* Find a value in table and return index
+    IF *OCC(&2&) NE 0
+     EXAMINE &2&(*,1) FOR &3&(1) WITH DELIMITERS GIVING INDEX IN &4& &6&
+    ELSE
+      RESET &4& &5& &6& &7&
+    END-IF
+    IF &4& NE 0
+      MOVE &2&(&4&,*) TO &3&(*)
+    ELSE
+      RESET &3&(2:&8&)
+    END-IF
+  VALUE 'A' /* Add a value to table if not existent
+    IF *OCC(&2&) NE 0
+     EXAMINE &2&(*,1) FOR &3&(1) WITH DELIMITERS GIVING INDEX IN &4& &6&
+    ELSE
+      RESET &4& &5& &6& &7&
+    END-IF
+    IF &4& = 0
+      IF &5& GE *OCC(&2&)
+        &4& := &5& + 10
+        EXPAND ARRAY &2& TO (1:&4&,1:&8&)
+      END-IF
+      &5& := &5& + 1
+      MOVE &3&(*) TO &2&(&5&,*)
+    END-IF
+  VALUE 'U' /* Update a value with tuple if existent
+    IF &4& NE 0
+      MOVE &3&(*) TO &2&(&4&,*)
+    END-IF
+  VALUE 'W' /* Write record sequentially
+    IF &5& GE *OCC(&2&)
+      &4& := &5& + 10
+      EXPAND ARRAY &2& TO (1:&4&,1:&8&)
+    END-IF
+    &5& := &5& + 1
+    &4& := &5&
+    MOVE &3&(*) TO &2&(&5&,*)
+  VALUE 'R' /* Read record sequentially forward
+    &4& := &4& + 1
+    IF &4& GT &5&
+      RESET &3&(*)
+      &9& := 1
+    ELSE
+      MOVE &2&(&4&,*) TO &3&(*)
+      RESET &9&
+    END-IF
+  VALUE 'B' /* Read record sequentially backward
+    &4& := &4& - 1
+    IF &4& LT 1
+      RESET &3&(*)
+      &9& := 1
+    ELSE
+      MOVE &2&(&4&,*) TO &3&(*)
+      RESET &9&
+    END-IF
+  VALUE 'S' /* Set current index to start of table
+    RESET &4&
+  VALUE 'E' /* Set current index to end of table
+    &4& := &5& + 1
+  VALUE 'K' /* Kill table (set to occurrence 0)
+    REDUCE ARRAY &2& TO 0
+    RESET &1& &3&(*) &4& &5& &6& &7& &9&
+  VALUE 'D' /* Delete a value from table if existent
+    EXAMINE &2&(*,1) FOR &3&(1) WITH DELIMITERS GIVING INDEX IN &4& &6&
+    IF &4& NE 0
+      &6& := &4& + 1
+      &7& := &5& - 1
+      IF &6& > &5& OR &7& < 1
+        RESET &2&(&4&,*)
+      ELSE
+        MOVE &2&(&6&:&5&,*) TO &2&(&4&:&7&,*)
+        RESET &2&(&5&,*)
+      END-IF
+      &5& := &5& - 1
+    END-IF
+  NONE
+    IGNORE
+END-DECIDE
+** End of CC XXTABLE2 **************************************************

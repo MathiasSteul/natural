@@ -1,0 +1,280 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    REXPRP
+* Version   1.3
+* Function  Export Report to PC
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* mrs     1993-07-08           rewritten
+* gw      1994-01-26 s(999999) export reports bigger than 32K lines
+*                        --> change in EDIT-CB
+* mrs     1994-05-09 s(999999) translate ebcdic to conform
+* sju     2002-09-09 NOM221    user-exit (NOMEX011) for export
+* xsetggr 2004-11-22 p(258871) use z-add11d with changes in parameters
+* sju     2004-12-14 TYPE=AL   NOM31 support TYPE=AL
+* xsetggr 2007-05-14 NOM3201   Convert node number to 5 digit format
+* xsetggr 2008-05-05 p(304350) restow due to changes in RMSPL--L
+* raya    2012-06-14 NOMALL-1154 avoid nat1125
+* raya    2012-11-29 NOMALL-1214 check cat date of nomex*
+* raya    2013-05-09 NOMALL-1214 backout check cat date of nomex*
+* SU1     2013-09-24 NOMALL-932  P-EXPEX -> NOMEXP11
+* SU2     2017-09-26 NOMALL-1823 NOM 3.5: remove CONNECT
+* SU3     2023-10-30 NOMALL-2489 HEX on MF
+* ----------------------------------------------------------------------
+DEFINE DATA
+GLOBAL USING NRM-GL
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE         (L/1:20)
+* ----------------------------------------------------------------------
+LOCAL USING SUPER-L
+LOCAL USING EDIT-CB
+LOCAL USING RCCTYP-E
+LOCAL USING RMMCASAP
+LOCAL USING NOMEXP11
+LOCAL USING RMASAC-E
+LOCAL USING RMSPL--L
+*
+LOCAL
+1 NRM-ACTIVE-REPORTS VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-SOURCE-ID
+1 NRM-SOURCE VIEW OF NRM-SOURCE
+  2 SR-TYPE
+  2 SR-CC-TYPE
+  2 SR-NUMBER-OF-LINES
+  2 SR-RECORD-LENGTH
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-SPOOL-ATTRIBUTES
+  2 SR-SPOOL-ATTR-EXTENDED  (1:3)
+*
+1 #FLUSH-LINE               (A251)
+1 REDEFINE #FLUSH-LINE
+  2 #FLUSH-CC               (A1)
+  2 #FLUSH-TEXT             (A250)
+*
+1 #FROM-B                   (N8)
+1 #TO-B                     (N8)
+1 #I                        (N7)
+1 I                         (N7)
+1 #SESNUM                   (N2)
+1 #EXPTYPE                  (A8)
+1 #CC-TYPE                  (I2)
+1 EDIT-PREF
+  2 L-PREFIX                (A5/20)
+1 EDIT-DATA
+  2 L-DATA                  (A251/1)
+  2 REDEFINE L-DATA
+    3 L-DATA-TAB (1)
+      4 L-DATA-CC           (A1)
+      4 L-DATA-TEXT         (A250)
+1 EDIT-ALIN                 (A32)
+1 REDEFINE  EDIT-ALIN
+  2 CB-ALIN-V               (N1/32)
+1 EDIT-ADAT                 (A32)
+1 #SCRLEN                   (N3)
+1 #CALL-EXIT11              (L)
+1 #EXPORT-LINE              (A251)
+1 #JES-SPOOL-FILE-TYPE      (A2)
+1 #IND                      (I4)
+1 #WORK-ERR                 (L) /*SU3
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE WINDOW #MSG SIZE 7*70 BASE 12/2 /*SU6
+  TITLE '- Warning -' CONTROL WINDOW /*SCREEN
+*
+INPUT #SESNUM #FROM-B #TO-B #EXPTYPE #CC-TYPE #JES-SPOOL-FILE-TYPE
+IF NOT (#EXPTYPE ='PC' OR=' ') /*already checked in RBRWRP SU3
+  ESCAPE MODULE
+END-IF
+IF +G-NOMEXIT-ACTIVE(11)
+  #CALL-EXIT11:= TRUE
+  PERFORM INIT-EXP-PARMS
+END-IF
+ED-NEWNUM := ED-NEWCB := 'Y'
+ED-SESNUM := #SESNUM
+ED-REQUEST := 'STAT'
+CALL 'EDITOR' EDIT-CB
+ED-RECTOP := #FROM-B
+ED-SCRLEN := #SCRLEN := 250 /*SU3 RDISRP:251 ??
+ED-PRFENT := 5              /*SU3 RDISRP:6 ??
+ED-SCRNUM := 1
+*
+REPEAT
+  RESET EDIT-DATA
+  ADD 1 TO #I
+  ED-REQUEST := 'GETL'
+  CALL 'EDITOR' EDIT-CB EDIT-ALIN EDIT-PREF EDIT-ADAT EDIT-DATA
+*** Handle carriage control for TYPE=AL. (TYPE=AL reports may contain
+*** a micture of ASA, Machine, and no carriage control).
+*** 1. If first character is a valid ASA carriage control, do nothing
+*** 2. If first character is printable (but not X'89' or X'8B' which
+***    are machine skip to channel 1), assume the record has no
+***    carriage control - shift the record right 1 position and put a
+***    space in column 1.
+*** 3. Otherwise, first character must be machine carriage control so
+***    translate it to ASA.
+*
+  IF #JES-SPOOL-FILE-TYPE = 'AL'
+    #FLUSH-LINE  := L-DATA(1)
+    EXAMINE FULL RMASAC-ASA-CODES(*) FOR #FLUSH-CC GIVING INDEX #IND
+    IF #IND = 0 /* not ASA
+      IF #FLUSH-CC = MASK(P) AND #FLUSH-CC NE H'89'
+      AND #FLUSH-CC NE H'8B'                                          /*
+        RESET #FLUSH-CC
+        #FLUSH-TEXT:= L-DATA(1)
+        L-DATA(1):= #FLUSH-LINE
+        RESET P-PREV-CC
+      ELSE
+        RMMCASA-PARMS.P-RECORD := #FLUSH-LINE
+        CALLNAT 'RMMCASAN' RMMCASA-PARMS   /* convert machine to ASA
+        IF P-PRINT-NUMBER = 0
+          ESCAPE TOP
+        END-IF
+        L-DATA(1):= RMMCASA-PARMS.P-RECORD
+      END-IF
+    ELSE
+      RESET P-PREV-CC
+    END-IF
+  END-IF
+*
+  #FLUSH-LINE:= L-DATA(1)
+  PERFORM FLUSH-ONE-LINE
+*
+  IF ED-RECTOP > ED-RECNUM  OR #I >= #TO-B
+    ESCAPE BOTTOM
+  END-IF
+  IF G-NATRP-ERC NE 0
+    SET CONTROL 'WFC8L79B08/00'
+    INPUT USING MAP 'REXPRPM&'
+    SET CONTROL 'WB'
+    RESET G-NATRP-ERC G-NATRP-ERT
+    ESCAPE MODULE
+  END-IF
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+/*SU3 DEFINE SUBROUTINE ASA-TO-CONFORM
+/*SU3 DEFINE SUBROUTINE MACHINE-TO-CONFORM
+/*SU3 DEFINE SUBROUTINE EBCDIC-TO-CONFORM
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-PC-LINE
+************************************************************************
+IF #CC-TYPE = MACHINE-CODE
+  RMMCASA-PARMS.P-RECORD := #EXPORT-LINE
+  CALLNAT 'RMMCASAN' RMMCASA-PARMS
+  IF RMMCASA-PARMS.P-PRINT-NUMBER > 0
+    #EXPORT-LINE := RMMCASA-PARMS.P-RECORD
+    #WORK-ERR := TRUE /*SU3
+    WRITE WORK 5 #EXPORT-LINE
+    RESET #WORK-ERR /*SU3
+  END-IF
+ELSE
+  #WORK-ERR := TRUE /*SU3
+  WRITE WORK 5 #EXPORT-LINE
+  RESET #WORK-ERR /*SU3
+END-IF
+*
+END-SUBROUTINE /* FLUSH-PC-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-EXP-PARMS
+************************************************************************
+P-EXP-REPNAME:= #AR-REPNAME:= G-C-REPORT
+P-EXP-REPRNB := #AR-REPRNB := G-C-REPRNB
+P-EXP-USERID := G-USERID
+P-EXP-API-VERSION:= 1
+P-EXP-TARGET := 1
+FIND (1) NRM-ACTIVE-REPORTS WITH AR-REPORT-RNB = #AR-REPORT-RNB
+  FIND (1) NRM-SOURCE WITH SR-ID = NRM-ACTIVE-REPORTS.AR-SOURCE-ID
+    P-EXP-SOURCE-TYPE           := NRM-SOURCE.SR-TYPE
+    P-EXP-SOURCE-CC-TYPE        := NRM-SOURCE.SR-CC-TYPE
+    P-EXP-SOURCE-NUMBER-OF-LINES:= NRM-SOURCE.SR-NUMBER-OF-LINES
+    P-EXP-SOURCE-RECORD-LENGTH  := NRM-SOURCE.SR-RECORD-LENGTH
+    CALLNAT 'RMSR7--N' NRM-SOURCE.SR-ATTRIBUTES-IDENT NRM-SOURCE.SR-TYPE
+    P-EXP-SOURCE-ATTRIBUTES     := NRM-SOURCE.SR-ATTRIBUTES-IDENT
+    #SPOOL-ATTRIBUTES := NRM-SOURCE.SR-SPOOL-ATTRIBUTES
+    CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+    P-EXP-SPOOL-ATTRIBUTES      := #SPOOL-ATTRIBUTES
+    P-EXP-SPOOL-ATTRIBUTES-EXTENDED(*):=
+      NRM-SOURCE.SR-SPOOL-ATTR-EXTENDED(1:3)
+  END-FIND
+END-FIND
+*
+END-SUBROUTINE /* INIT-EXP-PARMS
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-ONE-LINE
+************************************************************************
+#EXPORT-LINE:= #FLUSH-LINE
+IF NOT #CALL-EXIT11
+  PERFORM FLUSH-PC-LINE
+  ESCAPE ROUTINE
+END-IF
+REPEAT
+  RESET P-EXP-RC P-EXP-RT
+  P-EXP-RECORD:= #FLUSH-LINE
+  CALLNAT 'NOMEX011' P-EXPORT-PARMS
+  DECIDE ON FIRST VALUE OF P-EXP-RC
+    VALUE 0 /* include record as is.
+      #EXPORT-LINE:= #FLUSH-LINE
+      PERFORM FLUSH-PC-LINE
+      ESCAPE BOTTOM
+    VALUE 4 /* include modified record (P-EXP-RECORD).
+      #EXPORT-LINE:= P-EXP-RECORD
+      PERFORM FLUSH-PC-LINE
+      ESCAPE BOTTOM
+    VALUE 8 /* insert P-EXP-RECNO lines from P-EXP-INSERT-LINES (next
+      /* call to exit is with the same record).
+      FOR I = 1 TO P-EXP-RECNO
+        #EXPORT-LINE:= P-EXP-INSERT-LINES(I)
+        PERFORM FLUSH-PC-LINE
+      END-FOR
+      ESCAPE TOP
+    VALUE 12 /* suppress record.
+      ESCAPE BOTTOM
+    VALUE 16 /* terminate export with message P-EXP-RT.
+      G-NATRP-ERC:= P-EXP-RC
+      G-NATRP-ERT:= P-EXP-RT
+      ESCAPE BOTTOM
+    VALUE 99 /* continue export without calling NOMEX011 again.
+      #CALL-EXIT11:= FALSE
+      #EXPORT-LINE:= #FLUSH-LINE
+      PERFORM FLUSH-PC-LINE
+      ESCAPE BOTTOM
+    NONE /*??
+      PERFORM FLUSH-PC-LINE
+      ESCAPE BOTTOM
+  END-DECIDE
+END-REPEAT
+*
+END-SUBROUTINE /* FLUSH-ONE-LINE
+*
+************************************************************************
+ON ERROR /*SU3
+************************************************************************
+  IF #WORK-ERR AND *ERROR = 1016 OR=1173
+    /*1016=Application interrupted / 1173= PC connection not active.
+    IF *ERROR = 1173
+      #IND := *ERROR * -1
+      INPUT WINDOW='#MSG' (AD=OIL IP=OFF) WITH TEXT *#IND
+        'Error during export. Program:' *PROGRAM
+    END-IF
+    ESCAPE ROUTINE /*interrupted by a user action -> no error Ü
+  END-IF
+  PRINT (AD=L) *PROGRAM *ERROR
+*
+END-ERROR
+*
+END

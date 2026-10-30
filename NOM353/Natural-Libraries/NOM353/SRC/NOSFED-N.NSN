@@ -1,0 +1,378 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOSFED-n (OPMNED-N) - NOP GUI: Nat Lib Member edit (Job types NAT+MAC)
+*
+* Modifications:
+* 26.09.05 267951   Created                                 XSETAA511Z4
+* 06.12.05 269996   OGC Macro                               XSETAA511Z5
+* 15.12.05 269996.1 OGC Macro                               XSETAA511Z5
+* 22.12.05 273006.1 uqac of missing modules of SP5              SN511Z6
+* 15.05.06 278823   OGC Macro on MF servers                     SN511Z8
+* 19.06.06 278823.2 Some corrections                        XSETAA511Z8
+* 25.01.08 299790   Synchronous MF cataloging in RPC        XSETAA521Z2
+* 14.11.08 E53101   RCGET=OFF: avoid READ BY ISN                SN531
+* 02.12.08 081202   avoid 3 hashes                              SN531
+* 11.03.09 312641   network with version prep.                  SN531
+* 27.05.09 317409.1 use CF instead of SP or PL                  SN531
+* 07.07.09 317869   Event driven MF cataloging in RPC       XSETAA521Z6
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* ---------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOSFEDWA
+PARAMETER
+1 OMJ-PARM                   (A253/1:100)
+1 REDEFINE OMJ-PARM
+  2 OMJP-25300               (A25300)
+************************************************************************
+LOCAL USING NOSFED-L      /* NOP constants
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING EDIT4-CB
+LOCAL
+1 NADA1400
+  2 OBJECT-KEY
+    3 DBID                   (N5)
+    3 FNR                    (N5)
+    3 PASSWORD               (A8)
+    3 CIPHERCODE             (N8)
+    3 OBJECT-CLASS           (I1)
+    3 LIBRARY                (A8)
+    3 OBJECT-NAME            (A32)
+    3 OBJECT-TYPE            (A2)
+    3 OBJECT-KIND            (A1)
+  2 INPUTS
+    3 OPT-ACCESS             (A1)
+    3 OPT-ET                 (L)
+    3 OPT-REPLACE            (A1)
+    3 OPT-SESNUM             (B2)
+    3 OPT-BUFFNAME           (A8)
+  2 OUTPUTS
+    3 EDIT-MODE              (A1)
+1 NATA1400
+  2 VERSION                  (I1)   INIT< 1 >    /* max for X/W Nat
+  2 V1-NSC-CHECK             (A1)
+  2 V2-RENUMBER              (A1)
+1 REDEFINE NATA1400
+  2 EXTENDED-PARMS-V1
+    3 EXTENDED-DATA-V1       (A1/1:2)
+1 REDEFINE NATA1400
+  2 EXTENDED-PARMS-V2
+    3 EXTENDED-DATA-V2       (A1/1:3)
+*
+1 K-LS-NAT                   (I2)   CONST< 88 >       /* V 269996
+1 K-LS-MAC                   (I2)   CONST< 160 >
+1 #ERROR-NR                  (N4)
+1 #SHORT-TEXT                (A79)
+1 #RC-N1                     (N1)
+*
+1 K-NAT-INIT-3               (I2)   CONST< 3 >
+1 K-NAT-INIT-TXT             (A72/1:K-NAT-INIT-3) CONST<
+  'DEFINE DATA PARAMETER USING NOPXPL-A',
+  'END-DEFINE',
+  '* ----------------------------------------------------------------' >
+*
+1 E-SESNUM                   (I2)   CONST< 1 >
+*
+1 E-PREF                     (A6/1:287)
+1 E-ALIN                     (A1/1:287)
+1 E-ADAT                     (A1/1:287)
+* Upper index above = 25300/min(K-LS-NAT,K-LS-MAC)
+* Length above = K-API-20*max(K-LS-NAT,K-LS-MAC)
+*
+1 #I                         (I4)
+1 #L                         (I4)
+1 #LANGUAGE                  (I1)
+1 #ES-KEYS                   (A10)
+1 REDEFINE #ES-KEYS
+  2 #ES-KEY-CODE             (A2/1:5)
+1 #A1                        (A1)
+*
+1 #SYNC-CAT                  (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-MSG-NR ES-MSG-TXT       /* assume ok
+#LANGUAGE := ES-LANGUAGE
+*LANGUAGE := ES-LANGUAGE
+*
+#SYNC-CAT := TRUE   /* Do Synchronous cataloging
+*
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+  VALUE 'RFU'
+    IF OMNED-WORK = ' '                /* First call ?
+      OMNED-WORK := ES-LINE
+    END-IF
+    PERFORM DO-RFU
+    IF ES-RC NE 0 OR ES-EOF NE ' '
+      PERFORM EDITOR-CLSS
+      RESET OMNW-RECORDS
+    END-IF
+  VALUE 'CAN'
+    RESET OMNW-RECORDS                                    /* 269996
+  NONE VALUE
+    ES-RC := 1 ; ES-MSG-NR := 9998
+    COMPRESS *PROGRAM *LINE 'Extended function' ES-EXTEND-FUNCTION
+      'invalid' INTO ES-MSG-TXT
+END-DECIDE
+PERFORM EXPAND-MSG
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DO-RFU
+************************************************************************
+IF OMNW-RECORDS = 0
+  PERFORM HANDLE-PARMS
+  IF ES-RC NE 0; ESCAPE ROUTINE; END-IF
+  IF OMNW-SOURCE-TYPE = 'MAC'                         /* V 269996
+    ES-LINE-NUMBER := K-LS-MAC
+  ELSE
+    ES-LINE-NUMBER := K-LS-NAT
+  END-IF                                              /* A 269996
+*
+  PERFORM EDITOR-CLSS
+*
+  RESET OMJ-PARM (*) ES-EOF ES-NUMBER
+  PERFORM READ-NAT
+  IF ES-RC NE 0; ESCAPE ROUTINE; END-IF
+ELSE
+  PERFORM EDITOR-STAT
+  IF ES-RC NE 0; ESCAPE ROUTINE; END-IF
+END-IF
+*
+PERFORM EDITOR-GETL
+IF ES-RC NE 0; ESCAPE ROUTINE; END-IF
+#I := ED-NEW-RECNUM
+IF OMNW-RECORDS > #I
+  ES-EOF := 'X'
+  PERFORM EDITOR-CLSS
+  RESET OMNW-RECORDS
+END-IF
+*
+END-SUBROUTINE /* DO-RFU
+*
+************************************************************************
+DEFINE SUBROUTINE EDITOR-OPEN
+************************************************************************
+ED-NEWCB      := K-ED-NEWCB-4
+ED-SESNUM     := E-SESNUM
+ED-LINENTL    :=
+ED-SCRLEN     :=
+ED-RECLEN     := #L
+*
+ED-NEWNUM     := 'Y'
+ED-BPUSE      := 1
+ED-DTPLACE    := 1
+ED-PRFLEN     := 6
+ED-PRFENT     := 6
+ED-LINETYPE   := H'02'
+* ED-SCRNUM     := 1                                    /* 269996
+PROF-LANGUAGE := ES-LANGUAGE
+PROF-RECOVERY := 'N'
+PROF-PHSCHR   := 05
+ED-USER       := ES-USER
+ED-DSTYPE   := 'NAT'
+*
+RESET ED-ERRNUM ED-MSGNUM
+*
+ED-REQUEST := 'OPEN'
+CALL 'EDITOR' EDIT-CB
+PERFORM EDITOR-ERROR
+*
+END-SUBROUTINE /* EDITOR-OPEN
+*
+************************************************************************
+DEFINE SUBROUTINE EDITOR-GETL
+************************************************************************
+RESET OMJ-PARM(*) ES-NUMBER
+ED-NEWNUM     := 'Y'
+ED-NEW-RECTOP := OMNW-RECORDS          /* From record
+ED-LINENTL    := ES-LINE-NUMBER
+ED-SCRNUM     := 25300 / ES-LINE-NUMBER
+ED-REQUEST    := 'GETL'
+CALL 'EDITOR' EDIT-CB E-ALIN(*) E-PREF(*) E-ADAT(*) OMJP-25300
+PERFORM EDITOR-ERROR
+IF ES-RC NE 0; ESCAPE ROUTINE; END-IF
+OMNW-RECORDS := ED-NEW-RECTOP
+ES-NUMBER    := ED-SCRNUM
+*
+END-SUBROUTINE /* EDITOR-GETL
+*
+************************************************************************
+DEFINE SUBROUTINE EDITOR-STAT
+************************************************************************
+ED-SESNUM  := E-SESNUM
+ED-REQUEST := 'STAT'
+CALL 'EDITOR' EDIT-CB
+PERFORM EDITOR-ERROR
+*
+END-SUBROUTINE /* EDITOR-STAT
+*
+************************************************************************
+DEFINE SUBROUTINE EDITOR-CLSS
+************************************************************************
+ED-SESNUM  := E-SESNUM
+ED-REQUEST := 'CLSS'
+CALL 'EDITOR' EDIT-CB
+RESET ED-SESNUM ED-ERRNUM
+*
+END-SUBROUTINE /* EDITOR-CLSS
+*
+************************************************************************
+DEFINE SUBROUTINE EDITOR-ERROR
+************************************************************************
+IF ED-ERRNUM NE 0
+  #I := ED-ERRNUM
+  ES-RC := 1 ; ES-MSG-NR := 4000
+  COMPRESS ED-REQUEST #I ED-FLINE INTO ES-MSG-TXT
+  PERFORM EDITOR-CLSS
+END-IF
+*
+END-SUBROUTINE /* EDITOR-ERROR
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-PARMS
+************************************************************************
+FP. FOR #I = 1 TO 5
+  DECIDE FOR EVERY CONDITION
+    WHEN ES-KEY-CODE(#I) = 'SF' OR = 'MB'
+        AND ES-KEY-PARM(#I) NE ' '
+        AND SUBSTR(ES-KEY-PARM(#I),9) = ' '; IGNORE
+    WHEN ES-KEY-CODE(#I) = ' ' AND ES-KEY-PARM(#I) = ' '; IGNORE
+    WHEN NONE
+      ES-RC := 1 ; ES-MSG-NR := 9998
+      COMPRESS *PROGRAM *LINE 'Position:' #I 'Key:' ES-KEY-CODE(#I)
+        'Value:' ES-KEY-PARM(#I) '- invalid' INTO ES-MSG-TXT
+      ESCAPE ROUTINE
+  END-DECIDE
+END-FOR
+*
+#ES-KEY-CODE(*) := ES-KEY-CODE(*)
+DECIDE ON FIRST VALUE #ES-KEYS
+  VALUE 'SFMB'
+    OMNW-LIBRARY := ES-KEY-PARM(1)
+    OMNW-MEMBER  := ES-KEY-PARM(2)
+  NONE VALUE
+    ES-RC := 1 ; ES-MSG-NR := 9998
+    COMPRESS *PROGRAM *LINE
+      'Keys:' ES-KEY-CODE(1) ';' 'invalid' INTO ES-MSG-TXT
+    ESCAPE ROUTINE
+END-DECIDE
+*
+END-SUBROUTINE /* HANDLE-PARMS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-NAT
+************************************************************************
+SET CONTROL 'Z'                        /* Clear source area
+NADA1400.LIBRARY      := OMNW-LIBRARY
+NADA1400.OBJECT-NAME  := OMNW-MEMBER
+NADA1400.OPT-ACCESS   := 'R'           /* Read
+NADA1400.OPT-REPLACE  := 'N'
+*
+NATA1400.VERSION      := 1
+NATA1400.V1-NSC-CHECK := 'Y'
+*
+CALLNAT 'NATA1400' NADA1400  NATA1400.EXTENDED-PARMS-V1 NAD-MSG NAD-FLD
+*
+IF NAD-MSG.MSG-NR = -82 OR= 1006       /* NAT0082 Source not found
+  #L := 250                              /* Use full width
+  DEFINE PRINTER (1) OUTPUT 'SOURCE'                  /* V 269996
+  EJECT OFF (1)
+  RN10. FOR #I = 1 TO K-NAT-INIT-3
+    IF OMNW-SOURCE-TYPE = 'MAC'
+      PRINT (1) NOTITLE OMNW-ESC-ACTIVATION K-NAT-INIT-TXT (#I)
+    ELSE
+      PRINT (1) NOTITLE K-NAT-INIT-TXT (#I)
+    END-IF
+  END-FOR                 /* RN10.                    /* A 269996
+  OMNW-MEMBER-TYPE := 'N'                        /* 278823.2
+  PERFORM EDITOR-OPEN
+  ESCAPE ROUTINE
+END-IF
+*
+DECIDE FOR FIRST CONDITION
+  WHEN NAD-MSG.MSG-NR < 0
+    #ERROR-NR := ABS(NAD-MSG.MSG-NR)                   /* 299790
+    CALLNAT 'NAT00020' #ERROR-NR #LANGUAGE #SHORT-TEXT #RC-N1
+    ES-RC := 1; ES-MSG-NR := 0
+    MOVE EDITED #ERROR-NR (EM=' NAT'9999) TO ES-MSG-TXT
+    COMPRESS ES-MSG-TXT #SHORT-TEXT INTO ES-MSG-TXT
+  WHEN NAD-MSG.MSG-NR >  0
+*   Code moved to internal subroutine                      269996
+    PERFORM CHECK-NAD-MSG-NR                            /* 269996
+  WHEN ANY; ESCAPE ROUTINE
+  WHEN NONE; IGNORE
+END-DECIDE
+*
+OMNW-MEMBER-TYPE := NADA1400.OBJECT-TYPE
+#L := 250                              /* Use full width
+PERFORM EDITOR-OPEN
+IF ES-RC NE 0; ESCAPE ROUTINE; END-IF
+*
+IF *MACHINE-CLASS = 'MAINFRAME'
+  #A1 := H'5F'                         /* 'Not sign' in EBCDIC
+ELSE
+  #A1 := H'5E'                         /* 'Circumflex' in ASCII
+END-IF
+#I := ES-LINE-NUMBER + 1               /* Next to last column
+COMPRESS 'find p''X''' #I '255 first' INTO ED-MCMND
+EXAMINE ED-MCMND FOR 'X' REPLACE #A1
+ED-REQUEST := 'FIND'                   /* Search non blank
+CALL 'EDITOR' EDIT-CB
+*
+DECIDE ON FIRST VALUE ED-ERRNUM
+  VALUE 40;   OMNW-TRUNCATED := 'Y'    /* Char :1:':2:' found
+  VALUE 22;   IGNORE                   /* *bottom of data reached*
+  VALUE 41;   IGNORE                   /* Char :1:':2:' not found
+  NONE VALUE; PERFORM EDITOR-ERROR
+END-DECIDE
+*
+END-SUBROUTINE /* READ-NAT
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-NAD-MSG-NR                      /* V 269996
+************************************************************************
+IF NAD-MSG.MSG-NR NE 0
+  ES-RC := 1; ES-MSG-NR := 9998
+  ES-MSG-TXT := NAD-MSG.MSG
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE WITH FULL ' :1: '
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE MSG-DATA (1)
+  EXAMINE ES-MSG-TXT FOR ':2:' REPLACE MSG-DATA (2)
+  EXAMINE ES-MSG-TXT FOR ':3:' REPLACE MSG-DATA (3)
+END-IF
+*
+END-SUBROUTINE /* CHECK-NAD-MSG-NR
+*
+************************************************************************
+DEFINE SUBROUTINE EXPAND-MSG
+************************************************************************
+IF ES-RC NE 1; ESCAPE ROUTINE; END-IF
+IF ES-MSG-TXT = MASK('EOR'9999' ')                      /* V 269996.1
+  ESCAPE ROUTINE
+END-IF                                                  /* A 269996.1
+IF ES-MSG-TXT NE ' '  AND  ES-MSG-TXT NE MASK(';')
+    AND ES-MSG-NR = 1 THRU 9997
+  COMPRESS ';' ES-MSG-TXT INTO ES-MSG-TXT LEAVING NO
+END-IF
+IF ES-EXTEND-FUNCTION = 'INI'  OR  NOT ES-MSG-NR = 1 THRU 9997
+    BUT NOT 1001                                       /* 278823.2
+  ESCAPE ROUTINE
+END-IF
+COMPRESS ';EOR;' ES-MSG-NR ES-MSG-TXT INTO ES-MSG-TXT LEAVING NO
+*
+END-SUBROUTINE /* EXPAND-MSG
+*
+END

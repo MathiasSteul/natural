@@ -1,0 +1,279 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* MIGUEX - check cat date of separation user exits        (P-UEXIT)
+*          check cat date of printer user exits           (P-PEXIT)
+*          check cat date of nomex?nn                     (PDAs)
+*          check cat date of pdas SYSNOMS against SYSNOMU (P-?EXIT)
+*
+* Maintenance
+* uuu YY-MM-DD Sagsis Desciption
+* RAYA 2012-11-29 NOMALL-1214 CREATED
+* RAYA 2013-05-09 NOMALL-1214 Introducing new migration flags
+* fhi  2013-05-10 NOMALL-1214 Run this program without migr flag set
+* raya 2013-05-26 NOMALL-1214 add NOMGSTEP
+* raya 2013-05-29 NOMALL-1214 check NOMEX* with 'y' flag
+* raya 2013-06-05 NOMALL-1214 only  NOMEX* can cause rerun
+*                 user and printer exits cause a warning
+* SU1  2013-09-24 NOMALL-932  P-EXPEX -> NOMEXP11
+* fhi  2014-02-11 NOMALL-1318 Run this program without migr flag set
+* SU2  2016-03-08 NOMALL-1847 PDA RMPRAPIP -> PDA P-PEXIT
+* fhi  2016-11-15 NOMALL-1961 Use new task IDs
+* SU3  2017-03-07 NOM 3.5     Remove unused code
+* fhi  2017-08-16 NOMALL-2039 Add more output and checks, rewritten
+* SU4  2020-04-03 NOMALL-2382 missing objs:terminate with CC
+* SU5  2020-04-22 NOMALL-2409 handle exit 14 correct (see RDEFAPI)
+* SU6  2020-04-30 NOMALL-2349 remove unused
+* SU7  2020-09-22 NOMALL-2434 backout SU4:do not terminate
+* ------------------------------------ data ----------------------------
+DEFINE DATA
+LOCAL USING XXNATD-L
+*
+LOCAL
+1 NRM-REPORTS-NEW VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-EXITLIB
+  2 R-EXITMEM
+1 NRM-PRINTERS VIEW OF NRM-PRINTERS
+  2 P-ID
+  2 P-EXITLIB
+  2 P-EXITMEM
+/*SU6 1  MONITOR VIEW OF NRM-MONITOR
+/*SU3  2 M-MONITOR-ID
+/*SU6 -> 2 M-VERSION 2 REDEFINE M-VERSION
+/*  3 M-VERS-VERSION-N       (N2)
+/*  3 M-VERS-RELEASE-N       (N2)
+/*  3 M-VERS-SP-N            (N2)
+/*  3 M-VERS-CF-N            (N4)
+/*  3 M-VERS-MIGRATION-IN-PROGRESS (A1) /* NOMALL-1214 was (L)
+/*  3 M-VERS-DATE            (A8)
+/*  3 M-VERS-NO-OF-MIG-PROGS (N2)
+/*SU6 <- 3 M-VERS-MIGRATION-COMPL (A1/10)
+1 USER-EXITS VIEW OF NRM-MONITOR
+  2 M-USER-DEFAULTS
+  2 REDEFINE M-USER-DEFAULTS
+    3 M-NOMEXIT-ACTIVE       (A1/1:20)
+* *****
+1 #NUM-EXITS (N2)            CONST<20>
+1 #NOMEX-NAME                (A8/#NUM-EXITS)CONST<
+  'NOMEX001', 'NOMEX002', 'NOMEX003', 'NOMEX004',
+  'NOMEX005', 'NOMEX006', 'NOMEX007', 'NOMEX008',
+  'NOMEX009', 'NOMEX010', 'NOMEX011', 'NOMEX013', 'NOMEX014'>
+/*SU6 -> 1 #NOMEX-PDA-NAME            (A8/#NUM-EXITS) CONST<
+/*  'NOMEXP01', 'NOMEXP02', 'NOMEXP03', 'NOMEXP04',
+/*  'NOMEXP05', 'NOMEXP06', 'NOMEXP07', 'NOMEXP08',
+/*SU6 <- 'NOMEXP09','NOMEXP10','NOMEXP11','NOMEXP13','NOMEXP14'> /*SU1
+/*SU1 line above out, line below activated
+1 #CAT-DATE-REP              (A10)
+1 #CAT-DATE-PRT              (A10)
+1 #CAT-DATE-REF              (A10)
+/*SU3 1 #SYSNOM              (A8) INIT <'SYSNOM '>
+1 #SYSNOMU                   (A8) INIT <'SYSNOMU'>
+1 #SYSNOMS                   (A8) INIT <'SYSNOMS'>
+1 #OBJECT                    (A25)
+1 #PARENT                    (A20)
+1 #I                         (I4)
+1 #I1                        (I4)
+1 ##SUCCESS                  (I4)
+1 ##NOT-FOUND                (I4)
+1 ##TOO-OLD                  (I4)
+1 ##TOTAL                    (I4)
+1 #LINE-FORMAT
+  2 #L-I1                    (A2)  INIT <'Ü'>
+  2 #L-MEMBER                (A8)  INIT <'Module'>
+  2 #L-I2                    (A3)  INIT <' Ü'>
+  2 #L-LIBRARY               (A8)  INIT <'Library'>
+  2 #L-I3                    (A3)  INIT <' Ü'>
+  2 #L-PARENT                (A25)
+  2 #L-I4                    (A3)  INIT <' Ü'>
+  2 #L-STATUS                (A12) INIT <'Status'>
+  2 #L-I5                    (A3)  INIT <' Ü'>
+  2 #L-CAT-DATE              (A10) INIT <'Cat-date'>
+  2 #L-I6                    (A2)  INIT <' Ü'>
+1 REDEFINE #LINE-FORMAT
+  2 #LINE                    (A79)
+1 #SYSNOMS-IS-REFERENCE      (L) INIT <TRUE> /*SU4
+1 #P-UEXIT (A8) CONST <'P-UEXIT'>
+1 #P-PEXIT (A8) CONST <'P-PEXIT'>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=132
+SET KEY ALL
+INPUT
+  '*'(79) /
+  '***' 33T ' ' *PROGRAM 77T '***' /
+  '*'(79) /
+  06T 'This utility checks user exits for existence and gives a warning if' /
+  06T 'the timestamps are too old for this version. It lists all exits    ' /
+  06T 'which are used in the environment.                                 ' /
+  06T 'Before running MIGUEX ensure to copy the necessary modules to      ' /
+  06T 'SYSNOMU as described in the installation manual.                   ' /
+  06T '                                                                   ' /
+  06T 'Press PF3 to end ' ' ' *PROGRAM                                      /
+  '*'(79) /
+IF *PF-KEY NE 'ENTR'
+  ESCAPE ROUTINE
+END-IF
+*
+CALLNAT 'NOMGSTEP' '*' P-ERC
+************************************************************************
+EJECT
+WRITE ' ' *PROGRAM 'Table Of Essential PDAs' / '='(79)
+RESET INITIAL #L-MEMBER #L-LIBRARY #L-STATUS #L-CAT-DATE #L-PARENT
+WRITE #LINE / '='(79)
+RESET #PARENT #OBJECT
+* 1. SYSNOMS P-UEXIT
+* 2. SYSNOMU   "
+* 3. SYSNOMS P-PEXIT
+* 4. SYSNOMU   "
+P-MODULE := #P-UEXIT
+FOR #I1 = 1 TO 2
+  P-LIBRARY := #SYSNOMS
+  PERFORM CHECK-MODULE
+  IF P-ERC = 0 AND M-CA-DATE NE ' '
+    IF P-MODULE = 'P-UEXIT'
+      #CAT-DATE-REP := M-CA-DATE
+    ELSE
+      #CAT-DATE-PRT := M-CA-DATE
+    END-IF
+  END-IF
+*
+  P-LIBRARY := #SYSNOMU
+  PERFORM CHECK-MODULE
+  P-MODULE := #P-PEXIT
+END-FOR
+*
+RESET #SYSNOMS-IS-REFERENCE
+WRITE '='(79)
+WRITE 'Reference cat date for reports and APIs is' #CAT-DATE-REP
+WRITE 'Reference cat date for printers is        ' #CAT-DATE-PRT
+#PARENT       := 'report'
+#CAT-DATE-REF := #CAT-DATE-REP
+************************************************************************
+EJECT
+WRITE ' ' *PROGRAM 'Table Of Report User Exits' / '='(79)
+RESET INITIAL #L-MEMBER #L-LIBRARY #L-STATUS #L-CAT-DATE
+#L-PARENT := 'Report'
+WRITE #LINE / '='(79)
+READ NRM-REPORTS-NEW BY R-REPNAME
+  IF R-EXITMEM = ' '   OR R-EXITLIB = ' '
+    ESCAPE TOP
+  END-IF
+  #OBJECT     := R-REPNAME
+  P-LIBRARY   := R-EXITLIB
+  P-MODULE    := R-EXITMEM
+  PERFORM CHECK-MODULE
+END-READ
+WRITE '='(79)
+************************************************************************
+EJECT
+WRITE ' ' *PROGRAM 'Table Of Printer User Exits' / '='(79)
+RESET INITIAL #L-MEMBER #L-LIBRARY #L-STATUS #L-CAT-DATE
+#L-PARENT    := 'Printer'
+WRITE #LINE / '='(79)
+#PARENT       := 'printer'
+#CAT-DATE-REF := #CAT-DATE-PRT
+READ NRM-PRINTERS BY P-PHYSICAL-NAME
+  IF P-EXITMEM = ' ' OR P-EXITLIB = ' '
+    ESCAPE TOP
+  END-IF
+  #OBJECT     := P-ID
+  P-LIBRARY   := P-EXITLIB
+  P-MODULE    := P-EXITMEM
+  PERFORM CHECK-MODULE
+END-READ
+WRITE '='(79)
+************************************************************************
+EJECT
+WRITE ' ' *PROGRAM
+  'Table Of Active API User Exits (NOMEXnnn)' / '='(79)
+RESET INITIAL #L-MEMBER #L-LIBRARY #L-STATUS #L-CAT-DATE
+#L-PARENT    := ' '
+WRITE #LINE / '='(79)
+#PARENT      := 'API-defaults'
+#OBJECT      := ' '
+#CAT-DATE-REF := #CAT-DATE-REP /*P-UEXIT
+FIND (1) USER-EXITS WITH M-MONITOR-ID = 'API-DEFS'
+END-FIND
+FOR #I = 1 TO #NUM-EXITS /*do not check NOMEXP01..
+  IF #NOMEX-NAME (#I) = ' ' /*SU5
+    ESCAPE TOP
+  END-IF
+  IF (#I < 13 AND M-NOMEXIT-ACTIVE (#I) = 'Y') /*SU5
+  OR (#I = 13 AND M-NOMEXIT-ACTIVE (14) = 'Y') /*NOMEXP14  (see RDEFAPI)
+    P-LIBRARY := #SYSNOMU
+    P-MODULE  := #NOMEX-NAME (#I)
+    PERFORM CHECK-MODULE
+  END-IF
+END-FOR
+WRITE '='(79)
+************************************************************************
+EJECT
+WRITE ' ' *PROGRAM 'ended. Statistics:'         /
+  '  Modules checked:'      30T ##TOTAL     /
+  '  Successfully checked:' 30T ##SUCCESS   /
+  '  Not found:'            30T ##NOT-FOUND /
+  '  Too old:'              30T ##TOO-OLD   /
+*
+IF ##NOT-FOUND NE 0 OR ##TOO-OLD NE 0 /*SU4 moved to the end
+  INPUT '*'(79) / '***' 33T ' ' *PROGRAM 77T '***' / '*'(79) /
+    8T *PROGRAM 'has encountered severe errors.' /
+    8T 'Ensure to copy the necessary modules to SYSNOMU as described' /
+    8T 'in the installation manual.' /
+/*SU7    8T *PROGRAM 'will stop now.' / '*'(79) /
+/*SU7  IF *DEVICE = 'BATCH'
+/*SU7    TERMINATE 16 /*SU4
+/*SU7  END-IF
+/*SU7   ESCAPE ROUTINE
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-MODULE
+************************************************************************
+PERFORM XXNATDIR-GETDIR XXNATDIR
+#L-MEMBER    := P-MODULE
+#L-LIBRARY   := P-LIBRARY
+#L-CAT-DATE  := M-CA-DATE
+IF #PARENT NE ' '
+  #L-PARENT  := #OBJECT
+ELSE
+  RESET #L-PARENT
+END-IF
+DECIDE FOR FIRST CONDITION
+  WHEN P-ERC NE 0
+    #L-STATUS  := 'missing'
+    ADD 1 TO ##NOT-FOUND
+  WHEN M-CA-DATE = ' '
+    #L-STATUS  := 'not catalogd'
+    ADD 1 TO ##NOT-FOUND
+  WHEN M-CA-DATE LT #CAT-DATE-REF
+    #L-STATUS  := 'too old'
+    ADD 1 TO ##TOO-OLD
+  WHEN NONE
+    #L-STATUS := 'OK'
+    ADD 1 TO ##SUCCESS
+END-DECIDE
+WRITE #LINE /*SU4 / '-'(79)
+ADD 1 TO ##TOTAL
+IF #SYSNOMS-IS-REFERENCE /*SU4
+  IF P-LIBRARY = #SYSNOMS /*SYSNOMS is master lib for SYSNOMU
+    #CAT-DATE-REF := M-CA-DATE
+  ELSE
+    RESET #CAT-DATE-REF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CHECK-MODULE
+*
+END

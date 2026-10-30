@@ -1,0 +1,246 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* --------------------------------------------------------------------
+* Subprogram  NON42003
+* Version     3.5.0
+*
+*             Copy of NOP42003 and ISP42003
+*
+* Function    NOM API Report List
+*
+*             Check, lock and unlock object (local or exclusive)
+*             for SLOCK = SPOD.
+*             This is the SPOD variant of NAT42003 until there is a
+*             common solution for both SLOCK switches
+*
+* ---------------------------------------------------------------------
+* Modifications:
+* CF     2017-03-20  NOMALL-2089  Created (basing on NOP42003 of EOR)
+*
+* ---------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER
+1 P-FUNCTION       (A01)     /* 'C' Check
+1 P-OBJECT-NAME    (A32)  OPTIONAL
+1 P-OBJECT-TYPE    (A01)  OPTIONAL
+1 P-LIBRARY        (A08)  OPTIONAL
+1 P-DBID           (N05)  OPTIONAL
+1 P-FNR            (N05)  OPTIONAL
+1 P-RESPONSE       (I04)     /* Response code
+  /* -1  : invalid function code or
+  /*       all parameters required
+  /* -2  : locking not activated
+  /* -3  : source area empty
+  /* -4  : Predict error occurred
+  /* -5  : NATSGRD error occurred (Lock DDM)
+  /*
+  /* Check : 0 object unlocked
+  /*       : 1 object locked by current user
+  /*         2 object locked by others
+  /* Lock  : 0 object locked
+  /*         1 object already locked
+  /*         2 object alreadylocked by others
+  /* Unlock: 0 object unlocked
+  /*
+1 P-MSG            (A79)     /* Error message NAT7600 or
+  /* Error text with parameters MSG-TYPE
+  /* and MSG-NR from PRDLCK01
+LOCAL
+1 #CMUB-PARM1      (B1)
+1 #CMUB-PARM2      (A32)
+1 REDEFINE #CMUB-PARM2
+  2 #CMUB-PARM21   (A1)
+  2 #CMUB-PARM22   (A1)
+  2 #CMUB-PARM23   (A8)
+1 #CMUB-RESPONSE   (N4)
+*
+1 NATSGPF-FUNC     (I4)
+1 NATSGPF-ELEMENTS (I4)
+1 NATSGPF-FIELDS   (I4/1:1)
+1 NATSGPF-SLOCK    (B1)
+1 NATSGPF-RESP     (I4)
+*
+1 CMSLFT-PARM      (A52)    /* Get Lfile of FNAT/FUSER
+1 REDEFINE CMSLFT-PARM
+  2 CMSLFT-FCT     (I4)
+  2 CMSLFT-DUMMY   (A12)
+  2 CMSLFT-LFILE   (I4)
+  2 CMSLFT-DBID    (I4)
+  2 CMSLFT-FNR     (I4)
+  2 CMSLFT-PASSW   (A8)
+  2 CMSLFT-CIPH    (N8.0)
+*
+1 PRD-OBJ-NAME     (A253)    /* interface PRDLCK01
+1 PRD-OBJ-TYPE     (A2)
+1 PRD-LIB          (A8)
+1 PRD-DBID         (N5)
+1 PRD-FNR          (N5)
+1 NAD-MSG
+  2 MSG-TEXT       (A79)
+  2 MSG-NR         (I4)
+  2 MSG-TYPE       (I1)
+  2 MSG-DATA       (A32/1:3)
+1 MSG-NR-A         (A7)
+1 MSG-TYPE-A       (A5)
+1 OBJ-TYPE         (A1)
+1 MSG-NR-TEXT      (A4)      /* RKE02
+1 REDEFINE MSG-NR-TEXT
+  2 MSG-NR-NUM     (N4)
+END-DEFINE
+*
+RESET P-RESPONSE
+*
+* Check function code
+*
+IF NOT P-FUNCTION = 'C'     /* OR= 'L' OR= 'U' OR= 'X' OR= 'Y')
+  MOVE -1 TO P-RESPONSE
+  ESCAPE ROUTINE
+END-IF
+*
+*
+* Check SLOCK=SPOD for locking
+*
+NATSGPF-FUNC     := 0
+NATSGPF-ELEMENTS := 1
+NATSGPF-FIELDS(1):= 92  /* SLOCK=SPOD
+CALL 'NATSGPF' NATSGPF-FUNC NATSGPF-ELEMENTS
+  NATSGPF-FIELDS(*) NATSGPF-SLOCK
+*
+NATSGPF-RESP := RET('NATSGPF')
+IF NATSGPF-RESP NE 0 OR NATSGPF-SLOCK = H'00' /* no SPOD locking
+  MOVE -2 TO P-RESPONSE
+  ESCAPE ROUTINE
+END-IF
+*
+*
+RESET PRD-OBJ-NAME PRD-OBJ-TYPE
+  PRD-LIB PRD-DBID PRD-FNR
+*
+*
+IF P-OBJECT-NAME SPECIFIED AND P-OBJECT-TYPE SPECIFIED AND
+    P-LIBRARY SPECIFIED AND P-DBID SPECIFIED AND P-FNR SPECIFIED
+  /*
+  IF P-OBJECT-NAME = ' '
+    /*
+    PERFORM GET-CURRENT-OBJECT
+    /*
+  ELSE
+    /*
+    /*  Get name, type, library, DBID and FNR from parameters
+    /*
+    PRD-OBJ-NAME := P-OBJECT-NAME
+    PRD-OBJ-TYPE := P-OBJECT-TYPE
+    PRD-LIB      := P-LIBRARY
+    PRD-DBID     := P-DBID
+    PRD-FNR      := P-FNR
+    IF PRD-OBJ-TYPE = ' ' OR PRD-LIB = ' ' OR
+        PRD-DBID = 0 OR PRD-FNR = 0
+      PERFORM GET-CURRENT-OBJECT
+    END-IF
+  END-IF
+  P-OBJECT-NAME := PRD-OBJ-NAME     /* output data, info only
+  P-OBJECT-TYPE := PRD-OBJ-TYPE
+  P-LIBRARY     := PRD-LIB
+  P-DBID        := PRD-DBID
+  P-FNR         := PRD-FNR
+ELSE
+  PERFORM GET-CURRENT-OBJECT
+END-IF
+*
+IF P-RESPONSE NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+*
+RESET P-RESPONSE P-MSG
+*
+*
+CALLNAT 'PRDLCK01' 'C' PRD-OBJ-TYPE 'I'
+  PRD-DBID PRD-FNR PRD-LIB
+  PRD-OBJ-NAME
+  NAD-MSG
+IF MSG-TYPE = 100 OR MSG-NR > 0     /* error occurred
+  P-RESPONSE := -4
+  PERFORM GET-ERROR-TEXT
+  ESCAPE ROUTINE
+END-IF
+IF MSG-TYPE = 0 AND MSG-NR = 0      /* object not locked
+  P-RESPONSE := 0
+  ESCAPE ROUTINE
+END-IF
+IF MSG-NR = -7600                   /* object is locked
+  IF MSG-TYPE GE 0
+    P-RESPONSE := 1                 /* object locked by current user
+  ELSE
+    P-RESPONSE := 2                 /* object locked by others
+  END-IF
+  P-MSG := MSG-TEXT                 /* Locking text
+ELSE
+  P-RESPONSE := -4                  /* error occurred
+  PERFORM GET-ERROR-TEXT
+END-IF
+*
+*
+DEFINE SUBROUTINE GET-CURRENT-OBJECT
+*
+* Get current object name and type
+*
+MOVE 8   TO #CMUB-PARM1
+MOVE 'G' TO #CMUB-PARM21
+/*CALL 'CMUB' PARM1 PARM2
+CALLNAT 'NAT00040' #CMUB-PARM1 #CMUB-PARM2 #CMUB-RESPONSE
+IF #CMUB-PARM23 = ' ' AND PRD-OBJ-NAME = ' ' /* SOURCE AREA EMPTY AND
+  MOVE -3 TO P-RESPONSE                      /* NO OBJECT NAME SPECIFIED
+  ESCAPE ROUTINE
+END-IF
+*
+IF PRD-OBJ-NAME = ' '
+  PRD-OBJ-NAME := #CMUB-PARM23         /* GET NAME IN SOURCE AREA
+END-IF
+IF PRD-OBJ-TYPE = ' '
+  PRD-OBJ-TYPE := #CMUB-PARM22         /* GET TYPE IN SOURCE AREA
+END-IF
+*
+* Get current library, DBID and FNR
+*
+IF PRD-LIB = ' '
+  CALLNAT 'RGETLIB'  PRD-LIB            /* get current library
+END-IF
+*
+MOVE 5 TO CMSLFT-FCT
+IF PRD-LIB = MASK ('SYS') AND PRD-LIB NE 'SYSTEM'
+  MOVE 255 TO CMSLFT-LFILE            /* info of Lfile FNAT
+ELSE
+  MOVE 0 TO CMSLFT-LFILE              /* info of Lfile FUSER
+END-IF
+CALL 'CMSLFT' CMSLFT-PARM
+*
+IF PRD-DBID = 0 OR PRD-FNR = 0
+  PRD-DBID := CMSLFT-DBID          /* get DBID/FNR of current library
+  PRD-FNR  := CMSLFT-FNR
+END-IF
+*
+END-SUBROUTINE
+*
+DEFINE SUBROUTINE GET-ERROR-TEXT
+*
+IF MSG-TEXT NE ' '    /* maybe error text available    RKE02
+  IF MSG-NR < 0
+    MSG-NR-NUM := MSG-NR * (-1)
+    COMPRESS 'NAT' MSG-NR-NUM INTO P-MSG LEAVING NO
+    COMPRESS P-MSG MSG-TEXT INTO MSG-TEXT
+  END-IF
+  MOVE MSG-TEXT TO P-MSG
+ELSE
+  MOVE EDITED MSG-TYPE (EM=-ZZZZZ9) TO MSG-TYPE-A
+  MOVE EDITED MSG-NR (EM=-ZZZ9)     TO MSG-NR-A
+  COMPRESS 'Error in PRDLCK01 occurred. MSG-Type:' MSG-TYPE-A
+    'MSG-No:' MSG-NR-A INTO P-MSG
+END-IF
+END-SUBROUTINE
+*
+END

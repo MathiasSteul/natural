@@ -1,0 +1,133 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member       RMFLVT-N
+* Version      1.3
+* Function     Get attributes for flush via vtam
+*
+* Creation and Maintenance History
+* uuu yy-mm-dd s(999999) ...
+* gw  93-04-01 s(999999) created
+* mrs 93-11-02 s(999999) validate CONTROL
+* gw  95-12-20 s(999999) MAX-WAIT
+* gw  96-06-13 s(999999) MODE
+* gw  96-09-09 s(999999) VTAM restart
+* xsetggr 2004-11-23 p(258871) recat due to changes in rmfl---p
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-12-21 NOMALL-865 restow due to changes in RMFL---P
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER  USING  RMFL---P
+PARAMETER
+1 P-ERROR-CODE       (N4)
+1 P-ERROR-TEXT       (A250)
+************************************************************************
+LOCAL
+1 PRINTOUT VIEW OF NRM-PRINTOUTS
+  2 PO-LAST-PRINTED-RECNO
+  2 PO-PHYSICAL-NAME
+  2 PO-NODE
+  2 PO-COPIES
+  2 PO-ATTRIBUTES    (1:25)
+  2 REDEFINE PO-ATTRIBUTES
+    3 PO-ATTRIB      (1:25)
+      4 PO-IDENT     (I1)
+      4 PO-LENGTH    (N2)
+      4 PO-PROMPT    (N4)
+      4 PO-VAR       (A16)
+      4 PO-VALUE     (A72)
+  2 C*PO-ATTRIBUTES
+*
+1 F                  (I2)
+1 NOE                (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-ERROR-CODE P-ERROR-TEXT
+*
+PERFORM READ-PRINTOUT-RECORD
+PERFORM VTAM-INTERFACE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-PRINTOUT-RECORD
+************************************************************************
+FNDPR. FIND PRINTOUT WITH PO-ID = FLUSH-POID
+  IF NO RECORDS FOUND
+    P-ERROR-CODE := 0005
+    P-ERROR-TEXT := 'Printout Record not found'
+    ESCAPE BOTTOM (FNDPR.)
+  END-NOREC
+END-FIND
+*
+END-SUBROUTINE /* READ-PRINTOUT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE VTAM-INTERFACE
+************************************************************************
+RESET VTAM-ATTRIBUTES
+*
+VTAM-LAST-PRINTED-RECNO := PRINTOUT.PO-LAST-PRINTED-RECNO
+VTAM-NODE               := PRINTOUT.PO-NODE
+VTAM-COPIES             := PRINTOUT.PO-COPIES
+VTAM-PRINTER            := PRINTOUT.PO-PHYSICAL-NAME
+*
+IF PRINTOUT.C*PO-ATTRIBUTES > 25
+  NOE := 25
+ELSE
+  NOE := PRINTOUT.C*PO-ATTRIBUTES
+END-IF
+*
+FOR F = 1 TO NOE
+  DECIDE ON FIRST PRINTOUT.PO-VAR (F)
+    VALUE 'CONTROL'
+      IF PRINTOUT.PO-VALUE (F) = 'NO' OR = 'N'
+        VTAM-CONTROL := PRINTOUT.PO-VALUE (F)
+      ELSE
+        VTAM-CONTROL := 'Y'
+      END-IF
+    VALUE 'FEED-BEFORE'
+      IF PRINTOUT.PO-VALUE (F) IS (N2)
+        VTAM-FEED-BEFORE := VAL (PRINTOUT.PO-VALUE (F))
+      END-IF
+    VALUE 'FEED-AFTER'
+      IF PRINTOUT.PO-VALUE (F) IS (N2)
+        VTAM-FEED-AFTER := VAL (PRINTOUT.PO-VALUE (F))
+      END-IF
+    VALUE 'TRACE'
+      VTAM-TRACE := PRINTOUT.PO-VALUE (F)
+    VALUE 'LOGMODE'
+      VTAM-LOGMODE := PRINTOUT.PO-VALUE (F)
+    VALUE 'MAXWAIT'
+      IF PRINTOUT.PO-VALUE (F) IS (N4)
+        VTAM-MAX-WAIT := VAL (PRINTOUT.PO-VALUE (F))
+      END-IF
+    VALUE 'MODE'
+      VTAM-MODE := PRINTOUT.PO-VALUE (F)
+    VALUE 'RESTART-INTERVAL'
+      IF PRINTOUT.PO-VALUE (F) IS (N6)
+        VTAM-RESTART-INTERVAL := VAL (PRINTOUT.PO-VALUE (F))
+      END-IF
+    VALUE 'RESTART-MAX'
+      IF PRINTOUT.PO-VALUE (F) IS (N6)
+        VTAM-MAX-RESTARTS := VAL (PRINTOUT.PO-VALUE (F))
+      END-IF
+    NONE VALUE
+      IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* VTAM-INTERFACE
+*
+END

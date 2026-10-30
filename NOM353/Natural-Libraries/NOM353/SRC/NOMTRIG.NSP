@@ -1,0 +1,242 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMTRIG - List/Delete trigger file records
+*
+* Maintenance:
+* uuu     yyyy-mm-dd itrac ....
+* SU      2022-08-09 NOMALL-2573 created
+* SU1     2018-04-27 NOMALL-1823 remove SAP - nothing to do here
+* SU2     2024-03-07 ES-34613    NOM 3.6 Remove power
+************************************************************************
+DEFINE DATA LOCAL
+1 API-DEFAULTS VIEW OF NRM-MONITOR /* 8.1.10
+  2 M-TIME-SCHEDULE  (A1)
+  2 M-NATRPT-DBID-N5 (N5)
+  2 M-NATRPT-FNR-N5  (N5)
+1 NOMPUT-QUEUE VIEW OF NRM-NOMPUT-QUEUE /*lfile 158
+  2 NP-STATUS           (B2) /*1=in work/2=closed
+  2 NP-TYPE             (B2) /*see tab
+  2 NP-ATTRIBUTES-IDENT (A250)
+**2 NP-SPOOL-ATTRIBUTES (
+**2 NP-CC-TYPE          (
+**2 NP-RECORD-LENGTH    (
+**2 NP-NUMBER-OF-LINES  (
+  2 NP-NODE             (N5)
+  2 NP-ESYUSER          (A8)
+*
+1 #N-HEADER
+  2 MAIN-LINE        (A78)
+  2 DATE-FORMAT      (A1)
+  2 MAP-NAME         (A8)
+1 #TIT2              (A40) CONST <'- NOM Trigger File Entries -'>
+1 #NP-QUEUE          (A67)
+1 REDEFINE    #NP-QUEUE
+  2 #NP-STATUS       (B2)
+  2 #NP-TYPE         (B2)
+  2 #NP-IDENT        (A63)
+1 #EOM-SYS2
+  2 #EOM-SYS2-DBID   (N5)
+  2 #EOM-SYS2-FNR    (N5)
+1 #UPD               (A1) INIT <'N'>
+1 #I                 (I4)
+1 #NO                (I4)
+1 #ERC               (N4)
+1 #ERT               (A250)
+1 #SOURCE-TYPES      (A12/17) CONST < /*NOMNTRIG NOMDISSO A30 - short
+  /*SU1 SU2 old entries must stay to be upward compatible
+  'JES2',          /* 1
+  'JES3',          /* 2
+  'POWER',         /* 3 SU2
+  'NOM-DB',        /* 4
+  'SEQ-FILE-MVS',  /* 5
+  'SEQ-FILE-VSE',  /* 6 SU2
+  'SEQ-FILE-BS2',  /* 7
+  'LMS',           /* 8
+  'EPS',           /* 9
+  'NAT',           /*10
+  'NAF',           /*11
+  'JES2-Q-ENTRY',  /*12
+  'JES3-Q-ENTRY',  /*13
+  'CMASPOOL',      /*14
+  'SAPSPOOL',      /*15 SU1
+  'SEQ-FILE-UX',   /*16
+  'DIRECT-INPUT' > /*17
+1 #TAB               (1:15)
+  2 #M               (A1)
+  2 #M-CV            (C) INIT ALL <(AD=NP)>
+  2 #ISN             (P10)
+  2 #CNT             (I2)
+  2 #STATUS          (A4)
+  2 #SOURCE-TYPE     (A12)
+  2 #NODE            (N5)
+  2 #ESYUSER         (A8)
+  2 #ATTR-ID         (A100)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY ALL
+WRITE TITLE 2T MAIN-LINE (AD=OI CD=GR DY=<TU>)
+  / 27T #TIT2 70T 'Page:' *PAGE-NUMBER (NL=3) /
+MAP-NAME := *PROGRAM
+CALLNAT 'N-HEADER' #N-HEADER
+FORMAT AD=L SG=OFF
+*
+FNDTRIGGER. FIND API-DEFAULTS WITH M-MONITOR-ID = 'API-DEFS'
+END-FIND
+**M-NATRPT-DBID-N5 := 10   /* <9>  ÜÜ TEST ÜÜ qa  /*???? comment ÜÜ
+**M-NATRPT-FNR-N5  := 1356 /* <248> ÜÜ TEST ÜÜ qa /*???? comment ÜÜ
+IF M-NATRPT-DBID-N5 = 0 OR M-NATRPT-FNR-N5 = 0
+  PRINT '--> Trigger dbid/fnr not set. STOP'
+  ESCAPE ROUTINE
+END-IF
+* Get old+set new DBID/FNR:
+CALLNAT 'N-LF158' M-NATRPT-DBID-N5 M-NATRPT-FNR-N5
+  #EOM-SYS2-DBID #EOM-SYS2-FNR #ERC #ERT
+IF #ERC NE 0
+  PRINT '--> error setting LFILE 158 to'
+    M-NATRPT-DBID-N5 '/' M-NATRPT-FNR-N5 '. STOP'
+  ESCAPE ROUTINE
+END-IF
+*
+IF *DEVICE = 'BATCH'
+  PRINT '- NOM trigger container file -'
+    / 'Process trigger queue:' M-TIME-SCHEDULE
+    'DBID:' M-NATRPT-DBID-N5 'FNR:' M-NATRPT-FNR-N5
+    / 'In Batch only list is shown.'
+ELSE
+  INPUT (AD=MILT'_' IP=OFF) 2T MAIN-LINE (AD=OI CD=GR DY=<TU>) /
+    27T #TIT2 (AD=O) 70T *PROGRAM (AD=DO)//
+    'This program lists all NOM trigger file entries and' /
+    'allows to delete selected entries.' //
+    '- NOM trigger container file -' /
+    '  Process trigger queue:' M-TIME-SCHEDULE (AD=OD) /
+    '  DBID:' M-NATRPT-DBID-N5 (AD=OD) /
+    '  FNR: ' M-NATRPT-FNR-N5 (AD=OD) //
+    'Delete trigger file entries:' #UPD '(Y/N/.)'
+    '(Y=Yes, N=List only, . for Quit)' //
+    'Stat(us) : 0001 = in work / 0002 = closed'
+    21/1 'Enter ''.'' above or press any PF-key to Quit'
+  IF *PF-KEY NE 'ENTR' OR #UPD = '.'
+    ESCAPE MODULE
+  END-IF
+END-IF
+*
+#NP-STATUS := 2
+RESET #NP-TYPE
+MOVE ALL H'00' TO #NP-IDENT
+MOVE ALL H'00' TO #NP-QUEUE /*???? comment ÜÜ
+NP. READ NOMPUT-QUEUE BY NP-QUEUE = #NP-QUEUE
+  ADD 1 TO #NO
+  #I := NP-TYPE
+  IF NOT (#I =0 THRU *OCC(#SOURCE-TYPES))
+    COMPRESS '??' #I '??' TO #SOURCE-TYPE (#NO)
+  ELSE
+    #SOURCE-TYPE (#NO) := #SOURCE-TYPES (NP-TYPE)
+  END-IF
+  #ISN         (#NO) := *ISN(NP.)
+  #CNT         (#NO) := *COUNTER (NP.)
+  MOVE EDITED NP-STATUS (EM=HHHH) TO #STATUS (#NO)
+  #NODE        (#NO) := NP-NODE
+  #ESYUSER     (#NO) := NP-ESYUSER
+  #ATTR-ID     (#NO) := NP-ATTRIBUTES-IDENT
+  #M-CV        (#NO) := (AD=I)
+  IF #UPD = 'N'
+    PERFORM #DISP
+    RESET #NO
+  ELSE
+    IF #NO = *OCC(#ISN)
+      PERFORM #SHOW-IT
+    END-IF
+  END-IF
+END-READ
+IF #NO NE 0
+  PERFORM #SHOW-IT
+END-IF
+IF #UPD = 'N'
+  WRITE / '*** End of Report ***'
+END-IF
+* *****
+* Restore old DBID/FNR:
+CALLNAT 'N-LF158' #EOM-SYS2-DBID #EOM-SYS2-FNR
+  2X #ERC #ERT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE #SHOW-IT
+************************************************************************
+INPUT (AD=ODLT'_' ZP=OFF IP=OFF) 2T MAIN-LINE (AD=OI CD=GR DY=<TU>) /
+  27T #TIT2 (AD=O) 70T *PROGRAM (AD=DO)//
+  'M      Stat Type         Node  ESY User Identification Attributes' /
+  '- ---- ---- ------------ ----- --------' '-'(38) /
+  #M(01)(AD=M CV=#M-CV(01)) #CNT (01)(AD=R NL=4) #STATUS (01)
+  #SOURCE-TYPE (01) #NODE (01) #ESYUSER (01) #ATTR-ID (01)(AL=38)
+  #M(02)(AD=M CV=#M-CV(02)) #CNT (02)(AD=R NL=4) #STATUS (02)
+  #SOURCE-TYPE (02) #NODE (02) #ESYUSER (02) #ATTR-ID (02)(AL=38)
+  #M(03)(AD=M CV=#M-CV(03)) #CNT (03)(AD=R NL=4) #STATUS (03)
+  #SOURCE-TYPE (03) #NODE (03) #ESYUSER (03) #ATTR-ID (03)(AL=38)
+  #M(04)(AD=M CV=#M-CV(04)) #CNT (04)(AD=R NL=4) #STATUS (04)
+  #SOURCE-TYPE (04) #NODE (04) #ESYUSER (04) #ATTR-ID (04)(AL=38)
+  #M(05)(AD=M CV=#M-CV(05)) #CNT (05)(AD=R NL=4) #STATUS (05)
+  #SOURCE-TYPE (05) #NODE (05) #ESYUSER (05) #ATTR-ID (05)(AL=38)
+  #M(06)(AD=M CV=#M-CV(06)) #CNT (06)(AD=R NL=4) #STATUS (06)
+  #SOURCE-TYPE (06) #NODE (06) #ESYUSER (06) #ATTR-ID (06)(AL=38)
+  #M(07)(AD=M CV=#M-CV(07)) #CNT (07)(AD=R NL=4) #STATUS (07)
+  #SOURCE-TYPE (07) #NODE (07) #ESYUSER (07) #ATTR-ID (07)(AL=38)
+  #M(08)(AD=M CV=#M-CV(08)) #CNT (08)(AD=R NL=4) #STATUS (08)
+  #SOURCE-TYPE (08) #NODE (08) #ESYUSER (08) #ATTR-ID (08)(AL=38)
+  #M(09)(AD=M CV=#M-CV(09)) #CNT (09)(AD=R NL=4) #STATUS (09)
+  #SOURCE-TYPE (09) #NODE (09) #ESYUSER (09) #ATTR-ID (09)(AL=38)
+  #M(10)(AD=M CV=#M-CV(10)) #CNT (10)(AD=R NL=4) #STATUS (10)
+  #SOURCE-TYPE (10) #NODE (10) #ESYUSER (10) #ATTR-ID (10)(AL=38)
+  #M(11)(AD=M CV=#M-CV(11)) #CNT (11)(AD=R NL=4) #STATUS (11)
+  #SOURCE-TYPE (11) #NODE (11) #ESYUSER (11) #ATTR-ID (11)(AL=38)
+  #M(12)(AD=M CV=#M-CV(12)) #CNT (12)(AD=R NL=4) #STATUS (12)
+  #SOURCE-TYPE (12) #NODE (12) #ESYUSER (12) #ATTR-ID (12)(AL=38)
+  #M(13)(AD=M CV=#M-CV(13)) #CNT (13)(AD=R NL=4) #STATUS (13)
+  #SOURCE-TYPE (13) #NODE (13) #ESYUSER (13) #ATTR-ID (13)(AL=38)
+  #M(14)(AD=M CV=#M-CV(14)) #CNT (14)(AD=R NL=4) #STATUS (14)
+  #SOURCE-TYPE (14) #NODE (14) #ESYUSER (14) #ATTR-ID (14)(AL=38)
+  #M(15)(AD=M CV=#M-CV(15)) #CNT (15)(AD=R NL=4) #STATUS (15)
+  #SOURCE-TYPE (15) #NODE (15) #ESYUSER (15) #ATTR-ID (15)(AL=38)
+  21/1 ' Mark with any character and press ENTER to' 'Delete'(I)
+  '/ press any PF-key to' 'Quit'(I)
+IF *PF-KEY NE 'ENTR'
+  ESCAPE MODULE
+END-IF
+FOR #I = 1 TO #NO
+  IF #M (#I) = ' '
+    ESCAPE TOP
+  END-IF
+  G. GET NOMPUT-QUEUE #ISN(#I)
+  DELETE (G.)
+**PRINT 'del' #I
+END-FOR
+END TRANSACTION
+RESET INITIAL #NO #TAB (*)
+*
+END-SUBROUTINE /*#SHOW-IT
+*
+************************************************************************
+DEFINE SUBROUTINE #DISP
+************************************************************************
+DISPLAY
+  ' '        #CNT         (1) (AD=R NL=4)
+  'Stat'     #STATUS      (1)
+  'Type'     #SOURCE-TYPE (1)
+  'Node'     #NODE        (1)(ZP=OFF)
+  'ESY User' #ESYUSER     (1)
+  'Identification Attributes' #ATTR-ID  (1)(AL=40)
+*
+END-SUBROUTINE /* #DISP
+*
+END

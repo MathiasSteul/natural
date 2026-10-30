@@ -1,0 +1,70 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+***                            NOMRVARC                                       ***
+***   Set revive flag for all reports in given archive datasets               ***
+***                                                                           ***
+***   fhi/SAG 01/2014                                                         ***
+* SU1     2014-07-04 NOMALL-1279 fill fields for Adabas Vista
+* SU2     2016-01-15 NOMALL-1802 do not update Adabas Vista fields
+*********************************************************************************
+DEFINE DATA LOCAL
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-ARCHIVE
+  2 AR-ARCHIVE-DATA-SET
+  2 AR-REVIVE
+/*SU2 2 AR-OBJECT-TYPE /*SU1
+/*SU2 2 AR-OBJECT-TIME /*SU1
+1 #MSG      (A130)
+1 #DATASETS (A50/1000)
+1 #I        (I4)
+1 #COUNT    (I4)
+1 #UPD      (I4)
+1 G-USERID  (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=131
+G-USERID := *USER
+SET KEY ALL
+FOR. FOR #I = 1 TO 1000
+  INPUT #DATASETS (#I)
+  IF #DATASETS (#I) = '.' OR = 'END' OR = 'FIN' OR = ' '
+    RESET #DATASETS (#I)
+    ESCAPE BOTTOM (FOR.)
+  END-IF
+END-FOR
+RD. READ AR BY AR-ARCHIVE
+  EXAMINE #DATASETS(*) FOR AR-ARCHIVE-DATA-SET GIVING INDEX IN #I
+  IF #I = 0
+    ESCAPE TOP
+  END-IF
+  COMPRESS 'Set to be revived:' AR-REPNAME '/' AR-REPRNB 'in dataset'
+    #DATASETS (#I) TO #MSG
+  WRITE NOTITLE NOHDR #MSG
+  GET. GET AR *ISN(RD.)
+  AR-REVIVE      := 'S'
+/*SU2 AR-OBJECT-TYPE := 'AR' /*SU1
+/*SU2 AR-OBJECT-TIME := *TIMX /*SU1
+  UPDATE (GET.)
+  ADD 1 TO #UPD
+  IF #COUNT > 49
+    END TRANSACTION
+    RESET #COUNT
+  END-IF
+  ADD 1 TO #COUNT
+END-READ
+END TRANSACTION
+WRITE NOTITLE NOHDR 'Number of read active reports:' *COUNTER (RD.)
+  'Updated:' #UPD
+END TRANSACTION
+*
+END

@@ -1,0 +1,83 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMGTJES
+* Version   1.3
+* Function  Get Top of Current Page (JES2/JES3 Interface)
+*
+* Maintenance
+* uuu yy-mm-dd s(999999)  ...
+* mrs 92-12-03            created
+* fhi 05-04-19 NOM31107  Support 7-byte job numbers
+* fhi     2017-01-18 NOMALL-1916 Use binary NPR RECORD* fields
+* fhi     2017-01-27 NOMALL-1961 Show node name in errors
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING RMGT---P
+*
+INDEPENDENT
+1 +NOD-CURRENT-NAME    (A16) /*fhi 2017-01-27 NOMALL-1961 in
+*
+LOCAL USING RCCTYP-E             /* supported cc Types
+LOCAL USING RMSR---L
+LOCAL
+1 SYSOUT VIEW OF READ-SPOOL
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD-NUMBER
+  2 RECORD
+  2 RECORD-HEX1
+  2 REDEFINE RECORD-HEX1
+    3 RECORD-CC        (A1)
+  2 RECORD-HEX2
+  2 RECORD-HEX3
+*
+1 #SOURCE-TYPE-B2      (B2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#SOURCE-ATTRIBUTES := P-SOURCE-ATTRIBUTES
+#SOURCE-TYPE-B2 := P-SOURCE-TYPE
+CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES #SOURCE-TYPE-B2
+P-TOP-RECORD := P-RECORD-NUMBER + 1
+FIND-TOP. REPEAT
+  SUBTRACT 1 FROM P-TOP-RECORD
+*
+  IF P-TOP-RECORD <= 1
+    P-TOP-RECORD := 1
+    ESCAPE BOTTOM (FIND-TOP.)
+  END-IF
+*
+  FIND SYSOUT WITH JOB-NUMBER = #JES-JOB-NUMBER
+  AND JOB-NAME = #JES-JOB-NAME AND TYPE = #JES-TYPE                   /*
+  AND DATA-SET-KEY  = #JES-DATA-SET-KEY AND NODE = #JES-NODE          /*
+  AND RECORD-NUMBER = P-TOP-RECORD                                    /*
+    IF ERROR-CODE NE 0
+      P-ERROR-CODE := ERROR-CODE
+      COMPRESS ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE
+        TO P-ERROR-TEXT
+      ESCAPE BOTTOM (FIND-TOP.)
+    END-IF
+*   only first byte is used:
+    SYSOUT.RECORD-HEX1 := F#CONVERT-RECORD-HEX
+      (<SYSOUT.RECORD-HEX1,SYSOUT.RECORD-HEX2,SYSOUT.RECORD-HEX3,
+      1X,P-CODEPAGE>)
+    IF (RECORD-CC = '1'   AND P-CC-TYPE = ASA-CODE)
+    OR (RECORD-CC = H'89' AND P-CC-TYPE = MACHINE-CODE)               /*
+    OR (RECORD-CC = H'8B' AND P-CC-TYPE = MACHINE-CODE)               /*
+      IF RECORD-CC = H'89'
+        ADD 1 TO P-TOP-RECORD
+      END-IF
+      ESCAPE BOTTOM (FIND-TOP.)
+    END-IF
+*
+  END-FIND
+END-REPEAT
+*
+END

@@ -1,0 +1,310 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOCATF-N - NOM API TRansfer bundles to target environment
+* Input keys: ES-KEY-PARM(1) - transfer parms (redef NOXXTF-L)
+*
+* Maintenance:
+* XSETGGR 2005-01-26   created
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* xsetggr 2008-10-30 p(309496) err msg if target env not initialized
+* xsetggr 2012-08-16 NOMALL-1145 correct header
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* CF1     2014-11-12 NOMALL-1528 Improve error stability
+* ------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOXXTF-A
+************************************************************************
+LOCAL USING NOXXTF-L
+LOCAL USING NOCASL-A
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL                                                      /* CF1 +
+1 NAT23008-PARA
+  2 LFILE-NR           (B1)
+  2 FUNCTION           (A1)     /* 'S'=Set, 'R'=Reset
+  2 DBID               (B2)
+  2 FNR                (B2)
+  2 PASSWORD           (A8)
+  2 CIPHER             (A8)
+  2 VSAM-NAME          (A8)
+  2 DB-TYPE            (A1)
+  2 LFILE-IS-SET       (L)
+  2 RET_CODE           (I4)                               /* CF1 -
+1 CALENDAR VIEW OF NRM-CALENDARS
+  2 CA-CALENDAR-ID
+  2 REDEFINE CA-CALENDAR-ID
+    3 CA-CALENDAR           (A8)
+    3 CA-YEAR               (N4)
+  2 CA-WORKING-DAYS         (1:12)
+1 MIGRATE-REPORTS  VIEW OF NRM-MIGRATE-REPORTS
+1 MIGRATE-CALENDAR VIEW OF NRM-MIGRATE-CALENDARS
+  2 CA-CALENDAR-ID
+  2 CA-WORKING-DAYS         (1:12)
+1 #LFILE-FIELDS
+  2 LFILE                   (L)
+  2 #LFILE-OLDDBID          (N5)             /*  old DBID
+  2 #LFILE-OLDFILE          (N5)             /*  old File-Number
+  2 #LFILE-NEWDBID          (N5)             /*  new DBID
+  2 #LFILE-NEWFILE          (N5)             /*  new File-Number
+1 #I2                       (I4)
+1 #IMAX                     (I4)
+1 #CALENDAR-ID-E            (A12)
+1 REDEFINE #CALENDAR-ID-E
+  2 #CA-NAME-E              (A8)
+  2 #CA-YEAR-E              (N4)
+1 #CALENDAR-ID-S            (A12)
+1 REDEFINE #CALENDAR-ID-S
+  2 #CA-NAME-S              (A8)
+  2 #CA-YEAR-S              (N4)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+1 #ES-MSG-TXT               (A58)
+1 #YEAR-A                   (A4)
+1 REDEFINE #YEAR-A
+  2 #YEAR-N                 (N4)
+1 #MESSAGE                  (A250)
+1 #MSG-TEXT                 (A79)
+1 #ERRORNUMBER              (N4)
+1 #LANGCODE                 (I1)
+1 #RESPCODE                 (N1)
+1 #FUNC                     (A1)
+1 #LFILE                    (N5) INIT<158>
+*                                                         /* CF1 -
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  MOVE *ERROR-NR TO #ERRORNUMBER
+  CALLNAT 'NAT00020' #ERRORNUMBER #LANGCODE #MSG-TEXT #RESPCODE
+  IF #RESPCODE NE 0
+    COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ELSE
+    COMPRESS #ERRORNUMBER #MSG-TEXT TO ES-MSG-TXT
+  END-IF
+  ESCAPE ROUTINE
+END-ERROR
+*
+RESET ES-RC
+#NOCASL := ES-SELECT
+NOTF-PARM-1 := ES-KEY-PARM(1)
+/* Verify input parameters and switch LFILE 158 to target values
+PERFORM SET-LOGICAL-FILE
+/*
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ES-RC := 1
+  ES-MSG-FIELD := #ES-MSG-FIELD
+  COMPRESS '<#ERRORNUMBER' #ERRORNUMBER ':' #MESSAGE '>' TO ES-WORK
+ELSE /* Check appropriate objects and perform copy
+  PERFORM LIST
+  RESET #ES-MSG-NR
+  /* Switch LFILE 158 back to former values
+  PERFORM SWITCH-BACK-LFILE
+  IF #ES-MSG-NR NE 0
+    PERFORM GET-MSG-TXT
+    ES-RC := 2
+  END-IF
+END-IF                                                     /* CF1 -
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE LIST
+************************************************************************
+RESET ES-NUMBER ES-OPTION-COUNT ES-STARTINDEX ES-SORTKEY ES-SORTORDER
+  ES-EXPAND NOTF3-LIST(*)
+ES-EOF := 'X'
+#IMAX := 193
+ES-FIELD-COUNT := 3
+IF #NOCASL.#NAME NE ' '
+  EXAMINE #NOCASL.#NAME FOR '*' DELETE
+  COMPRESS #NOCASL.#NAME H'FF' TO #CA-NAME-E LEAVING NO
+ELSE
+  MOVE H'FF' TO #CA-NAME-E
+END-IF
+/*#CA-YEAR-E := 9999                               /* CF1 +
+EXAMINE #NOCASL.#YEAR FOR '*' DELETE
+COMPRESS #NOCASL.#YEAR 9999 TO #YEAR-A LEAVING NO
+IF #YEAR-A IS (N4)
+  #CA-YEAR-E := VAL(#YEAR-A)
+ELSE
+  MOVE 9999 TO #CA-YEAR-E
+END-IF                                             /* CF1 -
+/*
+IF ES-NEXT-KEY-PARM(1) > ' '
+  #CA-NAME-S := ES-NEXT-KEY-PARM(1)
+  #CA-YEAR-S := VAL(ES-NEXT-KEY-PARM(2))
+ELSE
+  #CA-NAME-S := #NOCASL.#NAME
+  COMPRESS #NOCASL.#YEAR 0000 TO #YEAR-A LEAVING NO
+  IF #YEAR-A IS (N4)
+    #CA-YEAR-S := VAL(#YEAR-A)
+  ELSE
+    MOVE 0000 TO #CA-YEAR-S
+  END-IF                                           /* CF1 -
+  ES-STARTINDEX := 1
+/* get header texts
+  #ES-MSG-NR := 6122
+  PERFORM GET-MSG-TXT
+  NOTF3-HEADER(1) := LONG-MSG(1)   /* calendar
+  NOTF3-HEADER(2) := LONG-MSG(2)   /* year
+  #ES-MSG-NR := 6102
+  PERFORM GET-MSG-TXT              /* message
+  NOTF3-HEADER(3) :=  LONG-MSG(13)
+END-IF
+R. READ CALENDAR WITH CA-CALENDAR-ID =
+    #CALENDAR-ID-S ENDING AT #CALENDAR-ID-E
+  REJECT IF CA-CALENDAR > #CA-NAME-E OR CA-YEAR < #CA-YEAR-S /* CF1
+  OR CA-YEAR > #CA-YEAR-E                                             /*
+  RESET #ES-MSG-NR
+  FT. FIND NUMBER MIGRATE-CALENDAR WITH CA-CALENDAR-ID
+  = CALENDAR.CA-CALENDAR-ID                                           /*
+  IF *NUMBER(FT.) > 0 AND NOTF-OWERWR NE 'Y'
+    #ES-MSG-NR := 8855
+    ADD 1 TO #I2
+    IF #I2 > #IMAX
+      ES-NEXT-KEY-PARM(1) := CA-CALENDAR
+      #YEAR-N := CA-YEAR
+      ES-NEXT-KEY-PARM(2) := #YEAR-A
+      ES-NUMBER := #IMAX
+      RESET ES-EOF
+      ESCAPE BOTTOM
+    END-IF
+    PERFORM GET-MSG-TXT
+    NOTF3-MSG(#I2)        := SHORT-MSG
+    NOTF3-OBJECT(#I2)     := CALENDAR.CA-CALENDAR
+    NOTF3-SUB-OBJECT(#I2) := CALENDAR.CA-YEAR
+    ES-NUMBER := #I2
+  ELSE
+    PERFORM COPY-CALENDAR
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* LIST
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LOGICAL-FILE                         /* CF1 +
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN NOTF-DBID-TO < 1
+    #ES-MSG-NR := 0635                      /* Invalid DBID
+    #ES-MSG-FIELD-NAME := 'DBID-TO'
+  WHEN NOTF-FNR-TO < 1
+    #ES-MSG-NR :=0636                       /* Invalid FNR
+    #ES-MSG-FIELD-NAME := 'FNR-TO'
+  WHEN NOTF-FNR-TO  = NOTF-FNR-FROM AND
+      NOTF-DBID-TO = NOTF-DBID-FROM
+    #ES-MSG-NR := 4004   /* Source and Target env must be different
+    #ES-MSG-FIELD-NAME := 'DBID-TO'
+  WHEN NONE
+    /*
+    /* Verify if NOM DBID/FNR are valid
+    #FUNC := 'S'
+    #LFILE-NEWDBID := NOTF-DBID-TO
+    #LFILE-NEWFILE := NOTF-FNR-TO
+    CALLNAT 'XXVNOM-N' #FUNC #LFILE #LFILE-NEWDBID #LFILE-NEWFILE
+      #LFILE-OLDDBID #LFILE-OLDFILE #MESSAGE #ERRORNUMBER
+    IF #ERRORNUMBER NE 0
+      #ES-MSG-NR := 4005        /* Specified File is not a NOM-File
+      #ES-MSG-FIELD-NAME := 'DBID-TO'
+      IF #ERRORNUMBER = 3 OR= 4  /* LFILE was switched
+        PERFORM SWITCH-BACK-LFILE
+      END-IF
+    ELSE
+      CALLNAT 'RMIGCHKU' ES-USER #ES-MSG-NR
+      IF #ES-MSG-NR NE 0
+        #ES-MSG-TXT := ES-USER
+        PERFORM SWITCH-BACK-LFILE
+      END-IF
+    END-IF
+END-DECIDE
+*
+END-SUBROUTINE /* SET-LOGICAL-FILE
+*
+************************************************************************
+DEFINE SUBROUTINE SWITCH-BACK-LFILE
+************************************************************************
+IF *MACHINE-CLASS NE 'PC'
+  /* Set LFILE to former values (OLD...)
+  IF #LFILE-OLDDBID = 0 AND #LFILE-OLDFILE = 0
+    NAT23008-PARA.FUNCTION := 'R'    /* Reset LFILE
+  ELSE
+    NAT23008-PARA.FUNCTION := 'S'    /* Set back to former values
+  END-IF
+  NAT23008-PARA.LFILE-NR := 158
+  NAT23008-PARA.DBID     := #LFILE-OLDDBID
+  NAT23008-PARA.FNR      := #LFILE-OLDFILE
+  CALLNAT 'NAT23008' NAT23008-PARA
+  IF NAT23008-PARA.RET_CODE NE 0
+    COMPRESS 'NAT23008 response code:' NAT23008-PARA.RET_CODE
+      TO #MESSAGE
+    #ES-MSG-NR := 4008       /* Refresh LFile error occured
+    #ES-MSG-TXT := NAT23008-PARA.RET_CODE
+  END-IF
+END-IF
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-CALENDAR
+************************************************************************
+FNDT. FIND MIGRATE-CALENDAR WITH CA-CALENDAR-ID =CALENDAR.CA-CALENDAR-ID
+  IF NO RECORDS FOUND
+    ENTER
+  END-NOREC
+  MOVE BY NAME CALENDAR TO MIGRATE-CALENDAR
+  IF *NUMBER(FNDT.) = 0
+    STORE MIGRATE-CALENDAR
+  ELSE
+    IF NOTF-OWERWR = 'Y'
+      UPDATE (FNDT.)
+    ELSE
+      BACKOUT TRANSACTION
+      ESCAPE BOTTOM(FNDT.)
+    END-IF
+  END-IF
+  END OF TRANSACTION
+END-FIND
+*
+END-SUBROUTINE /* COPY-CALENDAR
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR  := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+END

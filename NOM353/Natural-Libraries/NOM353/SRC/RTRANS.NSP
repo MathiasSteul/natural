@@ -1,0 +1,186 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RTRANS   Transfer Entity Menu
+*
+* Maintenance
+* mrs  91-12-28 s(141159) support languages other than english
+* mrs  93-12-08 s(999999) model 5 support
+* xsetggr 2011-02-18 NOMALL-851 add new tranfer object - Folder
+* ----------------------------------------------------------------------
+DEFINE DATA
+GLOBAL USING NRM-GL
+LOCAL USING RPFK---L
+LOCAL USING RMT----L
+LOCAL USING PROF-LOC
+LOCAL
+1 #FUNCTION         (N2)
+1 #MENU-ENTRY       (12)
+  2 #MENU-LINE      (A70)
+  2 #MENU-IDENT     (I2)
+  2 #MENU-PROG      (A30)
+  2 #OPTIONS        (L)
+1 #PF-KEY           (A4)
+*
+1 #LINE             (A60/17)
+1 I(N3)
+1 J(N3)
+1 #L                (N3)
+1 #TLINE            (A60)
+1 REDEFINE #TLINE
+  2 #TFIL1          (A2)
+  2 #TNUM           (A2)
+  2 #TFIL2          (A1)
+  2 #TTEXT          (A55)
+*
+1 L-HEADER          (A78)
+1 #OL-IDENT         (I2/1:3)
+1 #OTHER-LINES
+  2 #OL-LINES       (1:3)
+    3 #OL-TEXT      (A70)
+1 REDEFINE #OTHER-LINES
+  2 #M-LINE         (A70)
+  2 #C-LINE         (A70)
+  2 #H-LINE         (A70)
+1 #FATHER-PROG      (A8) INIT <'RADMIN'>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+INCLUDE RPFSET-C /*SUBROUTINE SET-PFKEYS
+*
+SET CONTROL 'L'
+RESET G-LINECOM(*)
+IF G-FLIP-STATUS = 'L'
+  G-FLIP-STATUS := 'P'
+END-IF
+PERFORM INIT-PFKEYS
+PERFORM SET-PFKEYS
+PERFORM INIT-MENU-TEXT
+INCLUDE C-INDIC
+PROFILE-STRING := G-USER-PROFILE
+IF G-USER-TYPE = 'A'
+* xsetggr 2011-02-18 NOMALL-851 change next line - was 1:7
+  #OPTIONS (1:8) := TRUE
+ELSE
+* xsetggr 2011-02-18 NOMALL-851 change next line - was 1:7
+  #OPTIONS (1:8) := FALSE
+END-IF
+*
+RESET #L #LINE(*)
+FOR I 1 TO 12
+  IF I = 1
+    ADD 2 TO #L
+    #LINE(1) := #M-LINE
+  END-IF
+  IF #OPTIONS(I)
+    ADD 1 TO #L
+    #TFIL1 := '< '
+    #TFIL2 := '>'
+    MOVE RIGHT I TO #TNUM
+    #TTEXT := #MENU-LINE(I)
+    #LINE(#L) := #TLINE
+  END-IF
+END-FOR
+*
+REPEAT
+*
+  RESET G-LINECOM (*) G-FLIPLINES (*)
+*
+  SET CONTROL 'WB'
+  PERFORM FLIP-DISPLAY
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RADMINM&'
+  IF G-NATRP-ERC = 0
+    G-NATRP-ERC := 10
+  END-IF
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'RTRANSM&'
+  #PF-KEY := *PF-KEY
+  RESET G-NATRP-ERC G-NATRP-ERT
+  MOVE LEFT G-DIRECT-COMMAND TO G-DIRECT-COMMAND
+  DECIDE ON EVERY  VALUE OF G-DIRECT-COMMAND    /* MB 90-08-01
+    VALUE '1','2','3','4','5','6','7','8'
+      #FUNCTION := VAL(G-DIRECT-COMMAND)
+      IF #OPTIONS (#FUNCTION) = FALSE
+        REINPUT *7 MARK *G-DIRECT-COMMAND
+      END-IF
+    VALUE '1' FETCH 'RMIGBU'
+    VALUE '2' FETCH 'RMIGCA'
+    VALUE '3' FETCH 'RMIGDL'
+    VALUE '4' FETCH 'RMIGPR'
+    VALUE '5' FETCH 'RMIGPH'
+    VALUE '6' FETCH 'RMIGRP'
+    VALUE '7' FETCH 'RMIGUS'
+    VALUE '8' FETCH 'RMIGFO'  /*xsetggr 2011-02-18 NOMALL-851 in
+    NONE      IGNORE
+  END-DECIDE
+*
+  INCLUDE C-DIRECT
+  DECIDE ON FIRST VALUE OF #PF-KEY
+    VALUE 'PF1','PF13'
+      REINPUT USING HELP
+    VALUE 'PF3','PF15'
+      INCLUDE C-ESCAPE
+    VALUE 'PF4','PF16'
+      PERFORM FLIP-HANDLE
+      ESCAPE TOP
+    VALUE 'PF12','PF24'
+      INCLUDE C-MENU
+    NONE VALUE IGNORE
+  END-DECIDE
+  IF NOT(#FUNCTION = 1 THRU 10)
+    REINPUT *0007 MARK *#FUNCTION ALARM
+  END-IF
+  IF NOT #OPTIONS(#FUNCTION)
+    REINPUT *0007
+  END-IF
+  IF #FUNCTION = 10
+    INCLUDE C-ESCAPE
+  END-IF
+  G-DIRECT-COMMAND := #MENU-PROG(#FUNCTION)
+  INCLUDE C-DIRECT
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-MENU-TEXT
+************************************************************************
+#MENU-IDENT (01) := ##MTN-TRANSFER-BUNDLES
+#MENU-IDENT (02) := ##MTN-TRANSFER-CALENDARS
+#MENU-IDENT (03) := ##MTN-TRANSFER-LISTS
+#MENU-IDENT (04) := ##MTN-TRANSFER-PRINTERS
+#MENU-IDENT (05) := ##MTN-TRANSFER-PHYSICAL
+#MENU-IDENT (06) := ##MTN-TRANSFER-REPORTS
+#MENU-IDENT (07) := ##MTN-TRANSFER-USERS
+* xsetggr 2011-02-18 NOMALL-851 insert next line
+#MENU-IDENT (08) := ##MTN-TRANSFER-FOLDERS
+FOR J = 1 TO 12
+  IF #MENU-IDENT (J) NE 0
+    CALLNAT 'RLTINI-N' #MENU-IDENT (J) #MENU-LINE  (J) G-TXB
+  END-IF
+END-FOR
+#OL-IDENT (01) := ##MTN-TRANSFER-FUNC
+FOR J = 1 TO 3
+  IF #OL-IDENT (J) NE 0
+    CALLNAT 'RLTINI-N' #OL-IDENT (J) #OL-TEXT  (J) G-TXB
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* INIT-MENU-TEXT
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+END

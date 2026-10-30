@@ -1,0 +1,277 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RM-ETR-P - Make Error Transaction Resident In Buffer Pool
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* xsisaa 99-07-04 s(259992) Created
+* sju 01-04-30 s(209086) Check if error transaction is already res
+* fhi 02-10-18 fhi01     Make message clearer.
+* fhi 04-12-09 NOM3103   Make it Unix compliant
+* fhi 05-05-18 s(265085) Avoid NAT0933 if NOM upgraded by purge Err-TA
+*                        Comments deleted, program rewritten
+* SU1     2015-02-27 NOMALL-1569 USR0340N (SYSEXT) => NAT42027 (SYSLIBS)
+* SU2     2015-04-16 NOMALL-1569 USR0341N (SYSEXT) => NAT42027 (SYSLIBS)
+*                                force option missing-> itrac ??
+* fhi     2016-04-15 NOMALL-1837 Introduce +DEVICE for testing
+* SU3     2016-07-19 NOMALL-1847 NOM 3.5:use NAT82014 to force BP delete
+* fhi     2016-09-09 NOMALL-1847 Avoid RC 3 from NAT82014
+* -------------------------------------------------------------------
+DEFINE DATA
+INDEPENDENT
+1 +DEVICE                (A8)
+LOCAL
+1 P-ERRTA                (A8)
+1 NAT82014-PARMS
+  2 #FUNCTION            (A1)
+  2 #PURGEFLAG           (L)
+  2 #AGE-IN              (I2)
+  2 #OBJ-TYPE            (B1)
+  2 #OBJ-STATE           (B1)
+  2 #OBJ-LIB             (A8)
+  2 #OBJ-NAME            (A40)
+  2 #OBJ-DBID            (B2)
+  2 #OBJ-FNR             (B2)
+  2 #NUMBER              (I2)
+  2 #RESPONSE            (I2)
+1 NAT42027-PARMS
+  2 #FUNC                (A1)
+  2 #BP-ADIR             (B4)
+  2 #OBJ-TYPE            (B1)
+  2 #OBJ-STATE           (B1)
+  2 #OBJ-LIB             (A8)
+  2 #OBJ-NAME            (A40)
+  2 #OBJ-DBID            (B2)
+  2 #OBJ-FNR             (B2)
+  2 #NUMBER              (I2)
+  2 #RESPONSE            (I2)
+  2 #DIRECTORY-BUFFER    (1:10)
+    3 #DIR-ADIR          (B4)
+    3 #DIR-ATEXT         (B4)
+    3 #DIR-RES           (A1)
+    3 #DIR-LOAD          (A1)
+    3 #DIR-DEL           (A1)
+    3 #DIR-FREE-1        (B1)
+    3 #DIR-ID
+      4 #DIR-TYPE        (B1)
+      4 #DIR-STATE       (B1)
+      4 #DIR-LIB         (A8)
+      4 #DIR-OBJ         (A40)
+      4 #DIR-DBID        (B2)
+      4 REDEFINE #DIR-DBID
+        5 #DIR-DBID-HIGH (B1)
+        5 #DIR-DBID-LOW  (B1)
+      4 #DIR-FNR         (B2)
+      4 REDEFINE #DIR-FNR
+        5 #DIR-FNR-HIGH  (B1)
+        5 #DIR-FNR-LOW   (B1)
+    3 #DIR-USECOUNT      (I2)
+    3 #DIR-MAXCOUNT      (I2)
+    3 #DIR-TOTCOUNT      (I4)
+    3 #DIR-OSIZE         (I4)
+    3 #DIR-ASIZE         (I4)
+    3 #DIR-LT            (B8)
+    3 #DIR-LA            (B8)
+    3 #DIR-FREE-2        (B2)
+    3 #DIR-LUID          (A8) /* loaded by uid
+  2 #BP-ADDR             (B4) /* (I) BP address
+  2 #BP-NAME             (A8) /* (I) BP name
+/*2 P-DIR-NVERS          (A9/1:10) OPTIONAL  /* cat by Natural vers
+*
+1 PARM-NAT00028
+  2 LFILE          (N5)
+  2 PHYSICAL-DBID  (N5)
+  2 PHYSICAL-FNR   (N5)
+  2 DB-TYPE        (A1)
+  2 RESPONSE       (N4)
+1 #I               (I2)
+1 #LIBRARY-ID      (A8)
+1 #MSG             (A80)
+1 #ERR             (L) /*SU2
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+**??STACK TOP DATA 'RM-ERRTA'
+INPUT P-ERRTA
+IF P-ERRTA = ' ' OR *MACHINE-CLASS NE 'MAINFRAME'
+  ESCAPE ROUTINE
+END-IF
+************************************************************************
+* 1. Get FUSER or FNAT settings:
+************************************************************************
+IF *LIBRARY-ID = MASK('SYS'.....)
+  LFILE := 255
+  #LIBRARY-ID := 'SYSNOM*'
+ELSE
+  LFILE := 0
+  #LIBRARY-ID := *LIBRARY-ID
+  COMPRESS SUBSTR(#LIBRARY-ID,1,5) '*' TO #LIBRARY-ID LEAVING NO
+END-IF
+CALLNAT 'NAT00028' PARM-NAT00028
+IF RESPONSE NE 0
+  RESET PHYSICAL-DBID PHYSICAL-FNR
+END-IF
+************************************************************************
+* 2. Remove resident flag from error-ta:
+************************************************************************
+RESET NAT42027-PARMS
+NAT42027-PARMS.#FUNC := 'C' /*RELEASE OBJECTS/Remove resident flag
+PERFORM INVOKE-NAT42027
+IF NAT42027-PARMS.#RESPONSE = 0 AND NAT42027-PARMS.#NUMBER GT 0
+  FOR #I = 1 TO NAT42027-PARMS.#NUMBER
+    IF #DIR-RES(#I) = 'R'
+      NAT42027-PARMS.#FUNC := 'C' /*RELEASE OBJECTS/Remove resident flag
+      CALLNAT 'NAT42027' NAT42027-PARMS
+      PERFORM NAT42027-ERROR
+    END-IF
+  END-FOR
+END-IF
+**??INPUT 'resident removed?' #LIBRARY-ID (AD=MILT)
+************************************************************************
+* 3. Delete error-ta from BP (forced):
+************************************************************************
+RESET NAT82014-PARMS
+#AGE-IN := 30
+NAT82014-PARMS.#FUNCTION := 'F' /*DELETE OBJECTS FORCED
+PERFORM INVOKE-NAT82014
+**??INPUT 'removed from BP?' #LIBRARY-ID (AD=MILT)
+************************************************************************
+* 4. Invoked error-ta / load it into BP:
+************************************************************************
+STACK TOP DATA -1 0 ' '  ' ' 0          /* Error code -1
+FETCH RETURN P-ERRTA                    /* Dummy call
+**??INPUT 'back into BP?'  #LIBRARY-ID (AD=MILT)
+************************************************************************
+* 5. Make error-ta resident if exist:
+************************************************************************
+RESET NAT42027-PARMS
+NAT42027-PARMS.#FUNC := 'S' /*DIRECTORY STATISTICS / does obj. exist ?
+PERFORM INVOKE-NAT42027
+IF NAT42027-PARMS.#RESPONSE = 0 AND NAT42027-PARMS.#NUMBER GT 0
+  FOR #I = 1 TO NAT42027-PARMS.#NUMBER
+    IF #DIR-RES(#I) NE 'R'
+      NAT42027-PARMS.#FUNC := 'R' /*MARK OBJECTS RESIDENT
+      CALLNAT 'NAT42027' NAT42027-PARMS
+      IF NAT42027-PARMS.#RESPONSE = 0
+        IF +DEVICE = 'BATCH' AND NOT #ERR  /* NOMALL-1837 +DEVICE
+          PRINT NOTITLE NOHDR *PROGRAM 10T 'Error-transaction' P-ERRTA
+            'successfully made resident in Buffer Pool.'
+        END-IF
+      ELSE
+        PERFORM NAT42027-ERROR
+      END-IF
+    END-IF
+  END-FOR
+END-IF
+**??INPUT 'resident again ?'  #LIBRARY-ID (AD=MILT)
+************************************************************************
+END TRANSACTION
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INVOKE-NAT42027
+************************************************************************
+NAT42027-PARMS.#OBJ-DBID := PHYSICAL-DBID
+NAT42027-PARMS.#OBJ-FNR  := PHYSICAL-FNR
+NAT42027-PARMS.#OBJ-LIB  := #LIBRARY-ID
+NAT42027-PARMS.#OBJ-NAME := P-ERRTA
+CALLNAT 'NAT42027' NAT42027-PARMS
+PERFORM NAT42027-ERROR
+*
+END-SUBROUTINE /* INVOKE-NAT42027
+*
+************************************************************************
+DEFINE SUBROUTINE INVOKE-NAT82014
+************************************************************************
+NAT82014-PARMS.#OBJ-LIB  := #LIBRARY-ID
+NAT82014-PARMS.#OBJ-NAME := P-ERRTA
+NAT82014-PARMS.#OBJ-DBID := PHYSICAL-DBID
+NAT82014-PARMS.#OBJ-FNR  := PHYSICAL-FNR
+CALLNAT 'NAT82014' NAT82014-PARMS
+PERFORM NAT82014-ERROR
+*
+END-SUBROUTINE /* INVOKE-NAT82014
+*
+************************************************************************
+DEFINE SUBROUTINE NAT42027-ERROR
+************************************************************************
+DECIDE ON FIRST VALUE OF NAT42027-PARMS.#RESPONSE
+  VALUE   0    ESCAPE ROUTINE IMMEDIATE /*Success
+  VALUE   1    #MSG := 'Invalid Natural interface function.'
+  VALUE   2    #MSG := 'Invalid function code.'
+  VALUE   4,10 #MSG := 'Internal error,'
+  VALUE   8
+    DECIDE ON FIRST VALUE OF NAT42027-PARMS.#FUNC
+      VALUE 'R' #MSG := 'Function not executed: flag already set.'
+      VALUE 'C' ESCAPE ROUTINE IMMEDIATE /*Success /*no msg
+/*              #MSG := 'Function not executed: flag not set.'
+      VALUE 'D' ESCAPE ROUTINE IMMEDIATE /*Success /*no msg
+/*              #MSG := 'Error transaction not found.' /*'D' OR='S'
+      NONE      #MSG := 'Error transaction not found.' /*'D' OR='S'
+    END-DECIDE
+  VALUE   9 #MSG := 'Buffer Pool not active.'
+  VALUE  12 #MSG := 'Synchronisation failed, try again.'
+  VALUE  17 #MSG := 'Error reading list of global BPs.'
+  VALUE  18 #MSG := 'Cannot enable buffer pool. '-
+      'Version or address may be wrong.'
+  VALUE  99 #MSG := 'Buffer pool not found.'
+  VALUE 999 #MSG := 'Program can be used on mainframes only.'
+  NONE      COMPRESS 'Error' NAT42027-PARMS.#RESPONSE 'occured.' TO #MSG
+END-DECIDE
+IF +DEVICE NE 'BATCH'   /* NOMALL-1837 +DEVICE
+  ESCAPE ROUTINE
+END-IF
+PRINT NOTITLE NOHDR *PROGRAM 10T 'Error occurred when making'
+  P-ERRTA 'resident in Buffer Pool (NAT42027):'
+PRINT NOTITLE NOHDR (AD=L) *PROGRAM 10T #MSG
+  'Func:' NAT42027-PARMS.#FUNC
+  'Resp:' NAT42027-PARMS.#RESPONSE
+  'Lib:' NAT42027-PARMS.#OBJ-LIB
+  'Name:' NAT42027-PARMS.#OBJ-NAME
+  'DBID:' NAT42027-PARMS.#OBJ-DBID
+  'FNR:' NAT42027-PARMS.#OBJ-FNR
+  'Nr:' NAT42027-PARMS.#NUMBER
+#ERR := TRUE
+*
+END-SUBROUTINE /*NAT42027-ERROR
+*
+************************************************************************
+DEFINE SUBROUTINE NAT82014-ERROR
+************************************************************************
+DECIDE ON FIRST VALUE OF NAT82014-PARMS.#RESPONSE
+  VALUE 0 ESCAPE ROUTINE IMMEDIATE /*Success
+  VALUE 2 #MSG := 'Invalid function code.'
+  VALUE 3 #MSG := 'Invalid Age'
+  VALUE 8 #MSG := 'Error transaction not found.'
+  VALUE 9 #MSG := 'Buffer Pool not active.'
+  NONE    COMPRESS 'Error' NAT42027-PARMS.#RESPONSE 'occured.' TO #MSG
+END-DECIDE
+IF +DEVICE NE 'BATCH'   /* NOMALL-1837 +DEVICE
+  ESCAPE ROUTINE
+END-IF
+PRINT NOTITLE NOHDR *PROGRAM 10T 'Error occurred when making'
+  P-ERRTA 'resident in Buffer Pool (NAT82014):'
+PRINT NOTITLE NOHDR (AD=L) *PROGRAM 10T #MSG
+  'Func:' NAT82014-PARMS.#FUNCTION
+  'Resp:' NAT82014-PARMS.#RESPONSE
+  'Lib:' NAT82014-PARMS.#OBJ-LIB
+  'Name:' NAT82014-PARMS.#OBJ-NAME
+  'DBID:' NAT82014-PARMS.#OBJ-DBID
+  'FNR:' NAT82014-PARMS.#OBJ-FNR
+  'Nr:' NAT82014-PARMS.#NUMBER
+** #PURGEFLAG #AGE-IN
+#ERR := TRUE
+*
+END-SUBROUTINE /*NAT82014-ERROR
+*
+END

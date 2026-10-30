@@ -1,0 +1,489 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RJREVUXC - Revive Active Report from Archive Data set on Unix
+*           Common subroutines for RJREVUX* modules
+*
+* Maintenance:
+* uuuuuuuu yy-mm-dd iTrac       Comment
+* fhi      11-12-05 NOMALL-1073 Created from RJREVUX2
+* SPLILDAV 12-06-27 NOMALL-1078 SUPPORT COMPRESSION 16K BYTE RECORDS
+* xsetggr  12-10-22 ES-104      filld MA-CURRENT-LOCATION
+* fhi      12-11-09 NOMALL-1143 Add cpu time output
+* raya     12-11-29 NOMALL-1214 check cat date of nomex*
+* xsetggr  13-03-14 ES-104      corrections
+* raya     13-05-09 NOMALL-1214 backout check cat date of nomex*
+* SU1      14-07-11 NOMALL-1279 fill fields for Adabas Vista (RJREVUXC)
+* BLI      14-10-06 NOMALL-1422 remove NOP schedule, mainframe parts
+* SU2      2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* fhi      2015-07-15 NOMALL-1677 Add trace (although NOM33 solution)
+* SU3      2016-01-18 NOMALL-1802 do not update Adabas Vista fields
+* SU4      2018-02-15 NOMALL-1823 NOM 3.5: remove CONNECT
+* BLI      2018-03-21 use GDA again
+* SU5      2019-05-15 NOMALL-2273 upd location in mail records
+* SU6     2019-11-13 NOMALL-2348 do not cut msg
+* SU7     2020-05-22 NOMALL-2349 no ESY logon on Unix
+* BLI1    2022-08-01 NOMALL-2548 check calendar in HANDLE-ID-RECORD
+* ----------------------------------------------------------------------
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-ID-RECORD
+************************************************************************
+PERFORM FLUSH-LAST-BUFFER
+IF END-OF-PROCESSING
+  ESCAPE ROUTINE
+END-IF
+*
+RESET ERROR-OCCURED
+*
+#ID-RECORD := #TEXT-RECORD
+DECIDE FOR FIRST CONDITION
+/* repname a25,reprnb p7,jobnumber n5,node n3
+  WHEN #RECORD-LENGTH = 133 THRU 140      /* NOM311 format archive
+    #ACTREP-REPORT := #REPNAME1 /* jobname (n5)
+    #ACTREP-REPRNB := #REPRNB1
+/* repname a25,reprnb p7,jobnumber n7,node n3
+  WHEN #RECORD-LENGTH = 141 THRU 142 /* jobname (n7)
+    #ACTREP-REPORT := #REPNAME2
+    #ACTREP-REPRNB := #REPRNB2
+/* repname a25,reprnb p11,jobnumber n7,node n5
+  WHEN #RECORD-LENGTH > 142
+    #ACTREP-REPORT := #REPNAME /* rnb(p11), node (n5)
+    #ACTREP-REPRNB := #REPRNB
+/* repname a17,reprnb p7,jobnumber n5,node n3
+  WHEN #RECORD-LENGTH LE 132           /* repname (a17) - nom211 format
+    #ACTREP-REPORT := #REPNAME3
+    #ACTREP-REPRNB := #REPRNB3
+  WHEN NONE IGNORE /*SU5 ERROR Ü?
+END-DECIDE
+IF G-TRACE > 0
+  COMPRESS 'Found report' #ACTREP-REPORT '/' #ACTREP-REPRNB
+    TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+#MA-REPNAME := #ACTREP-REPORT
+#MA-REPRNB  := #ACTREP-REPRNB
+*
+FIND-ACT. FIND ACTIVE-REPORTS WITH AR-REPORT-RNB = #ACTREP-KEY
+WHERE AR-REVIVE ='D' OR='S'                                           /*
+  IF NO RECORDS FOUND
+    REVIVE-IT := FALSE
+    ESCAPE BOTTOM
+  END-NOREC
+*
+  REVIVE-IT := TRUE
+  RESET #REC-NO
+  #REPISN := *ISN (FIND-ACT.)
+  #K-REPNAME := #ACTREP-REPORT
+  #K-REPRNB := #ACTREP-REPRNB
+END-FIND
+*
+IF G-TRACE > 0
+  IF REVIVE-IT
+    G-TRACE-MSG := 'REVIVE-IT is true'
+  ELSE
+    G-TRACE-MSG := 'REVIVE-IT is false'
+  END-IF
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+IF NOT REVIVE-IT
+  ESCAPE ROUTINE
+END-IF
+*
+RESET G-NATRP-ERC FROM-SWITCHES
+*
+* BLI1 validate Calendar start
+IF NOT ERROR-OCCURED
+  IF AR-REVIVE-RETENTION-PERIOD = ' '
+    FIND REPORT WITH R-REPNAME = AR-REPNAME
+      AR-REVIVE-RETENTION-PERIOD := REPORT.R-REVIVE-RETENTION
+    END-FIND
+    IF AR-RETENTION-NUM > 0 AND AR-RETENTION-UNIT = 'W'
+      IF AR-RETENTION-CALENDAR = ' '
+        ERROR-OCCURED := TRUE
+        COMPRESS AR-REPNAME  '/' AR-REPRNB
+          TO LG-MSG LEAVING NO
+        COMPRESS '2010' LG-MSG TO LG-MSG
+        PERFORM #RLOG
+        END TRANSACTION
+        WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+          'Enter calendar for' AR-REPNAME '/' AR-REPRNB
+      ELSE
+        CALLNAT 'RCHKCA' AR-RETENTION-CALENDAR EXIST
+        IF NOT EXIST
+          ERROR-OCCURED := TRUE
+          COMPRESS AR-REPNAME  '/' AR-REPRNB
+            TO LG-MSG LEAVING NO
+          COMPRESS '2004' LG-MSG TO LG-MSG
+          PERFORM #RLOG
+          END TRANSACTION
+        WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+            'Calendar' AR-RETENTION-CALENDAR 'does not exist.'
+        END-IF
+      END-IF
+    END-IF
+  END-IF
+END-IF
+*
+IF NOT ERROR-OCCURED  /* BLI1 end
+  DECIDE ON EVERY VALUE OF ACTIVE-REPORTS.AR-REVIVE
+    VALUE 'S'
+      ACTIVE-REPORTS.AR-REVIVE := 'D'
+    VALUE 'D','R'
+      FROM-NRM := TRUE
+      RESET #WRITER
+      CALLNAT 'RMDELRTN' ACTIVE-REPORTS.AR-REPNAME
+        ACTIVE-REPORTS.AR-REPRNB
+    NONE VALUE
+      ERROR-OCCURED := TRUE
+  END-DECIDE
+END-IF /* BLI1
+*
+END-SUBROUTINE /* HANDLE-ID-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-LAST-BUFFER
+************************************************************************
+#REVIVE-DATE := *TIMX
+IF REVIVE-IT
+  RESET REVIVE-IT
+  IF SW-STORE
+    PERFORM FLUSH-BUFFER
+    RESET SW-STORE
+  END-IF
+  PERFORM UPDATE-ACTIVE-REPORT
+  PERFORM IS-ANYTHING-TO-REVIVE
+END-IF
+*
+END-SUBROUTINE /* FLUSH-LAST-BUFFER
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-BUFFER
+************************************************************************
+IF #T = 0
+  ESCAPE ROUTINE
+END-IF
+DECIDE FOR FIRST CONDITION
+  WHEN FROM-NRM      PERFORM FLUSH-TO-DB
+  WHEN NONE          ERROR-OCCURED := TRUE
+END-DECIDE
+RESET #T REPORT-TEXT.F-TEXT (*)
+*
+END-SUBROUTINE /* FLUSH-BUFFER
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-TEXT-RECORD
+************************************************************************
+ADD 1 TO #T
+ADD 1 TO #REC-NO
+*
+SW-STORE := TRUE
+*
+SUBTRACT 1 FROM #RECORD-LENGTH
+COMPCB-ILEN := #RECORD-LENGTH
+* NOMALL-1078 INSERT 1 LINE
+COMPCB-ILEN-OLD := #RECORD-LENGTH              /* For compat
+IF #RECORD-LENGTH > 251
+  COMPCB-ILEN := 251
+* NOMALL-1078 INSERT 1 LINE
+  COMPCB-ILEN-OLD := 251 /* For compat
+  COMPRESS '7205' #REC-NO 'WORK-FILE 1' TO LG-MSG /*line:1:truncated
+  PERFORM #RLOG
+  END TRANSACTION
+END-IF
+*
+IF NOT FROM-NRM
+  CALLNAT 'R-NRMCMP' COMPCB #T-TEXT REPORT-TEXT.F-TEXT (#T)
+    G-NATRP-ERC G-NATRP-ERT
+* NOMALL-1078 INSERT 1
+  RESET COMPCB-OLEN       /* Zero output length
+  IF G-NATRP-ERC NE 0
+    ESCAPE ROUTINE
+  END-IF
+ELSE
+  IF #T-TEXT = ' '
+    REPORT-TEXT.F-TEXT (#T) := H'0103'
+  ELSE
+    REPORT-TEXT.F-TEXT(#T) := #T-TEXT
+  END-IF
+END-IF
+IF #T = 20
+  PERFORM FLUSH-BUFFER
+END-IF
+*
+END-SUBROUTINE /* HANDLE-TEXT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-TO-DB
+************************************************************************
+ANY-REVIVE := TRUE
+*
+REPORT-TEXT.F-SEQ     := #REC-NO
+REPORT-TEXT.F-REPNAME := #K-REPNAME
+REPORT-TEXT.F-REPRNB  := #K-REPRNB
+REPORT-TEXT.F-OBJECT-TYPE := 'FS' /*SU2
+REPORT-TEXT.F-OBJECT-TIME := *TIMX /*SU2
+STORE REPORT-TEXT
+END TRANSACTION
+*
+RESET REPORT-TEXT.F-TEXT(*)
+*
+END-SUBROUTINE /* FLUSH-TO-DB
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-ACTIVE-REPORT
+************************************************************************
+IF ERROR-OCCURED
+  GETERR. GET ACTIVE-REPORTS #REPISN
+  RESET AR-REVIVE
+  UPDATE (GETERR.)
+*
+  COMPRESS AR-REPNAME (GETERR.) '/' AR-REPRNB (GETERR.)
+    TO LG-MSG LEAVING NO
+  COMPRESS '0470' LG-MSG TO LG-MSG
+  PERFORM #RLOG
+  END TRANSACTION
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Error during revive of' AR-REPNAME '/' AR-REPRNB
+  ESCAPE ROUTINE
+END-IF
+*
+UPDREV. GET ACTIVE-REPORTS  #REPISN
+*
+AR-REVIVE := '*'
+AR-REVIVE-DATE := #REVIVE-DATE
+*
+DECIDE FOR FIRST CONDITION
+  WHEN FROM-NRM
+    AR-CURRENT-LOCATION := 'D'
+  WHEN NONE IGNORE /*SU6 ERROR Ü?
+END-DECIDE
+*
+* BLI1 Calendar validated before in HANDLE-ID-RECORD
+IF AR-REVIVE-RETENTION-PERIOD = ' '
+  FIND REPORT WITH R-REPNAME = AR-REPNAME
+    AR-REVIVE-RETENTION-PERIOD := REPORT.R-REVIVE-RETENTION
+  END-FIND
+END-IF
+PERFORM COMPUTE-REVIVE-EXPIRATION
+*
+IF AR-NUMBER-OF-LINES (UPDREV.) = 9999999
+  AR-NUMBER-OF-LINES := #REC-NO
+END-IF
+*
+UPDATE (UPDREV.)
+*
+#AC-RRS := #ACTREP-KEY
+RESET #AC-SEQNO
+*
+REARC. READ REPORT-CONTENTS BY AC-REP-RNB-SEQ = #AC-RRS
+  IF AC-REPNAME NE #ACTREP-REPORT OR AC-REPRNB NE #ACTREP-REPRNB
+    ESCAPE BOTTOM
+  END-IF
+  DELETE (REARC.)
+  IF *COUNTER >= 50
+    END OF TRANSACTION
+    RESET *COUNTER
+  END-IF
+END-READ
+*
+RESET REPORT-CONTENTS
+*
+REPORT-CONTENTS.AC-REPNAME         := #ACTREP-REPORT
+REPORT-CONTENTS.AC-REPRNB          := #ACTREP-REPRNB
+REPORT-CONTENTS.AC-SEQNO           := #REC-NO
+REPORT-CONTENTS.AC-FROM-LINE-N9(1) := 1
+REPORT-CONTENTS.AC-TO-LINE-N9(1)   := #REC-NO
+/* copy content of GDA view to local view                               e
+MOVE BY NAME REPORT-CONTENTS TO REPORT-CONTENTS-LOC /*SU3 <-            e
+REPORT-CONTENTS-LOC.AC-OBJECT-TYPE := 'AC'
+REPORT-CONTENTS-LOC.AC-OBJECT-TIME := *TIMX
+ST. STORE REPORT-CONTENTS-LOC
+/* copy content of local view to GDA (just to be sure)                  e
+MOVE BY NAME REPORT-CONTENTS-LOC TO REPORT-CONTENTS /*SU3 <-            e
+*
+PERFORM CHECK-BUNDLE
+/*SU5 IF NOMVI-N-VERSION = 3 AND NOMVI-N-RELEASE >= 4
+PERFORM UPDATE-MAIL-RECORDS
+/*SU5 END-IF
+*
+COMPRESS AR-REPNAME (UPDREV.) '/'
+  AR-REPRNB (UPDREV.) TO LG-MSG LEAVING NO
+COMPRESS '0459' LG-MSG TO LG-MSG
+PERFORM #RLOG
+END TRANSACTION
+IF +G-NOMEXIT-ACTIVE (8)
+  PERFORM USER-EXIT-8
+END-IF
+*
+END-SUBROUTINE /* UPDATE-ACTIVE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-MAIL-RECORDS
+************************************************************************
+FNDMA. FIND MAIL WITH MA-REP-RNB = #MA-REP-RNB
+  IF MA-CURRENT-LOCATION = ' '
+    G-NATRP-ERT := '1549'
+    PERFORM XXRLOG-WRITE-LOG 'W' G-NATRP-ERT
+  END-IF
+  GMA. GET MAIL *ISN(FNDMA.)
+  MAIL.MA-CURRENT-LOCATION := 'B'
+  UPDATE (GMA.)
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-MAIL-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE COMPUTE-REVIVE-EXPIRATION
+************************************************************************
+#DATE-IN := *DATX
+*
+IF ACTIVE-REPORTS.AR-REVIVE-RETENTION-PERIOD = ' '
+OR ACTIVE-REPORTS.AR-REVIVE-RETENTION-NUM = 0                         /*
+  ACTIVE-REPORTS.AR-REVIVE-RETENTION-NUM  := 1
+  ACTIVE-REPORTS.AR-REVIVE-RETENTION-UNIT := 'A'
+  RESET  ACTIVE-REPORTS.AR-REVIVE-RETENTION-CALENDAR
+END-IF
+*
+CALLNAT 'RCOMED-N' #DATE-IN ACTIVE-REPORTS.AR-REVIVE-RETENTION-PERIOD
+  #DATE-OUT
+*
+MOVE EDITED #DATE-OUT (EM=YYYYMMDD) TO
+  ACTIVE-REPORTS.AR-REVIVE-EXPIRATION
+*
+END-SUBROUTINE /* COMPUTE-REVIVE-EXPIRATION
+*
+************************************************************************
+DEFINE SUBROUTINE IS-ANYTHING-TO-REVIVE
+************************************************************************
+IF #NATMEM NE ' ' AND #NATLIB NE ' '
+  #AR-ARCHIVE-DATASET (*) := #ARCHIVE-DSNAME
+  #AR-ARCHIVE-VOLSER (*)  := #VOLSER (1)
+  #AR-REVIVE (1)          := 'S'
+  #AR-REVIVE (2)          := 'D'
+  FIND (1) ACTIVE-REPORTS WITH AR-DATASET-VOLSER-REVIVE =
+      #AR-DATASET-VOLSER-REVIVE (1) OR = #AR-DATASET-VOLSER-REVIVE(2)
+    IF NO RECORDS FOUND
+      END-OF-PROCESSING:= TRUE
+      ESCAPE ROUTINE
+    END-NOREC
+    NOMUDA-AR-NAME := AR-REPNAME
+    NOMUDA-AR-RNB  := AR-REPRNB
+    ESCAPE ROUTINE
+  END-FIND
+END-IF
+*
+IF #NVOL = 1 THRU 6  AND #VOLSER (#NVOL) NE ' '
+  PERFORM FIND-NUMBER-REPORTS
+  IF #NUMREP > 0
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+REPEAT
+  ADD 1 TO #NVOL
+  IF #NVOL > 6
+    END-OF-PROCESSING := TRUE
+    ESCAPE ROUTINE
+  END-IF
+  IF #VOLSER (#NVOL) NE ' '
+    PERFORM FIND-NUMBER-REPORTS
+    IF #NUMREP > 0
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+END-REPEAT
+*
+END-SUBROUTINE /* IS-ANYTHING-TO-REVIVE
+*
+************************************************************************
+DEFINE SUBROUTINE FIND-NUMBER-REPORTS
+************************************************************************
+#AR-ARCHIVE-DATASET (*) := #ARCHIVE-DSNAME
+#AR-ARCHIVE-VOLSER (*)  := #VOLSER (#NVOL)
+#AR-REVIVE (1)          := 'S'
+#AR-REVIVE (2)          := 'D'
+FNDRP. FIND NUMBER ACTIVE-REPORTS-LEFT
+WITH AR-DATASET-VOLSER-REVIVE = #AR-DATASET-VOLSER-REVIVE (1)         /*
+OR = #AR-DATASET-VOLSER-REVIVE (2)                                    /*
+#NUMREP := *NUMBER (FNDRP.)
+*
+END-SUBROUTINE /* FIND-NUMBER-REPORTS
+*
+************************************************************************
+/*SU7-> DEFINE SUBROUTINE LOGON-TO-ESY
+************************************************************************
+/* RESET SATSL-PARMS-03 (*)
+/* SATSL-NODE-N5  := G-MONITOR-NODE
+/* SATSL-FUNCTION := SATSL-SPECIAL-LOGON
+/* SATSL-USER     := G-NPR-CURRENT-USERID
+/* SATSL-SATVERS  := 21
+/* CALLNAT 'RMSATSLN' SATSL-SATVERS SATSL-PARMS-03 (*)
+/* IF SATSL-ERROR-CODE NE 0
+/*   G-NATRP-ERC := SATSL-ERROR-CODE
+/*   G-NATRP-ERT := SATSL-ERROR-TEXT
+/*   WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+/*     'Error logging on to ESY ' SATSL-USER G-NATRP-ERC
+/*   G-NATRP-ERC := 1534
+/*   G-NATRP-ERT := SATSL-ERROR-CODE
+/*   RESET G-NPR-CURRENT-USERID
+/*   ESCAPE ROUTINE
+/* END-IF
+/*SU7<- END-SUBROUTINE /* LOGON-TO-ESY
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-BUNDLE
+************************************************************************
+#BC-REPNAME := #ACTREP-REPORT
+#BC-REPRNB  := #ACTREP-REPRNB
+RESET #ALREADY-BUNDLED #REVIVE-TO-BUNDLE #BC-ISN
+FIND BUNDLE-CONTENTS WITH BC-REPORT-RNB = #BC-REPORT-RNB
+  IF BC-BUNDRNB = 0
+    G-REPORT      := #ACTREP-REPORT
+    G-REPRNB      := #ACTREP-REPRNB
+    G-FATHER-PROG := *PROGRAM
+    PERFORM SEND-TO-BUNDLE 1X /*RMCRTBUN /no RMEX-SPOOL-ATTR..
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* CHECK-BUNDLE
+*
+************************************************************************
+DEFINE SUBROUTINE USER-EXIT-8
+************************************************************************
+RESET NOMEX008-PARMS (1) NOMEX008-ERROR-CODE NOMEX008-FROMLINE
+  NOMEX008-TOLINE NOMEX008-RECORD-LENGTH NOMEX008-NODE
+*
+NOMEX008-FUNCTION := NOMEX008-FCT-REVIVE
+NOMEX008-REPNAME  := AR-REPNAME (UPDREV.)
+NOMEX008-REPRNB   := AR-REPRNB  (UPDREV.)
+*
+IF G-TRACE > 1
+  RMSETTIM.FUNCTION := 'S'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+END-IF
+IF G-TRACE > 1
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  G-TRACE-MSG := 'CPU consumed so far:'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  RMSETTIM.FUNCTION := 'S'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+END-IF
+CALLNAT 'NOMEX008' NOMEX008-PARMS(*)
+IF G-TRACE > 1
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  COMPRESS 'NOMEX008 from' RMSETTIM.MSG TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  RMSETTIM.FUNCTION := 'S'  /* begin new measure after exit
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+END-IF
+*
+END-SUBROUTINE /* USER-EXIT-8
+** End of Copycode RJREVUXC ********************************************

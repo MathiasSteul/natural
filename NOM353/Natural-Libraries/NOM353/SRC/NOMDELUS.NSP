@@ -1,0 +1,124 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMDELUS
+* Function  Delete user for batch use
+*
+* Function  see above
+*
+* Note      Mandatory input parms are function and user ID
+*
+* Maintenance:
+* uuu yy-mm-dd   NOMALL-nnnn Description
+* SU  2015-09-02 NOMALL-1650 Created from NOMNODE
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+LOCAL USING NOMFNC-E            /* NOM API's
+LOCAL USING NOMUS--P
+LOCAL USING NOMUS--E
+LOCAL
+1 USERS VIEW OF NRM-USERS
+* *****
+1 #TITLE    (A30) INIT <'NOMDELUS: DELETE USER'>
+1 #FUNCTION (A8)
+1 #USER-ID  (A8)
+1 #MSG      (A250)
+1 #PO-ERROR (N4)
+1 #TRACE    (I2)
+1 #OK       (L) INIT <TRUE>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY ALL
+SET KEY PF3 NAMED 'exit'
+FORMAT KD=ON
+WRITE TITLE LEFT *TIME(AL=8) #TITLE (AD=I) 72T *DATI /
+  9X '-'(61) / /
+* *****
+#REP. REPEAT
+  IF #MSG NE ' ' AND *DEVICE = 'BATCH'
+    RESET #OK
+    ESCAPE BOTTOM (#REP.)
+  END-IF
+  INPUT (AD=MILT'_' IP=OFF) WITH TEXT #MSG
+    *TIME(AL=8 AD=OD) #TITLE (AD=OI) 72T *DATI (AD=OD)
+    /  9X '-'(61)
+    // 'Please enter ''DELETE'' to execute deletion.'
+    // 'Function:' #FUNCTION '(PF3 or ''.'' exits)'
+    /  'User....:' #USER-ID
+*
+  IF *PF-KEY = 'PF3' OR #FUNCTION = '.'
+    ESCAPE BOTTOM (#REP.)
+  END-IF
+  IF #FUNCTION NE 'DELETE'
+    COMPRESS 'Please enter correct function (DELETE). Function was:'
+      #FUNCTION TO #MSG
+    ESCAPE TOP
+  END-IF
+  IF #USER-ID = ' '
+    #MSG := 'Please enter user.'
+    ESCAPE TOP
+  END-IF
+  US. FIND NUMBER USERS WITH USER-ID = #USER-ID
+  IF *NUMBER (US.) = 0
+    COMPRESS 'User' #USER-ID 'does not exist.' TO #MSG
+    ESCAPE TOP
+  END-IF
+* *****
+  CALLNAT 'NOMGSTEP' '*' #PO-ERROR /* #TRACE
+  IF #PO-ERROR NE 0
+    WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Error' #PO-ERROR  'creating Natural steplib chain. Aborting.'
+    TERMINATE 50
+  END-IF
+  IF *DEVICE = 'BATCH'
+    PRINT *DAT4I *TIME #TITLE #USER-ID 'start'
+  END-IF
+  PERFORM DO-IT
+  IF *DEVICE = 'BATCH'
+    PRINT *DAT4I *TIME #TITLE 'end'
+    ESCAPE BOTTOM (#REP.)
+  END-IF
+*
+END-REPEAT /*(#REP.)
+*
+IF #MSG NE ' ' AND *DEVICE = 'BATCH'
+  PRINT #MSG
+  IF NOT #OK
+    TERMINATE 16
+  END-IF
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DO-IT
+************************************************************************
+NOMUS-NOMVERS  := NOM-CURRENT-VERSION
+NOMUS-USER     := *USER
+NOMUS-LANGUAGE := *LANGUAGE
+NOMUS-LOG-TYP  := 'U'
+NOMUS-USER-ID  := #USER-ID
+NOMUS-FUNCTION := NOMUS-FCT-DELETE
+RESET NOMUS-ERROR-CODE NOMUS-ERROR-TEXT NOMUS-ATTR(*)
+CALLNAT NOM-USER-MAINTENANCE NOMUS-NOMVERS NOMUS-PARMS (*) /*NOMUS01N
+IF NOMUS-ERROR-CODE NE 0
+  RESET #OK
+  COMPRESS 'NOMUS-ERROR-CODE:' NOMUS-ERROR-CODE
+    'NOMUS-ERROR-TEXT:' NOMUS-ERROR-TEXT TO #MSG
+  ESCAPE ROUTINE
+END-IF
+COMPRESS 'NOM0018 User' #USER-ID 'deleted.' TO #MSG
+*
+END-SUBROUTINE /* DO-IT
+*
+END

@@ -1,0 +1,202 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* member    RMPRGBU
+* Function  Force print or purge by retention period
+*
+* Maintenance
+* mrs     1992-04-29   completely rewritten
+* gw      1996-07-03 s(250218) intermittent ETs
+* sju     2000-03-24 p(191368) monitor multitasking
+* xsiszha 2000-08-15 (CE7461)  Extend Report and Bundle Names
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* sju     2006-06-28 p(280697) don't flush if flush date le create date
+* xsetggr 2007-05-03 NOM3201   Support 11 byte run numbers
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* fhi     2010-03-29 P324700   Pass correct file to GETHOLD
+* SU1     2014-07-02 NOMALL-1279 fill fields for Adabas Vista
+* SU2     2016-01-19 NOMALL-1802 do not update Adabas Vista fields
+* SU3     2019-02-14             purge msg-only 1 line in log
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+GLOBAL USING MONIT-GL
+* *****
+LOCAL USING RLOG-L
+LOCAL USING SUPER-L
+LOCAL USING RACTLF-A
+LOCAL
+1 ACTIVE-BUNDLE VIEW OF NRM-ACTIVE-BUNDLES
+  2 AB-BUNDLE
+  2 AB-BUNDRNB
+  2 AB-EXPIRATION
+  2 AB-STATUS
+  2 AB-OPEN-TIME
+/*SU2 2 AB-OBJECT-TYPE /*SU1
+/*SU2 2 AB-OBJECT-TIME /*SU1
+1 BUNDLE-CONTENTS VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-BUNDLE
+  2 BC-BUNDRNB
+* *****
+1 #BC-BUND-RNB               (A33)
+1 REDEFINE #BC-BUND-RNB
+  2 #BC-BUNDLE               (A25)
+  2 #BC-BUNDRNB              (P11)
+  2 #BC-SEQNO                (P3)
+*
+1 #DATX                      (D)
+1 #DATE-A                    (A8)
+1 #START-DATE                (A9)
+1 #END-DATE                  (A9)
+*
+1 #BUN-ISN                   (P10)
+1 #ADA-RC                    (N4)
+1 #OPENT                     (T)
+1 REDEFINE #OPENT
+  2 #OPENP                   (P12)
+1 #MAX-TIME                  (P12) CONST <663011135999>
+1 #D1                        (A8)
+1 #EXPIRATION                (A9)
+1 REDEFINE #EXPIRATION
+  2 #EXPIR-FLAG              (A1)
+  2 #D2                      (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#DATX := *DATX - 1
+MOVE EDITED #DATX (EM=YYYYMMDD) TO #DATE-A
+#START-DATE := 'F00000102'
+COMPRESS 'F' #DATE-A TO #END-DATE LEAVING NO
+*
+* force print/close of open bundle
+*
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'Start Force Bundle - Expiration Date LE '
+  #DATX (EM=YYYY'-'MM'-'DD)
+*
+BUNDF. READ ACTIVE-BUNDLE BY AB-EXPIRATION = #START-DATE THRU #END-DATE
+*
+  #BUN-ISN := *ISN(BUNDF.)
+  RESET RACTLF-ERROR-LOGGING RACTLF-LOGGING #ADA-RC
+  RACTLF-LFILE-1   := 91
+  CALLNAT 'RACTLF-N' RACTLF-PARMS
+  IF RACTLF-ERROR-CODE = 0
+    CALLNAT 'GETHOLD' RACTLF-DBID-1 RACTLF-FNR-1 #BUN-ISN 'BS' #ADA-RC
+  END-IF
+  IF #ADA-RC = 145
+    BACKOUT TRANSACTION
+    ESCAPE TOP
+  END-IF
+*
+  #BC-BUNDLE  := #AB-BUNDLE  := AB-BUNDLE
+  #BC-BUNDRNB := #AB-BUNDRNB := AB-BUNDRNB
+*
+  FLUSH-BU. GET ACTIVE-BUNDLE #BUN-ISN
+* Because of a bug in transfer bundle, it's possible to get a bundle
+* definition with retention period 000. After solution of p270253
+* (RCOMED-N) this is treated as a retention of 0 absolute days and the
+* active bundle is flushed during the next cleanup.
+* To avoid needing a special routine, we repair such active bundles here
+* resetting expiration date if it's equal to creation date but not
+* flushing the bundle.
+  #OPENT := ACTIVE-BUNDLE.AB-OPEN-TIME
+  #OPENP := #MAX-TIME - #OPENP
+  MOVE EDITED #OPENT(EM=YYYYMMDD) TO #D1
+  #EXPIRATION := AB-EXPIRATION
+  RESET ACTIVE-BUNDLE.AB-EXPIRATION
+  IF ACTIVE-BUNDLE.AB-STATUS = 'O' AND #D2 GT #D1
+    ACTIVE-BUNDLE.AB-STATUS := 'P'
+    LG-MSG := '7109'
+    LG-CODE := 'AB'
+    PERFORM LOG-EVENT
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Bundle' AB-BUNDLE '/' AB-BUNDRNB 'forced'
+  END-IF
+/*SU2 ACTIVE-BUNDLE.AB-OBJECT-TYPE := 'AB' /*SU1
+/*SU2 ACTIVE-BUNDLE.AB-OBJECT-TIME := *TIMX /*SU1
+  UPDATE (FLUSH-BU.)
+  END TRANSACTION
+*
+END-READ
+END TRANSACTION
+*
+#START-DATE := 'P00000102'
+COMPRESS 'P' #DATE-A TO #END-DATE LEAVING NO
+*
+* Purge Bundle
+*
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'Start Purge Bundle - Expiration Date LE '
+  #DATX (EM=YYYY'-'MM'-'DD)
+*
+BUNDP. READ ACTIVE-BUNDLE BY AB-EXPIRATION = #START-DATE THRU #END-DATE
+*
+  #BUN-ISN := *ISN(BUNDP.)
+  RESET RACTLF-ERROR-LOGGING RACTLF-LOGGING #ADA-RC
+  RACTLF-LFILE-1   := 91
+  CALLNAT 'RACTLF-N' RACTLF-PARMS
+  IF RACTLF-ERROR-CODE = 0
+    CALLNAT 'GETHOLD' RACTLF-DBID-1 RACTLF-FNR-1 #BUN-ISN 'BS' #ADA-RC
+  END-IF
+  IF #ADA-RC = 145
+    BACKOUT TRANSACTION
+    ESCAPE TOP
+  END-IF
+*
+  #BC-BUNDLE := #AB-BUNDLE := AB-BUNDLE
+  #BC-BUNDRNB := #AB-BUNDRNB := AB-BUNDRNB
+*
+  DEL-AB. GET ACTIVE-BUNDLES #BUN-ISN
+  DELETE RECORD(DEL-AB.)
+  PERFORM DELETE-BUNDLE-CONTENTS
+  LG-CODE := 'MO'
+  LG-MSG := '7110'
+  PERFORM LOG-EVENT
+  END TRANSACTION
+  PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Bundle' AB-BUNDLE '/' AB-BUNDRNB 'purged' /*SU3 was WRITE
+END-READ
+END TRANSACTION
+*
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'End Force/Purge Bundle'
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE LOG-EVENT
+************************************************************************
+LG-USERID := G-LG-USERID
+COMPRESS #AB-BUNDLE '/' #AB-BUNDRNB TO LG-OBJECT-NAME LEAVING NO
+COMPRESS LG-MSG LG-OBJECT-NAME TO LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+*
+END-SUBROUTINE /* LOG-EVENT
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-BUNDLE-CONTENTS
+************************************************************************
+RESET #BC-SEQNO
+*
+FIND-BC. READ BUNDLE-CONTENTS BY BC-BUNDLE-RNB = #BC-BUND-RNB
+  IF BC-BUNDLE  NE #BC-BUNDLE OR BC-BUNDRNB NE #BC-BUNDRNB
+    ESCAPE BOTTOM
+  END-IF
+  DELETE RECORD (FIND-BC.)
+  IF *COUNTER > 100
+    END TRANSACTION
+    RESET *COUNTER
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* DELETE-BUNDLE-CONTENTS
+*
+END

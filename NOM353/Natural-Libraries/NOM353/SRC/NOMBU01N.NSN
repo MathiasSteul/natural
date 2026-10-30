@@ -1,0 +1,314 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMBU01N
+* Function  Bundle Mainenance API
+* Version   2.1.1
+*
+* Maintenance:
+* uuu    yyyy-mm-dd s(999999) ....
+* xsisgg 2000-04-14 s(191368) NOM211 development
+* fhi    2000-08-24 QA03      Use NAT23006 for error values
+* xsetggr 05-03-30  nom31
+* xsetggr 2005-06-30 p(265613) evaluate eom-library, eom-def-user
+* xsetggr 2006-10-17 p(283614) change work of functionS INIT, READ-NEXT,
+*                    READHOLD-NEXT, add parameter NOMBU-REPINDEX
+* xsetggr 2007-05-18 p(289847) restore NOM lfile when error occurs
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2007-07-12 NOM3201   restow dues changes in nombu--p
+* xsetggr 2008-08-11 p(300323) add steplibs
+* xsetggr 2008-12-05 p(300323) change adding of steplibs
+* xsetggr 2009-02-10 P300323   delete steplib handling, use RGETLIB to
+*                              get NOM library
+* fhi     2009-02-27 P300323 Rename RGETSTEP to NOMGSTEP delivered in SYSTEM
+* fhi     2009-08-07 P319282 SAT Err 804 if NOMBU-... DBID/FNR empty    STEM
+* fhi    2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* raya    2012-02-01 NOMALL-1096 error-text a250 in NOMWK--P stow only
+* xsetggr 2012-08-09 NOMALL-1162 substitute variables in error msgs
+* SU1     2014-11-12 NOMALL-1527 getting rid of coding for old versions-
+*                                only restruct
+* SU2     2017-03-06 NOMALL-1961 Use new task IDs
+* fhi     2017-06-29 NOMALL-2029 Return correct error codes
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER USING NOMBU--P
+*
+LOCAL USING NOMBU--E
+LOCAL USING EOM----P
+LOCAL USING EOMBUM-P
+LOCAL USING EOMBUM-E
+LOCAL USING EOM----E
+LOCAL USING EOMMSG-P
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+LOCAL USING XXGMSG-A
+*
+LOCAL
+1 #LFILE-CHANGED      (L)
+1 #NOM-DBID           (N5)
+1 #NOM-FNR            (N5)
+* fhi     2017-06-29 NOMALL-2029 start insertion
+1 #TRACING            (L)
+1 #TRACE-MSG          (A250)
+* fhi     2017-06-29 NOMALL-2029 end   insertion
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+* fhi     2017-06-29 NOMALL-2029 start insertion
+IF *DEVICE NE 'BATCH'
+  PERFORM RMGTRACO-GET-SETTINGS #TRACING
+ELSE
+  PERFORM RMGTRACE-GET-SETTINGS #TRACING
+END-IF
+* fhi     2017-06-29 NOMALL-2029 end   insertion
+*
+RESET NOMBU-ERROR-CODE NOMBU-ERROR-TEXT
+*
+DECIDE FOR EVERY CONDITION
+  WHEN NOMBU-NOM-FNR NE 0 AND NOMBU-NOM-DBID NE 0
+    PERFORM GET-NOM-LFILE
+    PERFORM SET-NOM-LFILE
+    #LFILE-CHANGED := TRUE
+  WHEN SATLF-ERROR-CODE = 0
+    PERFORM BUNDLE-MAINTENANCE
+  WHEN #LFILE-CHANGED
+    PERFORM SET-OLD-NOM-LFILE
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+* fhi     2017-06-29 NOMALL-2029 start insertion
+NOMBU-ERROR-CODE := EOMMSG-NR
+NOMBU-ERROR-TEXT := EOMMSG-TEXT
+* fhi     2017-06-29 NOMALL-2029 end   insertion
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NOM-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'GET'
+*
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+*
+* fhi     2017-06-29 NOMALL-2029 start insertion
+IF #TRACING
+  COMPRESS
+    SATLF-FUNCTION 'LFILE' SATLF-LFILE '/' SATLF-DBID-N5
+    '/' SATLF-FNR-N5 'executed with return code' SATLF-ERROR-CODE
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+* fhi     2017-06-29 NOMALL-2029 end   insertion
+*
+#NOM-DBID := SATLF-DBID-N5
+#NOM-FNR  := SATLF-FNR-N5
+*
+END-SUBROUTINE /* GET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'SET'
+*
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+*
+* fhi     2017-06-29 NOMALL-2029 start insertion
+IF #TRACING
+  COMPRESS
+    SATLF-FUNCTION 'LFILE' SATLF-LFILE '/' SATLF-DBID-N5
+    '/' SATLF-FNR-N5 'executed with return code' SATLF-ERROR-CODE
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+* fhi     2017-06-29 NOMALL-2029 end   insertion
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := NOMBU-NOM-DBID
+SATLF-FNR-N5  := NOMBU-NOM-FNR
+*
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-OLD-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := #NOM-DBID
+SATLF-FNR-N5  := #NOM-FNR
+*
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-OLD-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-INTERNAL-API
+************************************************************************
+RESET EOMMSG-PARMS
+CALLNAT 'EOMBUM-N' EOM-PARMS EOMBUM-PARMS EOMMSG-PARMS
+*
+IF EOMMSG-NR NE 0 AND EOMMSG-TEXT = ' '
+  #XX-ERROR-CODE    := EOMMSG-NR
+  #XX-ERROR-TYPE    := 'U'
+  #XX-ERROR-APPL    := EOM-LIBRARY
+  #XX-MSG-DYNA(1:3) := EOMMSG-TOKEN(1:3)
+  CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+  EOMMSG-TEXT := #XX-SHORT-TEXT
+  RESET #XX-GMSG-PARMS
+END-IF
+*
+END-SUBROUTINE /* CALL-INTERNAL-API
+*
+************************************************************************
+DEFINE SUBROUTINE BUNDLE-MAINTENANCE
+************************************************************************
+RESET  EOM-LOGGING
+EOM-LOG-TYPES (1) := NOMBU-LOG-TYPE
+EOM-LANGUAGE      := *LANGUAGE
+EOM-USER          := NOMBU-USER-ID
+*
+CALLNAT 'RGETLIB' EOM-LIBRARY
+COMPRESS EOM-LIBRARY 'U' TO EOM-USER-LIBRARY LEAVING NO
+EOM-DEF-USER := F#MONITOR-USER-AUTODEF (<>)
+* necessary attribute type
+EOMBUM-I-ATTRIBUTE-TYPE := NOMBU-ATTRIBUTE-TYPE
+EOMBUM-I-TARGET-DBID    := NOMBU-NOM-DBID
+EOMBUM-I-TARGET-FNR     := NOMBU-NOM-FNR
+EOMBUM-I-NAME           := NOMBU-NAME
+RESET  EOMBUM-I-REP-FUNCTION
+*
+DECIDE ON FIRST NOMBU-FUNCTION
+  VALUE NOMBU-FCT-INIT
+    EOM-FUNCTION := EOM-INIT
+    PERFORM CALL-INTERNAL-API
+    NOMBU-ATTRIBUTES(*) := EOMBUM-ATTR(*)
+    NOMBU-NAME          := EOMBUM-I-NAME
+  VALUE NOMBU-FCT-ADD
+    EOM-FUNCTION            := EOM-ADD
+    EOMBUM-I-ATTRIBUTE-TYPE := BUNDLE-GENERAL-ATTRIBUTES
+    EOMBUM-ATTR (*)         := NOMBU-ATTRIBUTES(*)
+    PERFORM CALL-INTERNAL-API
+  VALUE NOMBU-FCT-READHOLD
+    EOM-FUNCTION := EOM-READHOLD
+    PERFORM CALL-INTERNAL-API
+    NOMBU-ATTRIBUTES (*) := EOMBUM-ATTR (*)
+    NOMBU-REP-PARMS (*)  := EOMBUM-REP-PARMS (*)
+  VALUE NOMBU-FCT-READ
+    EOM-FUNCTION := EOM-READ
+    PERFORM CALL-INTERNAL-API
+    NOMBU-ATTRIBUTES (*) := EOMBUM-ATTR (*)
+    NOMBU-REP-PARMS (*)  := EOMBUM-REP-PARMS (*)
+    NOMBU-NAME           := EOMBUM-I-NAME
+  VALUE NOMBU-FCT-READ-NEXT
+    EOM-FUNCTION := EOM-READ-NEXT
+    PERFORM CALL-INTERNAL-API
+    NOMBU-ATTRIBUTES (*) := EOMBUM-ATTR (*)
+    NOMBU-REP-PARMS (*)  := EOMBUM-REP-PARMS (*)
+    NOMBU-EOF            := EOMBUM-EOF
+    NOMBU-NAME           := EOMBUM-I-NAME
+  VALUE NOMBU-FCT-READHOLD-NEXT
+    EOM-FUNCTION := EOM-READHOLD-NEXT
+    PERFORM CALL-INTERNAL-API
+    NOMBU-ATTRIBUTES (*) := EOMBUM-ATTR (*)
+    NOMBU-REP-PARMS (*)  := EOMBUM-REP-PARMS (*)
+    NOMBU-EOF            := EOMBUM-EOF
+    NOMBU-NAME           := EOMBUM-I-NAME
+  VALUE NOMBU-FCT-MODIFY
+    EOM-FUNCTION := EOM-MODIFY
+    IF NOMBU-REP-FUNCTION > 0
+      EOMBUM-I-REP-FUNCTION := NOMBU-REP-FUNCTION
+      PERFORM CHECK-REPORT-FUNCTION
+    ELSE
+      EOMBUM-ATTR(*) := NOMBU-ATTRIBUTES(*)
+      PERFORM CALL-INTERNAL-API
+    END-IF
+  VALUE NOMBU-FCT-DELETE
+    EOM-FUNCTION := EOM-DELETE
+    PERFORM CALL-INTERNAL-API
+  VALUE NOMBU-FCT-COPY
+    EOM-FUNCTION                := EOM-COPY
+    EOMBUM-I-NEWNAME            := NOMBU-NEWNAME
+    EOMBUM-I-COPY-AUTHORIZATION := NOMBU-COPY-AUTHORIZATION
+    PERFORM CALL-INTERNAL-API
+  VALUE NOMBU-FCT-RENAME
+    EOM-FUNCTION     := EOM-RENAME
+    EOMBUM-I-NEWNAME := NOMBU-NEWNAME
+    PERFORM CALL-INTERNAL-API
+  VALUE NOMBU-FCT-SECURITY-CHECK
+    EOMBUM-I-CHECK-FUNCTION := NOMBU-CHECK-FUNCTION
+    EOM-FUNCTION            := EOM-SECURITY-CHECK
+    PERFORM CALL-INTERNAL-API
+  VALUE NOMBU-FCT-COMMIT
+    EOM-FUNCTION := EOM-COMMIT
+    PERFORM CALL-INTERNAL-API
+  VALUE NOMBU-FCT-BACKOUT
+    EOM-FUNCTION := EOM-BACKOUT
+    PERFORM CALL-INTERNAL-API
+  NONE  IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* BUNDLE-MAINTENANCE
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-REPORT-FUNCTION
+************************************************************************
+EOMBUM-REP-INDEX := NOMBU-REP-INDEX
+EOMBUM-I-REPNAME := NOMBU-REP-REPNAME(NOMBU-REP-INDEX)
+DECIDE ON FIRST VALUE OF NOMBU-REP-FUNCTION
+  VALUE NOMBU-FCT-ADD
+    EOMBUM-I-REP-FUNCTION := EOM-ADD
+    EOMBUM-REP-PARMS(*)   := NOMBU-REP-PARMS(*)
+    PERFORM CALL-INTERNAL-API
+  VALUE NOMBU-FCT-READ
+    EOMBUM-I-REP-FUNCTION := EOM-READ
+    PERFORM CALL-INTERNAL-API
+    NOMBU-REP-PARMS(*) := EOMBUM-REP-PARMS(*)
+  VALUE NOMBU-FCT-READHOLD
+    EOMBUM-I-REP-FUNCTION := EOM-READHOLD
+    PERFORM CALL-INTERNAL-API
+    NOMBU-REP-PARMS(*) := EOMBUM-REP-PARMS(*)
+  VALUE NOMBU-FCT-MODIFY
+    EOMBUM-I-REP-FUNCTION := EOM-MODIFY
+    EOMBUM-REP-PARMS(*)   := NOMBU-REP-PARMS(*)
+    PERFORM CALL-INTERNAL-API
+  VALUE NOMBU-FCT-READ-NEXT, NOMBU-FCT-READHOLD-NEXT, NOMBU-FCT-COPY,
+      NOMBU-FCT-RENAME, NOMBU-FCT-INIT, NOMBU-FCT-COMMIT,
+      NOMBU-FCT-BACKOUT
+    PERFORM CALL-INTERNAL-API
+  VALUE NOMBU-FCT-DELETE
+    EOMBUM-I-REP-FUNCTION := EOM-DELETE
+    PERFORM CALL-INTERNAL-API
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-REPORT-FUNCTION
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF #LFILE-CHANGED
+    PERFORM SET-OLD-NOM-LFILE
+  END-IF
+  IF *ERROR-NR = 82
+    WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Missing NOM steplibs' //
+      'Please call NOM steplib routine NOMGSTEP before call of NOM API.'
+  END-IF
+  NOMBU-ERROR-CODE := 21
+  CALLNAT 'C-NATERN' NOMBU-ERROR-TEXT 'W'
+END-ERROR
+*
+END

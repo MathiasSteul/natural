@@ -1,0 +1,425 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NODAOP-N - NOM API Maintenance of User defined archives
+*
+* Maintenance:
+* XSETGGR 2002-08-23    created
+* XSETGGR 2004-09-20    modified
+* XSETGGR 2004-09-29    modified
+* XSETGGR 2004-10-11    insert lda with reserved words
+* XSETGGR 2005-06-07    insert validation for retention period
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2011-01-11 NOMALL-936 Member name into message 1079
+* xsetggr 2012-05-28 NOMALL-1145 allow to save new defined archive with
+*                    NOM2126 'Skeleton does not exist'
+* XSETHZ  2012-08-22 NOMALL-1145
+* SU1     2014-06-27 NOMALL-1281 show last update user
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NODAOP-A
+************************************************************************
+LOCAL     USING VUSARC-L
+LOCAL     USING NODARW-L
+LOCAL     USING NADA2000
+LOCAL     USING NAD-MSG
+LOCAL     USING NAD-FLD
+LOCAL
+1 RP VIEW OF NRM-REPORTS-NEW
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+1 AD VIEW OF NRM-ARCHIVE-DATASET
+1 #ES-CONTROL               (A250)
+1 #ES-INPUT-AREA            (A253/1:3)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+  2 REDEFINE #ES-MSG-FIELD-INDEX
+    3 #ES-MSG-FIELD-INDEX1  (N2)
+    3 #ES-MSG-FIELD-INDEX2  (N2)
+1 #LIBRARY-ID               (A8)
+1 #USERLIB                  (A8)
+1 #MONITOR-ID               (A10) INIT <'USERARC'>
+1 REDEFINE #MONITOR-ID
+  2 #MONITOR-TYPE           (A7)
+  2 #USERARC-NUM            (N2)
+1 #NAME                     (A8)
+1 #NUMBER                   (I4)
+1 #ARCHIVE-RETENTION        (A5)
+1 REDEFINE #ARCHIVE-RETENTION
+  2  #ARET                  (A1/1:5)
+1 #ES-MSG-TXT               (A250)
+1 #I                        (I2)
+1 #J                        (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC
+*
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+#LIBRARY-ID := ES-APP-SERVER-LIBRARY
+COMPRESS #LIBRARY-ID 'U' TO #USERLIB LEAVING NO
+IF ES-KEY-PARM(1) > ' '
+  #NUMBER := VAL(ES-KEY-PARM(1))
+END-IF
+#NAME := ES-KEY-PARM(2)
+*
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+  VALUE ' '
+    PERFORM READ-RECORD
+  VALUE 'NEW'
+    PERFORM NEW-RECORD
+    IF ES-RC = 0
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  VALUE 'UPD'
+    PERFORM UPDATE-RECORD
+    IF ES-RC = 0
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  VALUE 'CHK'
+    PERFORM CHECK
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-RECORD
+************************************************************************
+RESET NODAU-PARMS #ES-MSG-FIELD #ES-MSG-NR
+#USERARC-NUM := #NUMBER
+FNDUARC. FIND NRM-USER-DEFINED-ARCHIVE WITH M-MONITOR-ID = #MONITOR-ID
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0001    /* not defined
+    #ES-MSG-TXT := #MONITOR-ID
+    ESCAPE BOTTOM(FNDUARC.)
+  END-NOREC
+  NODAU-MONITOR-ID    := M-MONITOR-ID
+  NODAU-NAME          := M-USERARC-NAME
+  NODAU-NUMBER        := M-USERARC-NUMBER
+  NODAU-DESCRIPTION   := M-USERARC-DESCRIPTION
+  NODAU-PREFIX        := M-USERARC-PREFIX
+  NODAU-ARCHIVE-SKEL  := M-USERARC-ARCHIVE-SKEL
+  NODAU-REVIVE-SKEL   := M-USERARC-REVIVE-SKEL
+  NODAU-CONDENSE-SKEL := M-USERARC-CONDENSE-SKEL
+  NODAU-LAST-UPDATE-USER   := M-LAST-UPDATE-USER /*SU1 ->
+  IF M-LAST-UPDATE NE 0
+    MOVE EDITED M-LAST-UPDATE (EM=YYYYMMDDHHIISST) TO NODAU-LAST-UPDATE
+  END-IF /*SU1 <-
+  IF M-USERARC-RETENTION = ' '
+    RESET NODAU-RET-NUMBER NODAU-RET-FACTOR
+  ELSE
+    #ARCHIVE-RETENTION := M-USERARC-RETENTION
+    IF #ARCHIVE-RETENTION IS (N4)
+      NODAU-RET-FACTOR := 'D'
+    ELSE
+      EXAMINE #ARCHIVE-RETENTION FOR 'X' GIVING LENGTH IN #I
+      NODAU-RET-FACTOR := #ARET(#I)
+      RESET  #ARET (#I)
+    END-IF
+    IF #ARCHIVE-RETENTION IS (N4)
+      NODAU-RET-NUMBER := VAL (#ARCHIVE-RETENTION)
+    ELSE
+      RESET  NODAU-RET-NUMBER
+    END-IF
+  END-IF
+  NODAU-EXITLIB               := M-USERARC-EXITLIB
+  NODAU-EXITMEM               := M-USERARC-EXITMEM
+  NODAU-ARCHIVE-JOBCARDS(1:3) := M-USERARC-ARCHIVE-JOBCARDS(1:3)
+  NODAU-REVIVE-JOBCARDS(1:3)  := M-USERARC-REVIVE-JOBCARDS(1:3)
+  FOR #I = 1 TO #MAX-SYMBOLS
+    IF M-USERARC-SYMBOLS(#I) = ' '
+      RESET NODAU-SYMBOL-NAME(#I) NODAU-SYMBOL-VALUE(#I)
+    ELSE
+      NODAU-SYMBOL-NAME(#I)  := M-USERARC-SYMBOL-NAME(#I)
+      NODAU-SYMBOL-VALUE(#I) := M-USERARC-SYMBOL-VALUE(#I)
+    END-IF
+  END-FOR
+  IF M-USERARC-NUMBER = 9
+    NODAU-OPTIONS(1) := 'NW'
+  END-IF
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* READ-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE NEW-RECORD
+************************************************************************
+RD. READ NRM-USER-DEFINED-ARCHIVE BY M-MONITOR-ID = 'USERARC00'
+  IF M-MONITOR-ID NE MASK ('USERARC'NN)
+    ESCAPE BOTTOM (RD.)
+  END-IF
+  #I := M-USERARC-NUMBER - #J
+  IF #I > 1
+    NODAU-NUMBER := #J
+    ESCAPE BOTTOM
+  END-IF
+  #J := M-USERARC-NUMBER
+  NODAU-NUMBER := M-USERARC-NUMBER
+END-READ
+NODAU-NUMBER := NODAU-NUMBER + 1
+IF NODAU-NAME = ' '
+  COMPRESS 'ARCTYP' NODAU-NUMBER TO NODAU-NAME LEAVING NO
+END-IF
+#USERARC-NUM := NODAU-NUMBER
+FNNEW. FIND NRM-USER-DEFINED-ARCHIVE WITH M-MONITOR-ID = #MONITOR-ID
+  IF NO RECORDS FOUND
+    PERFORM VALIDATION-S
+    IF #ES-MSG-NR NE 0
+      ESCAPE BOTTOM(FNNEW.)
+    END-IF
+    PERFORM ASSIGN-ATTRIBUTE-VALUES
+    IF NODAU-NUMBER = 9
+      NODAU-OPTIONS(1) := 'NW'
+    END-IF
+    PERFORM OPTIONS
+    STORE NRM-USER-DEFINED-ARCHIVE
+    ES-CONTROL := #ES-CONTROL
+    ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+    ESCAPE BOTTOM(FNNEW.)
+  END-NOREC
+  #ES-MSG-NR := 0033              /* :1: already defined
+  #ES-MSG-FIELD-NAME := 'NAME'
+  #ES-MSG-TXT := #MONITOR-ID
+  ESCAPE BOTTOM(FNNEW.)
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* NEW-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+#USERARC-NUM := #NUMBER
+FNDMOD. FIND NRM-USER-DEFINED-ARCHIVE WITH M-MONITOR-ID = #MONITOR-ID
+  PERFORM VALIDATION-S
+  IF #ES-MSG-NR NE 0
+    ESCAPE BOTTOM(FNDMOD.)
+  END-IF
+  GETMOD. GET NRM-USER-DEFINED-ARCHIVE *ISN(FNDMOD.)
+  PERFORM ASSIGN-ATTRIBUTE-VALUES
+  FNNM. FIND NUMBER NRM-USER-DEFINED-ARCHIVE WITH
+    M-MONITOR-ID = 'USERARC00' THRU 'USERARC09'
+  IF *NUMBER(FNNM.) = 9
+    NODAU-OPTIONS (1) := 'NW'
+  END-IF
+  PERFORM OPTIONS
+  UPDATE (GETMOD.)
+END-FIND
+IF *NUMBER (FNDMOD.) = 0
+  #ES-MSG-NR := 0001       /* not defined
+  #ES-MSG-TXT := #MONITOR-ID
+END-IF
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* UPDATE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK
+************************************************************************
+#USERARC-NUM := #NUMBER
+FND. FIND NUMBER NRM-USER-DEFINED-ARCHIVE WITH
+  M-MONITOR-ID = #MONITOR-ID
+IF *NUMBER(FND.) NE 0 AND ES-ORIG-FUNCTION = 'NW'
+  #ES-MSG-NR := 0033          /* :1: already defined
+  #ES-MSG-FIELD-NAME := 'NAME'
+  #ES-MSG-TXT := #MONITOR-ID
+ELSE
+  PERFORM VALIDATION-S
+END-IF
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* CHECK
+*
+************************************************************************
+DEFINE SUBROUTINE OPTIONS
+************************************************************************
+/* find number of user-defined-archives
+FNDRP. FIND NUMBER RP WITH R-ARCHIVE-TYPE = NODAU-NUMBER
+FNDAD. FIND NUMBER AD WITH AD-ARCHIVE-TYPE = NODAU-NUMBER
+FNDAR. FIND NUMBER AR WITH AR-ARCHIVE-TYPE = NODAU-NUMBER
+DECIDE FOR FIRST CONDITION
+  WHEN *NUMBER(FNDRP.) > 0 OR *NUMBER(FNDAD.) > 0 OR *NUMBER(FNDAR.) > 0
+    NODAU-OPTIONS(2) := 'DL'
+  WHEN *NUMBER(FNDRP.) =0 AND *NUMBER(FNDAD.) =0 AND *NUMBER(FNDAR.) =0
+    NODAU-OPTIONS(3) := 'XA'
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* OPTIONS
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-ATTRIBUTE-VALUES
+************************************************************************
+RESET #I
+#USERARC-NUM := NODAU-NUMBER
+M-MONITOR-ID            := #MONITOR-ID
+M-USERARC-NAME          := NODAU-NAME
+M-USERARC-DESCRIPTION   := NODAU-DESCRIPTION
+M-USERARC-PREFIX        := NODAU-PREFIX
+M-USERARC-ARCHIVE-SKEL  := NODAU-ARCHIVE-SKEL
+M-USERARC-REVIVE-SKEL   := NODAU-REVIVE-SKEL
+M-USERARC-CONDENSE-SKEL := NODAU-CONDENSE-SKEL
+IF NODAU-RET-NUMBER = 0
+  RESET M-USERARC-RETENTION
+ELSE
+  COMPRESS NODAU-RET-NUMBER NODAU-RET-FACTOR TO
+    M-USERARC-RETENTION LEAVING NO
+END-IF
+M-USERARC-EXITLIB := NODAU-EXITLIB
+M-USERARC-EXITMEM := NODAU-EXITMEM
+M-USERARC-ARCHIVE-JOBCARDS(*) := NODAU-ARCHIVE-JOBCARDS(*)
+M-USERARC-REVIVE-JOBCARDS(*)  := NODAU-REVIVE-JOBCARDS(*)
+FOR #I = 1 TO 28
+  IF NODAU-SYMBOL-NAME(#I) = ' '
+    RESET M-USERARC-SYMBOLS(#I)
+  ELSE
+    M-USERARC-SYMBOL-NAME (#I) := NODAU-SYMBOL-NAME(#I)
+    M-USERARC-SYMBOL-VALUE(#I) := NODAU-SYMBOL-VALUE(#I)
+  END-IF
+END-FOR
+M-LAST-UPDATE      := *TIMX /*SU1
+M-LAST-UPDATE-USER := ES-USER /*SU1
+*
+END-SUBROUTINE /* ASSIGN-ATTRIBUTE-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION-S
+************************************************************************
+PERFORM VALIDATION
+ES-CONTROL := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+*
+END-SUBROUTINE /* VALIDATION-S
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+RESET #ES-MSG-NR #ES-MSG-FIELD #I
+IF ES-EXTEND-FUNCTION = 'NEW'
+  FNDNM. FIND NRM-USER-DEFINED-ARCHIVE WITH M-MONITOR-ID = 'USERARC00'
+      THRU 'USERARC09' WHERE M-USERARC-NAME = NODAU-NAME
+  END-FIND
+  IF *COUNTER(FNDNM.) NE 0
+    #ES-MSG-NR := 0033          /* already exists
+    #ES-MSG-FIELD-NAME := 'NAME'
+    #ES-MSG-TXT := NODAU-NAME
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+DECIDE FOR FIRST CONDITION
+  WHEN NODAU-NUMBER > 9
+    #ES-MSG-NR := 0128 /* Only 9 User Defined Archive types allowed
+    #ES-MSG-FIELD-NAME := 'NUMBER'
+  WHEN NODAU-RET-NUMBER = 0 AND NODAU-RET-FACTOR NE ' '
+    #ES-MSG-NR := 0634
+    #ES-MSG-FIELD-NAME := 'RET-NUMBER'
+  WHEN NODAU-RET-NUMBER > 0
+  AND NOT (NODAU-RET-FACTOR ='D' OR='W' OR='M' OR='Y')                /*
+    #ES-MSG-NR := 0634   /* invalid retention period
+    #ES-MSG-FIELD-NAME := 'RET-FACTOR'
+  WHEN NODAU-ARCHIVE-SKEL = ' '
+    #ES-MSG-NR := 2126    /* Skeleton required
+    #ES-MSG-FIELD-NAME := 'ARCHIVE-SKEL'
+  WHEN NODAU-REVIVE-SKEL = ' '
+    #ES-MSG-NR := 2126    /* Skeleton required
+    #ES-MSG-FIELD-NAME := 'REVIVE-SKEL'
+  WHEN NODAU-CONDENSE-SKEL = ' '
+    #ES-MSG-NR := 2126    /* Skeleton required
+    #ES-MSG-FIELD-NAME := 'CONDENSE-SKEL'
+  WHEN NODAU-EXITMEM = ' ' AND NODAU-EXITLIB NE ' '
+    #ES-MSG-NR := 4101  /* no exit member defined
+    #ES-MSG-FIELD-NAME := 'EXITMEM'
+  WHEN ANY
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+IF NODAU-EXITMEM NE ' ' AND NODAU-EXITLIB = ' '
+  NODAU-EXITLIB := #USERLIB
+END-IF
+IF NODAU-EXITMEM NE ' ' AND NODAU-EXITLIB NE ' '
+  ES-KEY-PARM(1) := NODAU-EXITLIB
+  ES-KEY-PARM(2) := NODAU-EXITMEM
+  CALLNAT 'NOSFEX-N' ES-CONTROL ES-INPUT
+  IF ES-RC NE 0
+    #ES-MSG-NR  := 1079      /*  Library or member not found
+    #ES-MSG-FIELD-NAME := 'EXITLIB'
+    #ES-MSG-TXT := NODAU-EXITMEM /* NOMALL-936 in
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+FOR #I = 1 TO #MAX-SYMBOLS
+  IF NODAU-SYMBOL-NAME(#I) NE ' ' AND #RES(*) = NODAU-SYMBOL-NAME(#I)
+    #ES-MSG-NR := 0129         /* :1: is a reserved word
+    #ES-MSG-TXT := NODAU-SYMBOL-NAME(#I)
+    #ES-MSG-FIELD-NAME := 'SYMBOL-NAME'
+    #ES-MSG-FIELD-INDEX := #I
+    ESCAPE ROUTINE
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+IF ES-MSG-NR = 0033 OR = 0001 OR = 0129
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT
+END-IF
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+ES-MSG-FIELD := #ES-MSG-FIELD
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

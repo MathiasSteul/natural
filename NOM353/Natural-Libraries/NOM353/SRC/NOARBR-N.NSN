@@ -1,0 +1,523 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOARBR-N - RPC Server To Read Active Report Contents
+*
+* RPC Functions:
+*          GRO        - Get number of lines of a report
+*                       Result in ES-LINE-NUMBER
+*          '   '      - Get a block of lines. Number of lines
+*                       in #BLOCK-SIZE (hard coded)
+*                       Returned lines in #LINES (*)
+*          BIN        - Get a block of binary data. Number of lines
+*                       in #BLOCK-SIZE (hard coded)
+*                       Returned lines in #LINES (*)
+*          FIN        - Find string given in NOARBR-PARM-AREA (1)
+*                       starting from line number given in
+*                       ES-LINE-NUMBER
+*
+* Return Codes, returned in ES-RC, error text in ES-MSG-TXT:
+*           0           OK, (no error text returned)
+*           001         Function not implemented
+*           003         EOF (End of File)
+*           005         Source record not found
+*                       Error during Editor call
+*           021         Runtime error
+*           426         Report contents not available.
+*          4000         Error writing data into editor session
+*          4007         Set LFile error occured (RC=:1:).
+*          4008         Refresh LFile error occured (RC=:1:).
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* JWO     1997-11-20 s(167263) created (as NOMAC)
+* FHI     2001-10-17 adapted for RPC needs from NOMAC
+* XSETHZ  2002-01-10 Parameter index in FILL-INPUT-PARAMETERS
+* XSETGGR 2002-11-13 change returned err codes and texts
+* XSETHZ  2002-03-13 Parameter index for report in printout
+* sju     2003-03-14 Fix browse report in active bundle
+* sju     2003-03-17 Don't use EDITOR sessions
+* sju     2003-03-18 Rewrite; remove test code; previous source
+* backed up in NOM221O; previous source and object backed up in SJU
+* xsetggr 2003-05-21 p(240478) cancel sju 03-03-14 changes
+* fhi     2005-04-19 NOM31107  Support 7-byte job numbers
+* xsetggr 2007-05-07 NOM3201   Support P11 format run numbers
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* XSETHZ  2007-12-10 NOM32     Support P11 format in parameter
+* XSETHZ  2007-12-11 NRT2769   Browse command in printout
+* XSETHZ  2008-02-24 NRT2424   Open binary docs with Windows application
+* xsetggr 2008-03-11 p(302778) change format of RBINSZ-N parms
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* XSETHZ  2009-10-08 P320858 Linux: parts missing in browse
+* xsetggr 2010-02-23 P321493 do not allow browse if browse from folder
+*                            and folder has no grants to display
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* XSETHZ  2010-12-15 NOMALL-907
+* xsetggr 2011-01-05 NOMALL-907 add error msg for archived reports
+* xsetggr 2012-02-09 NOMALl-1104 find lowerc case string, too
+* xsetggr 2012-02-21 NOMALL-1061 implement timeout handling
+* xsetggr 2012-03-09 NOMALL-1061 correct-reset work area
+* SU1     2014-03-28 NOMALL-1234 binary report with NOMDB N corrupted:
+*                                no changes - only restructured
+* SU2     2021-05-31 NOMALL-2454 recat for EXIT-CB
+* SU3     2024-02-19 NOMALL-2489 recat for EXIT-CB
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER
+1 NOARBR-PARM-AREA (A253/100)
+************************************************************************
+LOCAL USING NOMAC--P
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RCCTYP-E
+LOCAL USING EXIT-CB
+LOCAL USING RMSR---E
+LOCAL USING RMSR---L
+*
+LOCAL
+1 NRM-ACTIVE-REPORTS VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-CURRENT-LOCATION
+  2 AR-CC-TYPE
+  2 AR-SOURCE-ID
+  2 AR-NUMBER-OF-LINES
+1 NRM-SOURCE VIEW OF NRM-SOURCE
+  2 SR-TYPE
+  2 SR-ATTRIBUTES-IDENT
+1 FO VIEW OF NRM-FOLDER
+  2 FO-ID
+  2 FO-NAME
+  2 FO-USER-ID
+  2 FO-LINKED-FO-ID         (A10)
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER        (A8)
+    3 FO-LINKED-ID          (B2)
+* *****
+1 #BLOCK-SIZE                 (N3) INIT <100> /*Nr of lines to be read
+1 #LINES                      (A251/100)
+1 #I1                         (I4) /* Parameter index 1
+1 #I2                         (I4) /* Parameter index 2
+1 #ES-MSG-PREF                (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM               (A3)
+  2 #ES-MSG-NR                (N4)
+1 #CALL-PROGRAM               (A8)
+1 #CALL-PROG-P2               (B64)
+1 #AR-REPORT-RNB              (A31)
+1 REDEFINE #AR-REPORT-RNB
+  2 #AR-REPNAME               (A25)
+  2 #AR-REPRNB                (P11)
+1 #USERID                     (A8)
+1 #USER-IN                    (L)
+1 #USER-LAYOUT                (L)
+1 #LAYOUT-TAB                 (A251)
+1 REDEFINE  #LAYOUT-TAB
+  2 #LAYOUT-TAB-V             (A1/251)
+1  #LAYOUT
+  2 #LAYOUT-F                 (P3/10)
+  2 #LAYOUT-T                 (P3/10)
+  2 #LAYOUT-S                 (P3/10)
+  2 #LAYOUT-N                 (P3)
+  2 CV-LAYOUT                 (C/10)
+1 CV-SEQ                      (C/10)
+1 #HEADER-LINES               (N3)
+1 LFILE                       (L)
+1 #LFILE-RC                   (I4)
+1 #LFILE-OLDDBID              (P5)
+1 #LFILE-OLDFILE              (P5)
+1 #LFILE-NEWDBID              (P5)
+1 #LFILE-NEWFILE              (P5)
+1 #SR-TYPE                    (B2)
+1 #TARGET-DBID                (N5)
+1 #TARGET-FNR                 (N5)
+1 #BIN-SIZE                   (I4)
+1 #B-ERC                      (N4)
+1 #B-ERT                      (A250)
+1 #B-RECNUM                   (I4)
+1 #EX-RTOP-F                  (I4)
+1 #GRANTS                     (A1/6)
+1 #GR-NAME                    (A25)
+1 #FO-USER-NAME               (A24)
+1 REDEFINE #FO-USER-NAME
+  2 #FO-USER                  (A8)
+  2 #FO-NAME                  (A16)
+1 #GR-USER                    (A8)
+1 #BROWSE                     (L)
+1 #FO-ID-N                    (N5)
+1 REDEFINE #FO-ID-N
+  2 #FO-ID-A                  (A5)
+1 #S-USER-FO-ID               (A10)
+1 REDEFINE #S-USER-FO-ID
+  2 #S-USER                   (A8)
+  2 #S-FO-ID                  (B2)
+1 #EX-BNUM                    (I4)
+1 #TIMEOUT-CONTROL            (L)
+1 #MIN-TOUT                   (N4) INIT <8>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+ON ERROR
+  ES-RC := 1
+  COMPRESS *PROGRAM '/' *ERROR-NR '/' *ERROR-LINE  TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+************************************************************************
+IF ES-EXTEND-FUNCTION = 'BIN' AND ES-NUMBER > 0 AND ES-LINE-NUMBER > 0
+    AND ES-NUMBER < ES-LINE-NUMBER
+  ES-EOF := 'X'
+  RESET ES-NUMBER
+  ESCAPE ROUTINE
+END-IF
+RESET ES-NUMBER ES-EOF ES-RC ES-MSG-TXT
+PERFORM FILL-INPUT-PARAMETERS
+PERFORM GET-FOLDER-GRANTS
+IF ES-USER-TYPE NE 'A' AND NOT #BROWSE
+  #ES-MSG-NR := 0728
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+*
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+* All valid functions are quite similar:
+* GRO - return 1st block of records plus total record count
+* FIN - find first occurrence, return block of records and set
+*       record number of found occurrence
+* ' ' - return block of lines and set record number of first
+* BIN - return block of binary data , record number in ES-NUMBER
+  VALUE 'FIN', ' ', 'GRO','BIN'
+    IF ES-EXTEND-FUNCTION = 'FIN' AND ES-CLIENT-TIMEOUT > #MIN-TOUT
+      #TIMEOUT-CONTROL := TRUE
+      IF ES-LINE-NUMBER NE 0
+        RESET ES-WORK
+      END-IF
+    END-IF
+    PERFORM FILL-EXIT-CB
+    IF ES-RC NE 0
+      ESCAPE ROUTINE
+    END-IF
+    IF #TIMEOUT-CONTROL
+      CALLNAT #CALL-PROGRAM EXIT-CB #CALL-PROG-P2 #LINES(*)
+        ES-CLIENT-TIMEOUT ES-WORK
+    ELSE
+      CALLNAT #CALL-PROGRAM EXIT-CB #CALL-PROG-P2 #LINES(*)
+    END-IF
+    IF ES-EXTEND-FUNCTION = 'FIN'
+      #EX-RTOP-F := EX-RTOP
+      #EX-BNUM   := EX-BNUM
+      IF #EX-RTOP-F = 0 OR #EX-BNUM = AR-NUMBER-OF-LINES
+        IF NOT #TIMEOUT-CONTROL
+          ES-EOF := 'X'
+        ELSE
+          IF #EX-BNUM = AR-NUMBER-OF-LINES
+            ES-EOF := 'X'
+            RESET ES-WORK
+          END-IF
+        END-IF
+        RESET ES-LINE-NUMBER
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+* If scan string found get the records
+    IF ES-EXTEND-FUNCTION = 'FIN' AND #EX-RTOP-F > 0
+      EX-REQ  := 'G'
+      EX-BNUM := #BLOCK-SIZE
+      CALLNAT #CALL-PROGRAM EXIT-CB #CALL-PROG-P2 #LINES(*)
+    END-IF
+* If not GRO return number of first record (for GRO we return total
+* number of records - set in FILL-EXIT-CB)
+    IF ES-EXTEND-FUNCTION NE 'GRO'
+      ES-LINE-NUMBER := EX-RTOP
+    END-IF
+    IF ES-EXTEND-FUNCTION = '   ' OR = 'BIN'
+      ES-NUMBER:= EX-BNUM
+      IF ES-NUMBER < #BLOCK-SIZE
+        NOARBR-PARM-AREA (*) := #LINES (*)
+        ES-EOF := 'X'
+        RESET ES-LINE-NUMBER
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+    NOARBR-PARM-AREA (*) := #LINES (*)
+*
+    IF #SR-TYPE = NOM-DATA-BASE
+      PERFORM REFRESH-LFILE
+      IF #LFILE-RC NE 0
+        ES-RC:= 21
+        COMPRESS 'Lfile refresh error:' #LFILE-RC TO ES-MSG-TXT
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+    IF EX-ECODE NE 0
+      IF EX-ECODE = 1 THRU 999
+        ES-RC:= EX-ECODE
+      ELSE
+        ES-RC:= 21
+      END-IF
+      IF EX-UDATA NE ' '
+        ES-MSG-TXT:= EX-UDATA
+      ELSE
+        #ES-MSG-NR:= EX-ECODE
+        COMPRESS #CALL-PROGRAM 'Error' #ES-MSG-NR TO ES-MSG-TXT
+      END-IF
+    END-IF
+  NONE VALUE
+    RESET #LINES (*) NOARBR-PARM-AREA (*)
+    ES-RC        := 1
+    ES-MSG-TXT   := 'Function not yet implemented.'
+    ESCAPE ROUTINE
+END-DECIDE
+IF ES-RC = 3
+  RESET ES-RC  ES-MSG-TXT /* don't show EOF to caller
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+*
+************************************************************************
+DEFINE SUBROUTINE FILL-INPUT-PARAMETERS
+************************************************************************
+* Get Data from Active report to test Report contents interface
+RESET ES-NUMBER
+DECIDE ON FIRST VALUE OF ES-KEY-CODE(1)
+  VALUE 'RP'                /* Report definition
+    #I1 := 1
+  VALUE 'FO'                /* Folder
+    #I1 := 2
+  VALUE 'AB' , 'PO'         /* Active Bundle & Printout
+    #I1 := 3
+    IF ES-KEY-CODE(2) NE 'BC'
+      #I1 := 1
+    END-IF
+  ANY VALUE
+    #I2 := #I1 + 1
+    #AR-REPNAME := ES-KEY-PARM(#I1)
+    IF ES-KEY-PARM(#I2) IS (N11)
+      #AR-REPRNB := VAL(ES-KEY-PARM(#I2))
+    ELSE
+      RESET #AR-REPRNB
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* FILL-INPUT-PARAMETERS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND    := 'U'
+NADA2000.ERROR-NUMBER   := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-TXT := SHORT-MSG
+IF ES-MSG-TXT = ' '
+  ES-MSG-TXT := NOMAC-ERROR-TEXT
+ELSE
+  EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE NOMAC-ERROR-TEXT
+END-IF
+ES-MSG-NR := #ES-MSG-NR
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE FILL-EXIT-CB
+************************************************************************
+#USERID:= *USER
+FIND NRM-ACTIVE-REPORTS WITH AR-REPORT-RNB = #AR-REPORT-RNB
+  IF NO RECORDS FOUND
+    ES-RC:= 21
+    ES-MSG-TXT:= 'Active report not found'
+    ESCAPE ROUTINE
+  END-NOREC
+  EX-NRM-LOCATION:= NRM-ACTIVE-REPORTS.AR-CURRENT-LOCATION
+  DECIDE ON FIRST VALUE OF NRM-ACTIVE-REPORTS.AR-CURRENT-LOCATION
+    VALUE 'D'
+      #CALL-PROGRAM:= 'NOBRNDB'
+    VALUE 'S'
+      #CALL-PROGRAM:= 'NOBRSYS'
+      FIND NRM-SOURCE WITH SR-ID = AR-SOURCE-ID
+        IF NO RECORDS FOUND
+          ES-RC:= 21
+          ES-MSG-TXT:= 'Source record not found'
+          ESCAPE ROUTINE
+        END-NOREC
+        EX-NRM-SOURCE-ISN:= *ISN
+        #SR-TYPE := NRM-SOURCE.SR-TYPE
+        IF NRM-SOURCE.SR-TYPE = NOM-DATA-BASE
+          PERFORM GET-LFILE
+          #SOURCE-ATTRIBUTES := NRM-SOURCE.SR-ATTRIBUTES-IDENT
+          CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES SR-TYPE
+          #TARGET-DBID := #NOMDB-DBID
+          #TARGET-FNR  := #NOMDB-FNR
+          PERFORM SET-LFILE
+          IF NOMAC-ERROR-CODE NE 0
+            ES-RC:= 21
+            COMPRESS 'Lfile set error:' #LFILE-RC TO ES-MSG-TXT
+            ESCAPE ROUTINE
+          END-IF
+        END-IF
+      END-FIND
+    VALUE 'A'
+      ES-RC := 21
+      ES-MSG-TXT := 'Report contents not available'
+      ESCAPE ROUTINE
+    NONE VALUE
+      ES-RC:= 21
+      ES-MSG-TXT:= 'Unsupported location'
+      ESCAPE ROUTINE
+  END-DECIDE
+  EX-NRM-SOURCE-CC-TYPE:= NRM-ACTIVE-REPORTS.AR-CC-TYPE
+  IF EX-NRM-SOURCE-CC-TYPE = NO-CC
+    EX-NRM-ASA-CODE-ON:= 'F'
+  ELSE
+    EX-NRM-ASA-CODE-ON:= 'A'
+  END-IF
+END-FIND
+EX-RTOP   := ES-LINE-NUMBER
+IF #TIMEOUT-CONTROL AND ES-LINE-NUMBER = 0 /* repeat-call
+  IGNORE
+ELSE
+  #EX-RTOP-F:= ES-LINE-NUMBER
+  IF EX-RTOP = 0
+    EX-RTOP := 1
+  END-IF
+END-IF
+EX-NRM-LRECL:= EX-RLEN:= 251
+EX-NRM-REPNAME:= #AR-REPNAME
+EX-NRM-REPRNB:= #AR-REPRNB
+EX-SCOL:= 1
+EX-STYPE := 'A'
+EX-UDATA:= SUBSTRING(NOARBR-PARM-AREA(1),1,251)
+EXAMINE EX-UDATA TRANSLATE INTO UPPER CASE
+*
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+  VALUE 'FIN'
+    EX-REQ:= 'S'
+  VALUE 'GRO'
+    EX-REQ:= 'G'
+    IF EX-NRM-SOURCE-CC-TYPE = BINARY
+      CALLNAT 'RBINSZ-N' #AR-REPNAME #AR-REPRNB 'R'
+        #B-RECNUM #BIN-SIZE #B-ERC #B-ERT
+      ES-LINE-NUMBER := #B-RECNUM
+    ELSE
+      ES-LINE-NUMBER:= NRM-ACTIVE-REPORTS.AR-NUMBER-OF-LINES
+    END-IF
+  NONE VALUE
+    EX-REQ:= 'G'
+END-DECIDE
+EX-BNUM:= #BLOCK-SIZE
+EX-RMAX:= EX-NRM-MAXREC:= 99999999
+RESET EX-ECODE
+* Call RGETLAYN to get layout
+RESET EX-NRM-FCOL(*) EX-NRM-TCOL(*)
+CALLNAT 'RGETLAYN' #AR-REPNAME #AR-REPRNB #USERID #USER-IN #USER-LAYOUT
+  #LAYOUT-TAB #LAYOUT CV-SEQ(*) #HEADER-LINES
+IF #USER-LAYOUT AND #LAYOUT-N GT 0
+  EX-NRM-FCOL(1:#LAYOUT-N):= #LAYOUT-F(1:#LAYOUT-N)
+  EX-NRM-TCOL(1:#LAYOUT-N):= #LAYOUT-T(1:#LAYOUT-N)
+  EX-NRM-HEAD             := #HEADER-LINES
+END-IF
+*
+END-SUBROUTINE /* FILL-EXIT-CB
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+IF NOT LFILE
+  #LFILE-NEWDBID := #TARGET-DBID
+  #LFILE-NEWFILE := #TARGET-FNR
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-NEWDBID #LFILE-NEWFILE
+  IF #LFILE-RC NE 0
+    NOMAC-ERROR-CODE := 4007
+    NOMAC-ERROR-TEXT := #LFILE-RC
+  ELSE
+    LFILE := TRUE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE REFRESH-LFILE
+************************************************************************
+IF LFILE
+  RESET #LFILE-RC
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+  IF #LFILE-RC NE 0
+    NOMAC-ERROR-CODE := 4008
+    NOMAC-ERROR-TEXT := #LFILE-RC
+  ELSE
+    LFILE := FALSE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* REFRESH-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-FOLDER-GRANTS
+************************************************************************
+#BROWSE := TRUE
+*
+IF ES-KEY-CODE(1) NE 'FO'
+  ESCAPE ROUTINE
+END-IF
+*
+RESET #GRANTS(*)
+#FO-USER := ES-USER
+#FO-NAME := ES-KEY-PARM(1)
+IF #FO-NAME = '#Inbasket' OR = '#Listeneingang'
+  #S-USER := #FO-USER
+  #S-FO-ID := 1
+  FIND FO WITH FO-USER-FO-ID = #S-USER-FO-ID
+    #FO-NAME := FO.FO-NAME
+  END-FIND
+END-IF
+FO1. FIND FO WITH FO-USER-NAME = #FO-USER-NAME
+  #FO-ID-N := FO-ID
+  DECIDE FOR FIRST CONDITION
+    WHEN FO-USER-ID = ES-USER  AND FO-ID = 0001
+      IGNORE
+    WHEN FO-USER-ID = ES-USER AND FO-ID NE 0001
+      #FO-ID-N := FO-LINKED-ID
+      COMPRESS FO-LINKED-USER #FO-ID-A TO #GR-NAME LEAVING NO
+      CALLNAT 'NOGROU-N' 'F' #GR-NAME ES-USER #GR-USER #GRANTS(*)
+      IF #GRANTS(4) NE 'Y'
+        #BROWSE := FALSE
+      END-IF
+    WHEN FO-USER-ID NE ES-USER  AND FO-ID = 0001
+      COMPRESS FO-USER-ID #FO-ID-A TO #GR-NAME LEAVING NO
+      CALLNAT 'NOGROU-N' 'F' #GR-NAME ES-USER #GR-USER #GRANTS(*)
+      IF #GRANTS(4) NE 'Y'
+        #BROWSE := FALSE
+      END-IF
+    WHEN NONE IGNORE
+  END-DECIDE
+END-FIND
+*
+END-SUBROUTINE /* GET-FOLDER-GRANTS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-LFILE
+************************************************************************
+RESET #LFILE-RC
+CALLNAT 'RMIGGFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+*
+END-SUBROUTINE /* GET-LFILE
+*
+END

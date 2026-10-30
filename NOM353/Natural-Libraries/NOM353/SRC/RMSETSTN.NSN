@@ -1,0 +1,468 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMSETSTN - Indicate current status of monitor cycle
+* NOTE: The calling module should always DO an END TRANSACTION ÜÜ
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-12-10 s(999999) old version saved, use common-data to reduce
+*                        data base calls
+* jvd 98-06-26 s(164220) NOM141 - NAT23 changes
+* sju 00-03-13 s(191368) monitor multitasking
+* sju 02-11-22 s(232373) Message if create common-data fails
+* fhi     2005-06-23 p(266530) Monitor must be NPR Mainframe independent
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* fhi     2008-03-03 P300285   NRT1560 implementation
+* fhi     2008-04-07 P300285   NRT1560 does not work under Unix
+* fhi     2009-04-14 P300285   NRT1560 wrong status text
+* bli     2009-04-21 P300285   NO ET here, but ALWAYS in calling module
+* xsetggr 2009-06-10 P300285   store subtask record of main task if
+*                              not found, get status text in any case
+* xsetggr 2009-08-10 P300285   do not update stored subtask record
+* fhi     2010-05-28 NOMALL-93 Create statistics data for Optimize
+* fhi     2010-06-16 NOMALL-93 Create statistics data for Optimize
+* fhi     2010-08-04 NOMALL-93 Create statistics data for Optimize
+* fhi     2010-08-18 NOMALL-853 Monitor multitasking for Unix           STEM
+* fhi     2010-08-23 NOMALL-853 Monitor multitasking for Unix           STEM
+* fhi     2010-09-09 NOMALL-97  Add trace levels
+* fhi     2010-09-10 NOMALL-93 Create statistics data for Optimize
+*                              Make work around for NATMF-16454 (#TXT)
+* fhi     2012-04-18 NOMALL-740 STATUS-TO-NPR routine rewritten.
+* fhi     2012-08-29 NOMALL-1195 Switch off statistics if desired.
+* bli     2012-09-21 NOMALL-94  Remove #NOMVER
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2015-02-09 NOMALL-1450 'ST'->'SI'
+* SU3     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-11-08 NOMALL-1621 Send node name to common data
+* fhi     2016-11-14 NOMALL-1961 Duplicate monitor copy task
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-01-05 NOMALL-1621 Send line number to common data
+* bli     2017-04-25 NOMALL-1871 NAT1257 if error in NOMSTCS
+* fhi     2018-04-23 NOMALL-1918 Adapt to Unix, no tags
+* fhi     2018-04-25 NOM 3.5     NOSTATISTICS -> STATISTICS=ON
+* fhi     2018-12-14 NOMALL-1905 Use +O4I for decision of writing
+* SU4     2020-04-27 NOMALL-2349 error handling (NPR)
+* SU5     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* SU6     2022-11-11 NOMALL-2583 set trace correct;itrac for uqac only
+* SU7     2024-09-02 ES-35716    deactivate O4I
+************************************************************************
+*
+DEFINE DATA PARAMETER
+1 P-STATUS                    (A1)
+1 REDEFINE P-STATUS
+  2 P-STATUS-B                (B1)
+1 #NODE                       (N5)
+1 #NATRP-DBID                 (N5)
+1 #NATRP-FNR                  (N5)
+1 #SHUTDOWN                   (L)
+1 #TASK-NUMBER                (N3)
+1 #TRACE                      (I2) OPTIONAL
+1 LINE-NUMBER                 (N4) BY VALUE OPTIONAL
+************************************************************************
+INDEPENDENT
+1 +NOD-CURRENT-NAME           (A16)
+/*SU7 1 +O4I                        (L)
+* *****
+LOCAL USING RMSETSTE
+LOCAL USING VSUBT-L
+LOCAL USING NOMSTCSP
+LOCAL USING RMSTX--P
+LOCAL USING RLOG-L
+LOCAL USING RMTASK-P
+LOCAL
+1 STATUS VIEW OF COMMON-DATA
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 DATA
+  2 REDEFINE DATA
+    3 DATA-STATUS             (A1)
+    3 DATA-TIME               (T)
+    3 DATA-NODE               (A20)
+1 NATURAL-SUB-TASK VIEW OF NATURAL-SUB-TASK
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 NAT-USER
+  2 NAT-STATUS
+1 SETUDATA VIEW OF NATURAL-SUB-TASK
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 NAT-USER
+  2 NAT-USER-DATA
+1 EVENTING                    (A512)
+1 REDEFINE EVENTING
+  2 ERROR-CODE                (N3)
+  2 ERROR-TEXT                (A58)
+  2 NODE                      (N5)
+  2 SYSTEM-MESSAGE-CODE       (A10)
+  2 FUNCTION                  (A8)
+  2 EVENT-NAME                (A8)
+  2 MAX-TIME                  (B4)
+  2 REDEFINE MAX-TIME
+    3 MAX-TIME-A              (A4)
+  2 NUMBER-OF-WAITERS         (N5)
+  2 NUMBER-OF-MESSAGES        (N5)
+  2 MESSAGE-ARRAY             (A250)
+* ----------------------------------------------------------------------
+1 #DATA                       (A32)
+1 REDEFINE #DATA
+  2 #DATA-STATUS              (A1)
+  2 #DATA-TIME                (T)
+  2 #DATA-NODE                (A20)
+  2 #DATA-LINE                (N4)
+1 #COUNTER                    (P2)
+1 #ST-LAST-ACTIVE             (A17)
+1 #USER-DATA                  (A253)
+1 #INDEX                      (I4)
+1 #LASTPROG                   (A8)
+1 #I                          (I4)
+1 #STATUS-N                   (I1)
+1 #TRACING                    (L)
+1 #TXT                        (A70)  /* if zap Nat427/NA76130 missing,
+1 #FOUND                      (L)    /* NOMALL-1195 in
+/*                                      work around for NATMF-16454
+1 #TASK-ID-C                  (A12)
+1 #TASK-ID-E                  (A8)
+1 #TRACE-MSG                  (A250)
+1 #LINE-NUMBER                (N4)
+1 #STATISTICS-ERROR           (L)
+1 #MF                         (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF #TRACE SPECIFIED AND #TRACE GE *LEVEL /*SU6 was LE
+  #TRACING := TRUE
+  PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG
+ELSE
+  RESET #TRACING
+END-IF
+IF LINE-NUMBER SPECIFIED
+  #LINE-NUMBER := LINE-NUMBER
+ELSE
+  #LINE-NUMBER := 0
+END-IF
+IF *MACHINE-CLASS = 'MAINFRAME'
+  #MF := TRUE
+END-IF
+RMTASK-P.FUNCTION       := 'C' /* TASK ID for COMMON-DATA
+RMTASK-P.SUBTASK-NUMBER := #TASK-NUMBER
+CALLNAT 'RMTASKID' RMTASK-P
+#TASK-ID-C              := RMTASK-P.TASK-ID
+RMTASK-P.FUNCTION       := 'E' /* TASK ID for EVENTING
+RMTASK-P.SUBTASK-NUMBER := #TASK-NUMBER
+CALLNAT 'RMTASKID' RMTASK-P
+#TASK-ID-E              := RMTASK-P.TASK-ID
+*
+REP. REPEAT
+  ADD 1 TO #COUNTER
+  PERFORM READ-STATUS
+  DECIDE ON FIRST STATUS.ERROR-CODE
+    VALUE 0
+      PERFORM MODIFY-STATUS
+      PERFORM STATUS-TO-NPR
+/*SU7 IF +O4I PERFORM WRITE-STATISTICS END-IF
+      ESCAPE BOTTOM (REP.)
+    VALUE 621, 890
+      IF #COUNTER > 1
+        ESCAPE BOTTOM (REP.)
+      END-IF
+      PERFORM CREATE-COMMON-DATA
+      IF STATUS.ERROR-CODE NE 0
+        ESCAPE BOTTOM (REP.)
+      END-IF
+    NONE VALUE
+      ESCAPE BOTTOM (REP.)
+  END-DECIDE
+END-REPEAT
+EXAMINE #EQU-STATUS-V (*) FOR P-STATUS GIVING INDEX #INDEX
+IF #TRACING AND #INDEX NE 0
+  COMPRESS 'Monitor status of task' #TASK-NUMBER
+    'set to' #EQN-STATUS-V (#INDEX) 'by' #LASTPROG TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-COMMON-DATA
+************************************************************************
+IF #MF
+  FNDCR. FIND STATUS WITH NODE = #NODE AND FUNCTION = 'CREATE'
+  AND DATA-ID = #TASK-ID-C AND NUMBER-OF-ENTRIES = 1                  /*
+  AND ENTRY-LENGTH       = 28 AND EDITOR-BUFFER-POOL = 'N'            /*
+    IF STATUS.ERROR-CODE NE 0 AND P-STATUS = #EQU-INIT
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY-MM-DD' 'HH:II:SS)
+        'Error' STATUS.ERROR-CODE 'creating Common Data' /
+'This task cannot be monitored - please increase ESY CDATALEN parameter'
+    END-IF
+  END-FIND
+ELSE
+  EVENTING.FUNCTION := 'DEFINE'
+  EVENT-NAME        := #TASK-ID-E
+  CALLNAT 'RMEVNTXN' EVENTING
+  STATUS.ERROR-CODE := EVENTING.ERROR-CODE
+  STATUS.ERROR-TEXT := EVENTING.ERROR-TEXT
+END-IF
+*
+END-SUBROUTINE /* CREATE-COMMON-DATA
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-STATUS
+************************************************************************
+#DATA-STATUS := P-STATUS
+#DATA-TIME   := *TIMX
+#DATA-NODE   := +NOD-CURRENT-NAME  /* NOMALL-1621 fhi in
+#DATA-LINE   := #LINE-NUMBER       /* NOMALL-1621 fhi in
+*
+IF #MF
+  FNDST. FIND STATUS WITH NODE = #NODE AND FUNCTION = 'MODIFY'
+  AND DATA-ID  = #TASK-ID-C AND DATA = #DATA                          /*
+  AND ENTRY-NUMBER = 1 AND ENTRY-LENGTH = 28 /* NOMALL-1621 was = 8   /*
+  END-FIND
+ELSE
+  EVENTING.FUNCTION := 'SET'
+  EVENT-NAME        := #TASK-ID-E
+  MESSAGE-ARRAY     := #DATA
+  CALLNAT 'RMEVNTXN' EVENTING
+  STATUS.ERROR-CODE := EVENTING.ERROR-CODE
+  STATUS.ERROR-TEXT := EVENTING.ERROR-TEXT
+END-IF
+IF #TASK-NUMBER = 1 /* main task
+  RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)
+  FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = RMTASK-P.TASK-ID
+    IF NO RECORDS FOUND
+      ST-SUBTASK-ID  := RMTASK-P.TASK-ID
+      ST-LAST-ACTIVE := #DATA-TIME
+      ST-STATUS      := P-STATUS
+      ST-OBJECT-TYPE := 'SI' /*SU1 SU2 'ST'->'SI'
+      ST-OBJECT-TIME := *TIMX /*SU1
+      STORE NRM-SUBTASK-INFO
+      ESCAPE BOTTOM
+    END-NOREC
+    ST-LAST-ACTIVE := #DATA-TIME
+    ST-STATUS      := P-STATUS
+    UPDATE
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* MODIFY-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE STATUS-TO-NPR
+************************************************************************
+IF NOT #MF
+  ESCAPE ROUTINE /* only on mainframes
+END-IF
+RMTASK-P.FUNCTION       := 'S'
+RMTASK-P.SUBTASK-NUMBER := #TASK-NUMBER
+CALLNAT 'RMTASKID' RMTASK-P
+NRM-SUBT. FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = RMTASK-P.TASK-ID
+  MOVE EDITED ST-LAST-ACTIVE (EM=YY-MM-DD' 'HH':'II':'SS) TO #ST-LAST-ACTIVE
+  EXAMINE #EQU-STATUS-V (*) FOR P-STATUS GIVING INDEX #INDEX
+  IF #INDEX NE 0
+    ST-MESSAGE     := #EQN-STATUS-V (#INDEX)
+    ST-STATUS      := P-STATUS
+    UPDATE (NRM-SUBT.)
+  ELSE
+    ST-MESSAGE := 'NONE'
+  END-IF
+  COMPRESS 'ID:' ST-SUBTASK-ID 'Last-Active:' #ST-LAST-ACTIVE  ','
+    'Message:'     ST-MESSAGE TO #USER-DATA
+  RMTASK-P.FUNCTION       := 'T'
+  RMTASK-P.SUBTASK-NUMBER := #TASK-NUMBER
+  CALLNAT 'RMTASKID' RMTASK-P
+  SETDATA. FIND (1) SETUDATA WITH NODE = #NODE AND FUNCTION ='SETUDATA'
+  AND NAT-USER = RMTASK-P.TASK-ID AND NAT-USER-DATA = #USER-DATA      /*
+    IF SETUDATA.ERROR-CODE NE 0 /*SU4 2020-05-25
+      PRINT (AD=L) *PROGRAM *LINE SETUDATA.ERROR-CODE /*SU4
+        SETUDATA.ERROR-TEXT 'node=' #NODE 'function=''SETUDATA'''
+        'nat-user=' RMTASK-P.TASK-ID 'nat-user-data=' #USER-DATA
+    END-IF
+  END-FIND /* SETDATA.
+END-FIND   /* NRM-SUBT.
+*
+END-SUBROUTINE /* STATUS-TO-NPR
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-STATISTICS /*SU7 UNUSED ÜÜ
+************************************************************************
+PERFORM RMGMONPA-GET-MONPARS 'STATISTICS=ON' #FOUND
+IF NOT #FOUND OR #STATISTICS-ERROR
+  ESCAPE ROUTINE
+END-IF
+*
+REDUCE ARRAY SS-VALUE TO 0
+EXPAND ARRAY SS-VALUE TO (1:100)
+REDUCE ARRAY SS-TITLE TO 0
+EXPAND ARRAY SS-TITLE TO (1:100)
+RESET SS-TITLE (*) SS-VALUE (*)
+/* Clear all values of subtasks that are no more active
+FOR #I = 21 TO 59 STEP 10
+  IF #MF
+    RMTASK-P.FUNCTION       := 'T'
+    RMTASK-P.SUBTASK-NUMBER := #I
+    CALLNAT 'RMTASKID' RMTASK-P
+    SU2T2. FIND NATURAL-SUB-TASK WITH NODE = #NODE
+    AND NAT-USER = RMTASK-P.TASK-ID AND FUNCTION = 'STATUS'           /*
+      IF (NATURAL-SUB-TASK.ERROR-CODE = 0
+      AND NATURAL-SUB-TASK.NAT-STATUS = 'CLOSED'                      /*
+      OR = 'INACTIVE' OR = 'ABENDED')                                 /*
+        PERFORM RESET-STATISTICS
+      END-IF
+      IF NATURAL-SUB-TASK.ERROR-CODE NE 0 /*SU4
+        PRINT (AD=L) *PROGRAM *LINE SU2T2.ERROR-CODE SU2T2.ERROR-TEXT
+          'node=' #NODE
+          'nat-user=' RMTASK-P.TASK-ID 'function=''STATUS'''
+      END-IF
+    END-FIND
+  ELSE
+    RMTASK-P.FUNCTION       := 'S' /* correct under UnixÜ
+    RMTASK-P.SUBTASK-NUMBER := #I
+    CALLNAT 'RMTASKID' RMTASK-P
+    STX-TASK-NAME := RMTASK-P.TASK-ID
+    STX-FUNCTION  := 'STATUS'
+    IF #TRACE SPECIFIED
+      CALLNAT 'RMSTX--N' STX-PARMS #TRACE
+    ELSE
+      CALLNAT 'RMSTX--N' STX-PARMS
+    END-IF
+    IF STX-ERROR-CODE NE 0 OR STX-TASK-STATUS NE 0
+      PERFORM RESET-STATISTICS
+    END-IF
+  END-IF
+END-FOR
+/* Clear all values of inactive subtasks -- end
+DECIDE ON FIRST VALUE OF P-STATUS
+  VALUE 'D'
+    #STATUS-N := 23
+  VALUE 'C'
+    #STATUS-N := 24
+  NONE
+    #STATUS-N := P-STATUS-B
+    IF #STATUS-N < 1 OR #STATUS-N > 22
+      #STATUS-N              := 1 /* Set status "not active"
+    END-IF
+END-DECIDE
+RESET NOMSTCSP NOMSTCSP.ERC SS-TITLE (*) SS-VALUE (*)
+DECIDE ON EVERY VALUE OF NOMSTCSP.ERC
+  VALUE 0
+    NOMSTCSP.FUNCTION := 'W'
+    NOMSTCSP.SS-ITEM  := 'MON-ID'
+    IF #MF
+      #I := #TASK-NUMBER
+      IF #I = 0
+        #I := 1
+      END-IF
+    END-IF
+    SS-VALUE (#I) := #TASK-ID-C
+    COMPRESS '4358' #I TO #TXT
+    CALLNAT 'RSUBMSGN' #TXT
+    SS-TITLE (#I) := #TXT
+    PERFORM CALL-STATISTICS
+* bli 2017-04-25 NOMALL-1871 start insertion
+    IF #STATISTICS-ERROR
+      ESCAPE ROUTINE
+    END-IF
+  VALUE 0
+    REDUCE ARRAY SS-VALUE TO 0
+    EXPAND ARRAY SS-VALUE TO (1:100)
+    REDUCE ARRAY SS-TITLE TO 0
+    EXPAND ARRAY SS-TITLE TO (1:100)
+    RESET SS-TITLE (*) SS-VALUE (*)
+    NOMSTCSP.FUNCTION := 'W'
+    NOMSTCSP.SS-ITEM  := 'MON-STAT'
+    SS-VALUE (#I) := #EQN-STATUS-V (#STATUS-N)
+    COMPRESS '4359' #INDEX TO #TXT
+    CALLNAT 'RSUBMSGN' #TXT
+    SS-TITLE (#I) := #TXT
+    PERFORM CALL-STATISTICS
+* bli 2017-04-25 NOMALL-1871 start insertion
+    IF #STATISTICS-ERROR
+      ESCAPE ROUTINE
+    END-IF
+  NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* WRITE-STATISTICS
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-STATISTICS /*SU7 UNUSED ÜÜ
+************************************************************************
+IF NOT #STATISTICS-ERROR      /* NOMALL-1871 bli in
+  CALLNAT 'NOMSTCS' NOMSTCSP
+  IF NOMSTCSP.ERC NE 0
+    COMPRESS '4390' SS-ITEM NOMSTCSP.ERC TO LG-MSG
+    LG-FUNCTION := 'W'
+    CALLNAT 'RLOG' PL-PARMS
+    RESET LG-FUNCTION /* restore old fashioned way.
+    #STATISTICS-ERROR := TRUE /* NOMALL-1871 bli in
+  END-IF
+END-IF                        /* NOMALL-1871 bli in
+*
+END-SUBROUTINE /* CALL-STATISTICS
+*
+************************************************************************
+DEFINE SUBROUTINE RESET-STATISTICS /*SU/ UNUSED
+************************************************************************
+RESET NOMSTCSP SS-TITLE (*) SS-VALUE (*)
+NOMSTCSP.FUNCTION := 'W'
+NOMSTCSP.SS-ITEM  := 'MON-ID'
+SS-VALUE (#I) := '--'
+COMPRESS '4358' #I TO #TXT
+CALLNAT 'RSUBMSGN' #TXT
+SS-TITLE (#I) := #TXT
+PERFORM CALL-STATISTICS
+* bli 2017-04-25 NOMALL-1871 start insertion
+IF #STATISTICS-ERROR
+  ESCAPE ROUTINE
+END-IF
+REDUCE ARRAY SS-VALUE TO 0
+EXPAND ARRAY SS-VALUE TO (1:100)
+REDUCE ARRAY SS-TITLE TO 0
+EXPAND ARRAY SS-TITLE TO (1:100)
+RESET SS-TITLE (*) SS-VALUE (*)
+NOMSTCSP.FUNCTION := 'W'
+NOMSTCSP.SS-ITEM  := 'MON-STAT'
+SS-VALUE (#I) := #EQN-STATUS-V (1) /* not act.
+COMPRESS '4359' #I TO #TXT
+CALLNAT 'RSUBMSGN' #TXT
+SS-TITLE (#I) := #TXT
+PERFORM CALL-STATISTICS
+* bli 2017-04-25 NOMALL-1871 start insertion
+IF #STATISTICS-ERROR
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* RESET-STATISTICS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-STATUS
+************************************************************************
+IF #MF
+  FNDRS. FIND STATUS WITH NODE = #NODE AND FUNCTION = 'GET'
+     AND DATA-ID = #TASK-ID-C AND ENTRY-NUMBER = 1 AND ENTRY-LENGTH = 28
+  END-FIND
+ELSE
+  EVENTING.FUNCTION := 'GET'
+  EVENT-NAME        := #TASK-ID-E
+  CALLNAT 'RMEVNTXN' EVENTING
+  STATUS.ERROR-CODE := EVENTING.ERROR-CODE
+  STATUS.ERROR-TEXT := EVENTING.ERROR-TEXT
+  DATA              := MESSAGE-ARRAY
+END-IF
+IF DATA-STATUS = 'D'
+  #SHUTDOWN := TRUE
+END-IF
+*
+END-SUBROUTINE /* READ-STATUS
+*
+END

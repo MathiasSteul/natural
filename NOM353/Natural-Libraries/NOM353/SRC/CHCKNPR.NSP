@@ -1,0 +1,92 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    CHCKNPR
+* Function  Check if an NPR Unix monitor node is alive
+* Version   3.1
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* fhi 05-10-20 p(266530) Created from RMEVNTXN
+* fhi 08-03-11 P301871   Avoid loop in RMSRCP-N, allow check of all nodes.
+*                        Not every change tagged.
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* fhi     2014-08-29 NOMALL-1454 Recataloged due to changes of XXUX---P
+* fhi     2018-04-25 NOMALL-1918 Severe errors: Set suspend to 'E'
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU2     2020-06-19 NOMALL-2349 show full msg
+* SU3     2020-12-01 NOMALL-2440 del. UX-EMAIL-RECIPIENTS
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL     USING VUXDEF-L
+LOCAL     USING XXUX---P
+LOCAL
+1 #NO-NODE  (L) INIT <TRUE>
+1 #TRACE    (I2)  INIT <100>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+READ UX-NODES BY UX-NODE-NAME
+  IF UX-NODE-SUSPEND ='D' OR='E'  /* NOMALL-1918 fhi in
+    ESCAPE TOP
+  END-IF
+  RESET #NO-NODE XXUX---P
+  P-FUNCTION := 'LOGIN'
+  PERFORM UNIX-FUNCTION
+  IF P-ERC NE 0
+    WRITE / /                                         /* P301871 in
+    ESCAPE TOP
+  END-IF
+  MOVE 'INFO'                 TO P-FUNCTION
+  PERFORM UNIX-FUNCTION
+  IF P-ERC NE 0
+    WRITE / /
+    ESCAPE TOP
+  END-IF
+  WRITE / 'Platform:' P-OPSYS 'NPR Unix Version:' P-NPR-VERSION /
+  P-FUNCTION := 'LOGOUT'
+  PERFORM UNIX-FUNCTION
+  IF P-ERC NE 0
+    WRITE / /
+    ESCAPE TOP
+  END-IF
+  WRITE / /
+END-READ
+IF #NO-NODE
+  WRITE 'No NPR Unix node found that could be used (NOM2048).'
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UNIX-FUNCTION
+************************************************************************
+P-NODE-NAME := UX-NODES.UX-NODE-NAME
+P-NODE-SUSPEND := UX-NODES.UX-NODE-SUSPEND
+P-USERID := UX-NODES.UX-NODE-USERID
+P-CIPHER-PASSWORD := UX-NODES.UX-NODE-PASSWORD
+RESET P-PASSWORD
+P-GROUP := UX-NODES.UX-NODE-GROUP
+RESET P-ERC
+P-NODE-NAME := UX-NODES.UX-NODE-NAME
+CALLNAT 'XXUX---N' XXUX---P #TRACE
+IF P-ERC NE 0
+  PRINT *PROGRAM 'Error' P-ERC 'in function' P-FUNCTION ':' /
+    P-ERT /*SU2 (AL=70)
+ELSE
+  WRITE *PROGRAM P-FUNCTION 'successfully finished.'
+    / 'Node:' P-NODE-NAME 'Type:' P-NODE-SUSPEND
+END-IF
+*
+END-SUBROUTINE /* UNIX-FUNCTION
+*
+END

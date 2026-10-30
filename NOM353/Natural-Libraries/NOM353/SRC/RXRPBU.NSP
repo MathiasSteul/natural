@@ -1,0 +1,193 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* PROGRAM ....: RXRPBU
+* FUNCTION ...: LIST BUNDLES WHERE A REPORT IS CONTAINED
+* sju 00-03-24 p(191368) use N-HEADER instead of C-HEADER
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* xsetggr 2007-05-08 NOM3201   Support 11 byte run numbers
+* fhi     2010-03-05 P307403 Don't use text and binary reports mixed
+* xsetggr 2010-03-16 P307403 restow - RPFKEX-C is changed back
+* SU1     2013-07-17 remove empty copy code CSTARTLS
+* ----------------------------------------------------------------------
+DEFINE DATA
+GLOBAL USING NRM-GL
+LOCAL USING EQU-L
+LOCAL USING RPFK---L
+LOCAL USING VBURP-L
+LOCAL USING VABUND-L
+LOCAL USING SUPER-L
+* *****
+LOCAL
+1 #BROWSE-FLAGS
+  2 GET-SCREEN      (L)
+  2 #FORWARD        (L)
+  2 #BACKWARD       (L)
+  2 #NEWVAL         (L)
+  2 #TOP            (L)
+*
+1 L-HEADER          (A78)
+1 L-REPRNB          (A37)
+1 #REPORT           (A25)
+1 REDEFINE #REPORT
+  2 #REPORT-17      (A17)
+  2 #REPORT-R       (A8)
+1 L-SCREEN
+  2 L-BUNDLE        (A25/15)
+  2 L-BUNDRNB       (P11/15)
+  2 L-SEQNO         (P3/15)
+  2 L-PRINTER       (A8/15)
+  2 L-STATUS        (A1/15)
+  2 L-GROUP         (A8/15)
+  2 L-ISN           (P10/15)
+  2 L-MARK          (A2/15)
+  2 CV-MARK         (C/15)
+  2 CVU             (C/15)
+  2 #BOTLINE        (A40)
+  2 REDEFINE #BOTLINE
+    3 #BOT-1        (A12)
+    3 #BOT-2        (A16)
+    3 #BOT-3        (A12)
+  2 REDEFINE #BOTLINE
+    3 #MORE-1       (A18)
+    3 #MORE-2       (A4)
+    3 #MORE-3       (A18)
+*
+*
+1 I(N5)
+1 #TOPN             (N5) INIT <1>
+1 #MAXREC           (N5)
+1 #UPDATE           (L)
+1 #BC-SUPER         (A31)
+1 REDEFINE #BC-SUPER
+  2 #BC-REPORT      (A25)
+  2 #BC-REPRNB      (P11)
+1 #FATHER-PROG      (A8) INIT <'RLISAC'>
+1 CV-LINES          (C)
+1 #ADD-PROGRAM      (A8) INIT <'RDEFRP'>
+1 #ACT-MAST         (A8) INIT <'RLISAC'>
+1 #PFN              (A5) INIT <'PF9 ='>
+1 C-PFN             (C)
+1 C-PFT             (C)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#FATHER-PROG := G-FATHER-PROG
+RESET G-COMMIT
+#BC-REPORT := G-C-REPORT
+#BC-REPRNB := G-C-REPRNB
+CV-LINES := G-LIST-CD
+#NEWVAL := TRUE
+REPEAT
+  IF G-DISPLAY-LONG-NAMES
+    COMPRESS G-C-REPORT '/' G-C-REPRNB TO L-REPRNB LEAVING NO
+  ELSE
+    #REPORT := G-C-REPORT
+    COMPRESS #REPORT-17 '/' G-C-REPRNB TO L-REPRNB LEAVING NO
+  END-IF
+  RESET G-PF
+  INCLUDE RPFSTD-C
+  INCLUDE RPFBRW-C
+  INCLUDE RPFEXT-C
+  CALLNAT 'RPFINI-N' G-PF G-PFB
+  PERFORM SET-PFKEYS
+  IF G-SUPPORT-LONG-NAMES
+    C-PFN := (AD=PI)
+    C-PFT := (AD=PD)
+  ELSE
+    C-PFN := C-PFT := (AD=PN)
+  END-IF
+  PERFORM GET-RECORDS
+  RESET G-LINECOM(*)
+  CALLNAT 'RGETFLIP' ##VALID-LCM(*) G-LINECOM(*)
+  PERFORM FLIP-DISPLAY
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RXRPBUM&' /* sju p(191368)
+  SET CONTROL 'M19'
+  SET CONTROL 'Y41'
+  IF G-DISPLAY-LONG-NAMES
+    SET CONTROL 'WFL62C24B00/09'
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'RXRPBUL&'
+  ELSE
+    SET CONTROL 'WFL54C24B00/12'
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'RXRPBUM&'
+  END-IF
+  SET CONTROL 'WB'
+  RESET #BROWSE-FLAGS
+  INCLUDE RPFKVA-C
+  RESET G-NATRP-ERC G-NATRP-ERT
+  INCLUDE C-DIRECT
+  INCLUDE RPFKEX-C
+  IF G-PF-FUNC = 'EXT'  AND G-SUPPORT-LONG-NAMES
+    IF G-DISPLAY-LONG-NAMES
+      G-DISPLAY-LONG-NAMES := FALSE
+    ELSE
+      G-DISPLAY-LONG-NAMES := TRUE
+    END-IF
+  END-IF
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-RECORDS
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN #FORWARD  ADD 15 TO #TOPN
+  WHEN #BACKWARD SUBTRACT 15 FROM #TOPN
+  WHEN #NEWVAL #TOPN := 1
+  WHEN GET-SCREEN IGNORE
+  WHEN NONE ESCAPE ROUTINE
+END-DECIDE
+IF #TOPN > #MAXREC
+  #TOPN := #MAXREC - 2
+END-IF
+IF #TOPN < 1
+  #TOPN := 1
+END-IF
+RESET L-SCREEN I
+CV-MARK(*) := (AD=P)
+*
+FIND BUNDLE-CONTENTS WITH BC-REPORT-RNB = #BC-SUPER
+*
+  AT END OF DATA #MAXREC := *COUNTER
+  END-ENDDATA
+*
+  ACCEPT IF *COUNTER >=#TOPN
+  ADD 1 TO I
+  IF I > 15
+    MOVE ALL '*' TO #MORE-1
+    MOVE ALL '*' TO #MORE-3
+    #MORE-2 := ' MORE '
+    ESCAPE BOTTOM
+  END-IF
+  L-BUNDLE(I) := BC-BUNDLE
+  L-BUNDRNB(I) := BC-BUNDRNB
+  L-PRINTER(I) := BC-PRINTER
+  RESET CV-MARK(I)
+  #AB-BUNDLE := BC-BUNDLE
+  #AB-BUNDRNB := BC-BUNDRNB
+  FIND ACTIVE-BUNDLES WITH AB-BUNDLE-RNB = #AB-BUNDLE-RNB
+    L-STATUS(I) := AB-STATUS
+  END-FIND
+*
+END-FIND
+IF I <= 15
+  MOVE ALL '*' TO #BOT-1
+  MOVE ALL '*' TO #BOT-3
+  #BOT-2 := ' Bottom of Data '
+END-IF
+*
+END-SUBROUTINE /* GET-RECORDS
+*
+INCLUDE RPFSET-C
+*
+END

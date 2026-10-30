@@ -1,0 +1,198 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RADDLM
+* Version   1.3
+* Function  Add member to a distribution List
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 91-06-04 f(203)    commit logic missing; do logic missing (PF5)
+* mrs 91-06-04 f(203)    sort member into list upon update
+* mrs 91-06-04 s(126948) do function implemented
+* XSISWS  2000-06-08  CE 7592  re-cat new profile added VUSERS-L
+* xsetoba 2002-08-14 (CE7553) Default Profile non-defined users
+* xsetggr 2002-10-12 (CE7553) add parameter to Y-OR-N
+* xsetggr 2003-07-23 p(240465) correct CE7553
+* sju 04-10-11 p(209444) Improve help
+* xsetggr 2005-10-26 P(270950) ISN fields must be P10, not P8
+* xsetggr 2012-02-01 NOMALL-1100 write language independant msgs to log
+* xsetggr 2012-05-16 NOMALL-1136 do not allow member with name = ' '
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* ----------------------------------------------------------------------
+DEFINE DATA
+GLOBAL USING NRM-GL
+LOCAL USING VDISTS-L
+LOCAL USING RLOG-L
+LOCAL
+1 USERS VIEW OF NRM-USERS /*SU1 in
+1 LISTS VIEW OF NRM-DISTRIBUTION-LIST
+*
+1 #FATHER-PROG      (A8) INIT <'RLISDL'>
+1 #PF-KEY2          (A4)
+1 K(N7)
+1 #SI               (P3)
+1 #LIST             (A8)
+1 #MEMBER           (A8)
+1 #NUM-OF-MEMBERS   (P3)
+1 SW-ESC            (L)
+1 #YES              (L)
+1 #AUTODEF          (A1)
+1 #DEF-USER         (L)
+1 #CHK-USER         (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#LIST := G-C-LIST
+#AUTODEF := F#MONITOR-USER-AUTODEF (<>)
+RESET G-COMMIT
+REP. REPEAT
+  FIND-LOOP. FIND DISTRIBUTION-LIST WITH D-LIST-NAME = G-C-LIST
+    IF NO RECORDS FOUND
+      G-NATRP-ERC := 0602
+      INCLUDE C-ESCAPE
+    END-NOREC
+    #NUM-OF-MEMBERS := C*D-USER-LIST
+    REPEAT1. REPEAT
+      IF #CHK-USER
+        RESET #DEF-USER
+      END-IF
+      PERFORM ADD-MEMBER
+      IF SW-ESC
+        ESCAPE BOTTOM (REP.)
+      END-IF
+      IF #DEF-USER
+        G-NATRP-ERC := 0509
+        ESCAPE TOP
+      END-IF
+      UPDATE
+      IF #PF-KEY2 = 'PF5'
+        END OF TRANSACTION
+        RESET G-COMMIT
+        G-NATRP-ERC := 15
+        RESET #MEMBER
+        ESCAPE BOTTOM (FIND-LOOP.)
+      ELSE
+        G-NATRP-ERC := 31
+        RESET #MEMBER
+      END-IF
+    END-REPEAT
+  END-FIND
+END-REPEAT
+RESET G-NATRP-ERC
+PERFORM COMMIT-WORK
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-MEMBER
+************************************************************************
+SET CONTROL 'WC11L46B12/20F'
+SET CONTROL 'MT'
+INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'RADDLMM&'
+IF #MEMBER = SCAN '*'
+  REINPUT USING HELP MARK *#MEMBER
+END-IF
+#PF-KEY2 := *PF-KEY
+IF #PF-KEY2 = 'PF3'
+  SW-ESC := TRUE
+  ESCAPE ROUTINE
+END-IF
+* xsetggr 2012-05-16 NOMALL-1136 insert next 2 lines
+IF #MEMBER = ' '
+  REINPUT *0754  MARK *#MEMBER ALARM
+END-IF
+IF #MEMBER = #LIST
+  REINPUT *0601 MARK *#MEMBER ALARM
+END-IF
+IF #MEMBER = 'DEFAULT'
+  REINPUT *602  MARK *#MEMBER ALARM
+END-IF
+IF NOT #DEF-USER
+  FIND-USER. FIND NUMBER USERS WITH USER-ID = #MEMBER
+  IF *NUMBER(FIND-USER.) = 0
+    FIND-LISTS. FIND NUMBER LISTS WITH D-LIST-NAME=#MEMBER
+    IF  *NUMBER(FIND-LISTS.) = 0
+      IF #AUTODEF = 'P'
+        RESET #YES
+        #DEF-USER := TRUE
+        CALLNAT 'Y-OR-N' #MEMBER #YES
+      END-IF
+      IF #AUTODEF = 'Y' OR (#AUTODEF = 'P' AND #YES)
+        RESET #CHK-USER
+        IF #AUTODEF = 'P'
+          ESCAPE ROUTINE
+        END-IF
+      ELSE
+        IF #AUTODEF = 'P' AND #YES = FALSE
+          #CHK-USER := TRUE
+          ESCAPE ROUTINE
+        ELSE
+          REINPUT *602 MARK *#MEMBER ALARM
+        END-IF
+      END-IF
+    END-IF
+  END-IF
+ELSE                               /* #DEF-USER = true
+  RESET #DEF-USER G-NATRP-ERC
+END-IF
+****
+** CHECK RECURSIVE DEFINITION , WHEN CURRENT LIST IS A MEMBER
+** OF A LIST DEFINED AS A MEMBER
+** or if member is the current list
+****
+IF #MEMBER = G-C-LIST
+  REINPUT *603 MARK *#MEMBER ALARM
+END-IF
+FIND-RECURSIVE. FIND NUMBER LISTS WITH D-LIST-NAME = #MEMBER
+  AND D-USER-LIST=#LIST
+IF *NUMBER(FIND-RECURSIVE.) > 0
+  REINPUT *603 MARK *#MEMBER ALARM
+END-IF
+** CHECK IF NO DUPLICATE MEMBERS EXISTS
+FOR K 1 TO #NUM-OF-MEMBERS
+  IF DISTRIBUTION-LIST.D-USER-LIST(K) = #MEMBER
+    REINPUT *604
+  END-IF
+END-FOR
+PERFORM INSERT-MEMBER
+* --- LOG RECORD
+IF G-LOG-LIST AND #MEMBER > ' ' /* xsetggr 2012-02-02 NOMALL-1100 in
+  LG-USERID := G-USERID
+  LG-CODE := 'LM'
+  LG-OBJECT-NAME := G-C-LIST
+* COMPRESS 'MEMBER<' #MEMBER '>ADDED' INTO LG-MSG
+* xsetggr 2012-02-01 NOMALL-1100 line above out, next line in
+  COMPRESS '2112' #MEMBER G-C-LIST TO LG-MSG
+  CALLNAT 'RLOG' PL-PARMS
+END-IF
+*
+G-COMMIT := TRUE
+*
+END-SUBROUTINE /* ADD-MEMBER
+*
+************************************************************************
+DEFINE SUBROUTINE INSERT-MEMBER
+************************************************************************
+ADD 1 TO #NUM-OF-MEMBERS
+#SI := #NUM-OF-MEMBERS
+REPEAT
+  UNTIL #SI = 1 OR DISTRIBUTION-LIST.D-USER-LIST (#SI - 1) < #MEMBER
+  DISTRIBUTION-LIST.D-USER-LIST (#SI) :=
+    DISTRIBUTION-LIST.D-USER-LIST (#SI - 1)
+  SUBTRACT 1 FROM #SI
+END-REPEAT
+DISTRIBUTION-LIST.D-USER-LIST (#SI) := #MEMBER
+*
+END-SUBROUTINE /* INSERT-MEMBER
+*
+END

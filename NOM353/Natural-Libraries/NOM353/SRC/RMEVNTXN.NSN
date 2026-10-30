@@ -1,0 +1,130 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMEVNTXN - Replace NPR EVENTING and COMMON-DATA views by Adabas
+* FUNCTIONS: * DEFINE, DELETE, RECEIVE, SEND, SENDPOST, WAIT
+* are designed to work like the corresponding NPR mainframe calls
+* GET, SET - write or receive data for the COMMON-DATA function
+* All functions are mapped to flat files in the file system. NOMPOST
+* keeps the post information for events.
+*
+* Maintenance:
+* uuuuuuuu yyyy-mm-dd iTrac       Remark
+* fhi      2005-06-23 p(266530)   Created from RMEVNT-N
+* splildav 2008-12-08 p(304616)   Various code fixes
+* fhi      2016-12-19 NOMALL-1961 Use new task IDs
+* fhi      2018-04-26 NOMALL-1918 Introduce initialization (del all)
+* SU1     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 EVENTING                            (A512)
+1 REDEFINE EVENTING
+  2 ERROR-CODE                        (N3)
+  2 ERROR-TEXT                        (A58)
+  2 NODE                              (N5)
+  2 SYSTEM-MESSAGE-CODE               (A10)
+  2 FUNCTION                          (A8)
+  2 EVENT-NAME                        (A8)
+  2 MAX-TIME                          (B4)
+  2 NUMBER-OF-WAITERS                 (N5)
+  2 NUMBER-OF-MESSAGES                (N5)
+  2 MESSAGE-ARRAY                     (A250)
+************************************************************************
+LOCAL USING RMTASK-P
+LOCAL
+1 EVENTS VIEW OF NRM-EVENTS
+  2 EVENT-NAME
+  2 MESSAGE-ARRAY
+  2 POSTED
+*
+1 #WAIT-TIME                         (I2)
+1 #TIME-SLICE                        (I2)
+1 #ONE-SECOND                        (I2) INIT <1>
+1 SWRESET                            (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ERROR-CODE ERROR-TEXT
+RMTASK-P.FUNCTION    := 'G'
+RMTASK-P.TASK-ID     := EVENTING.EVENT-NAME
+CALLNAT 'RMTASKID' RMTASK-P
+IF  RMTASK-P.SUBTASK-NUMBER = 1 AND EVENTING.FUNCTION = 'RECEIVE'
+AND EVENTING.MESSAGE-ARRAY  >  ' '                                    /*
+  SWRESET := TRUE
+END-IF
+DECIDE ON FIRST VALUE OF EVENTING.FUNCTION
+  VALUE  'WAIT'
+    #WAIT-TIME := MAX-TIME
+    FOR-TIME. FOR #TIME-SLICE = 1 TO #WAIT-TIME
+      FINDEV. FIND EVENTS WITH EVENT-NAME = EVENTING.EVENT-NAME
+        IF NO RECORDS FOUND
+          ERROR-CODE := 890
+          ERROR-TEXT := 'NOM-ESY5890 Event not found.'
+          ESCAPE ROUTINE
+        END-NOREC
+        IF POSTED NE ' '
+          GET. GET EVENTS *ISN(FINDEV.)
+          RESET POSTED
+          UPDATE (GET.)
+          ESCAPE BOTTOM (FOR-TIME.)
+        END-IF
+      END-FIND
+      CALLNAT 'NAT00031' #ONE-SECOND
+    END-FOR
+    ERROR-CODE := 891
+    ERROR-TEXT := 'NOM-ESY5891 Timeout occurred.'
+  VALUE 'LIST'
+    READ (1) EVENTS BY EVENT-NAME STARTING FROM EVENTING.EVENT-NAME
+      EVENTING.EVENT-NAME    := EVENTS.EVENT-NAME
+      EVENTING.MESSAGE-ARRAY := EVENTS.MESSAGE-ARRAY
+    END-READ
+  VALUE 'INIT'
+    READ EVENTS BY EVENT-NAME
+      DELETE
+      END TRANSACTION
+    END-READ
+  NONE
+    FIND EVENTS WITH EVENT-NAME = EVENTING.EVENT-NAME
+      IF NO RECORDS FOUND
+        IF EVENTING.FUNCTION NE 'DEFINE'
+          ERROR-CODE := 890
+          ERROR-TEXT := 'NOM-ESY5890 Event not found.'
+          ESCAPE ROUTINE
+        END-IF
+        EVENTS.EVENT-NAME  := EVENTING.EVENT-NAME
+        STORE EVENTS
+        ESCAPE ROUTINE
+      END-NOREC
+      DECIDE ON EVERY VALUE OF EVENTING.FUNCTION
+        VALUE 'DEFINE'
+          ERROR-CODE := 887
+          ERROR-TEXT := 'NOM-ESY5887 Event is already defined.'
+          ESCAPE ROUTINE
+        VALUES 'RECEIVE','GET'
+          EVENTING.MESSAGE-ARRAY := EVENTS.MESSAGE-ARRAY
+          IF SWRESET = TRUE
+            RESET EVENTS.MESSAGE-ARRAY
+          END-IF
+        VALUES 'POST','SENDPOST'
+          POSTED := 'X'
+        VALUES 'SEND','SENDPOST','SET'
+          EVENTS.MESSAGE-ARRAY := EVENTING.MESSAGE-ARRAY
+        VALUES 'POST','SENDPOST','SET','RECEIVE','SEND'
+          UPDATE
+        VALUE 'DELETE'
+          DELETE
+        NONE
+          ERROR-CODE := 600
+          ERROR-TEXT := 'NOM-ESY5600 Unknown function.'
+          ESCAPE MODULE
+      END-DECIDE
+    END-FIND
+END-DECIDE
+*
+END

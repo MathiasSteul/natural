@@ -1,0 +1,82 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+*              RMUNLOCK
+* Version      3.5
+* Function     Reset all lock flags in source records depending on
+*              the order records attached to the source
+*
+* Template     RMRCSTMP
+*
+* Note         RMRCSTMP handles a lock mechanism to synchronize scan-
+*              and copy-tasks. If the monitorabends, this routine will
+*              reset the receipt stamps of all source records.
+*              Note: not all source types are synchronized.
+*
+* Intern. docu ÖÖdaenus01ÖNaturalÖNat-AdtÖNAT-EsmÖProjectsÖNom35Ö...
+*           ...Internal_DocumentationÖNOM_Task_Sync_Concept.pdf
+*
+* Maintenance
+* uuu     yyyy-mm-dd iTrac       Action
+* ----------------------------------------------------------------------
+* fhi     2019-07-08 NOMALL-2287 Created.
+* fhi     2019-08-19 NOMALL-2294 Unlock by setting all stamps to blank
+* BLI     2020-02-14 NOMALL-2294 add BS2
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+* --------------------------------------- Parameters -------------------
+LOCAL USING RMSPL--L
+LOCAL USING RMSR---E
+LOCAL USING RMODTY-E
+LOCAL
+*
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-RECEIPT-STAMP
+  2 SR-SPOOL-ATTRIBUTES
+*
+1 OD VIEW OF NRM-ORDER
+  2 OD-TYPE
+  2 OD-SOURCE-ID
+*
+1 #L-CONTROL             (B66)
+1 REDEFINE #L-CONTROL
+  2 #L-TYPE (B2)
+1 #NEW-STAMP             (A1)
+1 #I                     (N1)
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+MOVE SEQUENTIAL-FILE-UNIX TO #L-TYPE
+FOR #I 1 TO 2
+  IF #I EQ 2
+    MOVE SEQUENTIAL-FILE-BS2 TO #L-TYPE
+  END-IF
+  RDSRC.
+  READ SOURCE BY SR-CONTROL STARTING FROM #L-CONTROL
+    #SPOOL-ATTRIBUTES := SR-SPOOL-ATTRIBUTES
+    IF #SPOOL-TYPE NE #L-TYPE
+      ESCAPE BOTTOM (RDSRC.)
+    END-IF
+    IF SR-RECEIPT-STAMP = ' '
+      ESCAPE TOP                             /* already initial value
+    END-IF
+    GETSRC.
+    GET SOURCE *ISN(RDSRC.)
+    RESET SR-RECEIPT-STAMP
+    UPDATE (GETSRC.)
+    IF *COUNTER (RDSRC.) > 50
+      RESET *COUNTER (RDSRC.)
+      END TRANSACTION
+    END-IF
+  END-READ
+END-FOR
+END TRANSACTION
+* ---------------------------------- end -------------------------------
+END

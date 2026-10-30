@@ -1,0 +1,402 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOPRTF-N - NOM API TRansfer Printers to target environment
+* Input keys: ES-KEY-PARM(1) - transfer parms
+*
+* Maintenance:
+* XSETGGR 2005-01-28            created
+* fhi     2005-12-14 P272732   cataloged, because VPRINT-L was changed.
+* fhi     2007-07-12 NOM3202    C-NATERR changed, NAD23006 is obsolete.
+* XSETHZ  2008-07-23 p (307577) use full name of ES-APP-SERVER-LIBRARY
+* xsetggr 2008-10-30 p(309496) err msg if target env not initialized
+* xsetggr 2012-08-16 NOMALL-1145 correct header
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* CF1     2014-11-12 NOMALL-1528 Improve error stability
+* SU2     2021-06-08 NOMALL-2454 remove P-NODE
+* ------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOXXTF-A
+************************************************************************
+LOCAL USING NOXXTF-L
+LOCAL USING NOPRSL-A
+LOCAL USING VPRINT-L     /* nrm-printers
+LOCAL USING VTPRNT-L     /* nrm-migrate-printers
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL                                                      /* CF1 +
+1 NAT23008-PARA
+  2 LFILE-NR           (B1)
+  2 FUNCTION           (A1)     /* 'S'=Set, 'R'=Reset
+  2 DBID               (B2)
+  2 FNR                (B2)
+  2 PASSWORD           (A8)
+  2 CIPHER             (A8)
+  2 VSAM-NAME          (A8)
+  2 DB-TYPE            (A1)
+  2 LFILE-IS-SET       (L)
+  2 RET_CODE           (I4)                               /* CF1 -
+1 MIGRATE-PHYSICAL-PRINTERS VIEW OF NRM-MIGRATE-PHYSICAL-PRINTERS
+1 MIGRATE-REPORTS VIEW OF NRM-MIGRATE-REPORTS
+1 MIGRATE-GRANTS VIEW OF NRM-MIGRATE-GRANTS
+  2 GR-USERID
+  2 GR-OBJECT-TYPE
+  2 GR-OBJECT-NAME
+  2 GR-OPTION               (6)
+1 #LFILE-FIELDS
+  2 LFILE                   (L)
+  2 #LFILE-OLDDBID          (N5)             /*  old DBID
+  2 #LFILE-OLDFILE          (N5)             /*  old File-Number
+  2 #LFILE-NEWDBID          (N5)             /*  new DBID
+  2 #LFILE-NEWFILE          (N5)             /*  new File-Number
+1 #GR-SUPER                 (A34)
+1 REDEFINE #GR-SUPER
+  2 #GR-TYPE                (A1)
+  2 #GR-USERID              (A8)
+  2 #GR-OBJECT              (A25)
+1 #I2                       (I4)
+1 #IMAX                     (I4)
+1 #PRINTER-S                (A8)
+1 #PRINTER-E                (A8)
+1 #PHYSICAL-S               (A8)
+1 #PHYSICAL-E               (A8)
+1 #GRANT-USER               (A8)
+1 #GRANTS                   (A1/6)
+1 #OBJECT-NAME              (A25)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+1 #ES-MSG-TXT               (A58)
+1 #EXIST                    (L)
+1 #MESSAGE                  (A250)                         /* CF1 +
+1 #MSG-TEXT                 (A79)
+1 #ERRORNUMBER              (N4)
+1 #LANGCODE                 (I1)
+1 #RESPCODE                 (N1)
+1 #FUNC                     (A1)
+1 #LFILE                    (N5) INIT<158>                 /* CF1 -
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+* --------------------------------------------------------------------
+ON ERROR
+  ES-RC := 1
+  #ERRORNUMBER := *ERROR-NR
+  CALLNAT 'NAT00020' #ERRORNUMBER #LANGCODE #MSG-TEXT #RESPCODE
+  IF #RESPCODE NE 0
+    COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ELSE
+    COMPRESS #ERRORNUMBER #MSG-TEXT TO ES-MSG-TXT
+  END-IF                                                        /* CF1 -
+  ESCAPE ROUTINE
+*
+END-ERROR
+************************************************************************
+RESET ES-RC
+#NOPRSL := ES-SELECT
+NOTF-PARM-1 := ES-KEY-PARM(1)
+PERFORM SET-LOGICAL-FILE
+/*
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ES-RC := 1
+  ES-MSG-FIELD := #ES-MSG-FIELD
+  COMPRESS '<#ERRORNUMBER' #ERRORNUMBER ':' #MESSAGE '>' TO ES-WORK
+ELSE
+/* Check appropriate objects and perform copy
+  PERFORM LIST
+  RESET #ES-MSG-NR
+  /* Switch LFILE 158 back to former values
+  PERFORM SWITCH-BACK-LFILE
+  IF #ES-MSG-NR NE 0
+    PERFORM GET-MSG-TXT
+    ES-RC := 2
+  END-IF
+END-IF                                                     /* CF1 -
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE LIST
+************************************************************************
+RESET ES-NUMBER ES-OPTION-COUNT ES-STARTINDEX ES-SORTKEY ES-SORTORDER
+  ES-EXPAND NOTF2-LIST(*)
+ES-EOF := 'X'
+#IMAX := 265
+ES-FIELD-COUNT := 2
+EXAMINE #NOPRSL.#ID FOR '*' DELETE
+COMPRESS #NOPRSL.#ID H'FF' TO #PRINTER-E LEAVING NO
+EXAMINE #NOPRSL.#ID FOR '*' DELETE
+EXAMINE #NOPRSL.#AUTH FOR '*' DELETE
+EXAMINE #NOPRSL.#PH-ID FOR '*' DELETE
+#PHYSICAL-S := #NOPRSL.#PH-ID
+COMPRESS #NOPRSL.#PH-ID H'FF' TO #PHYSICAL-E LEAVING NO
+IF ES-NEXT-KEY-PARM(1) > #NOPRSL.#ID
+  #PRINTER-S := ES-NEXT-KEY-PARM(1)
+ELSE
+  #PRINTER-S := #NOPRSL.#ID
+  ES-STARTINDEX := 1
+/* header texts
+  #ES-MSG-NR := 6103
+  PERFORM GET-MSG-TXT
+  NOTF2-HEADER(1) := LONG-MSG(1)   /* printer
+  #ES-MSG-NR := 6102
+  PERFORM GET-MSG-TXT              /* message
+  NOTF2-HEADER(2) :=  LONG-MSG(13)
+END-IF
+R. READ PRINTERS WITH P-ID = #PRINTER-S ENDING AT #PRINTER-E
+  IF P-ID > #PRINTER-E
+    ESCAPE BOTTOM(R.)
+  END-IF
+  RESET #GRANTS(*)
+  IF NOT (#NOPRSL.#AUTH = ' ' OR = 'ADMIN' OR = '*')
+    #OBJECT-NAME := PRINTERS.P-ID
+    CALLNAT 'NOGROU-N'
+      'P' #OBJECT-NAME #NOPRSL.#AUTH #GRANT-USER #GRANTS(*)
+  ELSE
+    #GRANTS(*) := 'Y'
+  END-IF
+  ACCEPT IF P-PHYSICAL-NAME = #PHYSICAL-S THRU #PHYSICAL-E AND
+    #GRANTS(1:4) = 'Y'
+  PERFORM CHECK-RELATED-OBJECTS
+  DECIDE FOR EVERY CONDITION
+    WHEN #ES-MSG-NR NE 0
+      PERFORM DATA-TO-LIST
+    WHEN #EXIST AND NOTF-OWERWR NE 'Y'
+      #ES-MSG-NR := 8855
+      PERFORM DATA-TO-LIST
+    WHEN #ES-MSG-NR = 0
+      PERFORM COPY-PRINTER
+    WHEN NONE IGNORE
+  END-DECIDE
+END-READ
+*
+END-SUBROUTINE /* LIST
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-TO-LIST
+************************************************************************
+#I2 := #I2 + 1
+IF #I2 > #IMAX
+  ES-NEXT-KEY-PARM(1) := PRINTERS.P-ID
+  ES-NUMBER := #IMAX
+  RESET ES-EOF
+  ESCAPE BOTTOM
+END-IF
+PERFORM GET-MSG-TXT
+NOTF2-MSG(#I2) := ES-MSG-TXT         /* err msg
+NOTF2-OBJECT(#I2) := PRINTERS.P-ID
+ES-NUMBER := #I2
+*
+END-SUBROUTINE /* DATA-TO-LIST
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LOGICAL-FILE                         /* CF1 +
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN NOTF-DBID-TO < 1
+    #ES-MSG-NR := 0635                      /* Invalid DBID
+    #ES-MSG-FIELD-NAME := 'DBID-TO'
+  WHEN NOTF-FNR-TO < 1
+    #ES-MSG-NR :=0636                       /* Invalid FNR
+    #ES-MSG-FIELD-NAME := 'FNR-TO'
+  WHEN NOTF-FNR-TO  = NOTF-FNR-FROM AND
+      NOTF-DBID-TO = NOTF-DBID-FROM
+    #ES-MSG-NR := 4004   /* Source and Target env must be different
+    #ES-MSG-FIELD-NAME := 'DBID-TO'
+  WHEN NONE
+    /*
+    /* Verify if NOM DBID/FNR are valid
+    #FUNC := 'S'
+    #LFILE-NEWDBID := NOTF-DBID-TO
+    #LFILE-NEWFILE := NOTF-FNR-TO
+    CALLNAT 'XXVNOM-N' #FUNC #LFILE #LFILE-NEWDBID #LFILE-NEWFILE
+      #LFILE-OLDDBID #LFILE-OLDFILE
+      #MESSAGE #ERRORNUMBER
+    IF #ERRORNUMBER NE 0
+      #ES-MSG-NR := 4005        /* Specified File is not a NOM-File
+      #ES-MSG-FIELD-NAME := 'DBID-TO'
+      IF #ERRORNUMBER = 3 OR= 4  /* LFILE was switched
+        PERFORM SWITCH-BACK-LFILE
+      END-IF
+    ELSE
+      CALLNAT 'RMIGCHKU' ES-USER #ES-MSG-NR
+      IF #ES-MSG-NR NE 0
+        #ES-MSG-TXT := ES-USER
+        PERFORM SWITCH-BACK-LFILE
+      END-IF
+    END-IF
+END-DECIDE
+*
+END-SUBROUTINE /* SET-LOGICAL-FILE
+*
+************************************************************************
+DEFINE SUBROUTINE SWITCH-BACK-LFILE
+************************************************************************
+IF *MACHINE-CLASS NE 'PC'
+  /* Set LFILE to former values (OLD...)
+  IF #LFILE-OLDDBID = 0 AND #LFILE-OLDFILE = 0
+    NAT23008-PARA.FUNCTION := 'R'    /* Reset LFILE
+  ELSE
+    NAT23008-PARA.FUNCTION := 'S'    /* Set back to former values
+  END-IF
+  /*
+  NAT23008-PARA.LFILE-NR := 158
+  NAT23008-PARA.DBID     := #LFILE-OLDDBID
+  NAT23008-PARA.FNR      := #LFILE-OLDFILE
+  CALLNAT 'NAT23008' NAT23008-PARA
+  /*
+  IF NAT23008-PARA.RET_CODE NE 0
+    COMPRESS 'NAT23008 response code:' NAT23008-PARA.RET_CODE
+      TO #MESSAGE
+    #ES-MSG-NR := 4008       /* Refresh LFile error occured
+    #ES-MSG-TXT := NAT23008-PARA.RET_CODE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SWITCH-BACK-LFILE
+*
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-RELATED-OBJECTS
+************************************************************************
+RESET #ES-MSG-NR
+  #ES-MSG-TXT
+DECIDE ON FIRST VALUE OF PRINTERS.P-PHYSICAL-NAME
+  VALUE 'TAPE'     IGNORE
+  VALUE 'DISK'     IGNORE
+  VALUE 'SYSPRINT' IGNORE
+  NONE
+    FNDPH. FIND NUMBER MIGRATE-PHYSICAL-PRINTERS
+      WITH PH-VTAMID = PRINTERS.P-PHYSICAL-NAME
+    IF *NUMBER (FNDPH.) = 0
+      #ES-MSG-NR  := 2132/* Physical Printer not defined in target DB
+      #ES-MSG-TXT := PRINTERS.P-PHYSICAL-NAME
+    END-IF
+END-DECIDE
+/* check of printer existance in target environment
+FT. FIND NUMBER MIGRATE-PRINTERS WITH P-ID = PRINTERS.P-ID
+IF *NUMBER (FT.) > 0
+  #EXIST := TRUE
+ELSE
+  RESET #EXIST
+END-IF
+*
+END-SUBROUTINE /* CHECK-RELATED-OBJECTS
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-PRINTER
+************************************************************************
+FNDT. FIND MIGRATE-PRINTERS WITH P-ID = PRINTERS.P-ID
+  IF NO RECORDS FOUND
+    ENTER
+  END-NOREC
+/*SU2 MOVE BY NAME PRINTERS TO MIGRATE-PRINTERS
+  PERFORM MOVE-PRINTER-FIELDS /*SU2
+  IF *NUMBER (FNDT.) = 0
+    STORE MIGRATE-PRINTERS
+  ELSE
+    IF NOTF-OWERWR = 'Y'
+      UPDATE (FNDT.)
+    ELSE
+      BACKOUT TRANSACTION
+      ESCAPE BOTTOM(FNDT.)
+    END-IF
+  END-IF
+/* grant user
+  #GR-TYPE   := 'P'
+  #GR-USERID := ES-USER
+  #GR-OBJECT := PRINTERS.P-ID
+  FNDG. FIND MIGRATE-GRANTS WITH GR-SUPER = #GR-SUPER
+    IF NO RECORDS FOUND
+      MOVE ES-USER  TO MIGRATE-GRANTS.GR-USERID
+      MOVE 'P'      TO MIGRATE-GRANTS.GR-OBJECT-TYPE
+      MOVE PRINTERS.P-ID TO MIGRATE-GRANTS.GR-OBJECT-NAME
+    END-NOREC
+    MOVE 'Y'      TO MIGRATE-GRANTS.GR-OPTION(*)
+    IF *NUMBER (FNDG.) = 0
+      STORE MIGRATE-GRANTS
+    ELSE
+      UPDATE
+    END-IF
+  END-FIND
+END-FIND
+END TRANSACTION
+*
+END-SUBROUTINE /* COPY-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE MOVE-PRINTER-FIELDS /*SU2
+************************************************************************
+MIGRATE-PRINTERS.P-LAST-UPDATE      := PRINTERS.P-LAST-UPDATE
+MIGRATE-PRINTERS.P-LAST-UPDATE-USER := PRINTERS.P-LAST-UPDATE-USER
+MIGRATE-PRINTERS.P-ID               := PRINTERS.P-ID
+MIGRATE-PRINTERS.P-NAME             := PRINTERS.P-NAME
+MIGRATE-PRINTERS.P-PHYSICAL-NAME    := PRINTERS.P-PHYSICAL-NAME
+MIGRATE-PRINTERS.P-LOCATION         := PRINTERS.P-LOCATION
+MIGRATE-PRINTERS.P-EXITMEM          := PRINTERS.P-EXITMEM
+MIGRATE-PRINTERS.P-EXITLIB          := PRINTERS.P-EXITLIB
+MIGRATE-PRINTERS.P-COPIES           := PRINTERS.P-COPIES
+MIGRATE-PRINTERS.P-PRIORITY         := PRINTERS.P-PRIORITY
+MIGRATE-PRINTERS.P-JOBCARD    (*)   := PRINTERS.P-JOBCARD         (*)
+MIGRATE-PRINTERS.P-ATTRIBUTES (*)   := PRINTERS.P-ATTRIBUTES (*)
+MIGRATE-PRINTERS.P-CHARS            := PRINTERS.P-CHARS
+MIGRATE-PRINTERS.P-CLASS            := PRINTERS.P-CLASS
+MIGRATE-PRINTERS.P-FORM             := PRINTERS.P-FORM
+MIGRATE-PRINTERS.P-WRITER           := PRINTERS.P-WRITER
+MIGRATE-PRINTERS.P-DESTINATION      := PRINTERS.P-DESTINATION
+MIGRATE-PRINTERS.P-FLASH            := PRINTERS.P-FLASH
+MIGRATE-PRINTERS.P-FCB              := PRINTERS.P-FCB
+MIGRATE-PRINTERS.P-PAGEDEF          := PRINTERS.P-PAGEDEF
+MIGRATE-PRINTERS.P-FORMDEF          := PRINTERS.P-FORMDEF
+MIGRATE-PRINTERS.P-DSNAME           := PRINTERS.P-DSNAME
+MIGRATE-PRINTERS.P-MEMBER           := PRINTERS.P-MEMBER
+MIGRATE-PRINTERS.P-VOLSER           := PRINTERS.P-VOLSER
+MIGRATE-PRINTERS.P-DISP             := PRINTERS.P-DISP
+MIGRATE-PRINTERS.P-TAPE-GENERIC     := PRINTERS.P-TAPE-GENERIC
+MIGRATE-PRINTERS.P-JOBNAME          := PRINTERS.P-JOBNAME
+MIGRATE-PRINTERS.P-LABEL (1:1)      := PRINTERS.P-LABEL (1:1)
+MIGRATE-PRINTERS.P-DCB (1:2)        := PRINTERS.P-DCB (1:2)
+MIGRATE-PRINTERS.P-OBJECT-TYPE      := PRINTERS.P-OBJECT-TYPE
+MIGRATE-PRINTERS.P-OBJECT-TIME      := PRINTERS.P-OBJECT-TIME
+*
+END-SUBROUTINE /* MOVE-PRINTER-FIELDS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+/*NADA2000.LIBRARY := SUBSTR(ES-APP-SERVER-LIBRARY,1,6)
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-TXT   := SHORT-MSG
+ES-MSG-NR    := #ES-MSG-NR
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+END

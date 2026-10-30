@@ -1,0 +1,331 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RJCONDUX
+* Version   1.3
+* Function  Condense archive data sets for Unix
+* This routine has been introduced to avoid problems that arise on
+* Unix systems because of the 0A character which means end of line.
+* The compression routine 'compress.so' (up to NOM 3.3, not relevant
+* for NOM 3.4 and above because 'nomcompr.so' is used) compresses 10
+* blanks to hex value '010A' which causes READ WORK FILE to stop at the
+* 0A position as it means line end. This routine opens the work file
+* in mode 'UNFORMATTED' and reads a record buffer in full length. Then
+* it checks for H'0A'+'T' combination to get the beginning of a new
+* record in a NOM archive file and for H'0A'+'I' to recognize a new
+* report in a NOM archive file. However, the new 'nomcompr.so' routine
+* avoids H'010A' and compresses 10 blanks to H'0109'+' '.
+* This solution is only valid for ASCII platformsÜ
+*
+* This routine reads ASCII work files as type 'UNFORMATTED'
+* and writes it as type 'PORTABLE'
+*
+* Template  RJCONDNS
+*
+* Maintenance
+* uuuuuuuu yyyy-mm-dd iTrac       Comment
+* fhi      2011-11-21 NOMALL-1073 Created from RJCONDNS
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-07-14 NOMALL-1279 fill fields for Adabas Vista (RJCONDUC)
+* SU3     2014-11-05 NOMALL-1450 fill fields for Adabas Vista (RJCONDUC)
+* SU4     2016-01-18 NOMALL-1802 do not update Adabas Vista fields
+* BLI     2016-04-21 NOMALL-1844 no physic expiration, source, target
+* SU5     2016-08-05 NOM 3.5: remove unused code
+* SU6     2016-08-10 NOMALL-1814(NOM3.5) remove AdaVista fields
+* BLI     2018-03-21 GDA vs. AIV
+* BLI     2020-03-19 NOMALL-2285 correct AD-ORIGINAL..., no VISTA at all
+* SU7     2020-05-22 NOMALL-2349 several changes
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+*
+LOCAL USING RJ-L
+LOCAL USING VARDSN-L
+LOCAL USING VDSNRP-L
+LOCAL USING RLOG-L
+LOCAL USING CONST-L
+LOCAL USING VARCIV-L
+LOCAL USING SATLGV1P
+LOCAL USING RACTLF-A
+LOCAL USING VUSARC-L
+LOCAL USING NOMUDA-P
+LOCAL USING SAT00009
+LOCAL USING RIDREC-L
+* ----------------------------------------------------------------------
+LOCAL
+1 ENVIRONMENT    VIEW  OF  NRM-MONITOR
+1 ACT-REP    VIEW  OF  NRM-ACTIVE-REPORTS
+  2 AR-ARCHIVE-DATA-SET
+  2 AR-ARCHIVE-VOLSER          (1:2)
+** 1 AD-VISTA VIEW OF NRM-ARCHIVE-DATASET /*SU6 BLI-NOMALL-2285
+**  2 AD-OBJECT-TYPE
+**  2 AD-OBJECT-TIME
+* *****
+1 #WKF-RECORD                  (A)     DYNAMIC
+1 #RECORD                      (A253)
+1 REDEFINE    #RECORD
+  2 #I-RECORD-TYPE             (A1) /* 'I' IDENT RECORD, 'T' TEXT       RECORD
+  2 #ARCHIVED-FROM             (A1) /* 'S' SPOOL, 'D' DATABASE
+  2 #DR-REP-RNB-KEY            (A31)
+  2 REDEFINE    #DR-REP-RNB-KEY
+    3 #REPNAME                 (A25)
+    3 #REPRNB                  (P11)
+1 #V32-ID-RECORD               (A146)
+1 REDEFINE #V32-ID-RECORD
+  2 #V32-RECORD-TYPE           (A1)
+  2 #V32-ARCHIVED-FROM         (A1)
+  2 #V32-REPNAME               (A25)
+  2 #V32-REPRNB                (P11)
+  2 #V32-JOBNAME               (A8)
+  2 #V32-JOBNO                 (N7)
+  2 #V32-NODE                  (N5)
+  2 #V32-REST                  (A93)
+*
+1 #COPY-IT                     (L) INIT <FALSE>
+1 #EXPIRED                     (I4)
+1 #REP-NO                      (I4)
+* BLI 2016-04-21 NOMALL-1844 added below comments and rename vars
+** 1 #CONDENSE-DSNAME             (A54)
+** 1 #ARC-DSNAME                  (A44)
+* BLI 2016-04-21 NOMALL-1844 above out, below in
+1 #SOURCE-DSNAME               (A54) /* archive 'source' to be condensed
+1 #TARGET-DSNAME               (A44) /* new 'target' archive
+*
+1 #RECLEN                      (I4)
+1 #OLD-DR-REP-RNB-KEY          (A31)
+1 EOMSYSNR                     (B2)
+1 #FIRST-VOLSER                (A6)
+1 #LAST-VOLSER                 (A6)
+1 #VOLSERS                     (A6/1:20)
+** 1 #PHYSICAL-EXPIRATION-DATE    (A8) /* BLI 2016-04-21 NOMALL-1844
+1 #USERARC-ID                  (A10)  INIT <'USERARC00'>
+1 REDEFINE #USERARC-ID
+  2 #USERARC-FIXED             (A8)
+  2 #USERARC-NUMBER            (N1)
+1 #ARCHIVE-NAME                (A8)   INIT <'Standard'>
+1 #ORIG-REP                    (P7)
+1 #UPDATE                      (L)
+1 #CONDNS-RC                   (N4)
+1 #BEGIN-ID                    (A2) INIT <H'0A49'> /* 0A + 'I'
+1 #BEGIN-TEXT                  (A2) INIT <H'0A54'> /* 0A + 'T'
+1 #RECORD-BUFFER               (A2530)
+1 #RECBUF-LEN                  (I4)
+1 #RECORD-READ                 (A253)
+1 #RECORD-FIRST                (L)    INIT <TRUE>
+1 #POS                         (I4)
+1 #POS2                        (I4)
+1 #POS-START                   (I4)
+1 #LEN                         (I4)
+1 #UPD-ISN                     (P10)   /* BLI-NOMALL-2285
+1 #FUNCTION                    (A10) CONST <'Condenser'>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE WORK FILE 1 TYPE 'PORTABLE' ATTRIBUTES 'APPEND'
+DEFINE WORK FILE 2 TYPE 'UNFORMATTED'
+*
+PERFORM INIT /*RJCONDUC
+*
+* COMPRESS '0467' #ARC-DSNAME #CONDENSE-DSNAME TO LG-MSG
+* BLI   2016-04-21 NOMALL-1844 above out, next in, sequence corrected
+COMPRESS '0467' #SOURCE-DSNAME #TARGET-DSNAME TO LG-MSG
+PERFORM #RLOG
+*
+IF #NATLIB NE ' ' AND #NATMEM NE ' '
+  PERFORM CONDENSE-VIA-USEREXIT
+ELSE
+  READ WORK FILE 2 #RECORD-READ
+    IF #RECORD-FIRST
+      EXAMINE FULL #RECORD-READ FOR H'00' GIVING POSITION IN #POS
+      DECIDE FOR FIRST CONDITION
+        WHEN #POS = 1 OR = 2
+* The first two bytes indicate a rec length: On little endian machines
+* it is H'xx00'; on big endian machines it is H'00xx'.
+          CLOSE WORK FILE 2
+          FETCH 'RJCNDUX2' G-MONITOR-JOBNAME G-MONITOR-NODE
+**          #CONDENSE-DSNAME #ARC-DSNAME #PHYSICAL-EXPIRATION-DATE
+* BLI 2016-04-21 NOMALL-1844 above out, below in
+            #SOURCE-DSNAME #TARGET-DSNAME
+            G-NPR-USERID #USERARC-NUMBER
+     WHEN #RECORD-READ = SCAN ('Software AG Natural Portable Work File')
+* The first two bytes indicate a rec length: On little endian machines
+* it is H'xx00'; on big endian machines it is H'00xx'.
+          CLOSE WORK FILE 2
+          FETCH 'RJCNDUX3' G-MONITOR-JOBNAME G-MONITOR-NODE
+**          #CONDENSE-DSNAME #ARC-DSNAME #PHYSICAL-EXPIRATION-DATE
+* BLI 2016-04-21 NOMALL-1844 above out, below in
+            #SOURCE-DSNAME #TARGET-DSNAME
+            G-NPR-USERID #USERARC-NUMBER
+        WHEN NONE
+          IGNORE
+      END-DECIDE
+      RESET #RECORD-FIRST #RECORD-BUFFER #RECBUF-LEN
+    END-IF
+    ADD 1 TO #RECBUF-LEN
+    MOVE SUBSTR(#RECORD-READ,1,253)
+      TO SUBSTR(#RECORD-BUFFER,#RECBUF-LEN)
+    #RECBUF-LEN := #RECBUF-LEN + 252 /* full value incl trail. blanks
+    #POS-START  := 1
+    #LEN        := #RECBUF-LEN
+    IF SUBSTR(#RECORD-BUFFER,#LEN,1) = H'01'
+      ESCAPE TOP /* compression format not yet complete
+    END-IF
+    PERFORM HANDLE-RECORD-BUFFER
+  END-WORK
+  IF #RECORD-BUFFER NE ' ' /* process last portion of buffer
+    #RECORD   := #RECORD-BUFFER
+    EXAMINE #RECORD FOR 'X' GIVING LENGTH IN #LEN
+    IF SUBSTR(#RECORD,#LEN,1) = H'0A'
+        AND #LEN > 1
+      SUBTRACT 1 FROM #LEN
+      #RECORD := SUBSTR(#RECORD,1,#LEN)
+    END-IF
+    #RECLEN := #LEN
+    PERFORM HANDLE-RECORD
+  END-IF
+*
+  IF #COPY-IT
+    PERFORM UPDATE-REPORT-CONTROL-INFO
+  END-IF
+  #UPDATE := TRUE
+  PERFORM UPDATE-TARGET-CONTROL-INFO
+  PERFORM UPDATE-SOURCE-CONTROL-INFO
+*
+  COMPRESS '0468' #REP-NO TO LG-MSG
+  PERFORM #RLOG
+  COMPRESS '0469' #EXPIRED TO LG-MSG
+  PERFORM #RLOG
+  IF #STEPLIB-ADDED
+    PERFORM REMOVE-STEPLIB
+  END-IF
+  IF #CONDNS-RC = 4
+    TERMINATE 4
+  END-IF
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Condenser terminated normally'
+  TERMINATE 0
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-RECORD
+************************************************************************
+IF #RECORD.#I-RECORD-TYPE = 'I'  /* id record, FHI266 #record. added
+  ADD 1 TO #ORIG-REP
+  IF #COPY-IT                          /* update previous report
+    PERFORM GET-CURRENT-VOLSER
+    PERFORM UPDATE-REPORT-CONTROL-INFO
+  END-IF
+  PERFORM CONVERT-RECORD
+  MOVE TRUE TO #COPY-IT
+  FIND-ARC. FIND DATASET-REPORT WITH DR-REPORT-RNB = #DR-REP-RNB-KEY
+    IF NO
+      DR-STATUS := 'D'
+    END-NOREC
+    IF DR-STATUS = 'D'                 /* will be deleted at midnight
+      MOVE FALSE TO #COPY-IT           /* by expiration date
+      ADD 1 TO #EXPIRED
+    END-IF
+**  IF DR-ARCHIVE-DSNAME NE #ARC-DSNAME
+* BLI 2016-04-21 NOMALL-1844 above out, below in
+    IF DR-ARCHIVE-DSNAME NE #SOURCE-DSNAME
+      MOVE FALSE TO #COPY-IT           /* must be an abended archive
+    END-IF
+    #OLD-DR-REP-RNB-KEY := #DR-REP-RNB-KEY
+  END-FIND
+END-IF
+IF #COPY-IT
+  RESIZE DYNAMIC #WKF-RECORD TO 0
+  MOVE SUBSTR(#RECORD,1,#RECLEN) TO #WKF-RECORD
+  WRITE WORK FILE 1 VARIABLE #WKF-RECORD
+  IF #RECORD.#I-RECORD-TYPE = 'I'/* id record, FHI266 #record. added
+    ADD 1 TO #REP-NO
+    PERFORM GET-CURRENT-VOLSER
+    #FIRST-VOLSER := #LAST-VOLSER
+    PERFORM UPDATE-TARGET-CONTROL-INFO
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* HANDLE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-RECORD-BUFFER
+************************************************************************
+REP. REPEAT
+  UNTIL #POS-START > #LEN OR #POS-START = 0
+/* Look for next record
+  EXAMINE SUBSTR(#RECORD-BUFFER,#POS-START) FOR #BEGIN-TEXT
+    GIVING POSITION IN #POS
+  IF #POS > 0
+    EXAMINE SUBSTR(#RECORD-BUFFER,#POS-START) FOR #BEGIN-ID
+      GIVING POSITION IN #POS2
+    IF #POS2 > 0 AND #POS2 < #POS
+      #POS := #POS2 /* New report earlier than new record
+    END-IF
+  END-IF
+  #POS := #POS + #POS-START - 1
+  DECIDE FOR EVERY CONDITION
+    WHEN #POS > #POS-START
+      SUBTRACT 1 FROM #POS
+      IF SUBSTR(#RECORD-BUFFER,#POS,1) = H'01'
+        #POS-START := #POS + 2
+        ESCAPE TOP /* (REP.)
+      END-IF
+      #RECORD := SUBSTR(#RECORD-BUFFER,1,#POS)
+      #RECLEN := #POS
+      ADD 2 TO #POS
+      IF #POS > #RECBUF-LEN
+        RESET #RECORD-BUFFER #RECBUF-LEN #LEN
+      ELSE
+        #RECORD-BUFFER := SUBSTR(#RECORD-BUFFER,#POS)
+        #POS-START     := 1
+        #LEN := #RECBUF-LEN := #RECBUF-LEN - #POS + 1
+      END-IF
+    WHEN #POS LE #POS-START
+/* Look for next report
+      EXAMINE SUBSTR(#RECORD-BUFFER,#POS-START) FOR #BEGIN-ID
+        GIVING POSITION IN #POS
+      #POS                   := #POS + #POS-START - 1
+      DECIDE FOR EVERY CONDITION
+        WHEN #POS > #POS-START
+          SUBTRACT 1 FROM #POS
+          IF SUBSTR(#RECORD-BUFFER,#POS,1) = H'01'
+            ADD 2 TO #POS
+            EXAMINE #RECORD-BUFFER FOR 'X' GIVING LENGTH IN #LEN
+            ESCAPE TOP /* (REP.)
+          END-IF
+          #RECORD          := SUBSTR(#RECORD-BUFFER,1,#POS)
+          #RECLEN          := #POS
+          ADD 2 TO #POS
+          IF #POS > #RECBUF-LEN
+            RESET #RECORD-BUFFER #RECBUF-LEN #LEN
+          ELSE
+            #RECORD-BUFFER := SUBSTR(#RECORD-BUFFER,#POS)
+            #POS-START     := 1
+            #LEN := #RECBUF-LEN := #RECBUF-LEN - #POS + 1
+          END-IF
+        WHEN #POS LE #POS-START
+          ESCAPE BOTTOM (REP.)
+        WHEN NONE
+          IGNORE
+      END-DECIDE
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+  PERFORM HANDLE-RECORD
+END-REPEAT
+*
+END-SUBROUTINE /* HANDLE-RECORD-BUFFER
+************************************************************************
+INCLUDE RJCONDUC /* Common subroutines for RJCONDUX and RJCNDUX* prgr
+INCLUDE RJ-C ''' ''' /*ON ERROR
+*
+END

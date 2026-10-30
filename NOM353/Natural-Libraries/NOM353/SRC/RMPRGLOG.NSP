@@ -1,0 +1,215 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPRGLOG - Purge expired log records
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  96-10-29 s(999999) cleanup
+* gw  96-10-29 s(999999) read by instead of find
+* gw  98-06-22 s(999999) allow batch cleanup to run in lib other than
+*                        SYSNOM
+* gw  98-06-26 p(171906) delete old log messages where L-TIME-INV was
+*                        not filled by RLOGERR.
+* sju 00-11-14 s(999999) SAT logging
+** HH 040825 FORMATTING T CHANGED;                /* HH 040825
+* sju 04-12-03 NOM31     Nat1305 on MOVE #AUTO-INV-P TO #AUTO-INV-T
+* HH  04-12-10 NOM31 FORMATTING T CHANGED LT. LP
+* xsetggr 2009-01-14 test print for error 3055
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* fhi     2015-11-03 NOMALL-1702 Handle $EOM_WORK on Unix (log type 'W')
+*                                Old tags until 2013 deleted
+* fhi     2015-11-09 NOMALL-1702 Correct number of days to delete
+* fhi     2016-01-27 NOMALL-1816 Handle log files in temp dirs also
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* SU2     2019-02-14 NOMALL-2231 log entries not deleted in dailyCleanup
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* fhi     2019-05-20 NOMALL-2233 Use new SAT-LOG-FILE35
+* SU3     2020-12-01 NOMALL-2440 del. UX-EMAIL-RECIPIENTS
+* BLI1    2023-05-08 NOMALL-2628 Reduce output
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+LOCAL USING SATLGD2P
+LOCAL USING SATLG01E
+/*SU3 LOCAL USING VMONIT-L
+LOCAL USING XXUX---P
+LOCAL USING VUXDEF-L
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR
+  2 M-MONITOR-ID         (A20)
+  2 M-LOG-RETENTION      (A5)
+  2 M-LOG-TYPES          (A1/1:10)
+1 #AUTO-DATE             (T)
+1 #AUTO-DATE-P           (P13)
+1 #AUTO-INV-P            (P13)
+1 #LEN                   (N2)
+1 #PERIOD-N              (N5)
+1 #PERIOD                (A5)
+1 REDEFINE    #PERIOD
+  2 #PERIOD-V            (A1/5)
+1 #PERIOD-A              (A5)
+1 REDEFINE    #PERIOD-A
+  2 #PERIOD-A-V          (A1/5)
+1 #UX-FUNCTION           (A10)
+1 #EOM-WORK              (A)    DYNAMIC
+1 #MTIME                 (A)    DYNAMIC
+1 #MTIME-I               (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=133
+*
+NRM-MONITOR.M-MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+MONIT. FIND NRM-MONITOR WITH M-MONITOR-ID = NRM-MONITOR.M-MONITOR-ID
+  IF M-LOG-RETENTION = ' '
+    M-LOG-RETENTION := '10D'
+  END-IF
+  IF M-LOG-RETENTION IS (N5)
+    #PERIOD-N := VAL(M-LOG-RETENTION)
+  ELSE
+    EXAMINE M-LOG-RETENTION FOR 'X' GIVING LENGTH IN #LEN
+    #PERIOD := M-LOG-RETENTION
+    #PERIOD-A-V(1:#LEN - 1) := #PERIOD-V(1:#LEN - 1)
+    IF NOT(#PERIOD-A IS (N5))
+      ESCAPE ROUTINE
+    END-IF
+    #PERIOD-N := VAL(#PERIOD-A)
+    DECIDE ON FIRST VALUE OF #PERIOD-V(#LEN)
+      VALUE 'D' IGNORE
+      VALUE 'W' #PERIOD-N := #PERIOD-N * 7
+      VALUE 'M' #PERIOD-N := #PERIOD-N * 30
+      NONE VALUE IGNORE
+    END-DECIDE
+  END-IF
+  #AUTO-DATE-P := *TIMX - (#PERIOD-N * 864000) /*1day*24h*60min*60sec
+  #AUTO-DATE := #AUTO-DATE-P
+/*SU2 #AUTO-INV-P := 9999999999999 - #AUTO-DATE-P
+  #AUTO-INV-P := 999999999999 - #AUTO-DATE-P /*SU2
+*
+END-FIND
+SATLGD-PRODUCT       :='NOM'
+SATLGD-SEARCH-KEY    := SATLG-ENV-TIMEINV
+SATLGD-START-TIMEINV := #AUTO-INV-P
+RESET SATLGD-MAX-DELETE-NUMBER
+SATLGD-ET-COUNT := 50
+SATLGD-ISSUE-ET := TRUE
+*
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'Start LOG cleanup older than ' #AUTO-DATE (EM=YYYY'-'MM'-'DD)
+*
+CALLNAT 'SATLGD2N' SATLGD-PARMS
+IF SATLGD-RC NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Error:' SATLGD-RC SATLGD-ERROR-FIELD 'during LOG cleanup'
+  WRITE *PROGRAM '=' SATLGD-RECORDS-DELETED /* xsetggr 2009-01-14 in
+END-IF
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'LOG cleanup completed' SATLGD-RECORDS-DELETED 'LOG records deleted'
+IF *MACHINE-CLASS NE 'MAINFRAME' AND M-LOG-TYPES (*) ='W' /*W=$EOM_WORK
+  CLWORK. READ UX-NODES BY UX-NODE-NAME
+    ACCEPT IF UX-NODE-SUSPEND = 'L' OR = 'M'
+    RESET P-ERC
+    DECIDE ON EVERY VALUE OF P-ERC
+      VALUE 0
+        #UX-FUNCTION := 'GETENV'
+        P-FILE-NAME  := 'EOM_WORK'
+        PERFORM UNIX-FUNCTION
+      VALUE 0
+        #EOM-WORK    := P-RECORD
+** BLI1 PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+** BLI1   'Deleting files on' UX-NODE-NAME                     /
+** BLI1   27T 'Dir:'        38T #EOM-WORK                      /
+** BLI1   27T 'Older than:' 38T #AUTO-DATE (EM=YYYY'-'MM'-'DD)
+        #MTIME-I     := (*TIMX - #AUTO-DATE)/ 864000 /* 1/10 sec->days
+        #MTIME       := #MTIME-I - 1
+        COMPRESS '+' #MTIME TO #MTIME LEAVING NO
+        #UX-FUNCTION := 'COMMAND'
+        COMPRESS #EOM-WORK '/cleanup-' *PID '.log'
+          TO P-FILE-NAME LEAVING NO
+        COMPRESS 'find' #EOM-WORK '-mtime' #MTIME '-delete' TO P-RECORD
+        PERFORM UNIX-FUNCTION
+      VALUE 0
+        #UX-FUNCTION := 'GETEXIT'
+        COMPRESS #EOM-WORK '/cleanup-' *PID '.log'
+          TO P-FILE-NAME LEAVING NO
+        PERFORM UNIX-FUNCTION
+      VALUE 0
+        IF P-EXIT-CODE NE 0
+        PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+            'Unix ''find'' reported error' P-EXIT-CODE
+          P-ERC := 5
+        END-IF
+      VALUE 0
+        PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        UX-NODE-NAME 'Cleanup of $EOM_WORK executed successfully.'
+      NONE
+        IGNORE
+    END-DECIDE
+  END-READ
+  CLTEMP. READ UX-NODES BY UX-NODE-NAME
+    RESET P-ERC
+    DECIDE ON EVERY VALUE OF P-ERC
+      VALUE 0
+        PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+          'Deleting log files on' UX-NODE-NAME                /
+          27T 'Dir:'        38T UX-NODE-TEMPDIR                /
+          27T 'Older than:' 38T #AUTO-DATE (EM=YYYY'-'MM'-'DD)
+        #MTIME-I     := (*TIMX - #AUTO-DATE)/ 864000 /* 1/10 sec->days
+        #MTIME       := #MTIME-I - 1
+        COMPRESS '+' #MTIME TO #MTIME LEAVING NO
+        #UX-FUNCTION := 'COMMAND'
+        COMPRESS UX-NODE-TEMPDIR '/cleanup-' *PID '.log'
+          TO P-FILE-NAME LEAVING NO
+        COMPRESS 'find' UX-NODE-TEMPDIR '-name ''*.log'''
+          '-mtime' #MTIME '-delete' TO P-RECORD
+        PERFORM UNIX-FUNCTION
+      VALUE 0
+        #UX-FUNCTION := 'GETEXIT'
+        COMPRESS UX-NODE-TEMPDIR '/cleanup-' *PID '.log'
+          TO P-FILE-NAME LEAVING NO
+        PERFORM UNIX-FUNCTION
+      VALUE 0
+        IF P-EXIT-CODE NE 0
+        PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+            'Unix ''find'' reported error' P-EXIT-CODE
+          P-ERC := 5
+        END-IF
+      VALUE 0
+        PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+          'Cleanup of' UX-NODE-TEMPDIR 'executed successfully.'
+      NONE
+        IGNORE
+    END-DECIDE
+  END-READ
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UNIX-FUNCTION
+************************************************************************--
+XXUX---P.P-NODE-NAME       := UX-NODE-NAME
+XXUX---P.P-NODE-SUSPEND    := UX-NODE-SUSPEND
+XXUX---P.P-FUNCTION        := #UX-FUNCTION
+XXUX---P.P-USERID          := UX-NODE-USERID
+XXUX---P.P-CIPHER-PASSWORD := UX-NODE-PASSWORD
+XXUX---P.P-GROUP           := UX-NODE-GROUP
+CALLNAT 'XXUX---N' XXUX---P
+*
+IF P-ERC NE 0
+  PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Unix function' P-FUNCTION 'reported error:' / P-ERC P-ERT
+END-IF
+*
+END-SUBROUTINE /* UNIX-FUNCTION
+*
+END

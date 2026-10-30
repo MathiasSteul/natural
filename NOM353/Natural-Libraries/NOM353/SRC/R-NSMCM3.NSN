@@ -1,0 +1,126 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    R-NSMCM3
+* Function  Use this routine instead CALL 'NSMCMP' (see R-NSMCMP) since
+*           NSMCMP onUnixDoesNotWorkCorrectFor NOM33 data in container.
+* ÜÜ call this routine only for NOM33 data on unix ÜÜ
+* Version   3.4
+*
+* Maintenance:
+* uuuuuuuu yyyy-mm-dd itrac       ....
+* SU1      2016-09-06 NOMALL-1912 created (NOM33 reportsNotShownOnUnix)
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 #NSMCOMP-PARMS
+  2 #NSMCOMP-CB              (B40)
+  2 REDEFINE #NSMCOMP-CB
+    3 #COMP-COMMAND          (A1)
+    3 #COMP-CODE             (B1)
+    3 #COMP-INLENGTH-OLD     (B1)
+    3 #COMP-OUTLENGTH-OLD    (B1)
+    3 #COMP-INLENGTH         (I2)
+    3 #COMP-OUTLENGTH        (I2)
+  2 #NSMCOMP-LINE            (A251)
+  2 #NSMCOMP-BUFFER-LENGTH   (B4)
+  2 #NSMCOMP-BUFFER          (A16381) /*251*66=16566  (max.:251*11=2761)
+  2 REDEFINE #NSMCOMP-BUFFER
+    3 #NSMCOMP-BUFFER_B1     (B1/1:2259)
+  2 REDEFINE #NSMCOMP-BUFFER
+    3 #NSMCOMP-BUFFER_A2259  (A2259)
+  2 REDEFINE #NSMCOMP-BUFFER
+    3 #NSMCOMP-BUFFER_LEN    (B2)
+  2 #NSMCOMP-RC              (B2)
+  2 #NSMCOMP-WORK            (B4) /*used for offset in block
+* *****
+LOCAL
+1 #NRMCOMP-PARMS
+  2 #NRMCOMP-CB              (B40)
+  2 REDEFINE #NRMCOMP-CB
+    3 #COMP-COMMAND          (A1)
+    3 #COMP-CODE             (B1)
+    3 #COMP-INLENGTH-OLD     (B1)
+    3 #COMP-OUTLENGTH-OLD    (B1)
+    3 #COMP-INLENGTH         (B2)
+    3 #COMP-OUTLENGTH        (B2)
+  2 #NRMCOMP-INPUT           (A251)
+  2 #NRMCOMP-OUTPUT          (A251)
+  2 #NRMCOMP-ERC             (N4)
+  2 #NRMCOMP-ERT             (A250)
+1 #TRACE (L) /*INIT <TRUE>
+1 #MSG   (A250)
+1 #POS   (I4)
+1 #LL    (I4) /*line length (max. 251)
+1 #LEN   (I4) /*length from buffer
+1 #I     (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT AD=L
+*
+RESET #NSMCOMP-RC #NSMCOMP-LINE
+*
+#POS := #NSMCOMP-WORK
+#LEN := #NSMCOMP-BUFFER_LEN
+IF #POS = 0 /*start of buffer
+  #POS := 3 /*skip buffer length (B2)
+END-IF
+IF #POS > #LEN
+  #NSMCOMP-RC := 4 /*end of buffer
+END-IF
+#LL := #NSMCOMP-BUFFER_B1 (#POS)
+ADD 1 TO #POS
+SUBTRACT 1 FROM #LL
+#NRMCOMP-INPUT := SUBSTR(#NSMCOMP-BUFFER,#POS,#LL)
+PERFORM DECOMPRESS-LINE
+IF #NSMCOMP-RC NE 0
+  ESCAPE ROUTINE
+END-IF
+ADD #LL TO #POS
+#NSMCOMP-WORK := #POS
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DECOMPRESS-LINE
+************************************************************************
+#NRMCOMP-PARMS.#COMP-COMMAND := 'D'
+#NRMCOMP-PARMS.#COMP-CODE    := 'N'
+EXAMINE #NRMCOMP-INPUT FOR ' ' GIVING LENGTH #I
+#NRMCOMP-PARMS.#COMP-INLENGTH := #I
+CALLNAT 'R-NRMCMP' #NRMCOMP-PARMS
+IF #NRMCOMP-ERC NE 0
+  #NSMCOMP-RC := 124 /*NOM0030 Internal error in :1: line :2:
+  COMPRESS '0030' *PROGRAM *LINE 'R-NRMCMP:' #NRMCOMP-ERC TO #MSG
+  PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+  END TRANSACTION
+ELSE
+  #NSMCOMP-LINE := #NRMCOMP-OUTPUT
+END-IF
+*
+END-SUBROUTINE /* DECOMPRESS-LINE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF *ERROR-NR = 920
+    #MSG := '134' /* NOM0134 NOMCOMPR missing.
+  ELSE
+    CALLNAT 'C-NATERN' #MSG
+  END-IF
+  PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+  END TRANSACTION
+* no escape to be able to show error to user
+*
+END-ERROR
+*
+END

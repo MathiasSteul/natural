@@ -1,0 +1,111 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RGETLAYN  GET USER LAYOUT
+*
+* MAINTENANCE:
+*
+* GW  91-09-25  created
+* xsiszha 2000-08-01 (CE7461)  Extend Report and Bundle Names
+* sju     2002-11-13 p(231843) mail wrong if run number wraps round
+* xsetggr 2007-05-07 NOM3201   Support P11 format run numbers
+* ----------------------------------------------------------------------
+DEFINE DATA
+GLOBAL USING  NRM-GL
+PARAMETER
+1 #REPORT                     (A25)
+1 #REP-RNB                    (P11)
+1 #USERID                     (A8)
+1 #USER-IN                    (L)
+1 #USER-LAYOUT                (L)
+1 #LAYOUT-TAB                 (A251)
+1 REDEFINE    #LAYOUT-TAB
+  2 #LAYOUT-TAB-V             (A1/251)
+1 #LAYOUT
+  2 #LAYOUT-F                 (P3/10)
+  2 #LAYOUT-T                 (P3/10)
+  2 #LAYOUT-S                 (P3/10)
+  2 #LAYOUT-N                 (P3)
+  2 CV-LAYOUT                 (C/10)
+1 CV-SEQ                      (C/10)
+1 #HEADER-LINES               (N3)
+************************************************************************
+LOCAL  USING  VRPDIS-L
+LOCAL  USING  VMAILR-L
+LOCAL  USING  SUPER-L
+LOCAL
+1 #K                          (P3)
+1 #L                          (P3)
+1 #TO-COL                     (P3)
+*
+1 #MA-RNB-USER                (A14)
+1 REDEFINE    #MA-RNB-USER
+  2 #MA-RNB                   (P11)
+  2 #MA-USER                  (A8)
+1 #MA-REP-RNB                 (A31)
+1 REDEFINE #MA-REP-RNB
+  2 #MA-REP                   (A25)
+  2 #MA-REPRNB                (P11)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #USER-IN #USER-LAYOUT #LAYOUT
+*
+FIND REPORT-DISTRIBUTION WITH  RD-REPNAME = #REPORT
+  RESET G-MEMBERS(*) G-MEMBER-SENT(*)
+  FETCH RETURN 'RISUSDL' #USERID RD-TARGET-ID
+  IF G-NATRP-ERC = 1
+    RESET G-NATRP-ERC
+    FOR #K 1 TO REPORT-DISTRIBUTION.C*RD-LAYOUT
+      #TO-COL := REPORT-DISTRIBUTION.RD-TO(#K)
+      IF #TO-COL > 0
+        #USER-IN := TRUE
+        ESCAPE BOTTOM
+      END-IF
+    END-FOR
+    ESCAPE BOTTOM
+  END-IF
+END-FIND
+IF NOT #USER-IN
+  RESET #USER-LAYOUT #LAYOUT
+  #AR-REPNAME := #REPORT
+  #AR-REPRNB := #REP-RNB
+  #MA-RNB := #AR-REPRNB
+  #MA-USER := #USERID
+  #MA-REP:= #AR-REPNAME
+  #MA-REPRNB:= #AR-REPRNB
+  FIND MAIL-REPORTS WITH MA-RNB-USER = #MA-RNB-USER
+      AND  MA-REP-RNB  = #MA-REP-RNB WHERE C*MA-LAYOUT > 0
+    #LAYOUT-N := C*MA-LAYOUT
+    #HEADER-LINES := MA-HEADLINES
+    #USER-LAYOUT := TRUE
+    FOR #L 1 TO #LAYOUT-N
+      #LAYOUT-F(#L) := MA-FROM(#L)
+      #LAYOUT-T(#L) := MA-TO(#L)
+      FOR #K MA-FROM(#L) TO MA-TO(#L)
+        #LAYOUT-TAB-V(#K) := 'X'
+      END-FOR
+      #LAYOUT-S(#L) := #L
+    END-FOR
+    ESCAPE BOTTOM
+  END-FIND
+ELSE
+  CV-LAYOUT(*) := CV-SEQ(*) := (AD=P)
+  #USER-LAYOUT := TRUE
+  #LAYOUT-N := REPORT-DISTRIBUTION.C*RD-LAYOUT
+  #HEADER-LINES := REPORT-DISTRIBUTION.RD-HEADLINES
+  FOR #L 1 TO #LAYOUT-N
+    #LAYOUT-F(#L) := REPORT-DISTRIBUTION.RD-FROM(#L)
+    #LAYOUT-T(#L) := REPORT-DISTRIBUTION.RD-TO(#L)
+    #LAYOUT-S(#L) := #L
+    RESET CV-SEQ(#L)
+  END-FOR
+END-IF
+*
+END

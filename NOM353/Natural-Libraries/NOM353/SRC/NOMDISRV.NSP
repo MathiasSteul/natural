@@ -1,0 +1,226 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMDISRV         Template: RJREVIVE
+* Function  Display contents of an Archive Dataset
+*
+* Run in batch, attach archive dataset as work file 1
+* Input: Number of report records printed per report or empty (all)
+*
+* Maintenance:
+* fhi    15-03-02 NOMALL-1575 created.
+* fhi    15-07-15 NOMALL-1677 Improved outputs
+* fhi    15-09-24 NOMALL-1709 Corrected NOM version logs
+* fhi    16-04-04 NOMALL-1857 Support larger Job Numbers
+* fhi    16-10-27 NOMALL-1946 Backported from changed NOMDISRP
+* ----------------------------------------------------------------------
+DEFINE DATA
+* -----------------------------LDAs-------------------------------------
+LOCAL USING RIDREC-L
+* ----------------------------------------------------------------------
+LOCAL
+* ----------------------------------------------------------------------
+1 #RECORD-LENGTH             (I4)
+1 #T-RECORD                  (A)     DYNAMIC
+1 #T-RECORD-TYPE             (A1)
+1 #T-TEXT                    (A)     DYNAMIC
+1 #ACTREP-REPORT             (A25)
+1 #ACTREP-REPRNB             (P11)
+1 #ACTREP-NODE               (N5)
+1 #ACTREP-ARCHIVE-DATE       (T)
+1 #ACTREP-JOBNAME            (A8)
+1 #ACTREP-JOBNO              (N7)
+1 #NOMVERS                   (A10)
+1 #HEXHIGH                   (A)     DYNAMIC
+1 #HEXLOW                    (A)     DYNAMIC
+1 #RULER                     (A)     DYNAMIC
+1 #NUMBER                    (I4)
+1 #I                         (I4)
+1 #ERROR                     (L)
+1 #STRING                    (A)     DYNAMIC /* NOMALL-1709 fhi in
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT PS=60 LS=250
+/* DEFINE WORK FILE 1 TYPE 'PORTABLE' /* Only for NOMDISRP
+IF *DATA > 0
+  INPUT #NUMBER
+END-IF
+*
+*
+READ WORK FILE 1 #T-RECORD GIVING LENGTH #RECORD-LENGTH
+  RESET #T-RECORD-TYPE #T-TEXT
+  DECIDE FOR EVERY CONDITION
+    WHEN *LENGTH(#T-RECORD) > 0
+      #T-RECORD-TYPE := SUBSTR(#T-RECORD,1,1)
+    WHEN *LENGTH(#T-RECORD) = 1
+      PRINT 'Skipping empty record with record type' #T-RECORD-TYPE
+      ESCAPE TOP
+    WHEN *LENGTH(#T-RECORD) > 1
+      #T-TEXT        := SUBSTR(#T-RECORD,2)
+    WHEN NONE
+      PRINT 'Record has length 0. Skipping.'
+      ESCAPE TOP
+  END-DECIDE
+  DECIDE ON FIRST VALUE OF #T-RECORD-TYPE
+    VALUE 'I'
+      RESET #I #ERROR
+      PERFORM HANDLE-ID-RECORD
+    VALUE 'T'
+      PERFORM HANDLE-TEXT-RECORD
+    NONE VALUE
+      WRITE NOTITLE NOHDR 'Invalid record type found:'
+        #T-RECORD-TYPE
+      #ERROR := TRUE
+  END-DECIDE
+*
+END-WORK
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-ID-RECORD
+************************************************************************
+*
+WRITE NOTITLE NOHDR '-'(130)
+#ID-RECORD := #T-RECORD
+PERFORM XXHEXPRT #T-RECORD #HEXHIGH #HEXLOW #RULER 1X TRUE
+PRINT NOTITLE NOHDR 'ID-Record:'/
+  #T-RECORD / #HEXHIGH /
+  #HEXLOW / #RULER //
+DECIDE FOR FIRST CONDITION
+/* repname a25,reprnb p7,jobnumber n5,node n3
+  WHEN #RECORD-LENGTH = 133 THRU 140      /* NOM211 format archive
+    #ACTREP-REPORT:= #REPNAME1 /* jobname (n5)
+    IF #REPRNB1 = MASK(NNNNNNZ)
+      #ACTREP-REPRNB := #REPRNB1
+    ELSE
+      RESET #ACTREP-REPRNB
+    END-IF
+    IF #NODE1 = MASK(NNZ)
+      #ACTREP-NODE         := #NODE1
+    ELSE
+      RESET #ACTREP-NODE
+    END-IF
+    IF #I-ARCHIVE-DATE1 = MASK(NNNNNNNNNNNNZ)
+      #ACTREP-ARCHIVE-DATE := #I-ARCHIVE-DATE-T1
+    ELSE
+      RESET #ACTREP-ARCHIVE-DATE
+    END-IF
+    #ACTREP-JOBNAME      := #JOBNAME1
+    IF #JOBNO1 = MASK(NNNNZ)
+      #ACTREP-JOBNO        := #JOBNO1
+    ELSE
+      RESET #ACTREP-JOBNO
+    END-IF
+    #NOMVERS      := 'NOM211' /* NOMALL-1709 was 'NOM311'
+/* repname a25,reprnb p7,jobnumber n7,node n3
+  WHEN #RECORD-LENGTH = 141 THRU 142 /* jobname (n7)
+    #ACTREP-REPORT:= #REPNAME2
+    IF #REPRNB2 = MASK(NNNNNNZ)
+      #ACTREP-REPRNB:= #REPRNB2
+    ELSE
+      RESET #ACTREP-REPRNB
+    END-IF
+    IF #NODE2 = MASK(NNZ)
+      #ACTREP-NODE         := #NODE2
+    ELSE
+      RESET #ACTREP-NODE
+    END-IF
+    IF #I-ARCHIVE-DATE2 = MASK(NNNNNNNNNNNNZ)
+      #ACTREP-ARCHIVE-DATE := #I-ARCHIVE-DATE-T2
+    ELSE
+      RESET #ACTREP-ARCHIVE-DATE
+    END-IF
+    #ACTREP-JOBNAME      := #JOBNAME2
+    IF #JOBNO2 = MASK(NNNNNNZ)
+      #ACTREP-JOBNO        := #JOBNO2
+    ELSE
+      RESET #ACTREP-JOBNO
+    END-IF
+    #NOMVERS      := 'NOM311' /* NOMALL-1709 was 'NOM221'
+/* repname a25,reprnb p11,jobnumber n7,node n5
+  WHEN #RECORD-LENGTH > 142              /* NOM32 format archive
+    #ACTREP-REPORT:= #REPNAME /* rnb(p11), node (n5)
+    IF #REPRNB = MASK(NNNNNNNNNNZ)
+      #ACTREP-REPRNB:= #REPRNB
+    ELSE
+      RESET #ACTREP-REPRNB
+    END-IF
+    IF #NODE = MASK(NNNNZ)
+      #ACTREP-NODE         := #NODE
+    ELSE
+      RESET #ACTREP-NODE
+    END-IF
+    IF #I-ARCHIVE-DATE = MASK(NNNNNNNNNNNNZ)
+      #ACTREP-ARCHIVE-DATE := #I-ARCHIVE-DATE-T
+    ELSE
+      RESET #ACTREP-ARCHIVE-DATE
+    END-IF
+    #ACTREP-JOBNAME      := #JOBNAME
+    IF #JOBNO = MASK(NNNNNNZ)
+      #ACTREP-JOBNO        := #JOBNO
+    ELSE
+      RESET #ACTREP-JOBNO
+    END-IF
+    #NOMVERS      := '>= NOM321'
+/* repname a17,reprnb p7,jobnumber n5,node n3
+  WHEN #RECORD-LENGTH LE 132           /* repname (a17) - nom211 format
+    #ACTREP-REPORT:= #REPNAME3
+    IF #REPRNB3 = MASK(NNNNNNZ)
+      #ACTREP-REPRNB:= #REPRNB3
+    ELSE
+      RESET #ACTREP-REPRNB
+    END-IF
+    IF #NODE3 = MASK(NNZ)
+      #ACTREP-NODE         := #NODE3
+    ELSE
+      RESET #ACTREP-NODE
+    END-IF
+    IF #I-ARCHIVE-DATE3 = MASK(NNNNNNNNNNNNZ)
+      #ACTREP-ARCHIVE-DATE := #I-ARCHIVE-DATE-T3
+    ELSE
+      RESET #ACTREP-ARCHIVE-DATE
+    END-IF
+    #ACTREP-JOBNAME      := #JOBNAME3
+    IF #JOBNO3 = MASK(NNNNZ)
+      #ACTREP-JOBNO        := #JOBNO3
+    ELSE
+      RESET #ACTREP-JOBNO
+    END-IF
+    #NOMVERS      := '<= NOM211'
+  WHEN NONE
+    WRITE NOTITLE NOHDR 'Unknown NOM Archive version detected.'
+    #ERROR := TRUE
+    ESCAPE ROUTINE
+END-DECIDE
+COMPRESS #ACTREP-REPORT '/' #ACTREP-REPRNB TO #STRING
+  LEAVING NO
+WRITE NOTITLE NOHDR (ZP=OFF) 'Found: NOM Archive of version'
+  #NOMVERS / 'with report/rnb'
+  17T #STRING (AL=40)
+  / 'node'        17T #ACTREP-NODE 'archived on'
+  #ACTREP-ARCHIVE-DATE (EM=YYYY'-'MM'-'DD)
+  / 'job name/no' 17T #ACTREP-JOBNAME #ACTREP-JOBNO
+WRITE NOTITLE NOHDR '-'(130)
+*
+END-SUBROUTINE /* HANDLE-ID-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-TEXT-RECORD
+************************************************************************
+*
+IF (#I > #NUMBER AND #NUMBER NE 0) OR #ERROR
+  ESCAPE ROUTINE
+END-IF
+PERFORM XXHEXPRT #T-TEXT #HEXHIGH #HEXLOW #RULER 1X TRUE
+PRINT NOTITLE NOHDR #T-TEXT / #HEXHIGH / #HEXLOW / #RULER
+#I := #I + 1
+*
+END-SUBROUTINE /* HANDLE-TEXT-RECORD
+*
+END

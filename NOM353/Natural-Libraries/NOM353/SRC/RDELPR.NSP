@@ -1,0 +1,94 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* MEMBER    RDELPR
+* Version   1.3
+* FUNCTION  Delete a logical printer
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* sju 95-09-27 s(229945) written
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* xsetggr 2003-08-19 p(240465) accept non-defined userid
+* SU1     2022-03-03 NOMALL-2536 restruct
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+* -----------------------------LDA's------------------------------------
+LOCAL  USING EOM----E
+LOCAL  USING EOM----P
+LOCAL  USING EOMPRM-E
+LOCAL  USING EOMPRM-P
+LOCAL  USING EOMMSG-P
+*
+LOCAL
+1 USERS VIEW OF NRM-USERS
+1 #FATHER-PROG         (A8) INIT <'RLISPR'>
+1 #OBJECT-NAME         (A32)
+1 #CONFIRMED           (L)
+1 LOWER-CASE           (L) CONST <FALSE>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+G-NATRP-ERC := 17
+RESET  G-NATRP-ERT
+*
+EOMPRM-I-NAME    := G-C-PRINTER
+EOM-USER-PROFILE := G-USER-PROFILE
+EOM-USER         := G-USERID
+EOM-USER-TYPE    := G-USER-TYPE
+FIND (1) USERS WITH USER-ID = G-USERID
+  IF NO RECORDS FOUND
+    EOM-DEF-USER := 'Y'
+  END-NOREC
+END-FIND
+EOM-LANGUAGE := *LANGUAGE
+*
+RESET  EOM-LOGGING                          /* ????????????????
+IF G-LOG-PRT                                /* ????????????????
+  EOM-LOG-TYPES (1) := 'P'                 /* ????????????????
+END-IF                                      /* ????????????????
+*
+EOM-FUNCTION := EOM-READ
+EOMPRM-I-ATTRIBUTE-TYPE := PRINTER-GENERAL-ATTRIBUTES
+CALLNAT 'EOMPRM-N' EOM-PARMS EOMPRM-PARMS EOMMSG-PARMS
+IF EOMMSG-NR NE 0
+  G-NATRP-ERC := EOMMSG-NR
+  G-NATRP-ERT := EOMMSG-TOKEN (1)
+  INCLUDE C-ESCAPE
+END-IF
+*
+EOM-FUNCTION := EOM-SECURITY-CHECK
+EOMPRM-I-CHECK-FUNCTION := EOM-DELETE
+CALLNAT 'EOMPRM-N' EOM-PARMS EOMPRM-PARMS EOMMSG-PARMS
+IF EOMMSG-NR NE 0
+  G-NATRP-ERC := EOMMSG-NR
+  G-NATRP-ERT := EOMMSG-TOKEN (1)
+  INCLUDE C-ESCAPE
+END-IF
+*
+IF G-CONFIRM
+  MOVE G-C-PRINTER TO #OBJECT-NAME
+  CALLNAT 'N-CNFRM' #OBJECT-NAME 'P' G-DISPLAY-LONG-NAMES #CONFIRMED
+    G-NATRP-ERT LOWER-CASE
+END-IF
+*
+IF #CONFIRMED OR NOT G-CONFIRM
+  EOM-FUNCTION := EOM-DELETE
+  CALLNAT 'EOMPRM-N' EOM-PARMS EOMPRM-PARMS EOMMSG-PARMS
+  IF EOMMSG-NR NE 0
+    G-NATRP-ERC := EOMMSG-NR
+    G-NATRP-ERT := EOMMSG-TOKEN (1)
+    BACKOUT TRANSACTION
+  ELSE
+    END OF TRANSACTION
+    G-NATRP-ERC := 18
+  END-IF
+END-IF
+INCLUDE C-ESCAPE
+END

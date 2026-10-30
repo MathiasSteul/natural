@@ -1,0 +1,99 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMINIONL - Initialize NOM Monitor for Online testing
+*
+* Maintenance:
+* uuuuuuuu yyyy-mm-dd s(999999)   ....
+* gw       1998-11-02 s(999999)   5 byte dbid /fnr
+* fhi      2002-04-05 fhi01       adapt to NOM221 needs
+* fhi      2005-09-01 P(266530)   Adapt to start monitor online on Unix
+* fhi      2005-09-01 N3463       Defaults depending on machine-class
+* fhi      2016-04-15 NOMALL-1837 Introduce +DEVICE for testing
+* fhi      2016-11-15 NOMALL-1961 Use new task IDs, some tags
+* SU1     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +DEVICE              (A8)   /* NOMALL-1837 +DEVICE fhi in
+* *****
+LOCAL USING RMTASK-P                 /* NOMALL-1961 fhi in
+LOCAL
+1 #EOM-SYSF            (A10)
+1 REDEFINE #EOM-SYSF
+  2 #EOM-DBID          (N5)
+  2 #EOM-FNR           (N5)
+1 #SAT-SYSF            (A10)
+1 REDEFINE #SAT-SYSF
+  2 #SAT-DBID          (N5)
+  2 #SAT-FNR           (N5)
+1 #SAT-LIBRARY         (A8)
+1 #SAT-MEMBER          (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
++DEVICE := 'BATCH' /* Simulate batch test; NOMALL-1837
+IF *MACHINE-CLASS NE 'MAINFRAME'
+  G-TRACE          := 0
+  RMTASK-P.FUNCTION       := 'L'
+  RMTASK-P.SUBTASK-NUMBER := 1
+  CALLNAT 'RMTASKID' RMTASK-P
+  G-MONITOR-ID     := RMTASK-P.TASK-ID
+  G-WAIT-MINIMUM   := 5
+  G-WAIT-MAXIMUM   := 30
+  G-WAIT-INCREMENT := 5
+  G-MONITOR-NODE   := 0
+  #EOM-DBID        := 41
+  #EOM-FNR         := 32
+  #SAT-DBID        := 0
+  #SAT-FNR         := 0
+  #SAT-LIBRARY     := 'SYSSATU'
+  #SAT-MEMBER      := 'SP00040'
+ELSE
+  G-TRACE          := 0
+  RMTASK-P.FUNCTION       := 'L'
+  RMTASK-P.SUBTASK-NUMBER := 1
+  CALLNAT 'RMTASKID' RMTASK-P
+  G-MONITOR-ID     := RMTASK-P.TASK-ID
+  G-WAIT-MINIMUM   := 5
+  G-WAIT-MAXIMUM   := 7
+  G-WAIT-INCREMENT := 1
+  G-MONITOR-NODE   := 40
+  #EOM-DBID        := 9
+  #EOM-FNR         := 249
+  #SAT-DBID        := 9
+  #SAT-FNR         := 150
+  #SAT-LIBRARY     := 'SYSSATU'
+  #SAT-MEMBER      := 'SP00040'
+END-IF
+*
+INPUT (AD=MI)
+  'MONITOR ID .............'   G-MONITOR-ID   (AD=OI)
+  / 'MONITOR Minimum-Wait ...' G-WAIT-MINIMUM
+  / 'MONITOR Maximum-Wait ...' G-WAIT-MAXIMUM
+  / 'MONITOR Increment ......' G-WAIT-INCREMENT
+  / 'MONITOR Node ...........' G-MONITOR-NODE
+  / 'NOM     SYSF ...........' #EOM-SYSF
+  / 'SAT     SYSF ...........' #SAT-SYSF
+  / 'SAT     Library ........' #SAT-LIBRARY
+  / 'SAT     Member .........' #SAT-MEMBER
+  / 'Task number ............' RMTASK-P.SUBTASK-NUMBER
+*
+RMTASK-P.FUNCTION       := 'L'
+CALLNAT 'RMTASKID' RMTASK-P
+G-MONITOR-ID     := RMTASK-P.TASK-ID
+IF *MACHINE-CLASS = 'MAINFRAME'
+  FETCH 'RMINIT' G-MONITOR-ID G-WAIT-MINIMUM G-WAIT-MAXIMUM
+    G-WAIT-INCREMENT G-MONITOR-NODE #EOM-SYSF #SAT-SYSF
+    #SAT-LIBRARY #SAT-MEMBER RMTASK-P.SUBTASK-NUMBER
+ELSE
+  FETCH 'RMINIT' RMTASK-P.SUBTASK-NUMBER #EOM-SYSF
+END-IF
+*
+END

@@ -1,0 +1,92 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* XS-LC--N of EOR named XXUXLC-N in NOM ÜÜÜ
+* CALL THE NPR API LOCALLY
+* Return Codes (in P-RC):
+*      0    ok                                                  N3375
+*   3242    EOR3242 - Access Mode :1: not for :2:               269627
+*           (tried to use local call from Mainframe Natural)    269627
+*   3245    EOR3245 - Data buffer type :1: too large for NPR local Call
+*  other    other error                                         N3375
+*
+* Modifications:
+* 26.01.06 273006.5 using long alpha fields                     SN511Z6
+* 29.01.07 N02218   arrays -> fields                            SN521
+* 20.03.07 269627   forbid access mode 'L' on mainframe         SN521
+* 13.06.07 N02219   XS-COM-L initialisation; larger buffers     SN521
+* 26.08.08 307386.7 XS-C-FUNCDATA-MODE                          SN521Z4
+* 19.08.09 E53104   XS-C-USE-UID-GID                            SN531
+* 13.10.14 N1911.6  XSL-BUFFER size 100000                      SN542Z2
+* 13.11.14 N1962.4  XSL-BUFFER size 10000 again                 SN542Z2
+* 12.04.18 N3181    XSL-BUFFER size 60000               NP272   SN551
+* 18.04.19 N3375    check XS-C-RW-BUFFER-TYPE                   SN551Z1
+* 25.04.19 NOMALL-2261 adapt buffer and error handling for NOM
+************************************************************************
+DEFINE DATA
+PARAMETER
+1 P-NPR-VERSION-A10  (A10)     /* in     N1911.6
+1 P-COMMON           (A300)           /* N02218
+1 P-BUFFER           (A100000)   /* N1911.6  N1962.4 dis  N3181 en
+  BY VALUE RESULT                                      /* N3181
+1 REDEFINE P-BUFFER                   /* N3181
+  2 P-BUFFER-60000   (A60000)         /* N3181
+1 REDEFINE P-BUFFER                   /* N1962.4
+  2 P-BUFFER-10000   (A10000)         /* N1962.4
+1 P-RETCODE          (I04)     /* out    N3375
+  BY VALUE RESULT                     /* N3375
+*
+* bli NOMALL-2261 below parms not used by NOM, hardcoded type/mode 'D'
+** 1 P-ERC              (N04)     /* out    N3375  was I04
+** 1 P-ERT              (A70)     /* out    N3375
+************************************************************************
+LOCAL  USING XS-COM-L               /* 273006.5   N02219
+LOCAL
+1 #RETCODE             (B04)            /* 307386.7 ren
+1 #SENT-FUNCDATA-MODE  (A01)            /* 307386.7
+1 #BUFFER-OUT          (A100000)  /* N1911.6   N1962.4 dis  N3181 en
+* 1 #BUFFER-OUT        (A10000)         /* N1962.4 en  N3181 dis
+1 REDEFINE #BUFFER-OUT                  /* N3181
+  2 #BUFFER-OUT-60000  (A60000)         /* N3181
+1 REDEFINE #BUFFER-OUT                  /* N1962.4
+  2 #BUFFER-OUT-10000  (A10000)         /* N1962.4
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-RETCODE /* P-ERC P-ERT        /* N3375 bli NOMALL-2261
+*
+IF *MACHINE-CLASS = 'MAINFRAME'                   /* V 269627
+* bli NOMALL-2261 next out, XXUX---N checks it
+*  P-ERC := 3242    /* EOR3242 - Access Mode :1: not for :2:  /* N3375
+  ESCAPE MODULE
+END-IF                                            /* A 269627
+*
+XS-COMMON := P-COMMON       /* local copy of common area    N02219
+*
+* bli NOMALL-2261 set buffer, funcdata for NPR version GE 02.01.12
+IF XS-C-RW-BUFFER-TYPE = 'C'
+  XS-C-FUNCDATA-TYPE := 'D'   /* NPR_FDT_D        NP272   N3181
+  XS-C-RW-BUFFER-TYPE:= 'D'   /* 60000            V N3375
+END-IF
+*
+XS-C-FUNCDATA-MODE := #SENT-FUNCDATA-MODE := '1'         /* 307386.7
+* -- try to use 1 buffer only                               307386.7
+*
+CALL 'NNPR_API' XS-COMMON P-BUFFER-60000  #BUFFER-OUT-60000
+#RETCODE := RET('NNPR_API')
+IF #SENT-FUNCDATA-MODE = '1' AND XS-C-FUNCDATA-MODE = 'Z'
+  IGNORE        /* understood command; 1 buffer was used only
+ELSE
+  P-BUFFER := #BUFFER-OUT
+END-IF
+*
+P-COMMON  := XS-COMMON
+P-RETCODE := #RETCODE
+*
+END

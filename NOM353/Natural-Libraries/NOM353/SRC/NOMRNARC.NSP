@@ -1,0 +1,193 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMRNARC
+* Version   3.4
+* Function  Rename archive datasets in batch by changing a prefix
+*
+* Maintenance
+* uuu     yyyy-mm-dd iTrac       ...
+* fhi     2014-07-11 NOMALL-1443 Created from RARCDSN
+* SU1     2014-11-05 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* SU3     2016-07-29 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* ----------------------------------------------------------------------
+DEFINE DATA
+*
+LOCAL
+1 NRM-ACTIVE-REPORTS VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-ARCHIVE-DATA-SET
+1 NRM-DATASET-REPORT VIEW OF NRM-DATASET-REPORT
+  2 DR-ARCHIVE-DSNAME
+  2 DR-REPNAME
+  2 DR-REPRNB
+/*SU2 2 DR-OBJECT-TYPE /*SU1
+/*SU2 2 DR-OBJECT-TIME /*SU1
+1 NRM-ARCHIVE-DATASET VIEW OF NRM-ARCHIVE-DATASET
+  2 AD-ARCHIVE-DSNAME
+/*SU2 2 AD-OBJECT-TYPE /*SU1
+/*SU2 2 AD-OBJECT-TIME /*SU1
+1 #AR-KEY                              (A31)
+1 REDEFINE #AR-KEY
+  2 #AR-REP                            (A25)
+  2 #AR-RNB                            (P11)
+1 #ET-COUNT                            (I2)
+1 #REP-COUNT                           (I4)
+1 #DSN-COUNT                           (I4)
+1 #TRACE-MSG                           (A250)
+1 #TRACING                             (L)
+1 #LEN                                 (I2)
+1 #NEWNAME                             (A44)
+1 L-ARC-NEW                            (A44)
+1 L-ARC                                (A44)
+1 L-TYPE                               (A1)
+1 L-LOG                                (A1)
+1 L-ET-COUNT                           (I1)  CONST <50>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+/*SU3 OPTIONS MCG=OFF
+*
+L-LOG := 'N'
+*
+SET KEY ALL
+IF *DEVICE NE 'BATCH'
+  INPUT (AD=MILT'_')
+'* ------------------------------------------------------------------ *'
+'*                            NOMRNARC                                *'
+'*                                                                    *'
+'* Utility to rename archive datasets including depending objects     *'
+'*                                                                    *'
+'* ------------------------------------------------------------------ *'
+    // 'Old name / part.............:' L-ARC
+    'New name / part.............:' L-ARC-NEW
+    // 'Prefix (P) or substring (S)?:' L-TYPE
+    /  '''Prefix'' will look for the old name in the beginning and '-
+    'replace it'
+    / 'with the new name, ''substring'' will replace also in the middle.'
+    / '''Substring'' will be slower than ''prefix''.'
+    // 'Log changes (Y/N)?..........:' L-LOG
+    /// 'End with any PF Key.'
+  IF *PF-KEY NE 'ENTR'
+    ESCAPE ROUTINE
+  END-IF
+  IF L-LOG NE 'Y' AND L-LOG NE 'N'
+    REINPUT 'Enter Y/N for logging.'
+  END-IF
+  IF L-TYPE NE 'S' AND L-TYPE NE 'P'
+    REINPUT 'Enter P/S for prefix or substring.'
+  END-IF
+*
+ELSE
+  INPUT (AD=T) '=' L-ARC '=' L-ARC-NEW '=' L-TYPE '=' L-LOG
+  IF L-TYPE NE 'S' AND L-TYPE NE 'P'
+    REINPUT 'Enter P/S for prefix or substring.'
+  END-IF
+END-IF
+*
+RESET #ET-COUNT #REP-COUNT #DSN-COUNT
+IF L-LOG = 'Y'
+  #TRACING := TRUE
+END-IF
+EXAMINE L-ARC FOR ' ' GIVING LENGTH IN #LEN
+*
+#TRACE-MSG := 'Starting mass rename for Archive Datasets'
+PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+COMPRESS 'Old name:' L-ARC '- New name:' L-ARC-NEW TO #TRACE-MSG
+PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+END TRANSACTION
+IF L-TYPE = 'P'
+  #TRACE-MSG := 'Type: Prefix.'
+  PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+  RDAD. READ NRM-ARCHIVE-DATASET BY AD-ARCHIVE-DSNAME = L-ARC
+    IF SUBSTR(AD-ARCHIVE-DSNAME,1,#LEN) NE L-ARC
+      ESCAPE BOTTOM (RDAD.)
+    END-IF
+    PERFORM CHANGE-REPORTS
+    GTAD. GET NRM-ARCHIVE-DATASET *ISN(RDAD.)
+    AD-ARCHIVE-DSNAME := #NEWNAME
+/*SU2 AD-OBJECT-TYPE := 'AD' /*SU1
+/*SU2 AD-OBJECT-TIME := *TIMX /*SU1
+    UPDATE (GTAD.)
+    ADD 1 TO #DSN-COUNT
+    ADD 1 TO #ET-COUNT
+    IF #ET-COUNT GE L-ET-COUNT
+      RESET #ET-COUNT
+      END TRANSACTION
+    END-IF
+  END-READ
+ELSE
+  #TRACE-MSG := 'Type: Substring.'
+  PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+  RDAD2. READ NRM-ARCHIVE-DATASET BY AD-ARCHIVE-DSNAME
+    IF AD-ARCHIVE-DSNAME NE SCAN (L-ARC)
+      ESCAPE TOP
+    END-IF
+    PERFORM CHANGE-REPORTS
+    GTAD2. GET NRM-ARCHIVE-DATASET *ISN(RDAD2.)
+    AD-ARCHIVE-DSNAME := #NEWNAME
+/*SU2 AD-OBJECT-TYPE := 'AD' /*SU1
+/*SU2 AD-OBJECT-TIME := *TIMX /*SU1
+    UPDATE (GTAD2.)
+    ADD 1 TO #DSN-COUNT
+    ADD 1 TO #ET-COUNT
+    IF #ET-COUNT GE L-ET-COUNT
+      RESET #ET-COUNT
+      END TRANSACTION
+    END-IF
+  END-READ
+END-IF
+#TRACE-MSG := 'Statistics:'
+PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+COMPRESS 'Updated datasets:' #DSN-COUNT 'Updated reports:' #REP-COUNT
+  TO #TRACE-MSG
+PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+END TRANSACTION
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHANGE-REPORTS
+************************************************************************
+#NEWNAME := AD-ARCHIVE-DSNAME
+EXAMINE #NEWNAME FOR L-ARC REPLACE WITH L-ARC-NEW
+IF #TRACING
+  COMPRESS 'Replacing' AD-ARCHIVE-DSNAME 'with' #NEWNAME TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  #TRACE-MSG := 'Changing Report / RNB:'
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+FIND NRM-DATASET-REPORT WITH DR-ARCHIVE-DSNAME = AD-ARCHIVE-DSNAME
+  #AR-REP:= DR-REPNAME
+  #AR-RNB:= DR-REPRNB
+  IF #TRACING
+    COMPRESS DR-REPNAME '/' DR-REPRNB TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+  DR-ARCHIVE-DSNAME := #NEWNAME
+/*SU2 DR-OBJECT-TYPE := 'DR' /*SU1
+/*SU2 DR-OBJECT-TIME := *TIMX /*SU1
+  UPDATE
+  ACTREP. FIND NRM-ACTIVE-REPORTS WITH AR-REPORT-RNB = #AR-KEY
+    AR-ARCHIVE-DATA-SET := #NEWNAME
+    UPDATE (ACTREP.)
+    ADD 1 TO #ET-COUNT
+    ADD 1 TO #REP-COUNT
+    IF #ET-COUNT GE L-ET-COUNT
+      RESET #ET-COUNT
+      END TRANSACTION
+    END-IF
+  END-FIND
+END-FIND
+*
+END-SUBROUTINE /* CHANGE-REPORTS
+*
+END

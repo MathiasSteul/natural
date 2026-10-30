@@ -1,0 +1,696 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RLIACS - List active Report Summary
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ....
+* mrs 93-08-09 s(999999) created
+* mrs 93-11-24 s(999999) top, bot implemented
+* mrs 95-03-29 s(222118) read most recently create active report for
+*                        report description
+* gw  96-10-15 s(231722)  TOP doesn't go top
+* gw  98-03-13 s(278970) save search values in independent variables
+* xsisjl 99-05-27 s(269402) retrieve active reports by keyword
+* xsisjl 99-05-27 s(269402) removed pre 96 comments to improve
+*                           readability
+* uuu     yyyy-mm-dd s(999999) ....
+* fhi     0000-01-26 s(191368) Module  from NOM142, restowed for NOM211
+* sju     0000-03-24 p(191368) use N-HEADER instead of C-HEADER
+* wcd     0000-04-01 CE 7267   New PFkey for add. printers in RPFK---L
+* xsethz  2000-08-07 (CE7461)  Extend Report and Bundle Names
+* xsethz  2001-03-01 p(206179) xsethz/fhi: Selection does not work
+* fhi     2003-07-29 P(227985) Clear unused modules
+* xsetggr 03-12-10 p(246658) fix listing large amount of active reports
+* xsetggr 04-01-29 p(246658) change 'right','left','ext' commands work
+* sju     04-06-25 p(254575) P246658 causes huge numbers of Adabas calls
+* xsetggr 2006-08-08 p(279849) prevent NAT1108 after error from nrmcpr
+* xsetggr 2007-12-13 NRT2774   add new location values foe selection
+* xsetggr 2007-12-14 p(300542) make value ' ' valid for default location
+* xsetggr 2007-12-19 p(300375) add fo-default-location to nrm-folder
+* raya    2011-07-11 NOMALL-1028 avoid nat1305
+* xsetggr 2013-02-16 ES-1499   implement new descriptor for NOM34
+* SU1     2019-03-22 NOMALL-2255 no dup.entries(of other users)/ES-1499
+* SU2     2019-04-16 NOMALL-2252 increase performance
+* SU3     2019-04-29 NOMALL-2252 avoid NAT1106 in RMENUM2(correct SU2)
+* SU4     2021-10-27 NOMALL-2504 update time on map
+* BLI1    2022-12-07 NOMALL-2595 NAT1316 Index not within Array Struct.
+* SU5     2023-06-13 ES-33831    KY 1 -> 4 + AND/OR + RTIMWIN
+************************************************************************
+*
+DEFINE DATA GLOBAL USING NRM-GL
+INDEPENDENT
+1 +G-RLIACS-SEL-REPNAME      (A25)
+1 +G-RLIACE-SEL-LOCATION-OK  (A1) /*SU 2018-10 ok
+* *****
+LOCAL USING RLC----L
+LOCAL USING RPFK---L
+LOCAL USING ROT----L
+LOCAL
+1 MAIL-H VIEW OF NRM-MAIL
+  2 MA-FOLDER-REP-RNB    (A41)
+  2 REDEFINE MA-FOLDER-REP-RNB
+    3 FILLER             10X /*MA-USERID(1-8) MA-FO-ID(1-2)
+    3 MA-REPNAME-RNB     (A31)
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-DESC
+1 FOLDER VIEW OF NRM-FOLDER
+  2 FO-DEFAULT-LOCATION
+  2 FO-LINKED-FO-ID
+1 LINKED-FOLDER VIEW OF NRM-FOLDER
+  2 FO-DEFAULT-LOCATION
+* *****
+1 #FATHER-PROG           (A8) CONST <'RLISFO'>
+1 #NOFLINES              (I2) CONST <15>
+1 L-HEADER               (A78)
+1 CV-LINES               (C)
+1 CV-SELECTION           (C/1:1)
+1 REDEFINE CV-SELECTION
+  2 CV-SREP              (C)
+1 END-OF-PROCESSING      (L)
+1 END-OF-DISPLAY         (L)
+1 NEW-SEARCH             (L)
+1 #NOFPAGES              (I2) CONST <20>
+1 #REPNAME               (A25)
+1 #NUMREP                (P10)
+1 #LEN                   (N3)
+1 F                      (P2)
+1 I                      (P2)
+1 #LANGUAGE              (I1)
+1 #STACK-PGM             (A8)
+1 #AR-REPORT-TIME-INV    (A32)
+1 REDEFINE #AR-REPORT-TIME-INV
+  2 #AR-REPNAME          (A25)
+  2 #AR-TIME-INV         (P13)
+1 #MAX-SEG               (I2) CONST <12> /*SU5 was 11
+1 L-SCREEN /* save area for local data
+  2 L-SCREEN-SEGMENT     (A200/1:#MAX-SEG)
+  2 REDEFINE L-SCREEN-SEGMENT
+    3 L-SCREEN-SEG       (#MAX-SEG)
+      4 L-SCREEN-SEG-F   (A199)
+      4 L-SCREEN-SEG-L   (A1)
+  2 REDEFINE L-SCREEN-SEGMENT
+    3 L-SCREEN-SAVE-AREA
+      4 L-SCR            (1:#NOFLINES)
+        5 L-MARK         (A2)
+        5 L-IDENT        (I2)
+        5 CV-MARK        (C)
+        5 CV-LINE        (C)
+        5 L-REPORT       (A25)
+        5 L-DESC         (A50)
+        5 L-NUMREP       (P6)
+      4 #F-KEYTAB        (1:#NOFPAGES)
+        5 #F-KEY         (A41)
+        5 REDEFINE #F-KEY
+          6 #F-USER-ID   (A8)
+          6 #F-FO-ID     (B2)
+          6 #F-REPNAME   (A25)
+          6 #F-REPRNB    (P11)
+      4 #T-KEY           (A41)
+      4 REDEFINE #T-KEY
+        5 #T-USER-ID     (A8)
+        5 #T-FO-ID       (B2)
+        5 #T-REPNAME     (A25)
+        5 #T-REPRNB      (P11)
+      4 #L-KEY1          (A41)
+      4 #I               (P2)
+      4 #J               (P2)
+      4 #O-REPNAME       (A25)
+      4 #S-REPNAME       (A25)
+      4 #S-REPNAME-F     (A25)
+      4 #S-REPNAME-T     (A25)
+      4 #S-USER-ID       (A8)
+      4 #S-FO-ID         (B2)
+      4 #PAGE            (P2)
+      4 #MAXAP           (P2)
+      4 END-OF-DATA      (L)
+      4 GET-SCREEN       (L)
+      4 #S-KEYWORD       (A15/1:4) /*SU5
+      4 #S-AND           (L) /*SU5
+  2 L-SCREEN-SEG-FLAG    (L/1:#MAX-SEG)
+/*SU5 1 #KEYWORD-FROM          (A15)
+/*SU5 1 #KEYWORD-THRU          (A15)
+/*SU5 1 #KEYWORD-AST           (I2)  /* position of '*'
+1 #S-REPNAME-68          (A68)
+1 REDEFINE #S-REPNAME-68
+  2 #S-REPNAME-25        (A25)
+  2 #S-REPNAME-A1        (A1)
+  2 #S-REPNAME-R1        (A42)
+1 REDEFINE #S-REPNAME-68
+  2 #S-REPNAME-17        (A17)
+  2 #S-REPNAME-A2        (A1)
+  2 #S-REPNAME-R2        (A50)
+1 L-LINES                (1:#NOFLINES)
+  2 L-LINE               (A68)
+  2 REDEFINE L-LINE
+    3 L-REPORT-1         (A25)
+    3 L-FILL-1           (A1)
+    3 L-DESC-1           (A42)
+  2 REDEFINE L-LINE
+    3 L-REPORT-2         (A17)
+    3 L-FILL-2           (A1)
+    3 L-DESC-2           (A50)
+1 #RIGHT                 (L)
+1 #START-KEY             (A41)
+1 REDEFINE #START-KEY
+  2 #START-USER-ID       (A8)
+  2 #START-FO-ID         (B2)
+  2 #START-REPNAME       (A25)
+  2 #START-REPRNB        (P11)
+1 #LOC                   (A1)
+1 #FO-USER-FO-ID         (A10)
+1 REDEFINE #FO-USER-FO-ID
+  2 #FO-USER-ID          (A8)
+  2 #FO-ID               (B2)
+1 #MA-FOLDER-REP-RNB     (A41)
+1 REDEFINE #MA-FOLDER-REP-RNB
+  2 #MA-USERID           (A8)
+  2 #MA-FO-ID            (B2)
+  2 #MA-REP-RNB          (A31)
+  2 REDEFINE #MA-REP-RNB
+    3 #MA-REPNAME        (A25)
+    3 #MA-REPRNB         (A6) /*(P6)
+1 #NEW-AR                (L)
+1 #OLD-REPNAME           (A25)
+1 #I-KY                  (I2) /*SU5 ->
+1 #L-15                  (N3) INIT <15>
+1 #F-KY                  (A25/1:4)
+1 #T-KY                  (A25/1:4)
+1 #SCAN-LIMIT            (I4)
+1 #SCAN-RECORDS          (I4) /*SU5 <-
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET L-SCREEN-SAVE-AREA /*SU5
+IF #S-REPNAME = ' '
+  #S-REPNAME := +G-RLIACS-SEL-REPNAME
+ELSE
+  +G-RLIACS-SEL-REPNAME := #S-REPNAME
+END-IF
+DECIDE ON FIRST *DATA
+  VALUE -1,0 /*invalid call
+    INCLUDE C-ESCAPE
+  VALUE 2,7 /*RLIACF:LI ListActive, LK ListByKeyw SU5 7 was 3
+    INPUT #S-USER-ID #S-FO-ID #S-KEYWORD (1:4) #S-AND /*SU5
+    #O-REPNAME := #S-REPNAME
+    #PAGE := 1
+    PERFORM INITIALISATION
+    CV-SREP := (AD=I CD=NE)
+    GET-SCREEN := TRUE
+    PERFORM READ-FOLDER
+  NONE /*stacked from: RLIACF
+    PERFORM READ-FROM-STACK
+    PERFORM INIT-LINECOM
+    PERFORM LINE-COMMANDS
+    IF +G-RLIACE-SEL-LOCATION-OK NE ' '
+      #LOC := +G-RLIACE-SEL-LOCATION-OK
+    END-IF
+END-DECIDE
+FOR #I-KY=1 TO 4 /*SU5 ->
+  CALLNAT 'SELALPHA' #S-KEYWORD (#I-KY) #F-KY (#I-KY) #T-KY(#I-KY) #L-15
+END-FOR
+/* IF NOT(#S-KEYWORD = MASK('*') OR=' ')
+/* #KEYWORD-FROM := #KEYWORD-THRU := #S-KEYWORD
+/* EXAMINE #KEYWORD-FROM FOR '*' GIVING POSITION #KEYWORD-AST
+/* IF #KEYWORD-AST > 0
+/*  MOVE ' ' TO SUBSTR(#KEYWORD-FROM,#KEYWORD-AST)
+/*  #KEYWORD-THRU := #KEYWORD-FROM
+/*  EXAMINE FULL SUBSTR(#KEYWORD-FROM,#KEYWORD-AST) FOR FULL ' '
+/*    REPLACE H'00'
+/*  EXAMINE FULL SUBSTR(#KEYWORD-THRU,#KEYWORD-AST) FOR FULL ' '
+/*    REPLACE H'FF' END-IF END-IF /*SU5 <-
+MAIN. REPEAT
+  UNTIL END-OF-PROCESSING
+  IF GET-SCREEN
+    PERFORM GET-SCREEN
+    RESET GET-SCREEN NEW-SEARCH
+  END-IF
+  PERFORM SCREEN-IO
+END-REPEAT
+INCLUDE C-ESCAPE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SCREEN /*SU2 rewritten
+************************************************************************
+RESET #I L-SCR(*) #OLD-REPNAME
+IF #PAGE > #MAXAP
+  #MAXAP := #PAGE
+END-IF
+RESET #SCAN-RECORDS
+#MA-FOLDER-REP-RNB := #F-KEY (#PAGE)
+GET-SCREEN. REPEAT
+  RESET #NEW-AR #L-KEY1
+  RDM. HISTOGRAM MAIL-H FOR MA-FOLDER-REP-RNB FROM #MA-FOLDER-REP-RNB
+    PERFORM #WAIT /*SU5
+    #MA-FOLDER-REP-RNB := MA-FOLDER-REP-RNB
+    MOVE ALL H'FF' TO #MA-REPRNB
+    IF (NOT (#MA-REPNAME = #F-REPNAME(#PAGE) THRU #T-REPNAME)
+    OR #MA-FO-ID NE #F-FO-ID (#PAGE)                                  /*
+    OR #MA-USERID NE #F-USER-ID (#PAGE)) /*SU1                        /*
+      ESCAPE BOTTOM (GET-SCREEN.)
+    END-IF
+    IF NOT(#F-KY (*) NE ' ') /*no ky SU5 mod ->
+      #NUM. FIND NUMBER MAIL-H WITH MA-FOLDER-REP-RNB =MA-FOLDER-REP-RNB
+      THRU #MA-FOLDER-REP-RNB                                         /*
+      #NUMREP := *NUMBER (#NUM.)
+      #REPNAME := #MA-REPNAME
+      PERFORM DATA-TO-SCREEN
+      IF #I = #NOFLINES
+        #L-KEY1 := #MA-FOLDER-REP-RNB
+        ESCAPE ROUTINE /*GET-SCREEN
+      END-IF
+      ESCAPE BOTTOM (RDM.) /*next report
+    END-IF
+*   with ky: any AR with this name and keyword ?
+    IF #MA-REPNAME NE #OLD-REPNAME
+      #OLD-REPNAME := #MA-REPNAME
+      #NEW-AR := TRUE
+      IF #S-AND /* AND
+        AR-K1. FIND NUMBER AR WITH AR-REPORT-RNB = MA-REPNAME-RNB
+        THRU #MA-REP-RNB                                              /*
+        AND AR-KEYWORDS = #F-KY (1) THRU #T-KY(1)                     /*
+        AND AR-KEYWORDS = #F-KY (2) THRU #T-KY(2)                     /*
+        AND AR-KEYWORDS = #F-KY (3) THRU #T-KY(3)                     /*
+        AND AR-KEYWORDS = #F-KY (4) THRU #T-KY(4) RETAIN AS '#RLIACS' /*
+        IF *NUMBER (AR-K1.) = 0
+          ESCAPE BOTTOM (RDM.) /*next RP
+        END-IF
+      ELSE /* OR
+        FOR #I-KY=1 TO *OCC(#F-KY)
+          IF #F-KY (#I-KY) = ' ' /*OR: search low = high is ok(NULL)
+            #F-KY (#I-KY) := #T-KY(#I-KY)
+          END-IF
+        END-FOR
+        AR-K2. FIND NUMBER AR WITH AR-REPORT-RNB = MA-REPNAME-RNB
+        THRU #MA-REP-RNB                                              /*
+        AND (AR-KEYWORDS = #F-KY (1) THRU #T-KY(1)                    /*
+        OR   AR-KEYWORDS = #F-KY (2) THRU #T-KY(2)                    /*
+        OR   AR-KEYWORDS = #F-KY (3) THRU #T-KY(3)                    /*
+        OR   AR-KEYWORDS = #F-KY (4) THRU #T-KY(4)) RETAIN AS  '#RLIACS'
+        FOR #I-KY=1 TO *OCC(#F-KY)
+          IF SUBSTR(#F-KY (#I-KY),1,2) = H'FFFF'
+            RESET #F-KY (#I-KY)
+          END-IF
+        END-FOR
+        IF *NUMBER (AR-K2.) = 0
+          ESCAPE BOTTOM (RDM.) /*next RP
+        END-IF
+      END-IF
+    END-IF
+* Check for each (Ü) AR if it exist and if keyword fit:
+    AR-K. FIND NUMBER AR WITH '#RLIACS' AND AR-REPORT-RNB=MA-REPNAME-RNB
+    PERFORM #WAIT /*SU5
+/*SU5 mod <-
+    IF *NUMBER (AR-K.) = 0
+      ESCAPE TOP /*(RDM.)
+    END-IF
+    IF #NEW-AR
+      RESET #NEW-AR
+      #NUMREP := 1
+      #REPNAME := #MA-REPNAME
+      PERFORM DATA-TO-SCREEN
+      IF #I = #NOFLINES /* BLI1 start
+        #L-KEY1 := #MA-FOLDER-REP-RNB
+        ESCAPE ROUTINE /*GET-SCREEN
+      END-IF           /* BLI1 end
+    ELSE
+      IF #I NE 0 /*just to be sure
+        ADD 1 TO L-NUMREP (#I)
+      END-IF
+    END-IF
+  END-HISTOGRAM /*(RDM.)
+*
+  IF *COUNTER (RDM.) = 0
+    ESCAPE BOTTOM (GET-SCREEN.)
+  END-IF
+END-REPEAT /*(GET-SCREEN.)
+END-OF-DATA := TRUE
+RELEASE SET '#RLIACS'
+*
+END-SUBROUTINE /* GET-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+IF #I < #NOFLINES
+  CV-MARK (#I+1:#NOFLINES) := (AD=DP)
+  CV-LINE (#I+1:#NOFLINES) := (AD=D)
+END-IF
+RESET END-OF-DISPLAY
+REPEAT
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RLIACSM&' /*SU4
+  IF G-DISPLAY-LONG-NAMES AND NOT #RIGHT
+    #S-REPNAME-25 := #S-REPNAME
+    #S-REPNAME-A1 := H'FA'
+    MOVE ALL '_' TO #S-REPNAME-R1
+    L-REPORT-1 (1:#NOFLINES) := L-REPORT (1:#NOFLINES)
+    RESET L-FILL-1 (1:#NOFLINES)
+    L-DESC-1 (1:#NOFLINES) := L-DESC (1:#NOFLINES)
+  ELSE
+    #S-REPNAME-17 := #S-REPNAME
+    #S-REPNAME-A2 := H'FA'
+    MOVE ALL '_' TO #S-REPNAME-R2
+    L-REPORT-2(1:#NOFLINES) := L-REPORT(1:#NOFLINES)
+    RESET L-FILL-2 (1:#NOFLINES)
+    L-DESC-2 (1:#NOFLINES) := L-DESC (1:#NOFLINES)
+  END-IF
+  IF G-DISPLAY-LONG-NAMES AND #RIGHT
+    CV-SREP := (AD=P)
+  ELSE
+    CV-SREP := (AD=I)
+  END-IF
+  IF #LANGUAGE NE *LANGUAGE
+    #LANGUAGE := *LANGUAGE
+    CALLNAT 'ROTINI-N' ##EQO-ACTIVE-REPORT G-OBJ-TYPE G-OTB
+    PERFORM INIT-LINECOM
+    PERFORM PF-KEYS
+  END-IF
+  INCLUDE RMVHLP-C
+  CALLNAT 'RFLIPG-N' G-LC G-LINECOM (*)
+  PERFORM SET-PFKEYS
+  SET CONTROL 'M21'
+  DECIDE FOR FIRST CONDITION
+    WHEN G-NATRP-ERC NE 0
+      IGNORE
+    WHEN END-OF-DATA AND #PAGE > 1
+      G-NATRP-ERC := 12                   /* bottom of data
+    WHEN END-OF-DATA AND #PAGE = 1
+      G-NATRP-ERC := 14                   /* all
+    WHEN NOT END-OF-DATA AND #PAGE = 1
+      G-NATRP-ERC := 11                   /* top of data
+    WHEN NONE
+      G-NATRP-ERC := 13                   /* more
+  END-DECIDE
+  PERFORM FLIP-DISPLAY
+  INPUT WITH TEXT *G-NATRP-ERC, G-NATRP-ERT MARK *G-DIRECT-COMMAND
+    USING MAP 'RLIACS-&'
+  RESET G-NATRP-ERC G-NATRP-ERT
+  IF G-DISPLAY-LONG-NAMES AND NOT #RIGHT
+    #S-REPNAME := #S-REPNAME-25
+  ELSE
+    #S-REPNAME := #S-REPNAME-17
+  END-IF
+  PERFORM COMMAND-PF-KEY
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-TO-SCREEN
+************************************************************************
+#AR-REPNAME   := #REPNAME
+RESET #AR-TIME-INV
+REAAR. READ (1) AR BY AR-REPORT-TIME-INV =#AR-REPORT-TIME-INV
+  IF AR-REPNAME = #REPNAME /*add RP only if at least one AR exist
+    ADD 1 TO #I
+    L-DESC   (#I) := AR-DESC
+    L-REPORT (#I) := #REPNAME
+    L-NUMREP (#I) := #NUMREP
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* DATA-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-LINECOM
+************************************************************************
+G-LC-IDENT (01) := ##EQU-LIST-AREPORT
+G-LC-IDENT (02) := ##EQU-DISPLAY-DEFINITION
+G-LC-NUM        := 2
+CALLNAT 'RLCINI-N' G-OBJ-TYPE G-LC G-LCB
+*
+END-SUBROUTINE /* INIT-LINECOM
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+PERFORM INIT-PFKEYS
+PERFORM SET-PFKEYS
+*
+END-SUBROUTINE /* PF-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-SELECTION-KEYS
+************************************************************************
+#LEN := 25
+CALLNAT 'SELALPHA' #S-REPNAME #S-REPNAME-F #S-REPNAME-T #LEN
+#F-USER-ID (1) := #S-USER-ID
+#T-USER-ID     := #S-USER-ID
+#F-FO-ID   (1) := #S-FO-ID
+#T-FO-ID       := #S-FO-ID
+#F-REPNAME (1) := #S-REPNAME-F
+RESET #F-REPRNB(1)
+#T-REPNAME     := #S-REPNAME-T
+#T-REPRNB      := 99999999999
+#START-USER-ID := #S-USER-ID
+#START-FO-ID   := #S-FO-ID
+#START-REPNAME := #S-REPNAME-F
+RESET  #START-REPRNB
+*
+END-SUBROUTINE /* INIT-SELECTION-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+IF G-DIRECT-COMMAND = ' '
+  PERFORM CHECK-PF-KEY
+END-IF
+DECIDE ON FIRST VALUE OF G-DIRECT-COMMAND /* test local commands
+  VALUE 'HELP'   REINPUT USING HELP
+  VALUE 'EXIT'   END-OF-PROCESSING := END-OF-DISPLAY := TRUE /*retfathe
+  VALUE 'FLIP'   PERFORM FLIP-HANDLE
+  VALUE 'LEFT'   RESET #RIGHT END-OF-DATA
+  VALUE 'FOLLOW' PERFORM FOLLOW-MONITOR
+  VALUE ' '      PERFORM CHECK-MODIFICATIONS
+  VALUE 'MENU'
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+    INCLUDE C-MENU
+  VALUE 'UP'
+    PERFORM CHECK-MODIFICATIONS
+    IF #PAGE > 1 AND NOT NEW-SEARCH
+      SUBTRACT 1 FROM #PAGE
+      END-OF-DISPLAY := GET-SCREEN := TRUE
+      END-OF-DATA    := FALSE
+    END-IF
+  VALUE 'DOWN'
+    PERFORM CHECK-MODIFICATIONS
+    IF NOT END-OF-DATA AND NOT NEW-SEARCH
+      ADD 1 TO #PAGE
+      IF #PAGE > #NOFPAGES
+        #PAGE := #NOFPAGES
+        #F-KEY (1:#NOFPAGES - 1) := #F-KEY (2:#NOFPAGES)
+      END-IF
+      #F-KEY (#PAGE) := #L-KEY1
+      END-OF-DISPLAY := GET-SCREEN := TRUE
+      END-OF-DATA    := FALSE
+    END-IF
+  VALUE 'TOP'
+    PERFORM CHECK-MODIFICATIONS
+    #PAGE := #MAXAP := 1
+    #F-KEY(1) := #START-KEY
+    GET-SCREEN := END-OF-DISPLAY := TRUE
+    END-OF-DATA := FALSE
+  VALUE 'BOT'
+    PERFORM CHECK-MODIFICATIONS
+    IF NOT NEW-SEARCH
+      #PAGE := #MAXAP
+      GET-SCREEN := END-OF-DISPLAY := TRUE
+      END-OF-DATA := FALSE
+    END-IF
+  VALUE 'RIGHT'
+    #RIGHT := GET-SCREEN := END-OF-DISPLAY := TRUE
+    END-OF-DATA := FALSE
+    GET-SCREEN := END-OF-DISPLAY := TRUE
+  VALUE 'EXT'
+    IF G-SUPPORT-LONG-NAMES AND NOT NEW-SEARCH
+      GET-SCREEN := END-OF-DISPLAY := TRUE
+      END-OF-DATA := FALSE
+      IF G-DISPLAY-LONG-NAMES
+        G-DISPLAY-LONG-NAMES := FALSE
+      ELSE
+        G-DISPLAY-LONG-NAMES := TRUE
+      END-IF
+      RESET #LANGUAGE
+    END-IF
+  ANY            RESET G-DIRECT-COMMAND
+  NONE           PERFORM EXECUTE-DIRECT-COMMAND
+END-DECIDE
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-PF-KEY
+************************************************************************
+G-PF-KEY := *PF-KEY
+EXAMINE G-PF-KEY FOR 'PF' REPLACE ' '
+MOVE LEFT G-PF-KEY TO G-PF-KEY
+IF G-PF-KEY IS (N4)
+  G-PF-IND := VAL (G-PF-KEY)
+  G-DIRECT-COMMAND := G-PF-CODE (G-PF-IND)
+ELSE
+  G-PF-FUNC := *PF-KEY
+END-IF
+*
+END-SUBROUTINE /* CHECK-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE EXECUTE-DIRECT-COMMAND
+************************************************************************
+MOVE LEFT G-DIRECT-COMMAND TO G-DIRECT-COMMAND
+IF G-DIRECT-COMMAND IS (N2.1) AND G-DIRECT-COMMAND NE '.'
+  COMPRESS '>' G-DIRECT-COMMAND INTO G-DIRECT-COMMAND LEAVING NO
+END-IF
+FETCH RETURN 'NRMCPR'
+SET CONTROL 'WMB'
+DECIDE ON FIRST VALUE OF G-NATRP-ERC
+  VALUE 0,5,419,420,9998
+    IGNORE
+  VALUE 9999
+    RESET G-NATRP-ERC
+    END-OF-DISPLAY := END-OF-PROCESSING := TRUE
+  VALUE 9997
+    RESET G-NATRP-ERC
+  NONE
+    ESCAPE ROUTINE
+END-DECIDE
+*
+END-SUBROUTINE /* EXECUTE-DIRECT-COMMAND
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-MODIFICATIONS
+************************************************************************
+DECIDE FOR EVERY CONDITION
+  WHEN #O-REPNAME NE #S-REPNAME
+    PERFORM INIT-SELECTION-KEYS
+    #O-REPNAME := #S-REPNAME
+    +G-RLIACS-SEL-REPNAME := #S-REPNAME
+  WHEN ANY
+    #PAGE := #MAXAP := 1
+    NEW-SEARCH := END-OF-DISPLAY := GET-SCREEN := TRUE
+    END-OF-DATA := FALSE
+  WHEN NONE
+    PERFORM LINE-COMMANDS
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-MODIFICATIONS
+*
+************************************************************************
+DEFINE SUBROUTINE INITIALISATION
+************************************************************************
+DECIDE FOR EVERY CONDITION
+  WHEN NOT END-OF-PROCESSING
+    INCLUDE CVIDEO
+    G-FLIP-STATUS := 'P'
+    PERFORM INIT-SELECTION-KEYS
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* INITIALISATION
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+RESET G-PF
+INCLUDE RPFSTD-C
+INCLUDE RPFBRW-C
+IF G-DISPLAY-LONG-NAMES
+  INCLUDE RPFLR--C
+END-IF
+INCLUDE RPFEXT-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE STACK-SCREEN
+************************************************************************
+FOR F = 1 TO *OCC(L-SCREEN-SEG-L)
+  IF L-SCREEN-SEG-L (F) = H'00'
+    L-SCREEN-SEG-L (F) := H'01'
+    L-SCREEN-SEG-FLAG (F) := TRUE
+  ELSE
+    L-SCREEN-SEG-FLAG (F) := FALSE
+  END-IF
+END-FOR
+STACK TOP DATA FORMATTED L-SCREEN-SEGMENT (*) L-SCREEN-SEG-FLAG (*)
+#STACK-PGM := *PROGRAM
+STACK TOP DATA FORMATTED #STACK-PGM
+STACK TOP COMMAND *PROGRAM
+RESET F
+*
+END-SUBROUTINE /* STACK-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE READ-FROM-STACK
+************************************************************************
+INPUT #STACK-PGM
+IF #STACK-PGM NE *PROGRAM
+  *ERROR-NR := 999 /* internal error, should not occur
+END-IF
+INPUT (LS=202) L-SCREEN-SEGMENT (*) L-SCREEN-SEG-FLAG (*)
+FOR F = 1 TO *OCC(L-SCREEN-SEG-L)
+  IF L-SCREEN-SEG-FLAG (F) = TRUE
+    L-SCREEN-SEG-L (F) := H'00'
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* READ-FROM-STACK
+*
+************************************************************************
+DEFINE SUBROUTINE LINE-COMMANDS
+************************************************************************
+INCLUDE RLCMTI-C
+FOR #J = 1 TO #NOFLINES
+  DECIDE ON FIRST VALUE OF L-IDENT (#J)
+    VALUE ##EQU-LIST-AREPORT
+      RESET L-MARK (#J) L-IDENT (#J)
+      GET-SCREEN := TRUE
+      PERFORM STACK-SCREEN
+      FETCH 'RLIACE' L-REPORT (#J) #S-USER-ID #S-FO-ID
+        #S-KEYWORD (*) #S-AND /*SU5 array + and -> 4 add. fields=8
+    VALUE ##EQU-DISPLAY-DEFINITION
+      RESET L-MARK (#J) L-IDENT (#J)
+      G-C-FUNC := 'D'
+      G-C-REPORT := L-REPORT (#J)
+      PERFORM STACK-SCREEN
+      FETCH 'RDEFRP'
+    NONE IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* LINE-COMMANDS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-FOLDER
+************************************************************************
+#FO-USER-ID := #S-USER-ID
+#FO-ID      := #S-FO-ID
+FNDFO. FIND FOLDER WITH FO-USER-FO-ID = #FO-USER-FO-ID
+  IF FOLDER.FO-LINKED-FO-ID NE ' '
+    FIND LINKED-FOLDER WITH FO-USER-FO-ID = FOLDER.FO-LINKED-FO-ID
+      #LOC := LINKED-FOLDER.FO-DEFAULT-LOCATION
+    END-FIND
+  ELSE
+    #LOC := FOLDER.FO-DEFAULT-LOCATION
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-FOLDER
+*
+INCLUDE RPFSET-C /* set-pfkeys
+INCLUDE RTIMWIN /*#WAIT
+*
+END

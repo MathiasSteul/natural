@@ -1,0 +1,118 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Program  N-CP-XRF
+* Function codepage support: return/check usage of codepages
+*
+* Version  3.5
+*
+* MAINTENANCE:
+* User ID yyyy-mm-dd itrac       Comment
+* ------- ---------- ----------- ---------------------------------------
+* SU      2017-10-04             NOM 3.5 Created
+* fhi     2018-10-29 NOMALL-2125 Don't use Unix node code pages
+* SU1     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+************************************************************************
+*
+DEFINE DATA
+PARAMETER
+1 #FUNC       (A1) /*check new table against:
+*                  /*'C' old (given) table(CUI)
+*                  /*'D' old table from database (GUI)
+1 CP-NAME-NEW (A/1:*) DYNAMIC BY VALUE RESULT
+1 CP-NAME-OLD (A/1:*) DYNAMIC BY VALUE RESULT OPTIONAL /*FUNC=C:required
+1 TAB-OUT     (1:*) /*contains the xref of the used code pages
+  2 #CP       (A) DYNAMIC BY VALUE RESULT
+  2 #OBJ-TYPE (A) DYNAMIC BY VALUE RESULT
+  2 #NAME     (A) DYNAMIC BY VALUE RESULT
+1 ERC         (N4) BY VALUE RESULT
+1 ERT         (A) DYNAMIC BY VALUE RESULT
+************************************************************************
+LOCAL
+1 MF-NODES VIEW OF NRM-MF-NODES /*SU1 was NRM-MONITOR
+  2 MF-MONITOR-ID         (A20)
+  2 REDEFINE MF-MONITOR-ID
+    3 MF-TYPE-ID1         (A2)
+    3 MF-TYPE-ID2         (A16)
+  2 MF-REMOTE-CODEPAGE
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-REMOTE-CODEPAGE
+* *****
+1 #CP-TAB     (*)
+  2 #CP-NAME  (A) DYNAMIC
+  2 #CP-DESC  (A) DYNAMIC
+1 #I          (I2)
+1 #NR         (I2)
+1 #USED       (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ERC ERT
+REDUCE ARRAY TAB-OUT TO 0
+IF #FUNC = 'D'
+  CALLNAT 'N-CP-TAB' 'D' #CP-TAB (*) /*default CP
+ELSE
+  IF NOT CP-NAME-OLD SPECIFIED
+    ERC := 5
+    COMPRESS 'parameter missing in' *PROGRAM 'function:' #FUNC TO ERT
+    ESCAPE ROUTINE
+  END-IF
+  #I := *OCC(CP-NAME-OLD)
+  EXPAND ARRAY #CP-TAB TO (1:#I)
+  #CP-NAME (1:#I) := CP-NAME-OLD (1:#I)
+END-IF
+FOR #I = 1 TO *OCC(#CP-NAME)
+  IF #CP-NAME (#I) = ' ' OR= CP-NAME-NEW (*)
+    ESCAPE TOP
+  END-IF
+  PERFORM #CHECK-IF-USED
+END-FOR
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE #CHECK-IF-USED
+************************************************************************
+RESET #USED
+R-MF. READ MF-NODES BY MF-MONITOR-ID = 'R-'-H'00' THRU 'R-'-H'FF'
+  IF MF-REMOTE-CODEPAGE = #CP-NAME(#I)
+    PERFORM #ADD-ENTRY
+    #OBJ-TYPE (#NR) := 'ND'
+    #NAME     (#NR) := MF-TYPE-ID2
+  END-IF
+END-READ /*(R-MF.)
+*
+READ REPORTS BY R-REPNAME
+  IF R-REMOTE-CODEPAGE = #CP-NAME(#I)
+    PERFORM #ADD-ENTRY
+    #OBJ-TYPE (#NR) := 'RP'
+    #NAME     (#NR) := R-REPNAME
+  END-IF
+END-READ
+IF #USED
+  ERC := 7002 /*Codepage cannot be deleted - still in use::1:
+  COMPRESS ERT #CP-NAME(#I) TO ERT WITH DELIMITER ','
+END-IF
+*
+END-SUBROUTINE /*#CHECK-IF-USED
+*
+************************************************************************
+DEFINE SUBROUTINE #ADD-ENTRY
+************************************************************************
+#USED := TRUE
+ADD 1 TO #NR
+EXPAND ARRAY TAB-OUT TO (1:#NR)
+#CP (#NR) := #CP-NAME (#I)
+*
+END-SUBROUTINE /* #add-entry
+*
+END

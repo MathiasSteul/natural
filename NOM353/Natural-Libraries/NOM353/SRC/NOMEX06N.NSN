@@ -1,0 +1,106 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMEX06N - Subprogram to return Spool-Attributes of spool-in job
+*            for User Exit NOMEX006
+*
+* This subprogram can be called by NOMEX006 to get the spool attributes
+* of the job that has created the printout. It is done by passing
+* lda P-UEXIT and fields Report (A25) and Run-Number (p7).
+* The Spool-Attributes are returned in P-UEXIT.
+*
+* Maintenance
+* fhi     2005-07-08           created
+* xsetggr 2007-05-14 NOM3201   Support 11 byte run numbers
+* xsetggr 2008-05-05 p(304350) restow due to changes in RMSPL--L
+* fhi     2009-05-19 N3461     Support large blocks
+* fhi     2009-05-19 N3463     Extend metadata for OPO
+* fhi     2010-10-08 NOMALL-97 Use dynamic memory handling
+* raya    2013-09-10 NOMALL-932 Use dynamic instead of array
+* SU1     2014-12-12 NOMALL-1543 avoid NAT0082
+* SU2     2016-01-21 NOMALL-1802 react - VAREP-L changed
+* SU3     2018-02-01 NOMALL-1823 NOM 3.5: remove CONNECT
+* SU4     2019-01-16 NOMALL-2085 NOM35 printer:sep.pages: AR
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING P-UEXIT
+PARAMETER
+1 REPORT                (A25)
+1 RUN-NUMBER            (P11)
+************************************************************************
+INDEPENDENT
+1 +P-SPOOL-ATTRIBUTES-EXTENDED (A) DYNAMIC
+************************************************************************
+LOCAL USING VAREP-L
+LOCAL USING RMSPL--L
+* *****
+LOCAL
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-CONTROL
+  2 SR-RELATED-ID
+  2 SR-CONTROL-FLAG
+  2 SR-TYPE
+  2 SR-MONITOR-ID
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-SPOOL-ATTRIBUTES
+  2 SR-SPOOL-ATTR-EXTENDED (1:120)
+  2 SR-CC-TYPE
+  2 SR-RECORD-LENGTH
+  2 SR-NUMBER-OF-LINES
+* *****
+1 #REPORT-RNB           (A31)
+1 REDEFINE #REPORT-RNB
+  2 #REPORT             (A25)
+  2 #RUN-NUMBER         (P11)
+1 #SPOOL-TYPE-B         (B2)
+1 #AR-PRINTERS          (A12/1:20)
+1 REDEFINE #AR-PRINTERS
+  2 R-PRINTER-TAB       (1:20)
+    3 R-PRINTER         (A8)
+    3 R-COPIES          (N3)
+    3 R-SEP-PAGES       (A1)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#REPORT     := REPORT
+#RUN-NUMBER := RUN-NUMBER
+RESET P-EXIT-PARMS
+FIND (1) ACTIVE-REPORTS WITH AR-REPORT-RNB = #REPORT-RNB
+  FIND (1) SOURCE WITH SR-ID=AR-SOURCE-ID
+    #SPOOL-ATTRIBUTES := SR-SPOOL-ATTRIBUTES
+    CALLNAT 'RMSPL7-N' SR-SPOOL-ATTRIBUTES #SPOOL-TYPE
+    #SPOOL-TYPE-B := #SPOOL-TYPE
+    P-SPOOL-ATTRIBUTES := SR-SPOOL-ATTRIBUTES
+    PERFORM XXMVAR-S-MOVE-ARRAY /*XXMVAR-S
+      +P-SPOOL-ATTRIBUTES-EXTENDED   /*out
+      SR-SPOOL-ATTR-EXTENDED (1:120) /*in
+    CALLNAT 'RMSR7--N' SR-ATTRIBUTES-IDENT #SPOOL-TYPE-B
+    P-SOURCE-ATTRIBUTES  := SR-ATTRIBUTES-IDENT
+    P-REPNAME            := AR-REPNAME
+    P-REPORT-DESCRIPTION := AR-DESC
+    P-KEYWORDS (1:6)     := AR-KEYWORDS(1:6)
+    P-STORE-NRM          := AR-STORE-NATRPT
+    P-DISTRIBUTION(1:10) := AR-NATRPT-DIST(1:10)
+    #AR-PRINTERS  (*)    := AR-PRINTERS (*)
+    P-PRINTERS    (*)    := R-PRINTER (*)
+    P-COPIES      (*)    := R-COPIES   (*)
+    P-SEP-PAGES   (*)    := R-SEP-PAGES(*)
+    P-HOLD               := AR-HOLD-PRINT
+    P-REPORT-SEPSTART    := AR-SEPSTART
+    P-REPORT-SEPEND      := AR-SEPEND
+    P-REPORT-SEPNO       := AR-SEPNO
+    P-RETENTION-NUM      := AR-RETENTION-NUM
+    P-RETENTION-UNIT     := AR-RETENTION-UNIT
+    P-RETENTION-CALENDAR := AR-RETENTION-CALENDAR
+    P-RETENTION-ACTION   := AR-RETENTION-ACTION
+  END-FIND
+END-FIND
+*
+END

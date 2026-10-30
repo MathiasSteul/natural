@@ -1,0 +1,131 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOKYLS-N - EOM API Keyword list. Keywords used by
+*            - a "Report"
+*            or
+*            - an "Active Report"
+*
+* Maintenance:
+* HEB     2023-09-06 created
+*                    ES-34375    active help for keyword + and/or
+* SU1     2024-09-12 ES-35654    remove unused
+************************************************************************
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOKYLS-A
+************************************************************************
+LOCAL USING NOUSSL-A
+/*SU1 LOCAL USING ESMCONSL
+/*SU1 LOCAL USING NAD-FLD
+LOCAL
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-KEYWORDS (A15/1)
+1 RP VIEW OF NRM-REPORTS-NEW
+  2 R-KEYWORDS  (A15/1)
+1 #E-USER      (A8)
+1 #USERID-S    (A8)
+1 #I2          (I4)
+1 #IMAX        (I4)
+1 #GR-SUPER    (A34)
+1 REDEFINE #GR-SUPER
+  2 #OBJ-TYPE  (A1)
+  2 #USERID    (A8)
+  2 #OBJ-NAME  (A25)
+1 #IS-AR (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+ON ERROR
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+IF ES-EXTEND-FUNCTION = 'AR'
+  #IS-AR := TRUE
+END-IF
+*
+RESET ES-RC ES-SORTKEY ES-SORTORDER ES-STARTINDEX ES-NUMBER
+ES-OPTION-COUNT := 10
+ES-FIELD-COUNT := 1
+#NOUSSL := ES-SELECT
+#GR-SUPER.#OBJ-TYPE := #NOUSSL.#OBJ-TYPE
+* PRINT *PROGRAM *LINE '=' ES-FUNCTION
+DECIDE ON FIRST VALUE OF ES-FUNCTION
+  VALUE 'LS3'
+    #IMAX := 1204
+*   #IMAX := 15   /* HEB-TEMP
+    ES-OPTION-COUNT := 0
+    ES-FIELD-COUNT := 2
+    NOKYLN-FIELD-LENGTH(1) := 15
+    NOKYLN-FIELD-LENGTH(2) := 6
+  NONE VALUE IGNORE
+END-DECIDE
+ES-EOF := 'X'
+#NOUSSL := ES-SELECT
+EXAMINE  #NOUSSL.#USER-ID FOR '*' DELETE
+COMPRESS #NOUSSL.#USER-ID H'FF' INTO #E-USER LEAVING NO
+* PRINT *PROGRAM *LINE 'start' '=' ES-NEXT-KEY-PARM (1)
+IF ES-NEXT-KEY-PARM(1) NE ' '
+  #USERID-S := ES-NEXT-KEY-PARM(1)
+ELSE
+  #USERID-S := #NOUSSL.#USER-ID
+END-IF
+IF #IS-AR
+  #AR. HISTOGRAM AR FOR AR-KEYWORDS FROM #USERID-S THRU #E-USER
+    PERFORM #NEW-ENTRY
+  END-HISTOGRAM
+ELSE /*RP
+  #RP. HISTOGRAM RP FOR R-KEYWORDS FROM #USERID-S THRU #E-USER
+    ADD 1 TO #I2
+    IF #I2 > #IMAX
+      ES-NEXT-KEY-PARM(1) := R-KEYWORDS (1)
+      ES-NUMBER := #IMAX
+      RESET  ES-EOF
+      ESCAPE BOTTOM
+    END-IF
+    NOKYLN-KEYWORD(#I2) := R-KEYWORDS (1)
+    NOKYLN-USED(#I2)    := *NUMBER (#RP.)
+    ES-NUMBER := #I2
+  END-HISTOGRAM
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE #NEW-ENTRY
+************************************************************************
+ADD 1 TO #I2
+IF #I2 > #IMAX
+  IF #IS-AR
+    ES-NEXT-KEY-PARM(1) := AR-KEYWORDS (1)
+  ELSE
+    ES-NEXT-KEY-PARM(1) := R-KEYWORDS (1)
+  END-IF
+  ES-NUMBER := #IMAX
+  RESET  ES-EOF
+  ESCAPE BOTTOM
+END-IF
+IF #IS-AR
+  NOKYLN-KEYWORD(#I2) := AR-KEYWORDS (1)
+  NOKYLN-USED(#I2)    := *NUMBER (#AR.)
+ELSE
+  NOKYLN-KEYWORD(#I2) := R-KEYWORDS (1)
+  NOKYLN-USED(#I2)    := *NUMBER (#RP.)
+END-IF
+ES-NUMBER := #I2
+*
+END-SUBROUTINE /* #NEW-ENTRY
+*
+END

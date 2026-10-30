@@ -1,0 +1,376 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member       RLISPH
+* Function     Physical Printer List
+* Version      1.3
+*
+* Maintenance
+* UUU YY-MM-DD Sagsis Desciption
+* --- -------- ------ --------------------------------------------------
+* mrs 91-12-29 141159 support languages other than english
+* gw  93-03-03        cleaned up
+* mrs 93-08-09 999999 allow lower case in N-CNFRM
+* gw  94-10-25 999999 disallow delete if logical printer exists
+* gw  94-12-09 999999 isn p10 instead of n8
+* sju 95-10-02 229945 use RDELPR to delete
+* gw  96-10-15 s(231722) TOP doesn't go top
+* gw  98-03-13 s(278970) save search values in independent variables
+*                        also stop reading until the end
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* xsetggr 2007-11-25 NRT2771  Start/Stop physical printers
+* xsetggr 2007-12-20 p(300031) refresh screen after Start/stop line com
+* xsetggr 2008-02-16 p(301593) wake monitor after start physical printer
+* fhi     2010-03-05 P307403 Don't use text and binary reports mixed
+* xsetggr 2010-03-16 P307403 restow - RPFKEX-C is changed back
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* raya    2012-02-01 NOMALL-1096 error-text a250 in NOMWK--P stow only
+* SU1     2013-07-17 remove empty copy code CSTARTLS
+* fhi     2017-04-07 NOMALL-1961 Omit field PO-MONITOR
+************************************************************************
+*
+DEFINE DATA GLOBAL USING NRM-GL
+INDEPENDENT 1 +G-RLISPH-SEL-PID        (A8)
+* *****
+LOCAL  USING RLC----L
+LOCAL  USING RPFK---L
+LOCAL  USING ROT----L
+LOCAL  USING VPHPR-L
+LOCAL  USING NOMWK--P
+LOCAL  USING NOMFNC-E
+LOCAL  USING RMTASK-E
+LOCAL
+1 #NOFLINES                            (P2) INIT <15>
+1 #NOFPAGES                            (P2) INIT <10>
+1 #END-OF-DATA                         (L)
+1 #CP                                  (P3)
+1 #MAXP                                (P3)
+1 #MAXAP                               (P3)
+1 #NEWVAL                              (L)
+1 #BACKWARD                            (L)
+1 #FORWARD                             (L)
+1 #TOP                                 (L)
+1 #BOT                                 (L)
+1 DISPLAY-IT                           (L)
+1 GET-SCREEN                           (L)
+1 #RSTART                              (A8)
+1 #LAST-KEY                            (A8)
+1 #TOPKEY                              (A8)
+1 #PAGES                               (A8/10)
+1 #POS                                 (P3)
+1 #S-PID                               (A8)
+1 #S-PID-T                             (A8)
+1 #S-PID-F                             (A8)
+1 REDEFINE    #S-PID-F
+  2 #S-PID-V                           (A1/8)
+1 L-SCREEN                             (15)
+  2 L-IDENT                            (I2)
+  2 L-ID                               (A8)
+  2 L-TYPE                             (A8)
+  2 L-LOCATION                         (A50)
+  2 L-STATUS                           (A1)
+  2 L-PROGRAM                          (A8)
+  2 L-SKELETON                         (A8)
+  2 L-MONITOR-ID                       (A8)
+  2 L-ISN                              (P10)
+*
+1 L-LCMD                               (15)
+  2 L-MARK                             (A2)
+  2 CV-MARK                            (C)
+*
+1 L-HEADER                             (A78)
+*
+1 I                                    (N5)
+1 #ALLOWED                             (L)
+1 #UPDATE                              (L)
+1 #DELETE                              (L)
+1 #FATHER-PROG                         (A8) INIT <'RADMIN'>
+1 CV-SELECTION                         (C/1)
+1 REDEFINE    CV-SELECTION
+  2 CV-SPID                            (C)
+*
+1 CV-LINES                             (C)
+1 #ADD-PROGRAM                         (A8)
+1 #ACT-MAST                            (A8)
+1 F                                    (P2)
+1 #LANGUAGE                            (I1)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#ADD-PROGRAM := 'RDEFPH'
+INCLUDE CVIDEO
+RESET G-COMMIT
+CALLNAT 'NARPSEC' G-USER-PROFILE 'DPH' #ALLOWED
+INCLUDE C-NALLOW
+*
+CALLNAT 'NARPSEC' G-USER-PROFILE 'MPH' #UPDATE
+CALLNAT 'NARPSEC' G-USER-PROFILE 'PPH' #DELETE
+IF *DATA > 0
+  INPUT #S-PID
+END-IF
+IF #S-PID = ' '
+  #S-PID := +G-RLISPH-SEL-PID
+ELSE
+  +G-RLISPH-SEL-PID := #S-PID
+END-IF
+PERFORM INIT-PID-KEYS
+*
+G-C-OBJTYPE := 'PHYSICAL'
+#NEWVAL := TRUE
+*
+MAIN-LOOP. REPEAT
+*
+  PERFORM GET-SCREEN
+  RESET GET-SCREEN
+*
+  INCLUDE C-TOPBOT
+*
+  IF #LANGUAGE NE *LANGUAGE
+    #LANGUAGE := *LANGUAGE
+    CALLNAT 'ROTINI-N' ##EQO-PHYSICAL-PRINTER G-OBJ-TYPE G-OTB
+    PERFORM INIT-PFKEYS
+    PERFORM INIT-LINECOM
+  END-IF
+  PERFORM SET-PFKEYS
+*
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RLISPHM&'
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'WB'
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+    USING MAP 'RLISPHM&'
+  RESET G-NATRP-ERC G-NATRP-ERT
+  INCLUDE RPFKVA-C
+  INCLUDE C-DIRECT
+  RESET #FORWARD #BACKWARD #NEWVAL
+  INCLUDE RPFKEX-C
+  PERFORM LINE-COMMANDS
+  IF GET-SCREEN
+    ESCAPE TOP
+  END-IF
+*
+  IF CV-SPID MODIFIED
+    +G-RLISPH-SEL-PID := #S-PID
+    PERFORM INIT-PID-KEYS
+    #NEWVAL := TRUE
+  END-IF
+*
+END-REPEAT
+*
+RESET G-NATRP-ERT G-NATRP-ERC
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************--
+DEFINE SUBROUTINE GET-SCREEN
+************************************************************************--
+IF G-DIRECT-COMMAND = 'TOP'
+  #TOP := TRUE
+END-IF
+RESET L-MARK(*)
+RESET G-NATRP-ERT
+DECIDE FOR EVERY  CONDITION
+  WHEN #NEWVAL OR #TOP
+    RESET #PAGES(*) #MAXP #MAXAP
+    #PAGES(1) := #S-PID-F
+    #CP := #MAXAP := 1
+  WHEN #BOT
+    #CP := #MAXAP
+  WHEN #FORWARD
+    IF #END-OF-DATA
+      ESCAPE ROUTINE
+    END-IF
+    IF #CP = #NOFPAGES
+      #PAGES(1 : #NOFPAGES - 1) := #PAGES(2 : #NOFPAGES)
+      RESET #PAGES(#CP)
+      #PAGES(#CP) := #LAST-KEY
+    ELSE
+      ADD 1 TO #CP
+      IF #CP > #MAXAP
+        #PAGES(#CP) := #LAST-KEY
+      END-IF
+    END-IF
+  WHEN #BACKWARD
+    IF #CP GE 2
+      SUBTRACT 1 FROM #CP
+    END-IF
+  WHEN GET-SCREEN
+    IGNORE
+  WHEN NONE
+    ESCAPE ROUTINE
+END-DECIDE
+*
+IF #CP >= #MAXAP
+  #MAXAP := #CP
+END-IF
+*
+#RSTART := #PAGES(#CP)
+*
+RESET I L-SCREEN(*) #END-OF-DATA
+CV-MARK(*) := (AD=P)
+*
+READ-LOOP. READ PHYSICAL-PRINTERS BY PH-VTAMID = #RSTART THRU #S-PID-T
+  AT START OF DATA
+    #PAGES(#CP) := #TOPKEY := PH-VTAMID
+  END-START
+*
+  DISPLAY-IT := TRUE
+  IF NOT(PH-VTAMID  = #S-PID-F THRU #S-PID-T)
+    DISPLAY-IT := FALSE
+  END-IF
+*
+  REJECT IF NOT DISPLAY-IT
+*
+  ADD 1 TO I
+  IF I > #NOFLINES
+    #LAST-KEY := PH-VTAMID
+    ESCAPE ROUTINE
+  END-IF
+  IF I = 1
+    #PAGES(#CP) := PH-VTAMID
+  END-IF
+  RESET CV-MARK (I)
+  #LAST-KEY               := PH-VTAMID
+  L-ID                (I) := PH-VTAMID
+  L-TYPE              (I) := PH-PRINTER-TYPE
+  L-LOCATION          (I) := PH-LOCATION
+  L-STATUS            (I) := PH-STATUS
+  L-PROGRAM           (I) := PH-PRINT-PGM
+  L-SKELETON          (I) := PH-JCL-SKELETON
+* L-MONITOR-ID (I) := PH-MONITOR-ID
+* fhi     2017-04-07 NOMALL-1961 line above out
+  L-ISN               (I) := *ISN (READ-LOOP.)
+  RESET CV-MARK(I)
+*
+END-READ
+#END-OF-DATA := TRUE
+#MAXP := #CP
+*
+END-SUBROUTINE /* GET-SCREEN
+*
+************************************************************************--
+DEFINE SUBROUTINE LINE-COMMANDS
+************************************************************************
+IF L-MARK(*) = '.'
+  INCLUDE C-ESCAPE
+END-IF
+RESET L-IDENT (*)
+INCLUDE RLCMTI-C
+FOR I 1 TO #NOFLINES
+  IF L-IDENT (I) = ##EQU-DELETE AND NOT #DELETE
+    REINPUT *0020 MARK *L-MARK(I) ALARM
+  END-IF
+END-FOR
+* ---------------------------------------- delete commands ---------------
+FOR I 1 TO #NOFLINES
+  IF L-IDENT(I) = ##EQU-DELETE
+    G-C-PHYSICAL := L-ID (I)
+    FETCH RETURN 'RDELPH'
+    GET-SCREEN := TRUE
+    INCLUDE L-COMMIT
+  END-IF
+END-FOR
+* ---------------------------------------- other line commands -----------
+FOR I 1 TO #NOFLINES
+  DECIDE ON EVERY VALUE OF L-IDENT (I)
+    VALUE ##EQU-DISPLAY
+      G-C-FUNC := 'D'
+      G-C-PHYSICAL := L-ID(I)
+      FETCH RETURN 'RDEFPH'
+    VALUE ##EQU-MODIFY
+      IF NOT #UPDATE /*OR NOT (L-OPTION(I,1) = 'Y' OR L-OPTION(I,2)= 'Y'
+        G-C-FUNC := 'D'
+      ELSE
+        G-C-FUNC := 'M'
+      END-IF
+      G-C-PHYSICAL := L-ID(I)
+      PERFORM COMMIT-WORK
+      FETCH RETURN 'RDEFPH'
+      GET-SCREEN := TRUE
+    VALUE ##EQU-COPY
+      IF NOT #UPDATE
+        REINPUT *11
+      END-IF
+      FETCH RETURN 'RCOPPH' L-ID(I)
+      GET-SCREEN := TRUE
+    VALUE ##EQU-START
+      IF NOT #UPDATE
+        REINPUT *0020 MARK *L-MARK(I) ALARM
+      END-IF
+      GET-SCREEN := TRUE
+      CALLNAT 'RHANPH-N' L-ID(I) 'S' G-USERID G-NATRP-ERC
+      IF G-NATRP-ERC = 0
+        END TRANSACTION
+      END-IF
+      NOMWK-TASK-TYPE:= EQU-MANAGE-PRINTOUTS
+      CALLNAT NOM-WAKE-MONITOR NOMWK-NOMVERS NOMWK-PARMS (*)
+    VALUE ##EQU-CLOSE
+      IF NOT #UPDATE
+        REINPUT *0020 MARK *L-MARK(I) ALARM
+      END-IF
+      GET-SCREEN := TRUE
+      CALLNAT 'RHANPH-N' L-ID(I) 'C' G-USERID G-NATRP-ERC
+      IF G-NATRP-ERC = 0
+        END TRANSACTION
+      END-IF
+    NONE IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* LINE-COMMANDS
+*
+************************************************************************--
+DEFINE SUBROUTINE INIT-PID-KEYS
+************************************************************************
+#S-PID-F := #S-PID
+IF #S-PID-F = ' '
+  #S-PID-F := '*'
+END-IF
+EXAMINE #S-PID-F '*' GIVING POSITION IN #POS
+IF #POS > 0
+  RESET #S-PID-V(#POS:8)
+  #S-PID-T := #S-PID-F
+  EXAMINE FULL #S-PID-T ' ' REPLACE H'FF'
+ELSE
+  #S-PID-F := #S-PID-T := #S-PID
+END-IF
+*
+END-SUBROUTINE /* INIT-PID-KEYS
+*
+************************************************************************--
+DEFINE SUBROUTINE INIT-LINECOM
+************************************************************************--
+G-LC-IDENT (01) := ##EQU-DISPLAY
+G-LC-IDENT (02) := ##EQU-MODIFY
+G-LC-IDENT (03) := ##EQU-DELETE
+G-LC-IDENT (04) := ##EQU-COPY
+G-LC-IDENT (05) := ##EQU-START
+G-LC-IDENT (06) := ##EQU-CLOSE
+G-LC-NUM        := 6
+CALLNAT 'RLCINI-N' G-OBJ-TYPE G-LC G-LCB
+INCLUDE RMVHLP-C
+CALLNAT 'RFLIPG-N' G-LC G-LINECOM (*)
+*
+END-SUBROUTINE /* INIT-LINECOM
+*
+************************************************************************--
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFADD-C
+INCLUDE RPFBRW-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*                                                                       --
+END-SUBROUTINE /* INIT-PFKEYS
+*                                                                       --
+INCLUDE RPFSET-C
+*
+END

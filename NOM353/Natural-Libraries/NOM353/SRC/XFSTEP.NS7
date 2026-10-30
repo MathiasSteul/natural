@@ -1,0 +1,92 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* **********************************************************************
+* XFSTEP - add lib as steplib, if not defined neither *LIBRARY-ID
+* Usage: #MSG (A250) := F#XFSTEP(<library>)
+*                       F#XFSTEP(<library>,<added>)
+*
+* **********************************************************************
+* Maintenance
+* ----------------------------------------------------------------------
+* uuuuuuu yyyy-mm-dd iTrac       Remark
+* SU      2023-08-25 NOMALL-2647 added: NAT00009 -> NAT82009
+************************************************************************
+DEFINE FUNCTION F#XFSTEP RETURNS #MSG (A250) BY VALUE
+************************************************************************
+  DEFINE DATA PARAMETER
+  1 #LIB           (A8) BY VALUE /*in
+  1 #STEPLIB-ADDED (L)  OPTIONAL /*out: added/already defined
+************************************************************************
+  LOCAL
+  1 #NAT82009
+    2 P-FUNCTION                 (A1)
+      /* A = Add entry to table
+      /* D = Display stepl. table
+      /* I = Init steplib table
+      /* P = Purge entry
+    2 P-STEPLIB-TABLE            (*)   /* Output for Fct = D only:
+      3 P-STEPLIB-NAME           (A8)  /* 1st entry is always
+      3 P-STEPLIB-DBID           (I4)  /* *STEPLIB, then the other
+      3 P-STEPLIB-FNR            (I4)  /* steplib entries w/o 2 SYSTM
+    2 P-ADD-STEPLIB-DATA               /* Input for Fct = A only
+      3 P-ADD-STEPLIB-NAME       (A8)
+      3 P-ADD-STEPLIB-DBID       (I4)
+      3 P-ADD-STEPLIB-FNR        (I4)
+      3 P-ADD-STEPLIB-PASSWORD   (A8)
+      3 P-ADD-STEPLIB-CIPHER     (A8)
+    2 P-ADD-PURGE-ENTRY-NUMBER   (I2)  /* Input for Fct = A and P
+    2 P-IGNORE-NSC               (A1)  /*NSC active:
+      /* Y = all Fcts allowed,
+      /* others = only Fct = D allowed
+    2 P-RETURN-MSG               (A) DYNAMIC
+    2 P-RETURN-CODE              (I4)
+      /* 0 = OK
+      /* < 0 = Natural Runtime error
+      /* 1 = Version nn for NAT82009 is not implemented yet.
+      /* 4 = Valid function codes are "A", "D", "I", "P".
+      /* 8 = NATURAL SECURITY installed; function not allowed.
+      /* 20 = First character of library is invalid. (Fct=A)
+      /* 24 = Position must be 1 through nn (Fct=P)
+      /* 28 = Invalid DBID (1..65535) or FNR (1..5000). (Fct=A)
+      /* 36 = The steplib is already included in the list.(Fct=A)
+  1 #NAT82009-FUTURE-EXTENSIONS  (A1/1:1)
+  1 REDEFINE #NAT82009-FUTURE-EXTENSIONS
+    2 P-FUTURE-VERSION           (I1)
+*
+  1 #I                           (I4)
+* *****
+  END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF #LIB = *LIBRARY-ID
+  ESCAPE ROUTINE
+END-IF
+IF #STEPLIB-ADDED SPECIFIED
+  RESET #STEPLIB-ADDED
+END-IF
+*
+P-IGNORE-NSC := 'Y' /*otherwise err 8: NSC INSTALLED; FUNC NOT ALLOWED.
+P-FUNCTION   := 'A' /*Add
+P-ADD-STEPLIB-NAME := #LIB
+CALLNAT 'NAT82009' #NAT82009 #NAT82009-FUTURE-EXTENSIONS (*)
+DECIDE ON FIRST VALUE OF P-RETURN-CODE
+  VALUE 0 /*ok
+    IF #STEPLIB-ADDED SPECIFIED
+      #STEPLIB-ADDED := TRUE
+    END-IF
+  VALUE 36 /* already defined
+    IGNORE
+  NONE
+    COMPRESS NUMERIC '0040' *PROGRAM #LIB P-RETURN-CODE P-RETURN-MSG
+      TO #MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+END-DECIDE
+*
+END-FUNCTION /*F#XFSTEP
+END

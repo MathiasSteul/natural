@@ -1,0 +1,150 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RTRADIRP - trace - read report into editor (RDISRP)
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-05-17 s(999999) rewritten
+* mrs 93-11-05 s(999999) keys on/off implemented
+* jvd 99-04-21 p(181377) NAT1305 while processing > 10m lines
+* fhi 03-09-01 p(244091) Use PROF-LANGUAGE=1
+* LP 2005-02-25 ADAPT TO UNIX ENVIRONMENT
+* SPLILDAV 2012-06-27 NOMALL-1078 SUPPORT COMPRESSION 16K BYTE RECORDS
+* SU1     2016-07-25 NOM 3.5: remove unused code
+* SU2     2023-10-30 NOMALL-2489 HEX on MF
+************************************************************************
+*
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL  USING EDIT-CB
+LOCAL  USING RCCTYP-E
+*
+LOCAL
+1 EDIT-PREF
+  2 L-PREFIX                 (A5/1:10)
+1 EDIT-ALIN                  (A32)
+1 REDEFINE EDIT-ALIN
+  2 CB-ALIN-V                (N1/32)
+1 EDIT-ADAT                  (A32)
+1 REDEFINE EDIT-ADAT
+  2 CB-ADAT-V                (N1/32)
+1 #ED-SESNUM                 (N2)
+1 #FROM-LINE                 (N9)
+1 #TO-LINE                   (N9)
+/*SU2 1 COMPCB (B40) 1 REDEFINE  COMPCB 2 COMPCB-OP (A1)
+/*    2 COMPCB-CHAR (B1) 2 COMPCB-ILEN-OLD (B1)
+/*    2 COMPCB-OLEN-OLD (B1) 2 COMPCB-ILEN (B2) 2 COMPCB-OLEN (B2)
+1 AR-CURRENT-LOCATION        (A1)
+1 ASA-OR-MACHINE-CODE        (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+INPUT G-C-REPORT
+  / G-C-REPRNB
+  / ED-NRM-SOURCE-ISN
+  / ED-NRM-LRECL
+  / ED-NRM-SOURCE-CC-TYPE
+  / #FROM-LINE
+  / #TO-LINE
+  / ED-NRM-MAXREC
+*
+IF ED-NRM-SOURCE-CC-TYPE = ASA-CODE OR=MACHINE-CODE OR=BS2000-CC
+  ASA-OR-MACHINE-CODE := TRUE
+ELSE
+  RESET  ASA-OR-MACHINE-CODE
+END-IF
+*
+/*SU2 COMPCB-CHAR := 'N'        /* 'N' - New parm list
+/*SU2 COMPCB-OP   := 'D'
+SET CONTROL 'WB'
+AR-CURRENT-LOCATION := 'S'
+PERFORM OPEN-EDIT
+IF G-NATRP-ERC = 0
+  FETCH  RETURN 'RBRWRP' #ED-SESNUM 'SYS' ED-FILE /*SU2
+  PERFORM CLOSE-SESSION
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+/*SU1 DEFINE SUBROUTINE OPEN-EDIT-SESSION
+*
+************************************************************************
+DEFINE SUBROUTINE OPEN-EDIT /*see RDISRP
+************************************************************************
+ED-REQUEST := 'OPEN'
+RESET ED-SESNUM ED-B-PROGRAM
+/*SU2 IF *MACHINE-CLASS = "MAINFRAME" ED-B-PROGRAM := 'REXBRSYS' ELSE
+ED-DSTYPE  := 'DAT' /*SU2 was 'USR'
+ED-CTADR   := ED-DTADR := 0
+ED-ENV     := ED-BPUSE := 1
+ED-DTPLACE := 3 /*DATA PLACE (BP OR SA) 3=??
+ED-BPLEN   := 10
+ED-PRFLEN  := ED-PRFENT := 6 /*len. Prefix SU2 was 5
+ED-LINENTL := ED-SCRLEN := ED-RECLEN := 251
+ED-BLKNUM  := 5
+ED-SCRNUM  := ED-SCRMAX := 24 /*SU2 was 22
+ED-RENUM   := 10
+ED-NATVER  := 2
+ED-NEWCB   := 'Y'
+ED-SCROLL  := 'CSR'
+*
+PROF-MSO      := 'Y'
+PROF-CAPS     := 'N'
+PROF-LANGUAGE := 1
+*
+ED-NRM-REPNAME := G-C-REPORT
+ED-NRM-REPRNB  := G-C-REPRNB
+IF G-NTDB-PROCESS = 0
+  G-NTDB-PROCESS := G-MONITOR-NODE
+END-IF
+ED-NRM-DBID     := G-NTDB-PROCESS
+ED-NRM-FROMLINE := #FROM-LINE
+ED-NRM-TOLINE   := #TO-LINE
+RESET ED-NRM-LAYOUT
+IF ASA-OR-MACHINE-CODE
+  ED-NRM-ASA-CODE-ON := 'A'
+ELSE
+  RESET ED-NRM-ASA-CODE-ON
+END-IF
+ED-NRM-LOCATION := AR-CURRENT-LOCATION
+* *****
+CALL 'EDITOR' EDIT-CB EDIT-ALIN EDIT-PREF EDIT-ADAT
+IF ED-ERRNUM NE 0
+  PERFORM #EDITOR-ERR /*SU2
+/*SU2  G-NATRP-ERC := 5 G-NATRP-ERT := ED-FLINE
+  ESCAPE ROUTINE
+END-IF
+#ED-SESNUM := ED-SESNUM
+*
+END-SUBROUTINE /* OPEN-EDIT
+*
+************************************************************************
+DEFINE SUBROUTINE #EDITOR-ERR /*SU2
+************************************************************************
+G-NATRP-ERC := 3 /*SU2 was 5
+#TO-LINE := ED-ERRNUM
+COMPRESS #TO-LINE ED-FLINE TO G-NATRP-ERT
+COMPRESS G-NATRP-ERT ' (' *PROGRAM ',' ED-REQUEST ')'
+  TO G-NATRP-ERT LEAVING NO
+PRINT F#GETMSG (<G-NATRP-ERC, G-NATRP-ERT>)
+*
+END-SUBROUTINE /* #EDITOR-ERR
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-SESSION
+************************************************************************
+ED-REQUEST:='CLSS'
+ED-SESNUM := #ED-SESNUM
+CALL 'EDITOR' EDIT-CB
+*
+END-SUBROUTINE /* CLOSE-SESSION
+*
+END

@@ -1,0 +1,926 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMSRCP -  Copy Lines of Source into DB File and start first
+*           CreateActiveReport Order
+*
+* Maintenance
+* uuu yy-mm-dd s(999999)  ...
+* ----------------------------------------------------------------------
+* mrs 93-01-05            created
+* gw  94-06-23 s(999999)  use od-dbid and od-fnr
+* mrs 95-05-29 s(225717)  retry loading data, if possible
+* gw  96-01-05 s(239209)  store cleanup order, source no longer needed
+*                         CMASPOOL only !
+* gw  97-01-14 s(260199)  no cleanup in container file
+* jwo 97-03-10 p(161209) copy   bs2000 files y/n
+* jwo 97-06-02 p(162733)  extended spool attributes were lost
+*                         during copy of BS2000 files
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* sju 00-03-27 p(191368) monitor multitasking
+* fhi 00-08-24 QA03      Use NAT23006 for error values
+* fhi 00-09-25 s(196560) Add Unix file support
+* fhi 00-09-28 QA04      Correct CE7461
+* fhi 02-09-25 p(218246) Monitor error recovery
+* sju 02-11-04 NOM221    Long records (Jes2 only)
+* sju 03-01-29 p(232455) Don't write messages for retryable errors
+* sju     2003-06-26 p(230407) Correct setting of retry info in orders
+* sju     2003-06-30 p(230407) Multiple containers don't work
+* sju 04-02-12 p(250127) Better reporting of errors
+* sju 04-11-29 nom31     restow for changed NRM-ORDER
+* sju 04-12-06 NOM31     Add date and time (tenths of second) to trace
+* sju 05-02-08 NOM31     Long records not just for jes2
+* fhi 05-04-19 NOM31107  Support 7-byte job numbers
+* fhi     2005-12-05 P272727   Avoid NAT6223 under Unix
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2007-07-31 NRT2422   Support direct input
+* sju 07-12-11 p(285832) Zombie create-ar orders if load fails
+* fhi     2009-05-26 N3463     Extend metadata for OPO
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* raya    2012-08-21 NOMALL-78 disable long records
+* fhi     2012-08-24 NOMALL-1004 Add report formatting
+* fhi     2012-08-27 NOMALL-1004 Add report formatting, old tags remvd.
+* fhi     2012-11-07 NOMALL-1004 Same
+* fhi     2012-11-09 NOMALL-1143 Adding performance measuring.
+* fhi     2013-03-06 NOMALL-1004 Correct report formatting
+* fhi     2013-03-14 NOMALL-1004 Use correct source pointers,set attrb.
+* fhi     2013-03-23 NOMALL-1004 Same.
+* fhi     2013-03-27 NOMALL-1004 Same.
+* xsetggr 2013-06-04 NOMALL-1227 improve trace info
+* raya    2013-07-22 NOMALL-1215 avoid report not found when destination
+* fhi     2013-09-12 NOMALL-1215 Continuing corrections
+* fhi     2013-09-19 NOMALL-1215 Continuing corrections
+* fhi     2013-09-23 NOMALL-1004B NOMALL-1004 partly backouted to avoid
+*                               Ü side effects causing NOMALL-1215
+*                               Ü Will be re-established for NOM 3.4.2
+* SU1     2013-09-10 NOMALL-82 new class: activate error
+* fhi     2014-03-03 NOMALL-1363 Get cat cate into trace messages
+* SU2     2014-08-14 NOMALL-1447 remove unused vars
+* fhi     2014-09-18 NOMALL-1488 Keep extended attributes
+* SU3     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* fhi     2015-05-12 NOMALL-1585 Improve waiting for locked files
+* SU4     2015-08-11 NOMALL-1690 XXHASH restructure
+* SU5     2015-12-30 NOMALL-1722 XXHASH-P changed->recat
+* SU6     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-08-01 NOMALL-1748 Backout Report Formatting
+* SU7     2016-08-11 NOM 3.5: remove unused code
+* fhi     2016-11-08 NOMALL-1961 Prepare several COPY monitor-tasks
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-01-05 NOMALL-1961 Improve err handling (return to ERROR)
+* fhi     2017-01-11 NOMALL-1961 Change descriptor of NRM-ORDER
+* fhi     2017-01-18 NOMALL-1916 Use binary NPR RECORD* fields
+* fhi     2017-01-26 NOMALL-1961 Wake correct monitor task
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi     2018-03-13 NOMALL-1918 Correct multinode behavior, no tags
+* fhi     2018-05-15 NOMALL-1961 Improve err handling
+* fhi     2018-08-06 NOMALL-2135 Use internal node id in orders
+* fhi     2018-09-06 NOMALL-2141 Correct handling of REP-FORMAT
+* SU8     2018-10-11             G-SOURCE-ID -> local field
+* fhi     2018-12-14 NOM 3.5     Improve CPU measures, no tags
+* fhi     2019-06-05 NOMALL-2267 More details if '0 records loaded'
+* fhi     2019-06-12 NOMALL-2267 Expand identity in message 4205
+* fhi     2019-06-14 NOMALL-2267 Still minor errors
+* fhi     2019-06-19 NOMALL-2267 Better trace. Still 0 records appears
+* fhi     2019-06-28 NOMALL-2267 same
+* fhi     2019-07-02 NOMALL-2287 Several copy tasks work on same order
+* fhi     2019-08-14 NOMALL-2294 Introduce TRACE-ORDER in JOBCARDs
+* fhi     2019-08-19 NOMALL-2294 Stamp must be resetted to ' ' always
+* BLI     2019-09-24 NOMALL-2294 NPR/Broker fails, ET, no DELETE
+* BLI     2019-10-18 NOMALL-2244 reduce messages during retry
+* BLI     2020-02-17 NOMALL-2294 correct stamp, OD-LOAD status, BS2
+* SU9     2020-06-22 NOMALL-2349 show full msg
+* SU10    2020-11-10 NOMALL-2440 recat for VMONIT-L
+* BLI     2021-08-09 NOMALL-2470 trace incomplete orders on BS2
+* BLI     2021-10-25 NOMALL-2498 error handling, update get-next-order
+* BLI1    2023-06-22 NOMALL-2635 Scan product with error number in text
+* BLI2    2023-10-04 NOMALL-2636 Daily and automatic cleanup corrections
+* BLI3    2024-03-18 NOMALL-2664 Unix file deleted too early
+************************************************************************
+*
+DEFINE DATA GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +G-CLEANUP-SPOOL           (L)
+1 +G-BS2-COPY                (L)
+1 +CMRDC                     (A1)
+1 +NOD-CURRENT-ERROR-CLASS   (A1)
+1 +NOD-CURRENT-INTERNAL-ID   (P11)
+1 +NOD-CURRENT-NAME          (A16)
+1 +TRACE-ORDER               (A1)
+*
+LOCAL USING RMOD---L
+LOCAL USING RMODTY-E
+LOCAL USING RMSR---E
+LOCAL USING RMSR---L
+LOCAL USING RMSPL--L
+LOCAL USING RLOG-L
+/*SU10 LOCAL USING VMONIT-L
+LOCAL USING RMTASK-E
+LOCAL USING NOMWK--P
+LOCAL USING NOMFNC-E
+*
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR  /*SU10
+  2 M-MAX-RETRIES (N3.0)
+  2 M-RETRY-INTERVAL (N5.0)
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-TYPE
+  2 SR-CC-TYPE
+  2 SR-REMOTE-CODEPAGE
+  2 SR-MONITOR-ID
+  2 SR-NUMBER-OF-LINES
+  2 SR-RECORD-LENGTH
+  2 SR-RECEIPT-STAMP
+  2 SR-CONTROL-FLAG
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-SPOOL-ATTRIBUTES
+  2 SR-SPOOL-ATTR-EXTENDED   (1:120)
+  2 SR-OBJECT-TYPE
+  2 SR-OBJECT-TIME
+1 UPDATE-ORDER VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-TYPE
+  2 OD-SOURCE-ID
+  2 OD-MONITOR-ID
+  2 OD-TIME-PROCESSED
+  2 OD-TIME-CREATED
+  2 OD-TIME-SCHEDULED
+  2 OD-STATISTICS
+  2 OD-PARAMETER             (1)
+  2 REDEFINE OD-PARAMETER
+    3 OD-IDENT               (A8)
+    3 OD-FILLER1             (A17)
+    3 OD-DBID                (N3)
+    3 OD-FNR                 (N3)
+    3 OD-RETRY-COUNT         (N3)
+    3 OD-DBID-N5             (N5)
+    3 OD-FNR-N5              (N5)
+    3 OD-REP-FORMAT          (A1)
+  2 OD-ERROR-CODE
+  2 OD-ERROR-TEXT
+  2 OD-MAX-RETRIES
+  2 OD-RETRY-INTERVAL
+  2 OD-INTERNAL-NODE-ID      (P15)
+  2 OD-RETRY-NUMBER
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-USER-ID
+  2 OD-TIME-CREATED
+  2 OD-ID
+  2 OD-MONITOR-ID
+  2 OD-TYPE
+  2 OD-TIME-SCHEDULED
+  2 OD-PARAMETER             (1)
+  2 REDEFINE OD-PARAMETER
+    3 OD-IDENT               (A8)
+    3 OD-FILLER1             (A17)
+    3 OD-DBID                (N3)
+    3 OD-FNR                 (N3)
+    3 OD-RETRY-COUNT         (N3)
+    3 OD-DBID-N5             (N5)
+    3 OD-FNR-N5              (N5)
+    3 OD-REP-FORMAT          (A1)
+    3 OD-REPNAME             (A25)
+  2 OD-SOURCE-ID             (P10)
+  2 OD-MAX-RETRIES           (N3)
+  2 OD-RETRY-INTERVAL        (N5)
+  2 OD-INTERNAL-NODE-ID      (P15)
+*
+1 #SR-ID-SAVE                (P10)
+1 LFILE                      (L)
+1 #LFILE-RC                  (I4)
+1 #LFILE-OLDDBID             (P5)
+1 #LFILE-OLDFILE             (P5)
+1 #LFILE-NEWDBID             (P5)
+1 #LFILE-NEWFILE             (P5)
+1 #TARGET-DBID               (N5)
+1 #TARGET-FNR                (N5)
+1 ORDER-FOUND                (L)
+1 #IDENT                     (A25)
+1 #ID                        (P10)
+1 #SR-ID                     (P10)
+1 #RECORD-LENGTH             (N3)
+1 #NUMBER-OF-LINES           (P10)
+1 #OD-TYPE-TIME              (A9)
+1 REDEFINE #OD-TYPE-TIME
+  2 #OD-TYPE                 (B2)
+  2 #OD-TIME                 (T)
+1 #STATISTICS                (A250)
+1 RECORDS-STORED             (L)
+1 RETRY-POSSIBLE             (L)
+1 RETRY-ALLOWED              (L)
+1 #PREV-TARGET-DBID          (N5)
+1 #PREV-TARGET-FNR           (N5)
+1 #ERROR-OBJECT-NAME         (A60)
+1 #RESET-ERC                 (L)
+1 #UPDATE-AR-ORDERS          (L)
+1 #ET-COUNT                  (I2)
+1 #TRACING                   (L)
+1 P-TRACE                    (I2)
+1 RMSETTIM
+  2 FUNCTION                 (A1)
+  2 ERC                      (N4)
+  2 MSG                      (A250)
+  2 TIME                     (I4)
+1 #CATDATE                   (A19)
+1 #SOURCE-ID                 (P10)
+1 #P-FILE-NAME               (A250)
+1 #LINE                      (I4)
+1 #ISN                       (P10)
+1 #ADA-RC                    (N4)
+1 #TYPE-I                    (I2)
+1 #UPD-CURRENT-LOAD-ORDER    (L)    /* NOMALL-2294 BLI
+1 #G-TASK-NUMBER             (N3)   /* NOMALL-2294 BLI start
+1 REDEFINE #G-TASK-NUMBER
+  2 #G-TASK-NUMBER-BEGIN     (A2)
+  2 #G-TASK-NUMBER-STMP      (A1)   /* NOMALL-2294 BLI end
+1 #MONITOR-ID                (A20)
+*
+1 #UNIX-FILE-DELETE          (L)    /* BLI3
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=100
+*
+IF G-TRACE GE *LEVEL AND G-TRACE-SET = SCAN ('COPY')
+  #TRACING := TRUE
+  P-TRACE  := G-TRACE
+  RMSETTIM.FUNCTION := 'S'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS 'Start' *PROGRAM 'cataloged at'  #CATDATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+IF +TRACE-ORDER = ' ' /* not yet determined from jobcards
+  PERFORM RMGTRACE-GET-SETTINGS
+END-IF
+INCLUDE CMRDC
+*
+#MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+FIND (1) NRM-MONITOR WITH M-MONITOR-ID = #MONITOR-ID
+END-FIND
+PERFORM GET-LFILE
+IF G-NATRP-ERC NE 0
+  PERFORM WRITE-ERROR-LOG
+  END TRANSACTION                /* NOMALL-2294 BLI
+  ESCAPE ROUTINE
+END-IF
+*
+MAIN. REPEAT
+  RESET G-NATRP-ERC G-NATRP-ERT G-ORDER-ID  G-ORDER-ISN #SOURCE-ID
+  RESET RECORDS-STORED #NUMBER-OF-LINES #UPD-CURRENT-LOAD-ORDER
+    #UPDATE-AR-ORDERS #UNIX-FILE-DELETE                           /*BLI3
+  PERFORM GET-NEXT-ORDER
+  IF NOT ORDER-FOUND
+    ESCAPE BOTTOM (MAIN.)
+  END-IF
+*
+  DECIDE FOR EVERY CONDITION
+* WHEN G-NATRP-ERC = 0 PERFORM SET-LFILE              /* BLI NOMALL-2294
+* WHEN G-NATRP-ERC = 0 PERFORM READ-SOURCE-ATTRIBUTES /* BLI NOMALL-2294
+    WHEN G-NATRP-ERC = 0 PERFORM GET-SOURCE-TEXT-ID
+    WHEN G-NATRP-ERC = 0 PERFORM COPY-SOURCE
+    WHEN G-NATRP-ERC = 0 PERFORM UPDATE-CURRENT-SOURCES
+    WHEN NONE IGNORE
+  END-DECIDE
+  G-CYCLE-WAS-IDLE := FALSE
+  PERFORM UPDATE-CURRENT-ORDER
+  IF #TRACING
+    COMPRESS 'Copy result:' G-NATRP-ERC G-NATRP-ERT TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+*
+  IF #UNIX-FILE-DELETE         /* BLI3 delete now the unix file
+    CALLNAT 'RMDELX-N' SOURCE.SR-SPOOL-ATTRIBUTES G-NATRP-ERC
+      G-NATRP-ERT P-TRACE
+  END-IF
+  IF #TRACING
+    COMPRESS 'Delete' #SPOOL-UNIX-FILE-NAME G-NATRP-ERC-A G-NATRP-ERT
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+*
+  NOMWK-TASK-TYPE := EQU-CREATE-REPORTS
+  CALLNAT NOM-WAKE-MONITOR NOMWK-NOMVERS NOMWK-PARMS (*)
+END-REPEAT
+*
+PERFORM REFRESH-LFILE
+*
+IF #TRACING
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+  G-TRACE-MSG := 'End'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NEXT-ORDER
+************************************************************************
+RESET ORDER-FOUND
+#OD-TYPE := OD-LOAD-SOURCE
+RESET #OD-TIME
+*
+IF #TRACING
+  COMPRESS 'Get next order' #OD-TYPE #OD-TIME TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+SET GLOBALS WH=OFF
+FNDOD. READ ORDER BY OD-TYPE-TIME FROM #OD-TYPE-TIME
+  RESET G-NATRP-ERC G-NATRP-ERT                /* NOMALL-2498
+  IF OD-TYPE NE #OD-TYPE OR OD-TIME-SCHEDULED  > *TIMX
+**  BACKOUT TRANSACTION                        /* NOMALL-2244
+    ESCAPE BOTTOM
+  END-IF
+  IF +TRACE-ORDER = 'Y' /* TRACE-ORDER found in jobcards
+    #TYPE-I := ORDER.OD-TYPE
+    COMPRESS 'Task' G-TASK-NUMBER *PROGRAM
+      'Got next order:' ORDER.OD-ID '- type' #TYPE-I
+      '- created'   ORDER.OD-TIME-CREATED
+      '- scheduled' ORDER.OD-TIME-SCHEDULED
+      '- retry #'   ORDER.OD-RETRY-COUNT TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  #ISN := *ISN(FNDOD.)
+/* Use GETHOLD because the 'SHARED HOLD' and 'SKIP RECORDS IN HOLD'
+/* clauses of the READ statement are not compatible to Natural Unix Ü
+  CALLNAT 'GETHOLD' G-NATRP-DBID G-NATRP-FNR #ISN 'BS' #ADA-RC
+  IF #TRACING
+    COMPRESS 'Got order' OD-ID 'with lock rc:' #ADA-RC 'ISN:' #ISN
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+*
+  IF #ADA-RC = 145          /* from GETHOLD, see above
+    IF +TRACE-ORDER = 'Y' /* TRACE-ORDER found in jobcards
+      #TYPE-I := ORDER.OD-TYPE
+      COMPRESS 'Task' G-TASK-NUMBER *PROGRAM
+        ORDER.OD-ID 'type'  #TYPE-I 'in hold. Skipping' TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+    ESCAPE TOP              /* 145 in GETHOLD
+  END-IF
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN OD-DBID-N5 > 0
+      #TARGET-DBID := OD-DBID-N5
+      #TARGET-FNR  := OD-FNR-N5
+    WHEN OD-DBID    > 0
+      #TARGET-DBID := OD-DBID
+      #TARGET-FNR  := OD-FNR
+      OD-DBID-N5   := OD-DBID
+      OD-FNR-N5    := OD-FNR
+      RESET OD-DBID OD-FNR
+    WHEN NONE IGNORE
+  END-DECIDE
+  PERFORM SET-LFILE
+  IF G-NATRP-ERC NE 0
+    IF #TRACING                         /* BLI NOMALL-2470
+      COMPRESS 'SET LFILE error' #LFILE-RC #TARGET-DBID #TARGET-FNR
+        TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+    ESCAPE TOP
+  END-IF
+*
+  PERFORM READ-SOURCE-ATTRIBUTES
+*
+  IF #TRACING
+    IF G-NATRP-ERC = 0
+      COMPRESS 'Spool type is' #SPOOL-TYPE TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      G-TRACE-MSG := 'Source properties:'
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      DECIDE ON FIRST VALUE OF #SPOOL-TYPE
+        VALUE SEQUENTIAL-FILE-UNIX
+          COMPRESS '- node:' #SPOOL-UNIX-NODE-NAME
+            '- user:' #SPOOL-UNIX-USERID
+            '- path:' #SPOOL-UNIX-PATH
+            '- file:' #SPOOL-UNIX-FILE-NAME
+            '- DBID:' #SPOOL-UNIX-CONTAINER-DBID
+            '- FNR:'  #SPOOL-UNIX-CONTAINER-FNR TO G-TRACE-MSG
+        VALUE DIRECT-INPUT
+          COMPRESS '- ID:'   #SPOOL-DI-ST-ID
+            '- RPC:'  #SPOOL-DI-RPC-SERVER
+            '- user:' #SPOOL-DI-USERID
+            '- path:' #SPOOL-DI-PATH
+            '- file:' #SPOOL-DI-FILENAME
+            '- type:' #SPOOL-DI-FILETYPE
+            '- DBID:' #SPOOL-DI-CONTAINER-DBID
+            '- FNR:'  #SPOOL-DI-CONTAINER-FNR
+            '- size:' #SPOOL-DI-SIZE TO G-TRACE-MSG
+        NONE
+          G-TRACE-MSG := #SPOOL-ATTRIB
+      END-DECIDE
+    ELSE
+      COMPRESS G-NATRP-ERC 'Order id' OD-ID 'did not find source'
+        OD-SOURCE-ID TO G-TRACE-MSG
+    END-IF
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+*
+  IF G-NATRP-ERC EQ 0       /* found source    BLI NOMALL-2498
+    SET GLOBALS WH=ON
+* NOMALL-2294 BLI check if another copy task already works on it
+    #G-TASK-NUMBER := G-TASK-NUMBER
+    IF (#SPOOL-TYPE = SEQUENTIAL-FILE-UNIX OR = SEQUENTIAL-FILE-BS2)
+        AND SR-RECEIPT-STAMP NE 'S'           /* has not been scanned
+        AND SR-RECEIPT-STAMP NE #G-TASK-NUMBER-STMP
+      IF #TRACING
+       COMPRESS 'Source of this order rejected, stamp:' SR-RECEIPT-STAMP
+          TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+      IF +TRACE-ORDER = 'Y' /* TRACE-ORDER found in jobcards
+        #TYPE-I := ORDER.OD-TYPE
+        COMPRESS 'Task' G-TASK-NUMBER *PROGRAM
+          'Order' ORDER.OD-ID '- type' #TYPE-I
+          'skipped, wrong stamp' SR-RECEIPT-STAMP
+          '- created'   ORDER.OD-TIME-CREATED
+          '- scheduled' ORDER.OD-TIME-SCHEDULED
+          '- retry #'   ORDER.OD-RETRY-COUNT TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+      ESCAPE TOP
+    END-IF
+  END-IF
+*
+  GETOD. GET ORDER *ISN(FNDOD.) /* Read again with hold
+  IF NOT(OD-INTERNAL-NODE-ID =0 OR=+NOD-CURRENT-INTERNAL-ID)
+    SET GLOBALS WH=OFF
+    ESCAPE TOP
+  END-IF
+*
+  G-ORDER-ID   := OD-ID
+  G-ORDER-ISN  := *ISN (FNDOD.)
+  #SOURCE-ID   := OD-SOURCE-ID
+  #IDENT := F#GETIDENT(<OD-IDENT,OD-FILLER1>)
+*
+  IF G-NATRP-ERC EQ 0                   /* NOMALL-2498 BLI
+    OD-TYPE       := OD-LOAD-SOURCE-IN-PROCESS
+  ELSE                      /* did not find source
+* set it here also, we need #UPDATE-AR-ORDERS in UPDATE-CURRENT-ORDER
+    OD-TYPE       := OD-LOAD-SOURCE-FAILED
+  END-IF
+*
+  OD-MONITOR-ID := G-MONITOR-ID
+  UPDATE (GETOD.)
+  END OF TRANSACTION
+  ORDER-FOUND   := TRUE
+  IF #TRACING
+    G-TRACE-MSG := ORDER.OD-TYPE
+    COMPRESS 'Update order record with OD-PARAMETER:'
+      ORDER.OD-PARAMETER (1) 'TYPE:' G-TRACE-MSG 'MONITOR-ID:'
+      ORDER.OD-MONITOR-ID 'USER-ID:' ORDER.OD-USER-ID TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    IF G-NATRP-ERC EQ 0                   /* NOMALL-2498 BLI
+      COMPRESS 'SOURCE-ID:' ORDER.OD-SOURCE-ID
+        'TIME-CREATED:'   ORDER.OD-TIME-CREATED
+        'TIME-SCHEDULED:' ORDER.OD-TIME-SCHEDULED
+        'MAX-RETRIES:'    ORDER.OD-MAX-RETRIES
+        'RETRY-INTERVAL:' ORDER.OD-RETRY-INTERVAL TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+  END-IF
+  IF G-NATRP-ERC EQ 0                   /* NOMALL-2498 BLI
+    IF OD-RETRY-COUNT GE OD-MAX-RETRIES   /* NOMALL-2294 BLI
+      RETRY-ALLOWED := FALSE
+      IF +TRACE-ORDER = 'Y' /* TRACE-ORDER found in jobcards
+        COMPRESS 'Task' G-TASK-NUMBER *PROGRAM
+          'Retry set to disallowed.' TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+    ELSE
+      RETRY-ALLOWED := TRUE
+      IF +TRACE-ORDER = 'Y' /* TRACE-ORDER found in jobcards
+        COMPRESS 'Task' G-TASK-NUMBER *PROGRAM
+          'Retry set to allowed.' TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+    END-IF
+  END-IF
+  ESCAPE BOTTOM (FNDOD.)
+END-READ
+SET GLOBALS WH=ON
+*
+END-SUBROUTINE /* GET-NEXT-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SOURCE-ATTRIBUTES
+************************************************************************
+FNDSR. FIND SOURCE WITH SR-ID = ORDER.OD-SOURCE-ID
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 0005
+    COMPRESS 'Source' ORDER.OD-SOURCE-ID  'not found'
+      'of order' ORDER.OD-ID  TO  G-NATRP-ERT
+    ESCAPE BOTTOM (FNDSR.)
+  END-NOREC
+  #SPOOL-ATTRIBUTES := SR-SPOOL-ATTRIBUTES      /* BLI NOMALL-2294
+  IF SR-TYPE = SEQUENTIAL-FILE-UNIX
+    #SOURCE-ATTRIBUTES := SR-ATTRIBUTES-IDENT
+    +NOD-CURRENT-NAME  := #UNIX-NODE-NAME
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-SOURCE-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-CURRENT-ORDER
+************************************************************************
+IF #UPD-CURRENT-LOAD-ORDER EQ TRUE /* already done NOMALL-2294 BLI
+  ESCAPE ROUTINE
+END-IF
+UPDOD. FIND UPDATE-ORDER WITH OD-ID = G-ORDER-ID
+  DECIDE FOR FIRST CONDITION
+    WHEN G-NATRP-ERC = 0
+      OD-TYPE := OD-LOAD-SOURCE-OK
+      RESET  OD-SOURCE-ID
+      OD-TIME-PROCESSED := *TIMX
+      OD-STATISTICS            := #STATISTICS
+      PERFORM WRITE-LOAD-LOG-RECORD              /* NOMALL-2244
+* NOMALL-2294 dedicated errors first, retry defaults only
+    WHEN G-NATRP-ERC = 2036          /* 'file not found' not recoverable
+        OR (G-NATRP-ERC = 5 AND G-NATRP-ERT = SCAN('SAT1114')) /* BLI1
+      RESET RETRY-POSSIBLE
+      OD-TYPE           := OD-LOAD-SOURCE-FAILED
+      OD-ERROR-CODE     := G-NATRP-ERC
+      OD-ERROR-TEXT     := G-NATRP-ERT
+      OD-TIME-PROCESSED := *TIMX
+      OD-STATISTICS     := #STATISTICS
+      #UPDATE-AR-ORDERS := TRUE
+      PERFORM WRITE-ERROR-LOG
+    WHEN G-NATRP-ERC = 9997   /* skip
+      IF OD-TYPE = OD-LOAD-SOURCE-IN-PROCESS    /* NOMALL-2294
+        OD-TYPE := OD-LOAD-SOURCE
+      END-IF
+      RESET RETRY-POSSIBLE
+* NOMALL-2294 BLI end
+    WHEN OD-RETRY-NUMBER LT OD-MAX-RETRIES AND RETRY-POSSIBLE
+    AND RETRY-ALLOWED                                                 /*
+      OD-TYPE           := OD-LOAD-SOURCE
+      OD-TIME-SCHEDULED := OD-TIME-SCHEDULED + (OD-RETRY-INTERVAL * 10)
+      ADD 1 TO OD-RETRY-NUMBER
+      #RESET-ERC        := TRUE
+      IF #TRACING                              /* BLI NOMALL-2244 start
+        COMPRESS 'Order' OD-ID 'ident'
+          F#GETIDENT(<UPDATE-ORDER.OD-IDENT,UPDATE-ORDER.OD-FILLER1>)
+          'retry' OD-RETRY-NUMBER
+          'Current Active Report' G-REPORT TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        COMPRESS 'got error' G-NATRP-ERT TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF                                   /* BLI NOMALL-2244 end
+    WHEN NONE
+      RESET RETRY-POSSIBLE
+      OD-TYPE           := OD-LOAD-SOURCE-FAILED
+      OD-ERROR-CODE     := G-NATRP-ERC
+      OD-ERROR-TEXT     := G-NATRP-ERT
+      OD-TIME-PROCESSED := *TIMX
+      OD-STATISTICS     := #STATISTICS
+      #UPDATE-AR-ORDERS := TRUE
+      PERFORM WRITE-ERROR-LOG     /* * NOMALL-2294 BLI
+* NOMALL-2244 do WRITES after retries
+      WRITE NOTITLE NOHDR / *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Order Id' OD-ID 'received error ' G-NATRP-ERC
+      PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Error-Text:' G-NATRP-ERT /*SU9 (AL=70)
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Current Active Report' G-REPORT
+  END-DECIDE
+  IF NOT (G-NATRP-ERC =0 OR=9997) /* postpone  NOMALL-2294 BLI
+    PERFORM UNLOCK-SOURCE
+  END-IF
+  DECIDE FOR FIRST CONDITION      /* move old data to new fields
+    WHEN OD-DBID > 0 AND OD-DBID-N5 = 0
+      OD-DBID-N5 := OD-DBID
+      OD-FNR-N5  := OD-FNR
+      RESET OD-DBID OD-FNR
+    WHEN NONE IGNORE
+  END-DECIDE
+  OD-MONITOR-ID := G-MONITOR-ID
+  IF +TRACE-ORDER = 'Y' /* TRACE-ORDER found in jobcards
+    #TYPE-I := UPDATE-ORDER.OD-TYPE
+    COMPRESS 'Task' G-TASK-NUMBER *PROGRAM
+      'Order updated to:' UPDATE-ORDER.OD-ID '- type' #TYPE-I
+      'RC' G-NATRP-ERC
+      '- created'   UPDATE-ORDER.OD-TIME-CREATED
+      '- scheduled' UPDATE-ORDER.OD-TIME-SCHEDULED
+      '- retry #'   UPDATE-ORDER.OD-RETRY-COUNT TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  UPDATE (UPDOD.)
+  #UPD-CURRENT-LOAD-ORDER := TRUE /* NOMALL-2294 BLI
+*
+  IF G-NATRP-ERC = 0
+**  FNDNEXT. FIND (1) UPDATE-ORDER WITH OD-SOURCE-ID = #SOURCE-ID
+* NOMALL-2294 BLI above out, below in update all AR like below
+    FNDNEXT. FIND UPDATE-ORDER WITH OD-SOURCE-ID = #SOURCE-ID
+    WHERE OD-TYPE = OD-CREATE-AR                                      /*
+      GETNEXT. GET UPDATE-ORDER *ISN (FNDNEXT.)
+      UPDATE-ORDER.OD-TIME-SCHEDULED := *TIMX
+      UPDATE (GETNEXT.)
+    END-FIND
+  END-IF
+  END TRANSACTION
+/* load source failed so we must set all associated create-ar
+/* to failed too, so that they are cleaned up:
+  IF #UPDATE-AR-ORDERS
+    RESET #UPDATE-AR-ORDERS
+    FIND UPDATE-ORDER WITH OD-SOURCE-ID = #SOURCE-ID
+    WHERE OD-TYPE = OD-CREATE-AR                                      /*
+      UPDATE-ORDER.OD-TYPE           := OD-CREATE-AR-FAILED
+      UPDATE-ORDER.OD-TIME-SCHEDULED := *TIMX
+      UPDATE-ORDER.OD-MONITOR-ID     := G-MONITOR-ID
+      UPDATE
+      ADD 1 TO #ET-COUNT
+      IF #ET-COUNT GE 10
+        RESET #ET-COUNT
+        END TRANSACTION
+      END-IF
+    END-FIND
+    IF #ET-COUNT GT 0
+      RESET #ET-COUNT
+      END TRANSACTION
+    END-IF
+  END-IF
+  IF #RESET-ERC
+    RESET #RESET-ERC G-NATRP-ERC G-NATRP-ERT
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-CURRENT-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-CURRENT-SOURCES
+************************************************************************
+IF +G-BS2-COPY EQ FALSE
+  REPEAT
+    CALLNAT 'RMSRID-N' #SR-ID G-NATRP-ERC G-NATRP-ERT
+    UNTIL G-NATRP-ERC NE 3145
+  END-REPEAT
+  IF G-NATRP-ERC NE 0
+    RESET LG-OBJECT-NAME
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+FNDSROLD. FIND SOURCE WITH SR-ID = ORDER.OD-SOURCE-ID
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 0005
+    G-NATRP-ERT := 'Cannot update source'
+    ESCAPE BOTTOM (FNDSROLD.)
+  END-NOREC
+*
+  #SR-ID-SAVE := SR-ID
+  SR-ID       := #SR-ID
+  IF NOT +G-BS2-COPY
+  AND NOT(SR-TYPE = SEQUENTIAL-FILE-UNIX OR=DIRECT-INPUT)             /*
+    UPDATE
+  ELSE
+    DELETE
+    ESCAPE BOTTOM         /* no cleanup is done  for the source
+  END-IF
+  IF +G-CLEANUP-SPOOL AND SR-TYPE = CMASPOOL
+    GETOLD. GET SOURCE *ISN (FNDSROLD.) RESET GETOLD.SR-CONTROL-FLAG
+    GETOLD.SR-ID := #SR-ID UPDATE (GETOLD.)
+    #OD-PRM-SOURCE-ID := #SR-ID
+    PERFORM STORE-CLEANUP-ORDER
+  END-IF
+END-FIND
+*
+RESET  SOURCE.SR-ATTRIBUTES-IDENT
+SOURCE.SR-ID                := #SR-ID-SAVE
+SOURCE.SR-TYPE              := NOM-DATA-BASE
+SOURCE.SR-CONTROL-FLAG      := 'X'
+SOURCE.SR-NUMBER-OF-LINES   := #NUMBER-OF-LINES
+SOURCE.SR-RECORD-LENGTH     := #RECORD-LENGTH
+*
+RESET #SOURCE-ATTRIBUTES
+#NOMDB-FILE-IDENT          := #IDENT
+#NOMDB-ID                  := #ID
+#NOMDB-DBID                := #TARGET-DBID
+#NOMDB-FNR                 := #TARGET-FNR
+#NOMDB-ID                  := #ID
+SOURCE.SR-ATTRIBUTES-IDENT := #SOURCE-ATTRIBUTES
+SOURCE.SR-OBJECT-TYPE      := 'SR'
+SOURCE.SR-OBJECT-TIME      := *TIMX
+IF FALSE /*never executed, but field is marked as used
+  SR-SPOOL-ATTR-EXTENDED (1) := SR-SPOOL-ATTR-EXTENDED (1)
+END-IF
+STORE SOURCE
+END OF TRANSACTION
+*
+END-SUBROUTINE /* UPDATE-CURRENT-SOURCES
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SOURCE-TEXT-ID
+************************************************************************
+REPEAT
+  RESET G-NATRP-ERC G-NATRP-ERT
+  CALLNAT 'RMSTID-N' #ID G-NATRP-ERC G-NATRP-ERT
+  UNTIL G-NATRP-ERC NE 3145
+END-REPEAT
+*
+END-SUBROUTINE /* GET-SOURCE-TEXT-ID
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-SOURCE
+************************************************************************
+RESET  RETRY-POSSIBLE
+IF SOURCE.SR-TYPE EQ SEQUENTIAL-FILE-UNIX          /* BLI3
+  MOVE TRUE TO #UNIX-FILE-DELETE
+END-IF
+*
+CALLNAT 'RMSRCP-N' #ID SOURCE.SR-TYPE SOURCE.SR-ATTRIBUTES-IDENT
+  SOURCE.SR-SPOOL-ATTRIBUTES SOURCE.SR-CC-TYPE #RECORD-LENGTH
+  #NUMBER-OF-LINES #STATISTICS RECORDS-STORED RETRY-POSSIBLE
+  ORDER.OD-REP-FORMAT G-NATRP-ERC G-NATRP-ERT RETRY-ALLOWED P-TRACE
+  #ERROR-OBJECT-NAME SOURCE.SR-REMOTE-CODEPAGE #P-FILE-NAME
+  #G-TASK-NUMBER-STMP                  /* NOMALL-2294 BLI in
+IF #TRACING
+  COMPRESS 'Copy source' SR-ATTRIBUTES-IDENT G-NATRP-ERC-A G-NATRP-ERT
+    TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+IF G-NATRP-ERC NE 0 AND #UNIX-FILE-DELETE          /* BLI3
+  RESET #UNIX-FILE-DELETE
+END-IF
+*
+END-SUBROUTINE /* COPY-SOURCE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+IF NOT LFILE OR #TARGET-DBID NE #PREV-TARGET-DBID
+OR #TARGET-FNR  NE #PREV-TARGET-FNR                                   /*
+  #PREV-TARGET-DBID := #TARGET-DBID
+  #PREV-TARGET-FNR := #TARGET-FNR
+*
+  #LFILE-NEWDBID := #TARGET-DBID
+  #LFILE-NEWFILE := #TARGET-FNR
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-NEWDBID #LFILE-NEWFILE
+  IF #LFILE-RC NE 0
+    LFILE := FALSE                 /* NOMALL-2294 BLI
+    G-NATRP-ERC := 4007
+    G-NATRP-ERT := #LFILE-RC
+  ELSE
+    LFILE := TRUE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE REFRESH-LFILE
+************************************************************************
+IF LFILE
+  RESET #LFILE-RC
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+  IF #LFILE-RC NE 0
+    G-NATRP-ERC := 4008
+    G-NATRP-ERT := #LFILE-RC
+  ELSE
+    LFILE := FALSE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* REFRESH-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-LFILE
+************************************************************************
+RESET #LFILE-RC
+CALLNAT 'RMIGGFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+IF #LFILE-RC NE 0
+  G-NATRP-ERC := 4006
+  G-NATRP-ERT := #LFILE-RC
+END-IF
+*
+END-SUBROUTINE /* GET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-ERROR-LOG
+************************************************************************
+* Note: no ET in this subroutine to prevent 3144 NOMALL-2294 BLI
+IF #ERROR-OBJECT-NAME NE ' '
+  LG-OBJECT-NAME:= #ERROR-OBJECT-NAME
+  IF G-ORDER-ID NE 0
+    COMPRESS LG-OBJECT-NAME '/' G-ORDER-ID TO LG-OBJECT-NAME LEAVING NO
+  END-IF
+ELSE
+  IF G-ORDER-ID NE 0
+    LG-OBJECT-NAME := G-ORDER-ID
+  END-IF
+END-IF
+*
+IF #TRACING
+  COMPRESS 'Error log called due to:' G-NATRP-ERC G-NATRP-ERT
+    '- Line:' #LINE '- OD:' G-ORDER-ID '- Obj:' LG-OBJECT-NAME
+    TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+COMPRESS G-NATRP-ERC G-NATRP-ERT TO LG-MSG  /* NOMALL-2294 BLI
+LG-USERID := G-LG-USERID
+LG-CODE   := 'MO'
+CALLNAT 'RLOG' PL-PARMS
+IF #TRACING
+  COMPRESS 'Error: --->' G-NATRP-ERC-A LG-MSG TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* WRITE-ERROR-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOAD-LOG-RECORD
+************************************************************************
+COMPRESS '(' #IDENT '/' #TARGET-DBID '/' #TARGET-FNR ')'
+  TO LG-OBJECT-NAME LEAVING NO
+COMPRESS '4205' #NUMBER-OF-LINES LG-OBJECT-NAME #P-FILE-NAME
+  +NOD-CURRENT-NAME TO LG-MSG
+LG-OBJECT-NAME := G-ORDER-ID
+LG-USERID      := G-LG-USERID
+LG-CODE        := 'MO'
+CALLNAT 'RLOG' PL-PARMS
+*
+END-SUBROUTINE /* WRITE-LOAD-LOG-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE UNLOCK-SOURCE
+************************************************************************
+FNDSRUL. FIND SOURCE WITH SR-ID = ORDER.OD-SOURCE-ID
+  SR-RECEIPT-STAMP := ' ' /* File free for scan to be processed.
+* NOMALL-2294 2019-08-19 line above: 'S' changed to ' '
+  UPDATE (FNDSRUL.)
+  IF +TRACE-ORDER = 'Y' /* TRACE-ORDER found in jobcards
+    #TYPE-I := ORDER.OD-TYPE
+    COMPRESS 'Task' G-TASK-NUMBER *PROGRAM
+      ORDER.OD-ID 'type'  #TYPE-I 'points to source' ORDER.OD-SOURCE-ID
+      'which has been reset to ''scanned'' (S).' TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* UNLOCK-SOURCE
+*
+************************************************************************
+DEFINE SUBROUTINE STORE-CLEANUP-ORDER
+************************************************************************
+IF #TRACING
+  G-TRACE-MSG := 'write cleanup order'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+CALLNAT 'RMODID-N' ORDER.OD-ID G-NATRP-ERC G-NATRP-ERT/*getUniqueOrderId
+ORDER.OD-PARAMETER (1)    := #OD-PARAMETER
+ORDER.OD-SOURCE-ID        := #SR-ID
+ORDER.OD-TYPE             := OD-DELETE-SOURCE
+ORDER.OD-MONITOR-ID       := SOURCE.SR-MONITOR-ID
+ORDER.OD-USER-ID          := G-MONITOR-ID
+ORDER.OD-TIME-CREATED     := *TIMX
+ORDER.OD-TIME-SCHEDULED   := *TIMX
+ORDER.OD-MAX-RETRIES      := M-MAX-RETRIES
+ORDER.OD-RETRY-INTERVAL   := M-RETRY-INTERVAL
+ORDER.OD-INTERNAL-NODE-ID := +NOD-CURRENT-INTERNAL-ID
+STORE ORDER
+*
+IF #TRACING
+  COMPRESS 'store order ID=' ORDER.OD-ID TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* STORE-CLEANUP-ORDER
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  PERFORM REFRESH-LFILE
+  IF G-ORDER-ID NE 0
+    IF G-NATRP-ERC = 0  /* don't update success   BLI2 start
+      G-NATRP-ERC := 0021
+      COMPRESS *PROGRAM 'Error' *ERROR-NR 'in line' *ERROR-LINE
+        TO G-NATRP-ERT
+    END-IF              /* BLI2 end
+* try the missing update, but only once
+    PERFORM UPDATE-CURRENT-ORDER
+  END-IF
+  G-NATRP-ERC := 0021
+  CALLNAT 'C-NATERN' G-NATRP-ERT 'W'
+  PERFORM WRITE-ERROR-LOG
+  END TRANSACTION                           /* NOMALL-2294 BLI
+  PERFORM CHANGE-SPOOL-CLASS +NOD-CURRENT-ERROR-CLASS #TRACING /*RMCHJOB
+END-ERROR
+*
+END

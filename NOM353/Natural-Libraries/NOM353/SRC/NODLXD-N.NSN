@@ -1,0 +1,134 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* --------------------------------------------------------------------
+** Subprogram  NODLXD-N
+** Version    2.2.1
+** Function   NOM API Maintenance
+**                    XREF of Distribution list
+** Maintenance:
+** XSETHZ  2002-08-10   created
+** --------------------------------------------------------------------
+DEFINE DATA
+  PARAMETER USING ESMCNT-A
+  PARAMETER USING ESMINP-A
+  PARAMETER USING ESMWORKA
+  PARAMETER USING NODLXD-A
+  LOCAL
+    1 GR VIEW OF NRM-GRANTS
+      2 GR-OBJECT-TYPE
+      2 GR-USERID
+      2 GR-OBJECT-NAME
+    1 RP VIEW OF NRM-REPORTS-NEW
+      2 R-REPNAME
+      2 R-DESC
+    1 DL VIEW OF NRM-DISTRIBUTION-LIST
+      2 D-LIST-NAME
+      2 D-LIST-DESC
+    1 #IMAX1          (I4) INIT <1008>
+    1 #IMAX3          (I4) INIT <336>
+    1 #I              (I4)
+    1 #I1             (I4)
+    1 #I3             (I4)
+    1 #GR-SUPER       (A34)
+    1 REDEFINE #GR-SUPER
+      2 #TYPE         (A1)
+      2 #USERID       (A8)
+      2 #OBJ-NAME     (A25)
+    1 #J              (I4)
+    1 #J1             (I4)
+    1 #ISN            (N10)
+    1 REDEFINE #ISN
+      2 #ISN-A        (A10)
+    1 #GR-TYPES       (A1/4) INIT <'R','B','P','L'>
+END-DEFINE
+** --------------------------------------------------------------------
+RESET ES-RC NOXR-NUM-OBJ(*)
+ES-EOF := 'X'
+IF ES-NEXT-KEY-PARM(1) NE ' '
+  #J1 := VAL(ES-NEXT-KEY-PARM(1))
+  DECIDE ON FIRST VALUE OF #J1
+    VALUE 1 : 4
+      #GR-SUPER.#TYPE := #GR-TYPES(#J1)
+      #GR-SUPER.#USERID := ES-KEY-PARM(1)
+      #GR-SUPER.#OBJ-NAME := ES-NEXT-KEY-PARM(2)
+    VALUE 5 : 6
+      #ISN-A := ES-NEXT-KEY-PARM(2)
+    NONE VALUE IGNORE
+  END-DECIDE
+ELSE
+  #J1 := 1
+  #GR-SUPER.#TYPE := 'R'
+  #GR-SUPER.#USERID := ES-KEY-PARM(1)
+  #GR-SUPER.#OBJ-NAME := H'00'
+END-IF
+#I := 2
+FOR #J = #J1 TO 6
+  DECIDE ON FIRST VALUE OF #J
+    VALUE 1 : 4
+      RGR. READ GR WITH GR-SUPER = #GR-SUPER
+        IF GR-OBJECT-TYPE NE #GR-SUPER.#TYPE OR
+           GR-USERID NE #GR-SUPER.#USERID
+          ESCAPE BOTTOM (RGR.)
+        END-IF
+        #I1 := #I1 + 1
+        IF #I1 > #IMAX1
+          ES-EOF := ' '
+          ES-NEXT-KEY-PARM(1) := #J
+          ES-NEXT-KEY-PARM(2) := GR-OBJECT-NAME
+          ESCAPE ROUTINE
+        ELSE
+          #I := #I + 1
+          IF #I = 3
+            #I3 := #I3 + 1
+            RESET #I
+          END-IF
+          NOXR-GR-OBJ-NAME(#I1) := GR-OBJECT-NAME
+          NOXR-NUM-OBJ(#J) := NOXR-NUM-OBJ(#J) + 1
+        END-IF
+      END-READ
+      IF #J < 4
+        #GR-SUPER.#TYPE := #GR-TYPES(#J+1)
+        #GR-SUPER.#OBJ-NAME := H'00'
+      END-IF
+    VALUE 5
+      FRP. FIND RP WITH R-NATRPT-DIST = ES-KEY-PARM(1)
+        ACCEPT IF #ISN = 0 OR #ISN = *ISN(FRP.)
+        RESET #ISN
+        #I3 := #I3 + 1
+        IF #I3 > #IMAX3
+          ES-EOF := ' '
+          ES-NEXT-KEY-PARM(1) := 5
+          #ISN := *ISN(FRP.)
+          ES-NEXT-KEY-PARM(2) := #ISN-A
+          ESCAPE ROUTINE
+        ELSE
+          NOXR-OBJ-NAME(#I3) := R-REPNAME
+          NOXR-OBJ-DESC(#I3) := R-DESC
+          NOXR-NUM-OBJ(5) := NOXR-NUM-OBJ(5) + 1
+        END-IF
+      END-FIND
+    VALUE 6
+      FDL. FIND DL WITH D-USER-LIST = ES-KEY-PARM(1)
+        ACCEPT IF #ISN = 0 OR #ISN = *ISN(FDL.)
+        RESET #ISN
+        #I3 := #I3 + 1
+        IF #I3 > #IMAX3
+          ES-EOF := ' '
+          ES-NEXT-KEY-PARM(1) := 6
+          #ISN := *ISN(FDL.)
+          ES-NEXT-KEY-PARM(2) := #ISN-A
+          ESCAPE ROUTINE
+        ELSE
+          NOXR-OBJ-NAME(#I3) := D-LIST-NAME
+          NOXR-OBJ-DESC(#I3) := D-LIST-DESC
+          NOXR-NUM-OBJ(6) := NOXR-NUM-OBJ(6) + 1
+        END-IF
+      END-FIND
+    NONE VALUE IGNORE
+  END-DECIDE
+END-FOR
+** --------------------------------------------------------------------
+END

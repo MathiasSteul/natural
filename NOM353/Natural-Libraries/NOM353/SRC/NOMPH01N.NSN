@@ -1,0 +1,247 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMPH01N
+* Function  Add physical printer
+* Version   1.3.3
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* gw  94-10-19 s(999999) created
+* gw  96-09-06 s(999999) avoid 'NOM0117 Skeleton does not exist.'
+* gw  96-10-02 s(999999) look for skeleton in user library
+* gw  96-10-23 s(999999) avoid NOM0126 if 25 vars and all blank
+* gw  98-06-04 p(171405) DOCFORMAT sometimes overwritten by FORM
+* jvd 98-09-14 p(164220) NOM141 - NAT23
+* jvd 99-11-08 p(188663) Put an end transaction when printer is added
+* jvd 99-12-17 p(190201) Remove print messgaes
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* xsiszha 2000-09-06 (CE7760) Use old PDA NOMPH14P for version < 2.1
+*                             PDA NOMPH--P is changed for version 2.1
+* xsetggr 2005-06-30 p(265613) evaluate eom-library, eom-def-user
+* xsetggr 2007-05-18 p(289847) restore lfile if error occurs
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2009-05-26 P317780   adapt for version 32
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* raya    2012-02-01 NOMALL-1096 error-text a250 in NOMWK--P stow only
+* xsetggr 2012-08-03 NOMALL-1162 substitute variables in error msgs
+* SU1     2017-03-06 NOMALL-1961 Use new task IDs
+* fhi     2017-04-07 NOMALL-1961 Omit field PO-MONITOR
+* SU2     2019-12-23 NOMALL-2368 avoid NOM0051 (NOMPH14P changed)
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER USING NOMPH14P
+* *****
+LOCAL USING EOM----P
+LOCAL USING EOMPHM-P
+LOCAL USING EOMPHM-E
+LOCAL USING EOM----E
+LOCAL USING EOMMSG-P
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+*
+LOCAL
+1 #LFILE-CHANGED             (L)
+1 #NOM-DBID                  (N5)
+1 #NOM-FNR                   (N5)
+1 #I                         (I4)
+1 #J                         (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET NOMPH-ERROR-CODE NOMPH-ERROR-TEXT
+PERFORM GET-NOM-LFILE
+DECIDE FOR EVERY CONDITION
+  WHEN NOMPH-NOM-FNR NE 0 AND NOMPH-NOM-DBID NE 0
+    PERFORM SET-NOM-LFILE
+    #LFILE-CHANGED := TRUE
+  WHEN SATLF-ERROR-CODE = 0
+    PERFORM ADD-PHYSICAL-PRINTER
+  WHEN #LFILE-CHANGED
+    PERFORM SET-OLD-NOM-LFILE
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NOM-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'GET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+#NOM-DBID := SATLF-DBID-N5
+#NOM-FNR  := SATLF-FNR-N5
+*
+END-SUBROUTINE /* GET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'SET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := NOMPH-NOM-DBID
+SATLF-FNR-N5  := NOMPH-NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-OLD-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := #NOM-DBID
+SATLF-FNR-N5  := #NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-OLD-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-INTERNAL-API
+************************************************************************
+RESET EOMMSG-PARMS
+CALLNAT 'EOMPHM-N' EOM-PARMS EOMPHM-PARMS EOMMSG-PARMS
+*
+END-SUBROUTINE /* CALL-INTERNAL-API
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-PHYSICAL-PRINTER
+************************************************************************
+EOMPHM-I-ATTRIBUTE-TYPE := PRINTER-GENERAL-ATTRIBUTES
+EOMPHM-I-TARGET-DBID    := NOMPH-NOM-DBID
+EOMPHM-I-TARGET-FNR     := NOMPH-NOM-FNR
+EOMPHM-I-CHECK-FUNCTION := EOM-ADD
+EOMPHM-I-ID             := NOMPH-PRINTER-ID
+*
+* Add physical printer with general attributes specified in NOMPH-PARMS
+* and predefined special attributes
+*
+EOMPHM-PRINTER-TYPE     := NOMPH-PRINTER-TYPE
+EOM-FUNCTION            := EOM-ADD
+EOM-USER                := *USER
+CALLNAT 'RGETLIB' EOM-LIBRARY
+COMPRESS EOM-LIBRARY 'U' TO EOM-USER-LIBRARY LEAVING NO
+/*SU1 FIND MONITOR WITH M-MONITOR-ID = EOM-LIBRARY
+EOM-DEF-USER := F#MONITOR-USER-AUTODEF (<>) /*SU1
+EOMPHM-LOCATION         := NOMPH-LOCATION
+* EOMPHM-MONITOR-ID       := NOMPH-MONITOR-ID
+* fhi     2017-04-07 NOMALL-1961 line above out g
+EOMPHM-PRINT-PGM        := NOMPH-PRINT-PGM
+EOMPHM-JCL-SKELETON     := NOMPH-JCL-SKELETON
+EOMPHM-ESCAPE-CHAR      := NOMPH-ESCAPE-CHAR
+EOMPHM-TIME-FROM (*)    := NOMPH-TIME-FROM (*)
+EOMPHM-TIME-TO (*)      := NOMPH-TIME-TO (*)
+EOMPHM-MAX-LINES        := NOMPH-MAX-LINES
+RESET EOMPHM-ATTRIBUTES-OCC
+*
+PERFORM CALL-INTERNAL-API
+*
+IF EOMMSG-NR NE 0
+  NOMPH-ERROR-CODE := EOMMSG-NR
+  PERFORM GET-MSG-TEXT
+  ESCAPE ROUTINE
+END-IF
+END TRANSACTION
+*
+* read special attributes of physical printer and hold record
+* to  modify special attributes
+*
+EOMPHM-I-ATTRIBUTE-TYPE := PRINTER-SPECIAL-ATTRIBUTES
+EOMPHM-I-ID             := NOMPH-PRINTER-ID
+EOM-FUNCTION            := EOM-READHOLD
+*
+PERFORM CALL-INTERNAL-API
+*
+IF EOMMSG-NR NE 0
+  NOMPH-ERROR-CODE := EOMMSG-NR
+  PERFORM GET-MSG-TEXT
+  ESCAPE ROUTINE
+END-IF
+*
+* modify values of predefined special attributes to values specified
+* in NOMPH-PARMS
+*
+EOMPHM-I-ATTRIBUTE-TYPE := PRINTER-SPECIAL-ATTRIBUTES
+EOMPHM-I-ID             := NOMPH-PRINTER-ID
+EOM-FUNCTION            := EOM-MODIFY
+*
+IF EOMPHM-ATTRIBUTES-OCC > 0
+  FOR #I = 1 TO EOMPHM-ATTRIBUTES-OCC
+    IF EOMPHM-ATTR-VAR (*) = NOMPH-ATTR-VAR (#I)
+      EXAMINE FULL EOMPHM-ATTR-VAR (*) FOR FULL NOMPH-ATTR-VAR (#I)
+        GIVING INDEX #J
+      IF #J NE 0
+        EOMPHM-ATTR-DEFAULT (#J) := NOMPH-ATTR-VALUE (#I)
+      END-IF
+    ELSE
+      IF NOMPH-ATTR-VAR (#I) NE ' '
+        NOMPH-ERROR-CODE := 126
+        NOMPH-ERROR-TEXT := NOMPH-ATTR-VAR (#I)
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+  END-FOR
+END-IF
+*
+PERFORM CALL-INTERNAL-API
+*
+IF EOMMSG-NR NE 0
+  NOMPH-ERROR-CODE := EOMMSG-NR
+  PERFORM GET-MSG-TEXT
+  ESCAPE ROUTINE
+END-IF
+*
+* commit all changes
+*
+EOM-FUNCTION := EOM-COMMIT
+EOMPHM-I-ID  := NOMPH-PRINTER-ID
+PERFORM CALL-INTERNAL-API
+*
+IF EOMMSG-NR NE 0
+  NOMPH-ERROR-CODE := EOMMSG-NR
+  PERFORM GET-MSG-TEXT
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* ADD-PHYSICAL-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TEXT
+************************************************************************
+IF EOMMSG-TEXT = ' '
+  NOMPH-ERROR-TEXT := F#GETMSG (<EOMMSG-NR, EOMMSG-TOKEN(1:3)>)
+ELSE
+  NOMPH-ERROR-TEXT := EOMMSG-TEXT
+END-IF
+*
+END-SUBROUTINE /* GET-MSG-TEXT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF #LFILE-CHANGED
+    PERFORM SET-OLD-NOM-LFILE
+  END-IF
+  NOMPH-ERROR-CODE := 9101
+  CALLNAT 'C-NATERN' NOMPH-ERROR-TEXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

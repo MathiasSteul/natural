@@ -1,0 +1,55 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMSTCSC - Cleanup for statistics (Optimize for Infrastructure)
+*  Deletes all statistics data that were not updated for 90 days.
+*
+* Maintenance
+* User    yyyy-mm-dd Issue       Remark
+* --------------------------------------------------------------------- --------
+* fhi     2010-05-28 NOMALL-93   Created
+* fhi     2012-08-29 NOMALL-1195 Avoid too many Adabas calls
+* fhi     2018-04-25 NOM 3.5     NOSTATISTICS -> STATISTICS=ON
+* SU1     2024-09-02 ES-35716    deactivate O4I
+********************************************************************************
+DEFINE DATA
+LOCAL
+1 STATISTICS VIEW OF NRM-STATISTICS
+  2 SS-TIMESTAMP
+1 #TIMESTAMP             (T)
+1 #TIME-LIMIT            (T)           /* 90 days ago...
+1 #FOUND                 (L)
+1 #I                     (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+ESCAPE MODULE /*SU1
+PERFORM RMGMONPA-GET-MONPARS 'STATISTICS=ON' #FOUND
+IF NOT #FOUND
+  ESCAPE MODULE
+END-IF
+#TIME-LIMIT := *DATX - 90   /* Delete records older about 3 months
+READ STATISTICS BY SS-TIMESTAMP
+  RESET #TIMESTAMP /* If not set -> wrong timestamp format
+  IF SS-TIMESTAMP NE MASK(YYYYMMDD'-'00-2300-5900-59N)
+    MOVE EDITED SS-TIMESTAMP TO #TIMESTAMP (EM=YYYYMMDD'-'HHIISST)
+  END-IF
+  IF #TIMESTAMP > #TIME-LIMIT
+    ESCAPE ROUTINE
+  END-IF
+  DELETE
+  ADD 1 TO #I
+  IF #I > 50
+    RESET #I
+    END TRANSACTION
+  END-IF
+END-READ
+END TRANSACTION
+*
+END

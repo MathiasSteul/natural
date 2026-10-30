@@ -1,0 +1,186 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMDELSUB
+* Function  Shutdown Monitor and delete the Natural Subtasks of it
+************************************************************************
+* Parameters:
+*                 FUNCT:      In:  G=Get Monitor status
+*                                  S=Shutdown Monitor
+*                 MSG-CODE:   Out: Message number
+*                                  0 = Monitor down, MSG-TEXT
+*                                      contains monitor status text
+*                                 >0 Function 'S':
+*                                    NOM messsage number returned,
+*                                    MSG-TEXT contains message text
+*                                 >0 Function 'G':
+*                                    Monitor status number returned,
+*                                    MSG-TEXT contains status text
+*                 MSG-TEXT:   Out: Message text
+*
+*                 LANGUAGE:   In:  Language of message texts. If not
+*                                  specified: take *LANGUAGE
+*
+* Execution:
+* Function 'S':   Call RMDELSUB repeatedly until MSG-CODE is changed
+*                 from 1514 (shutdown initiated) to 0 (monitor no more
+*                 active). All other messages are error conditions.
+* Function 'G':   Call RMDELSUB once to get the status of the Monitor
+*                 as a numeric value. The values returned can be found
+*                 in RMSETSTE. MSG-TEXT contains the appropriate text
+*                 in English or German.
+************************************************************************
+* Maintenance
+* user    date       iTrac       Comment
+* ----------------------------------------------------------------------
+* fhi     2017-11-09 ES-23368    Created.
+* SU1     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU2     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+*         +                      recat for VMONIT-L M-NATRPT-DBID/-FNR
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 FUNCT                  (A1)    BY VALUE /* G=Get Monitor status,
+/*                                           S=Shutdown Monitor.
+1 MSG-CODE               (N4)    BY VALUE RESULT
+1 MSG-TEXT               (A250)  BY VALUE RESULT
+1 LANGUAGE               (N1)    BY VALUE        OPTIONAL
+1 TRACING                (L)     OPTIONAL /* NOMALL-1621 fhi in
+************************************************************************
+LOCAL USING RMTASK-P
+LOCAL USING VMONIT-L
+/*SU1 LOCAL USING VMONITUL
+LOCAL USING VUXDEF-L
+LOCAL USING RMSETSTE
+LOCAL USING RLOG-L
+LOCAL USING XXGMSG-A
+LOCAL
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU1
+  2 MF-TYPE              (A1)
+  2 MF-MONITOR-ID        (A20)
+  2 MF-MONITOR-NODE      (N5)
+* ** End of LDA VMONITUL ************ * ********** ******************
+1 #EVENT-NAME            (A8)
+1 #EVENT-MESSAGE         (A250)
+1 #WAIT-CURRENT          (N4)
+1 #MAIN-TASK             (N3)    CONST <1>
+1 #MONITOR-STATUS        (A1)
+1 REDEFINE #MONITOR-STATUS
+  2 #STATUS-B              (B1)
+1 #LANGUAGE              (N1)
+1 #LASTPROG              (A8)
+1 #FOUND                 (L)
+1 #IX                    (I4)
+1 #LINE                  (I4)
+1 #TRACING               (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF TRACING SPECIFIED
+  #TRACING  := TRACING
+END-IF
+*
+IF LANGUAGE SPECIFIED
+  #LANGUAGE := LANGUAGE
+ELSE
+  #LANGUAGE := *LANGUAGE
+END-IF
+PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG  /* NOMALL-1961 fhi in
+*
+READ (1) MF-NODE BY MF-TYPE-ID = 'MR-'
+END-READ
+IF MF-TYPE NE 'M' OR MF-MONITOR-ID NE MASK('R-')
+  RESET #FOUND
+  READ UX-NODES BY UX-SUSP-NAME STARTING FROM 'L'
+    IF UX-NODE-SUSPEND NE 'M' AND UX-NODE-SUSPEND NE 'L'
+      ESCAPE BOTTOM
+    END-IF
+    #FOUND := TRUE
+    ESCAPE BOTTOM
+  END-READ
+  IF NOT #FOUND
+    MSG-CODE := 1516
+    PERFORM WRITE-LOG
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)
+CLOSE-NATRPT. FIND NRM-MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+  IF NO RECORDS FOUND
+    MSG-CODE := 1516
+    PERFORM WRITE-LOG
+    ESCAPE ROUTINE
+  END-NOREC
+*
+  #MONITOR-STATUS := M-STATUS
+  DECIDE ON FIRST VALUE OF #STATUS-B
+    VALUES 'C','D',#EQU-NOTACTIVE,#EQU-ENDED,#EQU-CLOSED,#EQU-ABENDED,
+        #EQU-SHUTDOWN
+      RESET #STATUS-B
+    NONE VALUE
+      #STATUS-B := #EQU-UNDEFINED
+  END-DECIDE
+  MSG-CODE := #STATUS-B
+  EXAMINE #EQU-STATUS-V (*) FOR #STATUS-B GIVING INDEX #IX
+  IF #IX > 0
+    IF #LANGUAGE = 2
+      MSG-TEXT := #EQ2-STATUS-V (#IX)
+    ELSE
+      MSG-TEXT := #EQN-STATUS-V (#IX)
+    END-IF
+  ELSE
+    IF #LANGUAGE = 2
+      MSG-TEXT := 'Monitor nicht aktiv'
+    ELSE
+      MSG-TEXT := 'Monitor down'
+    END-IF
+  END-IF
+  IF FUNCT = 'G'
+    ESCAPE ROUTINE
+  END-IF
+*
+  CALLNAT 'RMSETSTN' 'D' MF-MONITOR-NODE M-NATRPT-DBID-N5
+    M-NATRPT-FNR-N5 TRUE #MAIN-TASK   /* true to shutdown task 1
+*
+  NRM-MONITOR.M-STATUS      := 'D'
+  NRM-MONITOR.M-LAST-ACTIVE := *TIMX
+  UPDATE (CLOSE-NATRPT.)
+  END TRANSACTION
+*
+  MSG-CODE := 1514
+  PERFORM WRITE-LOG
+END-FIND
+RMTASK-P.FUNCTION       := 'E'
+RMTASK-P.SUBTASK-NUMBER := 1
+#LINE                   := *LINE
+CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+#EVENT-NAME             := RMTASK-P.TASK-ID
+CALLNAT 'RMEVNT-N' MF-MONITOR-NODE #EVENT-NAME 'POST    ' #WAIT-CURRENT
+  MSG-CODE MSG-TEXT #EVENT-MESSAGE
+END TRANSACTION
+*
+************************************************************************
+* Subroutines
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG
+************************************************************************
+#XX-ERROR-CODE:= MSG-CODE
+CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+MSG-TEXT  := #XX-SHORT-TEXT
+LG-USERID := #LASTPROG
+LG-CODE   := 'MO'
+LG-MSG    := MSG-CODE
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+*
+END-SUBROUTINE /* WRITE-LOG
+*
+END

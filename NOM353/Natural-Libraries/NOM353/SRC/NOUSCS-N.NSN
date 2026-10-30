@@ -1,0 +1,349 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOUSCS-N - EOM API Copy Natural Security Users
+*
+* Maintenance:
+* XSETGGR 2005-02-05  created
+* XSETGGR 2005-04-09  modified
+* fhi     2005-04-14  NOM3107 Added Support for 7 byte jobnumbers
+* XSETGGR 2005-06-28  no err msg for error from NSCXR
+* xsetggr 2008-04-06  p(302354) prevent err due to init value of
+*                     #es-msg-nr
+* xsetggr 2012-11-15 NOMALL-89 add folder grants for default folder
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* xsetggr 2013-04-25 ES-104 implement new user profile value
+* SU2     2013-09-16 NOMALL-1281 last update user+date
+* fhi     2014-07-10 NOMALL-1440 Change default for filter setting
+* SU3     2018-05-04             NAT ERR in LUW only in english
+* CF1     2018-12-04 NOMALL-2181 Reject reserved names ADMIN, PUBLIC
+* CF2     2020-04-21 NOMALL-2405 Correct list-end criteria
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOUSCS-A
+************************************************************************
+LOCAL USING NOUSUP-L
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING VGRANT-L
+LOCAL
+1 USERS VIEW OF NRM-USERS
+  2 USER-ID
+  2 LAST-NAME
+  2 FIRST-NAME
+  2 USER-PROFILE
+  2 US-LAST-UPDATE
+  2 US-LAST-UPDATE-USER
+1 US VIEW OF NRM-USERS
+  2 USER-PROFILE
+1 DL VIEW OF NRM-DISTRIBUTION-LIST
+  2 D-LIST-NAME
+1 FOLDER VIEW OF NRM-FOLDER
+  2 FO-ID
+  2 FO-NAME
+  2 FO-USER-ID
+1 #NSCXR-PARMS
+  2 #POBJ-TYPE         (A2)     INIT <'US'>
+  2 #POBJ-ID           (A54)
+  2 #PLINKID           (A8)
+  2 #PRC               (N4)     /* CONTAINS THE RETURN CODE
+  2 #SUBTYPE           (A2)    INIT <'*'>
+  2 #PPARM             (A20)
+  2 REDEFINE #PPARM
+    3 #PNOMAP          (L)
+    3 #PSLINES         (B1)
+    3 #PRCOUNT         (B3)
+    3 #PPFKEY          (N2/1:4) /* PF-KEY ASSIGNMENTS.
+  2 #PPARM2            (A80/1:21)
+  2 REDEFINE #PPARM2 /* IF POBJ-TYPE = 'US' PARAM. IS REDEF. AS
+    3 #OBJECT          (1:21)
+      4 #OBJ-TYPE      (A4)
+      4 #OBJ-ID        (A32)
+      4 REDEFINE #OBJ-ID
+        5 #OBJ-ID-USER (A8)     /* User-ID
+      4 #OBJ-FILLER1   (A10)
+      4 #OBJ-NAME      (A32)    /* User Name
+      4 #OBJ-FILLER2   (A02)
+1 #USER-S              (A8)
+1 #I2                  (I4)
+1 #I                   (I4)
+1 I                    (I4)
+1 #J                   (I4)
+1 #IMAX                (I4)
+1 #ES-MSG-NR           (N4) /* INIT <6125>  /* header texts
+1 #ES-MSG-TXT          (A58)
+1 #NSC-ACTIVE          (L)
+1 #LIBRARY-ID          (A8)
+1 #ERROR-TYPE          (A1) INIT <'U'>
+1 #TOK                 (A50/10)
+1 #LIST                (A8)
+1 #FOLDER-NAME         (A70)
+1 #FO-USER-FO-ID       (A10)
+1 REDEFINE #FO-USER-FO-ID
+  2 #FO-USER           (A8)
+  2 #FO-ID             (B2)
+1 #FO-ID-N             (N5)
+1 REDEFINE #FO-ID-N
+  2 #FO-ID-A           (A5)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+/* check Natura Security
+CALLNAT 'NSC-ACT' #NSC-ACTIVE
+IF NOT #NSC-ACTIVE
+  #ES-MSG-NR := 0023    /* NATURAL SECURITY not installed
+  PERFORM GET-MSG-TXT
+  PERFORM ERROR
+  ESCAPE ROUTINE
+END-IF
+#LIBRARY-ID := ES-APP-SERVER-LIBRARY
+/*
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+  VALUE ' '
+    PERFORM LIST
+  VALUE 'UPD'
+    PERFORM COPY-USER
+  ANY VALUE
+    IF #ES-MSG-NR NE 0
+      BACKOUT TRANSACTION
+      PERFORM GET-MSG-TXT
+      PERFORM ERROR
+    ELSE
+      END OF TRANSACTION
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE LIST
+************************************************************************
+RESET ES-RC #ES-MSG-NR
+#IMAX := 516
+ES-EOF := 'X'
+ES-FIELD-COUNT := 4
+IF ES-NEXT-KEY-PARM(1) > ' '
+  #USER-S := ES-NEXT-KEY-PARM(1)
+ELSE
+  RESET #USER-S
+END-IF
+#OBJ-ID-USER(21) := #USER-S
+R. REPEAT
+  CALLNAT 'NSCXR' #NSCXR-PARMS
+  IF #PRC NE 0
+    IF #PRC < 0
+      #ES-MSG-NR := #PRC * (-1)
+    ELSE
+      #ES-MSG-NR  := #PRC
+    END-IF
+    RESET #LIBRARY-ID
+    #ERROR-TYPE := 'N'
+    PERFORM GET-MSG-TXT
+    #ES-MSG-NR := 5
+    COMPRESS #PRC SHORT-MSG TO #ES-MSG-TXT
+    ESCAPE BOTTOM(R.)
+  END-IF
+/*
+  FOR #I = 1 TO 21
+*     IF #OBJ-ID-USER(#I) = ' ' OR #I = 21    /* CF2
+    IF #OBJ-ID-USER(#I) = ' '                 /* CF2
+      ESCAPE BOTTOM(R.) /* #obj-id-user(21)is a key for further reading
+    END-IF
+    IF #I = 21 /* #obj-id-user(21)is a key for further reading /* CF2 ->
+      ESCAPE BOTTOM
+    END-IF                                                     /* CF2 <-
+    ADD 1 TO #I2
+    IF #I2 > #IMAX
+      ES-NEXT-KEY-PARM(1) := #OBJ-ID-USER (#I)
+      RESET ES-EOF
+      ES-NUMBER := #IMAX
+      ESCAPE BOTTOM
+    END-IF
+    NOUSCS-USERID(#I2) := #OBJ-ID-USER(#I)
+    NOUSCS-NAME(#I2)   := #OBJ-NAME (#I)
+    LIST.  FIND NUMBER DL WITH D-LIST-NAME = #OBJ-ID-USER(#I)
+    IF *NUMBER (LIST.) NE 0
+      NOUSCS-MSG(#I2) :=  'L'
+    END-IF
+    FINDNUM. FIND NUMBER USERS WITH USER-ID = #OBJ-ID-USER (#I)
+    IF *NUMBER(FINDNUM.) > 0
+      NOUSCS-MSG(#I2) := 'U'
+    END-IF
+    ES-NUMBER := #I2
+  END-FOR
+  IF #OBJ-ID-USER(21) = ' ' OR ES-NUMBER = #IMAX
+    ESCAPE BOTTOM(R.)
+  END-IF
+END-REPEAT
+IF #ES-MSG-NR NE 0
+  #LIBRARY-ID := ES-APP-SERVER-LIBRARY
+  #ERROR-TYPE := 'U'
+END-IF
+*
+END-SUBROUTINE /* LIST
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-USER
+************************************************************************
+RESET ES-RC #ES-MSG-NR
+FOR I = 1 TO ES-NUMBER
+  RESET #LIST
+/* check existance
+  FNDUS. FIND NUMBER USERS WITH USER-ID = NOUSCS-USERID(I)
+  FNDDL. FIND NUMBER DL WITH D-LIST-NAME = NOUSCS-USERID(I)
+  FNDDU. FIND DL WITH D-USER-LIST = NOUSCS-USERID(I)
+    #LIST := D-LIST-NAME
+  END-FIND
+  DECIDE FOR FIRST CONDITION
+    WHEN *NUMBER(FNDUS.) > 0
+      #ES-MSG-NR := 0771   /* user :1: already exists
+    WHEN *NUMBER(FNDDL.) > 0
+      #ES-MSG-NR  := 0751  /* Distribution list :1: already defined
+    WHEN *NUMBER(FNDDU.) > 0
+      #ES-MSG-NR := 0757   /* Member:1:of distr.list :2: already def
+    WHEN NOUSCS-USERID(I) = 'ADMIN'                              /* CF1
+      #ES-MSG-NR := 0517   /* reserved name ADMIN is not applicable
+    WHEN NOUSCS-USERID(I) = 'PUBLIC'                             /* CF1
+      #ES-MSG-NR := 0518   /* reserved name PUBLIC is not applicable
+    WHEN ANY
+      #ES-MSG-TXT := NOUSCS-USERID(I)
+      ESCAPE BOTTOM                                              /* CF1
+    WHEN NONE IGNORE
+  END-DECIDE
+  USER-ID := NOUSCS-USERID(I)
+  EXAMINE NOUSCS-NAME(I) FOR ',' GIVING POSITION IN #J
+  IF #J NE 0
+    SEPARATE NOUSCS-NAME(I) LEFT INTO USERS.FIRST-NAME
+      USERS.LAST-NAME #TOK(1:10) WITH DELIMITER ','
+  ELSE
+    MOVE LEFT JUSTIFIED NOUSCS-USERID(I) TO NOUSCS-USERID(I)
+    SEPARATE NOUSCS-NAME(I) LEFT INTO USERS.FIRST-NAME
+      USERS.LAST-NAME #TOK(1:10) WITH DELIMITER ' '
+  END-IF
+  COMPRESS USERS.LAST-NAME #TOK(1:10) INTO USERS.LAST-NAME
+  IF NOUSCS-DEFAULT-PROFILE(I) = ' '
+    PERFORM GET-PROFILE-VALUES
+    USERS.USER-PROFILE := PROFILE-STRING
+  ELSE
+    PROF. FIND US WITH USER-ID = NOUSCS-DEFAULT-PROFILE(I)
+      IF NO RECORDS FOUND
+        #ES-MSG-NR := 0002   /* Userid :1: not found
+        #ES-MSG-TXT := NOUSCS-DEFAULT-PROFILE(I)
+        ESCAPE BOTTOM(PROF.)
+      END-NOREC
+      USERS.USER-PROFILE := US.USER-PROFILE
+    END-FIND
+    IF #ES-MSG-NR NE 0
+      ESCAPE BOTTOM
+    END-IF
+  END-IF
+  US-LAST-UPDATE      := *TIMX
+  US-LAST-UPDATE-USER := ES-USER
+  STORE USERS
+  PERFORM ADD-FOLDER
+END-FOR
+*
+END-SUBROUTINE /* COPY-USER
+*
+************************************************************************
+DEFINE SUBROUTINE GET-PROFILE-VALUES
+************************************************************************
+RESET PROFILE-STRING
+PROFILE-STRING.PROF-TYPE := 'G'
+PROFILE-STRING.PROF-REPORTS := 'P'
+PROFILE-STRING.PROF-BUNDLES := 'P'
+PROFILE-STRING.PROF-LISTS := 'P'
+PROFILE-STRING.PROF-PRINTERS := 'D'
+PROFILE-STRING.PROF-AREPS := 'M'
+PROFILE-STRING.PROF-ARCHIVE := 'Y'
+PROFILE-STRING.PROF-REVIVE := 'Y'
+PROFILE-STRING.PROF-ABUNDS := 'M'
+PROFILE-STRING.PROF-FLUSH := 'N'
+PROFILE-STRING.PROF-PRINTOUTS := 'M'
+PROFILE-STRING.PROF-USERS := ' '
+PROFILE-STRING.PROF-CALENDARS := 'D'
+PROFILE-STRING.PROF-PHYSICAL := 'D'
+PROFILE-STRING.PROF-LANGUAGE := ES-LANGUAGE
+PROFILE-STRING.PROF-CONFIRM := 'Y'
+PROFILE-STRING.PROF-EDT-PREFIX := 'Y'
+PROFILE-STRING.PROF-EDT-KEYS := 'Y'
+PROFILE-STRING.PROF-EXTERNAL := 'Y'
+PROFILE-STRING.PROF-AR-FILTER-SUBSTR := 'N'
+*
+END-SUBROUTINE /* GET-PROFILE-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-FOLDER
+************************************************************************
+#ES-MSG-NR  := 8834
+PERFORM GET-MSG-TXT
+RESET #ES-MSG-NR
+#FOLDER-NAME := SHORT-MSG
+#FO-USER     := NOUSCS-USERID(I)
+#FO-ID       := 1
+FNDFO. FIND FOLDER WITH FO-USER-FO-ID = #FO-USER-FO-ID
+  IF NO RECORDS FOUND
+    FO-USER-ID := NOUSCS-USERID(I)
+    FO-ID      := 1
+    FO-NAME    := #FOLDER-NAME
+    STORE FOLDER
+    GR-OBJECT-TYPE := 'F'
+    GR-USERID      := FO-USER-ID
+    #FO-ID-N       := FO-ID
+    COMPRESS FO-USER-ID #FO-ID-A TO GR-OBJECT-NAME LEAVING NO
+    GR-OPTION(*)   := 'Y'
+    STORE GRANTS
+  END-NOREC
+END-FIND
+*
+END-SUBROUTINE /* ADD-FOLDER
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND    := #ERROR-TYPE
+NADA2000.ERROR-NUMBER   := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+NADA2000.LIBRARY        := #LIBRARY-ID
+IF *MACHINE-CLASS NE 'MAINFRAME' AND NADA2000.OBJECT-KIND='N'
+  NADA2000.OPT-LANGUAGE := 1 /*NAT LUW only english
+END-IF
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE ERROR
+************************************************************************
+ES-MSG-NR := #ES-MSG-NR
+ES-MSG-TXT := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT
+EXAMINE ES-MSG-TXT FOR ':2:' REPLACE #LIST
+ES-RC := 1
+END-SUBROUTINE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

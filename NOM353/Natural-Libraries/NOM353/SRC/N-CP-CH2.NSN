@@ -1,0 +1,79 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Program  N-CP-CH2
+* Function codepage support: check codepage against default table+help
+*
+* Version  3.5
+*
+* MAINTENANCE:
+* User ID yyyy-mm-dd itrac       Comment
+* ------- ---------- ----------- ---------------------------------------
+* SU      2017-08-29             NOM 3.5 Created
+* fhi     2018-10-29 NOMALL-2125 Use user code page tables also
+************************************************************************
+*
+DEFINE DATA
+PARAMETER
+1 CP-NAME   (A) DYNAMIC BY VALUE RESULT
+1 ERC       (N4) BY VALUE RESULT /*0=OK=found/selected or error nr
+1 ERT       (A) DYNAMIC BY VALUE RESULT OPTIONAL
+1 #OLD-CP   (A) DYNAMIC BY VALUE OPTIONAL
+************************************************************************
+LOCAL
+1 #CP-TAB    (*)
+  2 #CP-NAME (A) DYNAMIC
+  2 #CP-DESC (A) DYNAMIC
+1 #I         (I2)
+1 #CP-NO     (A) DYNAMIC  /* NOMALL-2125 fhi in
+1 #CP-DUMMY  (A) DYNAMIC  /* NOMALL-2125 fhi in
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ERC
+IF CP-NAME = ' '
+  ESCAPE ROUTINE
+END-IF
+* help:
+IF CP-NAME = SCAN '*'
+  CALLNAT 'N-CP-HLP' 'D' CP-NAME
+  IF CP-NAME = SCAN '*' /*nothing selected
+    ERC := 5
+    IF #OLD-CP SPECIFIED
+      CP-NAME := #OLD-CP
+    END-IF
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+* check:
+ERC := 1598 /*Unknown codepage :1:
+CALLNAT 'N-CP-TAB' 'D' #CP-TAB (*) /*get default CPs
+FOR #I = 1 TO *OCC(#CP-NAME)
+  IF #CP-NAME (#I) = CP-NAME
+    RESET ERC
+    ESCAPE ROUTINE
+  END-IF
+END-FOR
+* fhi     2018-10-29 NOMALL-2125 start insertion
+CALLNAT 'XXCHCKCP' '#' #CP-NO CP-NAME #CP-DUMMY ERC
+IF ERC = 0 OR = 4 /* It was found or it's a user table
+  RESET ERC
+  ESCAPE ROUTINE
+ELSE
+  ERC := 1598
+END-IF
+* fhi     2018-10-29 NOMALL-2125 end   insertion
+IF ERT SPECIFIED
+  ERT := CP-NAME
+  IF #OLD-CP SPECIFIED AND #OLD-CP NE ' '
+    CP-NAME := #OLD-CP
+  END-IF
+END-IF
+*
+END

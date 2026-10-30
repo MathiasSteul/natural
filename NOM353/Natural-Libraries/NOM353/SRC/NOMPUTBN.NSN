@@ -1,0 +1,121 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMPUTBN
+* Version   1.3
+* Function  Flush compressed buffer
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-10-13 s(999999) created
+* gw  94-12-29 p(135435) *TIMESTMP to make IDENT unique
+* mrs 95-01-31 s(218167) stowed because of a modification in rmsr---l
+* SPLILDAV 2012-06-27 NOMALL-1078 SUPPORT COMPRESSION 16K BYTE RECORDS
+* xsetggr 2012-08013 NOMALL-1192 add reading DEST from work area
+* SU1     2016-07-28 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* SU2     2020-01-08 NOMALL-2370 recat (NOMPUT-P)
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING NOMPUT-P
+* *****
+LOCAL USING RMSR---E
+LOCAL USING RMSR---L
+* -----------------------------Views------------------------------------
+LOCAL
+1 CONTAINER VIEW OF NRM-SOURCE-TEXT
+  2 ST-TYPE
+  2 ST-ID
+  2 ST-IDENT
+  2 ST-LINE-START
+  2 ST-LINE-END
+  2 ST-TEXT (1:08)
+  2 REDEFINE ST-TEXT
+    3 ST-BUFFER-LENGTH     (B2)
+  2 REDEFINE ST-TEXT
+    3 ST-B                 (A1/1:2008)
+*** NOMALL-1078 START INSERT
+*** AS OF V34, THE COMPRESSED BUFFER STARTS WITH 'V34', FOLLOWED
+*** BY THE BUFFER LENGTH (B4)
+  2 REDEFINE ST-TEXT
+    3 ST-BUFFER-PREFIX     (A3)
+    3 ST-BUFFER-LENGTH-X (B4)
+*** NOMALL-1078 END INSERT
+* -----------------------------local Variables--------------------------
+LOCAL
+1 #FROM                        (P10)
+1 #TO                          (P10)
+1 #MAX-BUFFER-LENGTH           (B2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+/*SU1 OPTIONS MCG=OFF /* <-----------
+*
+#MAX-BUFFER-LENGTH := 251 * 08
+*
+#NAF-DBID        := #NP-NAF-DBID
+#NAF-FNR         := #NP-NAF-FNR
+#NAF-USER-ID     := #NP-NAF-USER-ID
+#NAF-PNR         := #NP-NAF-PNR
+#NAF-TIME        := #TIME
+* xsetggr 2012-08-13 NOMALL-1192 insert next line
+#NAF-DEST        := #NP-NAF-DEST
+#NAF-TIMESTAMP-1 := #TIME-STAMP-1
+#NAF-TIMESTAMP-2 := #TIME-STAMP-2
+*
+CONTAINER.ST-TYPE := NAF
+IF #SOURCE-TEXT-ID = 0
+  CONTAINER.ST-IDENT := #NAF-IDENT
+ELSE
+  CONTAINER.ST-ID := #SOURCE-TEXT-ID
+END-IF
+*
+CONTAINER.ST-LINE-START   := #LINE-START
+CONTAINER.ST-LINE-END     := #LINE-END
+CONTAINER.ST-TEXT (01:08) := NOMPUT-WORK (02:09)
+*
+*** NOMALL-1078 START INSERT
+*** Erase 'tail end' of buffer
+IF CONTAINER.ST-BUFFER-PREFIX = 'V34'   /* NEW BUFFER FORMAT ?
+  IF CONTAINER.ST-BUFFER-LENGTH-X < #MAX-BUFFER-LENGTH
+    #FROM := CONTAINER.ST-BUFFER-LENGTH-X
+    #FROM := #FROM + 1 + 3         /* INCLUDE 'V34' PREFIX
+    #TO   := #MAX-BUFFER-LENGTH
+    IF #FROM LE #TO
+      RESET CONTAINER.ST-B (#FROM : #TO)
+    END-IF
+  END-IF
+ELSE
+*** NOMALL-1078 END INSERT
+  IF CONTAINER.ST-BUFFER-LENGTH < #MAX-BUFFER-LENGTH
+    #FROM := CONTAINER.ST-BUFFER-LENGTH
+    #FROM := #FROM + 1
+    #TO   := #MAX-BUFFER-LENGTH
+    RESET CONTAINER.ST-B (#FROM : #TO)
+  END-IF
+*** NOMALL-1078 INSERT 1 LINE
+END-IF
+*
+STOCO. STORE CONTAINER
+#BUFF-ISN := *ISN (STOCO.)
+*
+* WRITE '<--- store buff' #SOURCE-TEXT-ID
+*
+RESET   #LINE-START #LINE-END NOMPUT-WORK (3:09)
+NOMPUT-WORK (2) := H'00000000'
+IN-BUFFER := FALSE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  NOMPUT-ERROR-CODE := *ERROR-NR
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

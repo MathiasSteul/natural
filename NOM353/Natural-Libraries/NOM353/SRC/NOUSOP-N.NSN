@@ -1,0 +1,574 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOUSOP-N - NOM API Maintenance of users
+*
+* Maintenance:
+* XSETGGR 2004-09-07 created
+* XSETGGR 2005-01-11 modified assign-attr-values, new-record
+* fhi     2006-06-07 p(279849) Introduce new Revive profile 'M'
+* XSETGGR 2007-03-22  replace call of ES...-N to direct call of module
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-01-23 p(302721) prevent calling non-existing NOPREX-N
+* xsetggr 2008-02-27 NOM32     add user type 'P'
+* XSETHZ  2008-11-05 P299405   'sort flag' for act. rep. added
+* XSETHZ  2011-01-25 N175.2    My Desktop flags added
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* xsetggr 2012-10-14 NOMALL-89  addgrants for default folder
+* XSETHZ  2011-01-25 N175.2    My Desktop flags added
+* XSETHZ  2013-04-04 ES-104 Default filter active reports added
+* SU1     2013-09-16 NOMALL-1281 last update user+date
+* fhi     2014-07-10 NOMALL-1440 Change default for filter setting
+* CF1     2016-03-10 NOMALL-1849 List with user name already exists
+* CF2     2018-03-20 NOMALL-2089 Edit separator pages and programs
+* CF3     2018-12-04 NOMALL-2181 Reject reserved names ADMIN, PUBLIC
+* ---------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOUSOP-A
+************************************************************************
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING VUSERS-L
+LOCAL USING NOUSUP-L
+LOCAL USING RLOG-L
+LOCAL USING NOMODE-A
+LOCAL USING VGRANT-L
+*
+LOCAL
+1 FOLDER VIEW OF NRM-FOLDER
+  2 FO-ID
+  2 FO-USER-ID
+  2 FO-NAME
+1 DL VIEW OF NRM-DISTRIBUTION-LIST                    /* CF1
+1 #ES-CONTROL               (A250)
+1 #ES-INPUT-AREA            (A253/1:3)
+1 #LIBRARY-ID               (A8)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+1 #MSG-TXT                  (A70)
+1 #FOLDER-NAME              (A70)
+1 #FO-USER-FO-ID            (A10)
+1 REDEFINE #FO-USER-FO-ID
+  2 #FO-USER                (A8)
+  2 #FO-ID                  (B2)
+1 #LOG-REC                  (L)
+1 #GR-USER                  (A8)
+1 #GR-OBJECT                (A25)
+1 #MD-FLAGS                 (A3)
+1 #USER-LIB                 (A8)
+1 #FO-ID-N                  (N5)
+1 REDEFINE #FO-ID-N
+  2 #FO-ID-A                (A5)
+1 #GRANTED                  (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+* -----------------------------------------------------------------
+RESET ES-RC
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+*
+#LIBRARY-ID := ES-APP-SERVER-LIBRARY
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+NOMOD-PARMS := ES-SELECT
+IF NOMOD-SUPPORT-LONG-NAMES = ' '
+  NOMOD-SUPPORT-LONG-NAMES := 'N'
+END-IF
+*
+DECIDE ON FIRST VALUE OF ES-FUNCTION
+  VALUE 'OP'
+    DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+      VALUE ' '
+        PERFORM READ-RECORD
+      VALUE 'NEW'
+        PERFORM NEW-RECORD
+        IF ES-RC = 0
+          PERFORM WRITE-LOG-RECORD
+          END TRANSACTION
+        ELSE
+          BACKOUT TRANSACTION
+        END-IF
+      VALUE 'UPD'
+        PERFORM UPDATE-RECORD
+        IF ES-RC = 0
+          PERFORM WRITE-LOG-RECORD
+          END TRANSACTION
+        ELSE
+          BACKOUT TRANSACTION
+        END-IF
+      VALUE 'CHK'
+        PERFORM CHECK
+      NONE VALUE IGNORE
+    END-DECIDE
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-RECORD
+************************************************************************
+RESET NOUS-PARMS PROFILE-STRING
+FNDR. FIND USERS WITH USER-ID = ES-KEY-PARM(1)
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0002   /* userid :1: not defined
+    #MSG-TXT := ES-KEY-PARM(1)
+    ESCAPE BOTTOM (FNDR.)
+  END-NOREC
+  NOUS-USERID             := USER-ID
+  NOUS-FIRST-NAME         := FIRST-NAME
+  NOUS-LAST-NAME          := LAST-NAME
+  NOUS-WORK-TITLE         := WORK-TITLE
+  NOUS-WORK-ADDRESS(1:3)  := WORK-ADDRESS(1:3)
+  NOUS-WORK-CITY          := WORK-CITY
+  NOUS-WORK-COUNTRY       := WORK-COUNTRY
+  NOUS-WORK-POSTAL-CODE   := WORK-POSTAL-CODE
+  NOUS-WORK-DEPT-NUM      := WORK-DEPT-NUM
+  NOUS-WORK-DEPT-NAME     := WORK-DEPT-NAME
+  NOUS-WORK-LOCATION      := WORK-LOCATION
+  NOUS-WORK-ORGANIZATION  := WORK-ORGANIZATION
+  NOUS-WORK-PHONE-COUNTRY := WORK-PHONE-COUNTRY
+  NOUS-WORK-PHONE         := WORK-PHONE
+  NOUS-WORK-PHONE-EXT     := WORK-PHONE-EXT
+  NOUS-HOME-PHONE-COUNTRY := HOME-PHONE-COUNTRY
+  NOUS-HOME-PHONE         := HOME-PHONE
+  NOUS-PROFILE            := USER-PROFILE
+  NOUS-LAST-UPDATE-USER   := US-LAST-UPDATE-USER
+  IF US-LAST-UPDATE NE 0
+    MOVE EDITED US-LAST-UPDATE (EM=YYYYMMDDHHIISST) TO NOUS-LAST-UPDATE
+  END-IF
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* READ-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE NEW-RECORD
+************************************************************************
+RESET PROFILE-STRING
+IF NOUS-USERID = 'ADMIN' OR= 'PUBLIC'                        /* CF3 ->
+  IF NOUS-USERID = 'ADMIN'
+    #ES-MSG-NR := 0517       /* reserved name ADMIN is not applicable
+  ELSE
+    #ES-MSG-NR := 0518       /* reserved name PUBLIC is not applicable
+  END-IF
+  #ES-MSG-FIELD-NAME := 'USERID'
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF                                                     /* CF3 <-
+*
+FNNEW. FIND NUMBER USERS WITH USER-ID = NOUS-USERID
+IF *NUMBER(FNNEW.) > 0
+  #ES-MSG-NR := 0611         /*  User already exists
+  #ES-MSG-FIELD-NAME := 'USERID'
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+*                                                     /* CF1 +
+FNW. FIND NUMBER DL WITH D-LIST-NAME = NOUS-USERID
+IF *NUMBER(FNW.) NE 0
+  #ES-MSG-NR :=  0516        /* Name is already used for a List
+  #ES-MSG-FIELD-NAME := 'USERID'
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+*                                                     /* CF1 -
+* default user-profile
+IF NOUS-PROFILE = ' '
+  PROFILE-STRING.PROF-REPORTS := 'P'
+  PROFILE-STRING.PROF-BUNDLES := 'P'
+  PROFILE-STRING.PROF-PRINTERS := 'D'
+  PROFILE-STRING.PROF-AREPS := 'M'
+  PROFILE-STRING.PROF-ABUNDS := 'M'
+  PROFILE-STRING.PROF-ARCHIVE := 'Y'
+  PROFILE-STRING.PROF-REVIVE := 'Y'
+  PROFILE-STRING.PROF-FLUSH := 'N'
+  PROFILE-STRING.PROF-LISTS := 'P'
+  PROFILE-STRING.PROF-CALENDARS := 'D'
+  PROFILE-STRING.PROF-PHYSICAL := 'D'
+  PROFILE-STRING.PROF-PRINTOUTS := 'M'
+  PROFILE-STRING.PROF-TYPE := 'G'
+  PROFILE-STRING.PROF-ARCHIVE-ADMIN := 'N'
+  PROFILE-STRING.PROF-DEFAULTS := 'D'
+  PROFILE-STRING.PROF-STARTUP := 'N'
+  PROFILE-STRING.PROF-SHUTDOWN := 'N'
+  PROFILE-STRING.PROF-AUTOCOMMIT := 'E'
+  PROFILE-STRING.PROF-CONFIRM := 'Y'
+  PROFILE-STRING.PROF-EDT-PREFIX := 'Y'
+  PROFILE-STRING.PROF-EDT-KEYS := 'Y'
+  PROFILE-STRING.PROF-EXTERNAL := 'Y'
+  PROFILE-STRING.PROF-DISPLAY-LONG-NAMES := NOMOD-SUPPORT-LONG-NAMES
+  PROFILE-STRING.PROF-LANGUAGE := ES-LANGUAGE
+  PROFILE-STRING.PROF-AR-SORT  := 'D'
+  PROFILE-STRING.PROF-AR-FILTER-SUBSTR := 'N'
+  PROFILE-STRING.PROF-EDIT-SEPARATORS  := 'N'         /* CF2
+ELSE
+  PROFILE-STRING := NOUS-PROFILE
+END-IF
+PERFORM VALIDATION-S
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+NOUS-PROFILE := PROFILE-STRING
+PERFORM ASSIGN-ATTRIBUTE-VALUES
+STORE USERS
+PERFORM ADD-FOLDER
+ES-CONTROL := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+*
+END-SUBROUTINE /* NEW-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+RESET PROFILE-STRING
+FNDMOD. FIND USERS WITH USER-ID = ES-KEY-PARM(1)
+  IF NO RECORD FOUND
+    #ES-MSG-NR := 0002       /* userid :1: not defined
+    #MSG-TXT := ES-KEY-PARM(1)
+    ESCAPE BOTTOM(FNDMOD.)
+  END-NOREC
+  PROFILE-STRING := USER-PROFILE
+  #MD-FLAGS := PROF-MY-DESKTOP-OPTIONS
+  PROFILE-STRING := NOUS-PROFILE
+  PERFORM VALIDATION-S
+  PROF-MY-DESKTOP-OPTIONS := #MD-FLAGS
+  IF #ES-MSG-NR = 0
+    GETMOD. GET USERS *ISN(FNDMOD.)
+    NOUS-PROFILE := PROFILE-STRING
+    PERFORM ASSIGN-ATTRIBUTE-VALUES
+    UPDATE (GETMOD.)
+  ELSE
+    ESCAPE BOTTOM(FNDMOD.)
+  END-IF
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* UPDATE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK
+************************************************************************
+RESET PROFILE-STRING
+FND. FIND NUMBER USERS WITH USER-ID = NOUS-USERID
+DECIDE FOR FIRST CONDITION
+  WHEN *NUMBER(FND.) > 0 AND ES-ORIG-FUNCTION = 'NW'
+    #ES-MSG-NR := 0611         /*  User already exists
+    #ES-MSG-FIELD-NAME := 'USERID'
+  WHEN NONE
+    PROFILE-STRING := NOUS-PROFILE
+    PERFORM VALIDATION-S
+END-DECIDE
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* CHECK
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION-S
+************************************************************************
+PERFORM VALIDATION
+ES-CONTROL := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+*
+END-SUBROUTINE /* VALIDATION-S
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-ATTRIBUTE-VALUES
+************************************************************************
+USER-ID := NOUS-USERID
+FIRST-NAME := NOUS-FIRST-NAME
+LAST-NAME := NOUS-LAST-NAME
+WORK-TITLE := NOUS-WORK-TITLE
+WORK-ADDRESS(1:3) := NOUS-WORK-ADDRESS(1:3)
+WORK-CITY := NOUS-WORK-CITY
+WORK-COUNTRY := NOUS-WORK-COUNTRY
+WORK-POSTAL-CODE := NOUS-WORK-POSTAL-CODE
+WORK-DEPT-NUM := NOUS-WORK-DEPT-NUM
+WORK-DEPT-NAME := NOUS-WORK-DEPT-NAME
+WORK-LOCATION := NOUS-WORK-LOCATION
+WORK-ORGANIZATION := NOUS-WORK-ORGANIZATION
+WORK-PHONE-COUNTRY := NOUS-WORK-PHONE-COUNTRY
+WORK-PHONE := NOUS-WORK-PHONE
+WORK-PHONE-EXT := NOUS-WORK-PHONE-EXT
+HOME-PHONE-COUNTRY := NOUS-HOME-PHONE-COUNTRY
+HOME-PHONE := NOUS-HOME-PHONE
+USERS.USER-PROFILE := NOUS-PROFILE
+US-LAST-UPDATE      := *TIMX
+US-LAST-UPDATE-USER := ES-USER
+*
+END-SUBROUTINE /* ASSIGN-ATTRIBUTE-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+IF NOUS-USERID = ' '
+  #ES-MSG-NR := 0614  /* enter userid
+  #ES-MSG-FIELD-NAME := 'USERID'
+  ESCAPE ROUTINE
+END-IF
+IF SUBSTR(NOUS-USERID,1,1)NE MASK (A)
+AND SUBSTR(NOUS-USERID,1,1) NE MASK (0-9)                             /*
+  #ES-MSG-NR := 0022 /* User-id must start with a letter or a number
+  #ES-MSG-FIELD-NAME := 'USERID'
+  ESCAPE ROUTINE
+END-IF
+IF NOUS-FIRST-NAME =' '
+  #ES-MSG-NR := 0615   /* enter first name
+  #ES-MSG-FIELD-NAME := 'FIRST-NAME'
+  ESCAPE ROUTINE
+END-IF
+IF NOUS-LAST-NAME =' '
+  #ES-MSG-NR := 0616   /* Please enter last name
+  #ES-MSG-FIELD-NAME := 'LAST-NAME'
+  ESCAPE ROUTINE
+END-IF
+IF NOUS-WORK-PHONE-COUNTRY NE MASK (NN)
+  NOUS-WORK-PHONE-COUNTRY := 0
+END-IF
+IF NOUS-HOME-PHONE-COUNTRY NE MASK (NN)
+  NOUS-HOME-PHONE-COUNTRY := 0
+END-IF
+* validate user profile
+IF PROFILE-STRING.PROF-LANGUAGE = ' '
+  PROFILE-STRING.PROF-LANGUAGE := ES-LANGUAGE
+END-IF
+IF PROFILE-STRING.PROF-DISPLAY-LONG-NAMES = ' '
+AND NOMOD-SUPPORT-LONG-NAMES = 'Y'                                    /*
+  PROFILE-STRING.PROF-DISPLAY-LONG-NAMES := 'Y'
+END-IF
+IF PROFILE-STRING.PROF-DISPLAY-LONG-NAMES = ' '
+AND NOMOD-SUPPORT-LONG-NAMES NE 'Y'                                   /*
+  PROFILE-STRING.PROF-DISPLAY-LONG-NAMES := 'N'
+END-IF
+DECIDE FOR FIRST CONDITION
+  WHEN NOT(PROFILE-STRING.PROF-TYPE ='A' OR='G' OR='O' OR='P')
+    #ES-MSG-NR := 0620
+    #ES-MSG-FIELD-NAME := 'PROF-TYPE'
+    ESCAPE ROUTINE
+  WHEN NOT(PROFILE-STRING.PROF-LANGUAGE = '1' OR = '2')
+    #ES-MSG-NR := 0036 /* Only English (1) or German (2) are supported
+    #ES-MSG-FIELD-NAME := 'PROF-LANGUAGE'
+    ESCAPE ROUTINE
+  WHEN NOT(PROFILE-STRING.PROF-AUTOCOMMIT = 'E' OR = 'I')
+    #ES-MSG-NR := 0625  /*  Commit flag can be E(explicit),I(implicit)
+    #ES-MSG-FIELD-NAME := 'PROF-AUTOCOMMIT'
+    ESCAPE ROUTINE
+  WHEN NOT(PROFILE-STRING.PROF-DEFAULTS = 'D' OR = 'M' OR = ' ')
+    #ES-MSG-NR := 0619 /* Authorization code is D(display),M(modify)
+    #ES-MSG-FIELD-NAME := 'PROF-DEFAULTS'
+    ESCAPE ROUTINE
+  WHEN NOMOD-SUPPORT-LONG-NAMES NE 'Y'
+  AND PROFILE-STRING.PROF-DISPLAY-LONG-NAMES = 'Y'                    /*
+    #ES-MSG-NR := 0637 /* System does not support long names
+    #ES-MSG-FIELD-NAME := 'PROF-DISPLAY-LONG-NAMES'
+    ESCAPE ROUTINE
+  WHEN NOT(PROFILE-STRING.PROF-ABUN-LIST-FORMAT = '1' OR = '2' OR = ' ')
+    #ES-MSG-NR := 0007 /* Invalid selection
+    #ES-MSG-FIELD-NAME := 'PROF-ABUN-LIST-FORMAT'
+    ESCAPE ROUTINE
+  WHEN NOT(PROFILE-STRING.PROF-AR-SORT = 'D' OR = 'N')
+    #ES-MSG-NR := 0682
+    #ES-MSG-FIELD-NAME := 'PROF-AR-SORT'
+  WHEN NOT(PROFILE-STRING.PROF-AR-FILTER-SUBSTR = 'Y' OR = 'N')
+    PROFILE-STRING.PROF-AR-FILTER-SUBSTR := 'N'
+  WHEN NONE IGNORE
+END-DECIDE
+DECIDE FOR FIRST CONDITION
+  WHEN NOT(PROFILE-STRING.PROF-EXTERNAL = 'Y' OR = 'N' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-EXTERNAL'
+  WHEN NOT(PROFILE-STRING.PROF-CONFIRM = ' ' OR = 'Y' OR = 'N')
+    #ES-MSG-FIELD-NAME := 'PROF-CONFIRM'
+  WHEN NOT(PROFILE-STRING.PROF-EDT-PREFIX = 'Y' OR = 'N' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-EDT-PREFIX'
+  WHEN NOT(PROFILE-STRING.PROF-EDT-KEYS = 'Y' OR = 'N' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-EDT-KEYS'
+  WHEN NOT(PROFILE-STRING.PROF-ARCHIVE = 'Y' OR = 'N' OR = 'M' OR = ' ') /* P279849+'M'
+    #ES-MSG-FIELD-NAME := 'PROF-ARCHIVE'
+  WHEN NOT(PROFILE-STRING.PROF-REVIVE = 'Y' OR = 'N' OR = 'M' OR = ' ') /* P279849+'M'
+    #ES-MSG-FIELD-NAME := 'PROF-REVIVE'
+  WHEN NOT(PROFILE-STRING.PROF-FLUSH = 'Y' OR = 'N' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-FLUSH'
+  WHEN NOT(PROFILE-STRING.PROF-ARCHIVE-ADMIN = 'Y' OR = 'N')
+    #ES-MSG-FIELD-NAME := 'PROF-ARCHIVE-ADMIN'
+  WHEN NOT(PROFILE-STRING.PROF-RESTRICT-ABUN = 'Y' OR = 'N' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-RESTRICT-ABUN'
+  WHEN NOT(PROFILE-STRING.PROF-DISPLAY-LONG-NAMES ='Y' OR ='N' OR =' ')
+    #ES-MSG-FIELD-NAME := 'PROF-DISPLAY-LONG-NAMES'
+  WHEN NOT(PROFILE-STRING.PROF-STARTUP = 'Y' OR = 'N' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-STARTUP'
+  WHEN NOT(PROFILE-STRING.PROF-SHUTDOWN = 'Y' OR = 'N' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-SHUTDOWN'
+  WHEN NOT(PROFILE-STRING.PROF-DISPLAY-MONITOR = 'Y' OR = 'N' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-DISPLAY-MONITOR'
+  WHEN NOT(PROFILE-STRING.PROF-EDIT-SEPARATORS = 'Y' OR = 'N')  /* CF2
+    #ES-MSG-FIELD-NAME := 'PROF-EDIT-SEPARATORS'                /* CF2
+  WHEN ANY
+    #ES-MSG-NR := 0618 /*  Authorization code is Y(yes)or N(no)
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+DECIDE FOR FIRST CONDITION
+  WHEN NOT(PROFILE-STRING.PROF-REPORTS = 'D' OR = 'M' OR = 'P' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-REPORTS'
+  WHEN NOT(PROFILE-STRING.PROF-BUNDLES = 'D' OR = 'M' OR = 'P' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-BUNDLES'
+  WHEN NOT(PROFILE-STRING.PROF-LISTS = 'D' OR = 'M' OR = 'P' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-LISTS'
+ WHEN NOT(PROFILE-STRING.PROF-PRINTERS = 'D' OR = 'M' OR = 'P' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-PRINTERS'
+  WHEN NOT(PROFILE-STRING.PROF-AREPS = 'D' OR = 'M' OR = 'P' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-AREPS'
+  WHEN NOT(PROFILE-STRING.PROF-ABUNDS = 'D' OR = 'M' OR = 'P' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-ABUNDS'
+  WHEN NOT(PROFILE-STRING.PROF-PRINTOUTS = 'D' OR = 'M'
+      OR = 'P' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-PRINTOUTS'
+  WHEN NOT(PROFILE-STRING.PROF-PHYSICAL = 'D' OR = 'M'
+      OR = 'P' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-PHYSICAL'
+  WHEN NOT(PROFILE-STRING.PROF-CALENDARS = 'D' OR = 'M'
+      OR = 'P' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-CALENDARS'
+  WHEN NOT(PROFILE-STRING.PROF-USERS = 'D' OR = 'M' OR = 'P' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-USERS'
+  WHEN NOT(PROFILE-STRING.PROF-NODES = 'D' OR = 'M' OR = 'P' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-NODES'
+  WHEN NOT(PROFILE-STRING.PROF-DEST = 'D' OR = 'M' OR = 'P' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-DEST'
+ WHEN NOT(PROFILE-STRING.PROF-LOCATION = 'D' OR = 'M' OR = 'P' OR = ' ')
+    #ES-MSG-FIELD-NAME := 'PROF-LOCATION'
+  WHEN ANY
+    #ES-MSG-NR := 0617 /* Code is D(display),M(modify),P(purge)
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+/* check prof printer existance
+IF PROFILE-STRING.PROF-PRINTER NE ' ' /* check if the currently modified
+  ES-KEY-PARM(1) := PROFILE-STRING.PROF-PRINTER
+  ES-OBJECT := 'PR'
+  ES-FUNCTION := 'EX'
+  CALLNAT 'NOXXEX-N' ES-CONTROL ES-INPUT
+  IF ES-RC NE 0
+    #ES-MSG-NR := 0770  /* Printer :1: is not defined
+    #ES-MSG-FIELD-NAME  := 'PROF-PRINTER'
+    #MSG-TXT := PROFILE-STRING.PROF-PRINTER
+    ESCAPE ROUTINE
+  END-IF
+  IF ES-USER-TYPE NE 'A'
+    #GR-OBJECT := PROFILE-STRING.PROF-PRINTER
+    CALLNAT 'NOGRRU-N'
+      'P' #GR-OBJECT ES-USER #GR-USER #GRANTED
+    IF NOT  #GRANTED
+      #ES-MSG-NR := 1090 /* You are not authorized for this Printer
+      #ES-MSG-FIELD-NAME  := 'PROF-PRINTER'
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-FOLDER
+************************************************************************
+#ES-MSG-NR := 8834
+#LOG-REC := TRUE
+PERFORM GET-MSG-TXT
+#FOLDER-NAME := SHORT-MSG
+RESET #ES-MSG-NR #LOG-REC
+#FO-USER := NOUS-USERID
+#FO-ID   := 1
+FNDFO. FIND FOLDER WITH FO-USER-FO-ID = #FO-USER-FO-ID
+  IF NO RECORDS FOUND
+    FO-USER-ID := NOUS-USERID
+    FO-ID      := 1
+    FO-NAME    := #FOLDER-NAME
+    STORE FOLDER
+    #FO-ID-N  := FO-ID
+    GR-OBJECT-TYPE := 'F'
+    COMPRESS NOUS-USERID #FO-ID-A TO GR-OBJECT-NAME LEAVING NO
+    GR-USERID      := NOUS-USERID
+    GR-OPTION(*)   := 'Y'
+    STORE GRANTS
+  END-NOREC
+END-FIND
+*
+END-SUBROUTINE /* ADD-FOLDER
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+DECIDE ON FIRST ES-EXTEND-FUNCTION
+  VALUE 'NEW'
+    COMPRESS '0765' NOUS-USERID TO LG-MSG
+  VALUE 'UPD'
+    COMPRESS '0766' NOUS-USERID TO LG-MSG
+  ANY VALUE
+    LG-USERID      := ES-USER
+    LG-CODE        := 'UM'
+    LG-OBJECT-NAME := NOUS-USERID
+    CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+  NONE VALUE IGNORE
+END-DECIDE
+* RESET #LOG-REC
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+* IF NOT #LOG-REC
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+IF ES-MSG-NR = 0770 OR = 0002
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #MSG-TXT
+END-IF
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+ES-MSG-FIELD := #ES-MSG-FIELD
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+END

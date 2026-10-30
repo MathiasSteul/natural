@@ -1,0 +1,464 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RLISUDA - List NOM User-defined archive types
+*
+* Maintenance
+* UUU YY-MM-DD Sagsis Desciption
+* --- -------- ------ --------------------------------------------------
+* sju 02-03-11 NOM221 created
+* fhi     2010-03-05 P307403 Don't use text and binary reports mixed
+* xsetggr 2010-03-16 P307403 restow - RPFKEX-C is changed back
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* SU1     2013-07-17 remove empty copy code CSTARTLS
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL  USING RLC----L
+LOCAL  USING RPFK---L
+LOCAL  USING ROT----L
+LOCAL  USING VUSARC-L
+LOCAL
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+1 NRM-ARCHIVE-DATASET VIEW OF NRM-ARCHIVE-DATASET
+  2 AD-ARCHIVE-DSNAME
+1 NRM-ACTIVE-REPORTS VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+*
+1 #NOFLINES                    (P2) INIT <9>
+1 #NOFPAGES                    (P2) INIT <1>
+1 #END-OF-DATA                 (L)
+1 #PAGES                       (A10/10)
+1 #CP                          (P3)
+1 #MAXP                        (P3)
+1 #MAXAP                       (P3)
+1 #NEWVAL                      (L)
+1 #BACKWARD                    (L)
+1 #FORWARD                     (L)
+1 #TOP                         (L)
+1 #BOT                         (L)
+1 DISPLAY-IT                   (L)
+1 GET-SCREEN                   (L)
+1 #RSTART                      (A10)
+1 #LAST-KEY                    (A10)
+1 REDEFINE #LAST-KEY
+  2 #LAST-KEY-TEXT             (A7)
+  2 #LAST-USERARC-NUM          (N2)
+1 L-SCREEN                     (9)
+  2 L-IDENT                    (I2)
+  2 L-USERARC-NUMBER           (N3)
+  2 L-USERARC-NAME             (A8)
+  2 L-USERARC-DESC             (A50)
+  2 L-MONITOR-ID               (A10)
+  2 L-ISN                      (P10)
+1 L-LCMD                       (9)
+  2 L-MARK                     (A2)
+  2 CV-MARK                    (C)
+1 L-HEADER                     (A78)
+1 I                            (N5)
+1 #CONFIRMED                   (L)
+1 #ALLOWED                     (L)
+1 #UPDATE                      (L)
+1 #DELETE                      (L)
+1 #FATHER-PROG                 (A8) INIT <'RDEFAV'>
+1 CV-SELECTION                 (C/1)
+1 REDEFINE CV-SELECTION
+  2 CV-SPID                    (C)
+1 CV-LINES                     (C)
+1 #ADD-PROGRAM                 (A8)
+1 #ACT-MAST                    (A8)
+1 F                            (P2)
+1 #LANGUAGE                    (I1)
+1 #OBJECT-NAME                 (A32)
+1 LOWER-CASE                   (L) CONST <FALSE>
+1 L-XREF-SCREEN                (3)
+  2 L-XREF-MARK                (A1)
+  2 L-XREF-NUMBER              (P10)
+  2 #XREF-CV                   (C)
+1 #XREF-NAME                   (A8)
+1 END-OF-DISPLAY               (L)
+1 #XREF-OBJECT                 (A44/15)
+1 #XREF-OBJECT-IND             (I2)
+1 #XREF-PAGE-SIZE              (I2) CONST <15>
+1 #OBJ                         (A50)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#ADD-PROGRAM := 'RDEFUDA'
+INCLUDE CVIDEO
+RESET G-COMMIT
+CALLNAT 'NARPSEC' G-USER-PROFILE 'DMO'#ALLOWED
+INCLUDE C-NALLOW
+*
+CALLNAT 'NARPSEC' G-USER-PROFILE 'MMO' #UPDATE
+CALLNAT 'NARPSEC' G-USER-PROFILE 'PMO' #DELETE
+*
+G-C-OBJTYPE := 'MONITOR'
+#NEWVAL := TRUE
+*
+MAIN-LOOP. REPEAT
+  PERFORM GET-SCREEN
+  RESET GET-SCREEN
+  INCLUDE C-TOPBOT
+  IF #LANGUAGE NE *LANGUAGE
+    #LANGUAGE := *LANGUAGE
+    CALLNAT 'ROTINI-N' ##EQO-ARCHIVE-TYPE G-OBJ-TYPE G-OTB
+    PERFORM INIT-PFKEYS
+    PERFORM INIT-LINECOM
+  END-IF
+  PERFORM SET-PFKEYS
+*
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RLISUDA&'
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'WB'
+  IF L-USERARC-NUMBER(9) GT 0
+    SET KEY PF2 NAMED OFF
+  END-IF
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+    USING MAP 'RLISUDA&'
+  RESET G-NATRP-ERC G-NATRP-ERT
+  INCLUDE RPFKVA-C
+  IF G-PF-FUNC = 'ADD'
+    IF L-USERARC-NUMBER(9) GT 0
+      ESCAPE TOP
+    END-IF
+    #NEWVAL := TRUE
+  ELSE
+    RESET #NEWVAL
+  END-IF
+  INCLUDE C-DIRECT
+  RESET #FORWARD #BACKWARD
+  INCLUDE RPFKEX-C
+  PERFORM LINE-COMMANDS
+  GET-SCREEN := TRUE
+*
+END-REPEAT
+*
+RESET G-NATRP-ERT G-NATRP-ERC
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SCREEN
+************************************************************************
+IF G-DIRECT-COMMAND = 'TOP'
+  #TOP := TRUE
+END-IF
+RESET L-MARK(*) G-NATRP-ERT
+DECIDE FOR EVERY  CONDITION
+  WHEN #NEWVAL OR #TOP
+    RESET #PAGES(*) #MAXP #MAXAP
+    #CP := #MAXAP := 1
+  WHEN #BOT
+    #CP := #MAXAP
+  WHEN #FORWARD
+    IF #END-OF-DATA
+      ESCAPE ROUTINE
+    END-IF
+    IF #CP = #NOFPAGES
+      #PAGES(1 : #NOFPAGES - 1) := #PAGES(2 : #NOFPAGES)
+      RESET #PAGES(#CP)
+      #PAGES(#CP) := #LAST-KEY
+    ELSE
+      ADD 1 TO #CP
+      IF #CP > #MAXAP
+        #PAGES(#CP) := #LAST-KEY
+      END-IF
+    END-IF
+  WHEN #BACKWARD
+    IF #CP GE 2
+      SUBTRACT 1 FROM #CP
+    END-IF
+  WHEN GET-SCREEN IGNORE
+  WHEN NONE ESCAPE ROUTINE
+END-DECIDE
+*
+IF #CP >= #MAXAP
+  #MAXAP := #CP
+END-IF
+*
+#RSTART := #PAGES(#CP)
+*
+RESET I L-SCREEN(*) #END-OF-DATA
+CV-MARK(*) := (AD=P)
+*
+IF #RSTART = ' '
+  #RSTART := 'USERARC'
+END-IF
+*
+READ-LOOP. READ NRM-USER-DEFINED-ARCHIVE BY M-MONITOR-ID = #RSTART
+  IF M-MONITOR-ID NE MASK ('USERARC'NN)
+    #END-OF-DATA := TRUE
+    ESCAPE BOTTOM
+  END-IF
+
+  DISPLAY-IT := TRUE
+
+  REJECT IF NOT DISPLAY-IT
+
+  ADD 1 TO I
+  IF I > #NOFLINES
+    #LAST-KEY := M-MONITOR-ID
+    ESCAPE ROUTINE
+  END-IF
+  IF I = 1
+    #PAGES(#CP) := M-MONITOR-ID
+  END-IF
+  RESET CV-MARK(I)
+  #LAST-KEY            := M-MONITOR-ID
+  L-USERARC-NUMBER (I) := #LAST-USERARC-NUM
+  L-USERARC-NAME   (I) := M-USERARC-NAME
+  L-USERARC-DESC   (I) := M-USERARC-DESCRIPTION
+  L-MONITOR-ID     (I) := M-MONITOR-ID
+  L-ISN            (I) := *ISN (READ-LOOP.)
+  RESET CV-MARK(I)
+END-READ
+#END-OF-DATA := TRUE
+#MAXP := #CP
+*
+END-SUBROUTINE /* GET-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE LINE-COMMANDS
+************************************************************************
+IF L-MARK(*) = '.'
+  INCLUDE C-ESCAPE
+END-IF
+RESET L-IDENT (*)
+INCLUDE RLCMTI-C
+FOR I 1 TO #NOFLINES
+  DECIDE ON EVERY VALUE OF L-IDENT (I)
+    VALUE ##EQU-RENAME
+      IF NOT #UPDATE
+        REINPUT *0020 MARK *L-MARK(I) ALARM
+      END-IF
+    VALUE ##EQU-DELETE
+      IF NOT #DELETE
+        REINPUT *0020 MARK *L-MARK(I) ALARM
+      END-IF
+      FIND NUMBER REPORTS WITH R-ARCHIVE-TYPE = L-USERARC-NUMBER(I)
+      IF *NUMBER GT 0
+        G-NATRP-ERC:= 1111
+        ESCAPE ROUTINE
+      END-IF
+      FIND NUMBER NRM-ARCHIVE-DATASET WITH AD-ARCHIVE-TYPE
+        = L-USERARC-NUMBER(I)
+      IF *NUMBER GT 0
+        G-NATRP-ERC:= 1111
+        ESCAPE ROUTINE
+      END-IF
+      FIND NUMBER NRM-ACTIVE-REPORTS WITH AR-ARCHIVE-TYPE
+        = L-USERARC-NUMBER(I)
+      IF *NUMBER GT 0
+        G-NATRP-ERC:= 1111
+        ESCAPE ROUTINE
+      END-IF
+    NONE IGNORE /*VALUE ##EQU-MODIFY, ##EQU-DISPLAY, ##EQU-XREF
+  END-DECIDE
+END-FOR
+* ---------------------------------------- delete commands ------------
+FOR I 1 TO #NOFLINES
+  IF L-IDENT(I) = ##EQU-DELETE
+    IF G-CONFIRM
+      G-NATRP-ERC := 0017
+      #OBJECT-NAME := L-USERARC-NAME (I)
+      CALLNAT 'N-CNFRM' #OBJECT-NAME 'M' G-DISPLAY-LONG-NAMES
+        #CONFIRMED G-NATRP-ERT LOWER-CASE
+    ELSE
+      #CONFIRMED := TRUE
+    END-IF
+    IF #CONFIRMED
+      GET NRM-USER-DEFINED-ARCHIVE L-ISN(I)
+      DELETE RECORD
+      #OBJ := M-MONITOR-ID
+      PERFORM RMLOGDEL #OBJ 'USER-DEF-ARCHIVE'
+      G-NATRP-ERC := 0018
+      INCLUDE L-COMMIT
+    END-IF
+  END-IF
+END-FOR
+* ---------------------------------------- other line commands --------
+FOR I 1 TO #NOFLINES
+  DECIDE ON EVERY VALUE OF L-IDENT (I)
+    VALUE ##EQU-DISPLAY
+      G-C-FUNC := 'D'
+      FETCH RETURN #ADD-PROGRAM L-MONITOR-ID (I)
+    VALUE ##EQU-MODIFY
+      IF NOT #UPDATE /*OR NOT (L-OPTION(I,1) = 'Y' OR L-OPTION(I,2)= 'Y'
+        G-C-FUNC := 'D'
+      ELSE
+        G-C-FUNC := 'M'
+      END-IF
+      PERFORM COMMIT-WORK
+      FETCH RETURN #ADD-PROGRAM L-MONITOR-ID (I)
+    VALUE ##EQU-XREF
+      PERFORM XREF-USER-DEFINED-ARCHIVE
+    VALUE ##EQU-RENAME
+      FETCH RETURN 'RRENUDA' L-MONITOR-ID (I) L-USERARC-NAME(I)
+      PERFORM INIT-LINECOM
+      GET-SCREEN := TRUE
+    NONE
+      IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* LINE-COMMANDS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-LINECOM
+************************************************************************
+G-LC-IDENT (01) := ##EQU-DISPLAY
+G-LC-IDENT (02) := ##EQU-MODIFY
+G-LC-IDENT (03) := ##EQU-DELETE
+G-LC-IDENT (04) := ##EQU-RENAME
+G-LC-IDENT (05) := ##EQU-XREF
+G-LC-NUM               := 5
+CALLNAT 'RLCINI-N' G-OBJ-TYPE G-LC G-LCB
+INCLUDE RMVHLP-C
+CALLNAT 'RFLIPG-N' G-LC G-LINECOM (*)
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFADD-C
+INCLUDE RPFBRW-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE XREF-USER-DEFINED-ARCHIVE
+************************************************************************
+#XREF-NAME:= L-USERARC-NAME(I)
+RESET #XREF-CV(*)
+FIND NUMBER REPORTS WITH R-ARCHIVE-TYPE = L-USERARC-NUMBER (I)
+L-XREF-NUMBER(1):= *NUMBER
+IF L-XREF-NUMBER(1) = 0
+  #XREF-CV(1) := (AD=NP)
+END-IF
+FIND NUMBER NRM-ACTIVE-REPORTS WITH AR-ARCHIVE-TYPE =
+  L-USERARC-NUMBER (I)
+L-XREF-NUMBER(2):= *NUMBER
+IF L-XREF-NUMBER(2) = 0
+  #XREF-CV(2) := (AD=NP)
+END-IF
+FIND NUMBER NRM-ARCHIVE-DATASET WITH AD-ARCHIVE-TYPE =
+  L-USERARC-NUMBER (I)
+L-XREF-NUMBER(3):= *NUMBER
+IF L-XREF-NUMBER(3) = 0
+  #XREF-CV(3) := (AD=NP)
+END-IF
+RESET END-OF-DISPLAY
+REPEAT
+  RESET L-XREF-MARK(*)
+  SET CONTROL 'WFL55C16B02/07'
+  SET CONTROL'Y41'
+  INPUT USING MAP 'RXRUDAM&'
+  IF *PF-KEY = 'PF3'
+    END-OF-DISPLAY := TRUE
+  ELSE
+    IF L-XREF-MARK(1) NE ' '
+      PERFORM SHOW-REPORTS
+    END-IF
+    IF L-XREF-MARK(2) NE ' '
+      PERFORM SHOW-ACTIVE-REPORTS
+    END-IF
+    IF L-XREF-MARK(3) NE ' '
+      PERFORM SHOW-ARCHIVE-DATASETS
+    END-IF
+  END-IF
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+SET CONTROL 'WMB'
+SET CONTROL 'YB'
+*
+END-SUBROUTINE /* XREF-USER-DEFINED-ARCHIVE
+*
+************************************************************************
+DEFINE SUBROUTINE SHOW-REPORTS
+************************************************************************
+RESET #XREF-OBJECT(*) #XREF-OBJECT-IND
+FIND REPORTS WITH R-ARCHIVE-TYPE=L-USERARC-NUMBER(I) SORTED BY R-REPNAME
+  ADD 1 TO #XREF-OBJECT-IND
+  #XREF-OBJECT(#XREF-OBJECT-IND):= R-REPNAME
+  IF #XREF-OBJECT-IND = #XREF-PAGE-SIZE
+    SET CONTROL 'WFL55C24B01/25'
+    INPUT USING MAP 'RXRUDA2&'
+    IF *PF-KEY = 'PF3'
+      ESCAPE ROUTINE
+    END-IF
+    RESET #XREF-OBJECT(*) #XREF-OBJECT-IND
+  END-IF
+END-FIND
+IF #XREF-OBJECT-IND GT 0
+  SET CONTROL 'WFL55C24B01/25'
+  INPUT USING MAP 'RXRUDA2&'
+END-IF
+*
+END-SUBROUTINE /* SHOW-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE SHOW-ACTIVE-REPORTS
+************************************************************************
+RESET #XREF-OBJECT(*) #XREF-OBJECT-IND
+FIND NRM-ACTIVE-REPORTS WITH AR-ARCHIVE-TYPE = L-USERARC-NUMBER(I)
+    SORTED BY AR-REPORT-RNB
+  ADD 1 TO #XREF-OBJECT-IND
+  COMPRESS AR-REPNAME '/' AR-REPRNB INTO
+    #XREF-OBJECT(#XREF-OBJECT-IND) LEAVING NO
+  IF #XREF-OBJECT-IND = #XREF-PAGE-SIZE
+    SET CONTROL 'WFL55C24B01/25'
+    INPUT USING MAP 'RXRUDA2&'
+    IF *PF-KEY = 'PF3'
+      ESCAPE ROUTINE
+    END-IF
+    RESET #XREF-OBJECT(*) #XREF-OBJECT-IND
+  END-IF
+END-FIND
+IF #XREF-OBJECT-IND GT 0
+  SET CONTROL 'WFL55C24B01/25'
+  INPUT USING MAP 'RXRUDA2&'
+END-IF
+*
+END-SUBROUTINE /* SHOW-ACTIVE-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE SHOW-ARCHIVE-DATASETS
+************************************************************************
+RESET #XREF-OBJECT(*) #XREF-OBJECT-IND
+FIND NRM-ARCHIVE-DATASET WITH AD-ARCHIVE-TYPE = L-USERARC-NUMBER(I)
+    SORTED BY AD-ARCHIVE-DSNAME
+  ADD 1 TO #XREF-OBJECT-IND
+  #XREF-OBJECT(#XREF-OBJECT-IND):= AD-ARCHIVE-DSNAME
+  IF #XREF-OBJECT-IND = #XREF-PAGE-SIZE
+    SET CONTROL 'WFL55C24B01/25'
+    INPUT USING MAP 'RXRUDA2&'
+    IF *PF-KEY = 'PF3'
+      ESCAPE ROUTINE
+    END-IF
+    RESET #XREF-OBJECT(*) #XREF-OBJECT-IND
+  END-IF
+END-FIND
+IF #XREF-OBJECT-IND GT 0
+  SET CONTROL 'WFL55C24B01/25'
+  INPUT USING MAP 'RXRUDA2&'
+END-IF
+*
+END-SUBROUTINE /* SHOW-ARCHIVE-DATASETS
+*
+INCLUDE RPFSET-C /* set pfkeys
+*
+END

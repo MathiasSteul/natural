@@ -1,0 +1,252 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ----------------------------------------------------------------------
+* Subprogram  NOMTLT-N
+* Version     3.5.0
+* Function    NOM API List of Monitor tasks
+*
+*             = Reworked for version 3.5.0 =
+*
+* Maintenance:
+* XSETGGR 2004-11-02 created
+* XSETGGR 2005-09-12 add option 'MS' when minitor is already started
+* XSETGGR 2006-03-06 add language parameter to NATA2000 call
+* XSETGGR 2006-03-07 main task take over subtasks action only if active
+* XSETGGR 2007-03-22 replace call of ES...-N to direct call of module
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* XSETHZ  2008-12-03 p(312125) date format and options
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* XSETHZ  2011-02-15 NOMALL-951
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* CF1     2015-06-01 NOMALL-1437 Allow functions as in NOM
+* CF2     2016-08-24 NOMALL-1910 Set access rights via NOPERM-N only
+* fhi     2016-11-11 NOMALL-1961 Duplicate monitor copy task
+* CF      2017-11-29 NOMALL-2055 Adapt to increased SubTask number
+* SU2     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOMTLT-A
+************************************************************************
+LOCAL USING NOMMTS-A
+LOCAL USING VSUBT-L
+LOCAL USING RMSETSTE
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING NOUSUP-L
+LOCAL USING RMTASK-P            /* NOMALL-1961 fhi in
+LOCAL
+1 MONITOR VIEW OF NRM-MONITOR
+  2 M-WAIT-MINIMUM
+  2 M-WAIT-MAXIMUM
+  2 M-WAIT-INCREMENT
+  2 M-WAIT-CURRENT
+  2 M-MONITOR-TASKS
+  2 REDEFINE M-MONITOR-TASKS
+    3 M-TASK-NUMBER      (N3/1:12)
+  2 REDEFINE M-MONITOR-TASKS
+    3 M-SPOOL-QUEUE      (N3)
+    3 M-COPY-SOURCE      (N3)
+    3 M-CREATE-REPORTS   (N3)
+    3 M-MANAGE-PRINTOUTS (N3)
+1 USERS VIEW OF NRM-USERS
+  2 USER-PROFILE
+/*
+1 #TASK-ID-E             (A16)
+1 #MAX-TASKS             (I1)   INIT <59>
+1 #I2                    (I4)
+1 #LI                    (I4)
+1 #I                     (I1)
+1 #COPY-SUB              (I1)
+1 #ES-MSG-PREF           (A7)   INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM          (A3)
+  2 #ES-MSG-NR           (N4)
+1 #HEADER-NR             (N4)   CONST <6120>
+1 #ES-INPUT-AREA         (A253/1:3)
+1 #ES-CONTROL            (A253)
+1 #TT                    (T)
+1 #OPTIONS               (A2/1:10)
+/*
+END-DEFINE
+/*
+************************************************************************
+* Main line
+************************************************************************
+/*
+RESET ES-RC ES-NUMBER NOMTLT-PARMS
+/*
+#ES-CONTROL       := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+/*
+FIND USERS WITH USER-ID = ES-USER
+  PROFILE-STRING := USERS.USER-PROFILE
+END-FIND
+#ES-MSG-NR := #HEADER-NR
+PERFORM GET-MSG-TXT
+NOMTLT-HEADER(1:8) := LONG-MSG(1:8)
+/*
+/* Get status of Monitor-Tasks
+/*
+ES-OBJECT   := 'MM'
+ES-FUNCTION := 'TS'
+RESET ES-INPUT-AREA(*)
+CALLNAT 'NOMMTS-N' ES-CONTROL ES-INPUT-AREA(*) NOMM-PARMS
+IF ES-RC NE 0
+  ESCAPE ROUTINE
+END-IF
+ES-CONTROL       := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+/*
+/* Read main task data
+/*
+RMTASK-P.FUNCTION       := 'S'
+RMTASK-P.SUBTASK-NUMBER := 1
+CALLNAT 'RMTASKID' RMTASK-P
+FNDMO. FIND MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+  #I2 := 1
+  NOMTLT-WAIT-MINIMUM(#I2)  := MONITOR.M-WAIT-MINIMUM
+  NOMTLT-WAIT-MAXIMUM(#I2)  := MONITOR.M-WAIT-MAXIMUM
+  NOMTLT-WAIT-INCREMENT(#I2):= MONITOR.M-WAIT-INCREMENT
+  NOMTLT-WAIT-CURRENT(#I2)  := MONITOR.M-WAIT-CURRENT
+  PERFORM DATA-TO-LIST
+  ES-NUMBER := #I2
+END-FIND
+/*
+/* Get number of defined Copy SubTasks
+FOR #I = 2 TO 10
+  IF MONITOR.M-TASK-NUMBER(#I) GT 0
+    ADD 1 TO #COPY-SUB
+  END-IF
+END-FOR
+/*
+/* Read subtasks
+/*
+RMTASK-P.FUNCTION       := 'S'
+RMTASK-P.SUBTASK-NUMBER := #MAX-TASKS
+CALLNAT 'RMTASKID' RMTASK-P
+#TASK-ID-E              := RMTASK-P.TASK-ID
+RMTASK-P.SUBTASK-NUMBER := 21
+CALLNAT 'RMTASKID' RMTASK-P
+FNDST. FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = RMTASK-P.TASK-ID
+    THRU #TASK-ID-E
+  /*
+  RMTASK-P.TASK-ID := ST-SUBTASK-ID
+  RMTASK-P.FUNCTION       := 'G'
+  CALLNAT 'RMTASKID' RMTASK-P
+  RMTASK-P.FUNCTION       := 'L'
+  CALLNAT 'RMTASKID' RMTASK-P
+  EXAMINE NOMM-MONITOR-ID(*) FOR RMTASK-P.TASK-ID GIVING INDEX #LI
+  ACCEPT IF ST-LAST-ACTIVE GT #TT AND #LI GT 0  /* SubTask defined
+  /*
+  ADD 1 TO #I2
+  NOMTLT-WAIT-MINIMUM(#I2)  := NRM-SUBTASK-INFO.ST-WAIT-MINIMUM
+  NOMTLT-WAIT-MAXIMUM(#I2)  := NRM-SUBTASK-INFO.ST-WAIT-MAXIMUM
+  NOMTLT-WAIT-INCREMENT(#I2):= NRM-SUBTASK-INFO.ST-WAIT-INCREMENT
+  NOMTLT-WAIT-CURRENT(#I2)  := NRM-SUBTASK-INFO.ST-WAIT-CURRENT
+  PERFORM DATA-TO-LIST
+  ES-NUMBER := #I2
+END-FIND
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-TO-LIST
+************************************************************************
+NOMTLT-NUMBER(#I2) := RMTASK-P.SUBTASK-NUMBER
+IF #I2 = 1 /* Main Task
+  NOMTLT-STATUS(#I2)      := NOMM-STATUS(1)
+  NOMTLT-LAST-ACTIVE(#I2) := NOMM-LAST-ACTIVE(1)
+  NOMTLT-ACTION(#I2)      := NOMM-TASK-FUNCTION(1)
+ELSE /* Sub Tasks
+  NOMTLT-STATUS(#I2)      := NOMM-STATUS(#LI)
+  NOMTLT-LAST-ACTIVE(#I2) := NOMM-LAST-ACTIVE(#LI)
+  NOMTLT-ACTION(#I2)      := NOMM-TASK-FUNCTION(#LI)
+  /* If Task has failed -> task 1 is doing its work
+  IF (NOMTLT-STATUS(#I2) = #EQN-CLOSED    OR = #EQ2-CLOSED
+  OR=#EQN-NOTACTIVE OR=#EQ2-NOTACTIVE OR=#EQN-ABENDED OR=#EQ2-ABENDED  )
+    /* and main task status not closed
+  AND NOT (NOMTLT-STATUS(1) = #EQN-CLOSED    OR = #EQ2-CLOSED         /*
+  OR = #EQN-NOTACTIVE OR=#EQ2-NOTACTIVE OR=#EQN-ABENDED OR=#EQ2-ABENDED)
+    /* Check if multiple Copy SubTasks exist
+    IF NOMTLT-ACTION(#I2) = 'S'
+      SUBTRACT 1 FROM #COPY-SUB
+      IF #COPY-SUB = 0
+        COMPRESS NOMTLT-ACTION(1) NOMTLT-ACTION(#I2)
+          TO NOMTLT-ACTION(1) LEAVING NO
+      END-IF
+      RESET NOMTLT-ACTION(#I2)
+    ELSE
+      COMPRESS NOMTLT-ACTION(1) NOMTLT-ACTION(#I2)
+        TO NOMTLT-ACTION(1) LEAVING NO
+      RESET NOMTLT-ACTION(#I2)
+    END-IF
+  END-IF
+END-IF
+/*
+PERFORM OPTIONS
+NOMTLT-OPTIONS(#I2,*) := #OPTIONS(*)
+/*
+END-SUBROUTINE /* DATA-TO-LIST
+/*
+************************************************************************
+DEFINE SUBROUTINE OPTIONS
+************************************************************************
+RESET #OPTIONS(*)
+IF  NOMTLT-STATUS(#I2) = #EQN-NOTACTIVE OR = #EQ2-NOTACTIVE
+OR=#EQN-CLOSED OR=#EQ2-CLOSED OR=#EQN-SHUTDOWN  OR=#EQ2-SHUTDOWN      /*
+OR=#EQN-ABENDED OR=#EQ2-ABENDED                                       /*
+  #OPTIONS(1) := 'MC'
+ELSE
+  #OPTIONS(1) := 'MS'
+END-IF
+* RESET #OPTIONS(*)
+IF PROF-TYPE NE 'A'
+  /*#OPTIONS(2) := 'PU'                /* CF1 ->
+  /*#OPTIONS(3) := 'PE'
+  /*#OPTIONS(4) := 'PP'                /* CF1 <-
+  IGNORE                               /* CF2 ->
+*   DECIDE FOR EVERY CONDITION
+*     WHEN PROF-STARTUP NE 'Y'
+*       #OPTIONS(5) := 'MS'
+*     WHEN PROF-SHUTDOWN NE 'Y'
+*       #OPTIONS(6) := 'MC'
+*     WHEN PROF-DISPLAY-MONITOR NE 'Y'
+*       #OPTIONS(7) := 'ML'
+*       #OPTIONS(8) := 'FG'
+*     WHEN NONE IGNORE
+*   END-DECIDE                         /* CF2 <-
+END-IF
+/*
+END-SUBROUTINE /* OPTIONS
+/*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+/*
+END-SUBROUTINE /* GET-MSG-TXT
+/*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

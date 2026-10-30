@@ -1,0 +1,2301 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 2
+* <Natural Source Header
+/*
+/* Program ........ REH-UNLD
+/*
+/* Function ....... Unloads one or more archives (NOM 3.4.x, NOM 3.5.x)
+/*                  to a portable file/dataset.
+/*
+/* Plattform ...... BS2000, z/OS
+/*
+/***********************************************************************
+/*
+/* Program Description:
+/* ------------------------------
+/* Accessed DDMs: NRM-ARCHIVE-DATASET, NRM-ACTIVE-REPORTS,
+/*                NRM-DATASET-REPORT, NRM-MAIL
+/*
+/* Needed Natural modules:
+/*                RMSPL7-N(SYSNOM), R-NRMCMP(SYSNOM),
+/*                NAT23001(SYSLIBS), NAT00083(SYSLIBS),
+/*                USR2021N(z/OS, copy from SYSEXT to SYSNOM),
+/*                USR2029N(BS2, copy from SYSEXT to SYSNOM)
+/* Input Parameter:
+/*                Archive Name, processing of multiple archives
+/*                  possible with asterisk and/or wildcard.
+/*                Space for Portable Archive
+/*                  BS2000: Primary and Secondary
+/*                  z/OS (batch, TSO): Space-Type, Primary and Secondary
+/*                Log level:  0 (least output), 1 (medium, output),
+/*                  2 (most output, for every single report)
+/*
+/***********************************************************************
+/* ----------------------------------------------------------------------
+* Maintenance:
+* SU1     2024-03-07 ES-34613    NOM 3.6 Remove power / SAP
+*         ÜÜ special pgm: BS2 still inside ÜÜ "IF *OPSYS = MASK('BS2')"
+* ----------------------------------------------------------------------
+DEFINE DATA LOCAL
+*
+*
+*
+1 AD1 VIEW OF NRM-ARCHIVE-DATASET
+  2 AD-ARCHIVE-DSNAME        (A44)
+  2 AD-CREATED               (T)
+  2 AD-CREATED-INV           (T)
+  2 AD-EXPIRATION-DATE       (A8)
+  2 AD-EXPIRATION-DATE-PHYS  (A8)
+*   R-ASM-EXIT (A8) nrm-reports
+*   AD-EXPIRATION-DATE-PHYS (A8)
+  2 AD-CONDENSE-OUTPUT       (A1)
+  2 AD-ORIGINAL-REPORT-COUNT (P7.0)
+  2 AD-VOLSERS               (A6/1:20)
+* 2 AD-MARK-ARCHIVE-DSNAME   (A45) /* SP
+*   -------- SOURCE FIELD(S) -------
+*   AD-ARCHIVE-DSNAME(1-44)
+*   AD-MARK-FOR-CONDENSE(2-2)
+  2 AD-MARK-FOR-CONDENSE     (A1)
+  2 AD-ARCHIVE-TYPE          (N1.0)
+  2 AD-OBJECT-TYPE           (A10)
+* 2 AD-OBJECT-TIME           (T)
+*
+1 ADO                        (A240)
+1 REDEFINE ADO
+  2 ADO-RECORD-TYPE          (A1)      /* A for NRM-ARCHIVE-DATASET
+    /*
+  2 ADO-ARCHIVE-DSNAME       (A44)
+  2 ADO-CREATED              (A13) /* T
+  2 ADO-CREATED-INV          (A13) /* T
+  2 ADO-EXPIRATION-DATE      (A8)
+  2 ADO-EXPIRATION-DATE-PHYS (A8)
+*   R-ASM-EXIT (A8) nrm-reports
+*   AD-EXPIRATION-DATE-PHYS (A8)
+  2 ADO-CONDENSE-OUTPUT      (A1)
+  2 ADO-ORIGINAL-REPORT-COUNT(A7)  /* P7.0
+  2 ADO-VOLSERS              (A6/1:20)
+  2 ADO-MARK-FOR-CONDENSE    (A1)
+  2 ADO-ARCHIVE-TYPE         (A1)  /* (N1.0)
+  2 ADO-OBJECT-TYPE          (A10)
+  2 ADO-OBJECT-TIME          (A13) /* (T)
+*
+*
+*
+1 AR1 VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-INTERNAL-NODE-ID      (P11)     /* ?
+  2 AR-LOCAL-CODEPAGE        (A64)     /* N
+*
+1 AR1-343 VIEW OF NRM-ACTIVE-REPORTS
+*   2 AR-REPORT-RNB            (A31) /* SP
+*   -------- SOURCE FIELD(S) -------
+*   AR-REPNAME(1-25)
+*   AR-REPRNB(1-6)
+* 2 C*AR-KEYWORDS            (P3)
+  2 AR-KEYWORDS              (A15/1:6) /* N
+  2 AR-PROCESS-TIME-INV      (P13)     /* N
+  2 AR-REPNAME               (A25)     /* #REPNAME
+  2 AR-REPRNB                (P11)     /* #REPRNB
+  2 AR-MASTER-REPNAME        (A25)     /* N
+* 2 AR-INTERNAL-NODE-ID      (P11)     /* ?  new with v351
+  2 AR-NODE-UX               (A16)     /* ?  only til v341
+  2 AR-STATUS                (A1)      /* N
+  2 AR-EXPIRATION            (A8)      /* N
+  2 AR-RETENTION-ACTION      (A1)      /* N
+  2 AR-RETENTION-PERIOD      (A12)     /* N
+  2 AR-DESC                  (A50)     /* N
+  2 AR-REMOTE-CODEPAGE       (A64)     /* N  resused with v351
+* 2 AR-LOCAL-CODEPAGE        (A64)     /* N  new with v351
+  2 AR-PROCESS-TIME          (T)       /* N
+  2 AR-NUMBER-OF-LINES       (P8)      /* #K-NUMLINES
+  2 AR-INSERTED              (A1)      /* N
+  2 AR-CURRENT-LOCATION      (A1)      /* N
+  2 AR-STORE-NATRPT          (A1)      /* N
+  2 AR-ORDER-ID              (P10)     /* N
+  2 AR-SOURCE-ID             (P10)     /* N
+  2 AR-CC-TYPE               (B2)      /* N
+  2 AR-RECORD-LENGTH         (N3)      /* ? #RECORD-LENGTH
+  2 AR-SPOOL-ATTRIBUTES      (A250)    /* N
+* 2 C*AR-SPOOL-ATTR-EXTENDED (P3)
+  2 AR-SPOOL-ATTR-EXTENDED   (A250/1:120) /* N
+  2 AR-USERID                (A8)      /* #K-USERID
+* 2 C*AR-NATRPT-DIST         (P3)
+  2 AR-NATRPT-DIST           (A8/1:10) /* N
+* 2 C*AR-PRINTERS            (P3)
+  2 AR-PRINTERS              (A12/1:20) /* N enlarged from 11 to 12 in v351
+  2 AR-HOLD-PRINT            (A1)      /* N
+  2 AR-SEPMEM                (A16)     /* #K-SEPMEM
+  2 AR-SEPNO                 (P3)      /* N
+  2 AR-ACTIVE                (A1)      /* N
+  2 AR-ARCHIVE               (A1)      /* N
+  2 AR-ARCHIVE-RETENTION     (A5)      /* N
+  2 AR-ARCHIVE-RECNO         (N8)      /* N
+  2 AR-ARCHIVE-DATE          (T)       /* #I-ARCHIVE-DATE-T
+  2 AR-ARCHIVE-DATA-SET      (A44)     /* #ARCHIVE-DSNAME
+* 2 C*AR-ARCHIVE-VOLSER      (P3)
+  2 AR-ARCHIVE-VOLSER        (A6/1:10) /* #VOLSERS
+  2 AR-REVIVE                (A1)      /* N
+  2 AR-REVIVE-EXPIRATION     (A8)      /* N
+  2 AR-REVIVE-DATE           (T)       /* N
+  2 AR-REVIVE-RETENTION-PERIOD (A12)   /* N
+  2 AR-CHARS                 (A20)     /* #K-CHARS
+  2 AR-DATASET-IDENTIFIER    (A25)     /* repl. by AR-MASTER-REPNAME
+  2 AR-DATASET-KEY           (N7)      /* N
+  2 AR-DSNO                  (N3)      /* #DSNO
+  2 AR-DSTYPE                (A2)      /* #DSTYPE
+  2 AR-FCB                   (A4)      /* #K-FCB
+  2 AR-FLASH                 (A4)      /* #K-FLASH
+  2 AR-FORM                  (A8)      /* #K-FORM
+  2 AR-FORMDEF               (A8)      /* N
+  2 AR-GROUP-ID              (A20)     /* N
+  2 AR-JOBNAME               (A10)     /* #JOBNAME
+  2 AR-JOBNO                 (N7)      /* #JOBNO
+  2 AR-PROCNAME              (A8)      /* N
+  2 AR-DDNAME                (A8)      /* N
+  2 AR-PAGEDEF               (A8)      /* N
+  2 AR-RECFM                 (A3)      /* #K-RECFM
+  2 AR-STEPNAME              (A8)      /* N
+  2 AR-TRC                   (A3)      /* #K-TRC
+  2 AR-COPIES                (N3)      /* N
+  2 AR-ARCHIVE-TYPE          (N1)      /* N
+  2 AR-STYLESHEET-URL        (A70)     /* N
+  2 AR-REP-FORMAT            (A1)      /* N
+  2 AR-SOURCE                (A16)     /* N
+  2 AR-SENDER                (A16)     /* N
+  2 AR-LAST-UPDATE           (T)       /* N
+  2 AR-LAST-UPDATE-USER      (A16)     /* N
+  2 AR-OBJECT-TYPE           (A10)     /* N
+* 2 AR-OBJECT-TIME           (T)       /* N
+*
+1 ARO                        (A2275)
+1 REDEFINE ARO
+  2 ARO-RECORD-TYPE          (A1)      /* 1 for NRM-ACTIVE-REPORT
+    /*
+  2 ARO-KEYWORDS             (A15/1:6)
+  2 ARO-PROCESS-TIME-INV     (A13)     /* P13.0
+  2 ARO-REPNAME              (A25)
+  2 ARO-REPRNB               (A11)     /* P11.0
+  2 ARO-MASTER-REPNAME       (A25)
+  2 ARO-INTERNAL-NODE-ID     (A11)     /* P11.0
+  2 ARO-NODE-UX              (A16)
+  2 ARO-STATUS               (A1)
+  2 ARO-EXPIRATION           (A8)
+  2 ARO-RETENTION-ACTION     (A1)
+  2 ARO-RETENTION-PERIOD     (A12)
+  2 ARO-DESC                 (A50)
+  2 ARO-REMOTE-CODEPAGE      (A64)
+  2 ARO-LOCAL-CODEPAGE       (A64)
+  2 ARO-PROCESS-TIME         (A13)     /* T
+  2 ARO-NUMBER-OF-LINES      (A8)      /* P8.0
+  2 ARO-INSERTED             (A1)
+  2 ARO-CURRENT-LOCATION     (A1)
+  2 ARO-STORE-NATRPT         (A1)
+  2 ARO-ORDER-ID             (A10)     /* P10.0
+  2 ARO-SOURCE-ID            (A10)     /* P10.0
+  2 ARO-CC-TYPE              (A4)      /* B2
+  2 ARO-RECORD-LENGTH        (A3)      /* N3.0
+/*
+/* Start Attributes Block, original A250
+  2 ARO-SPOOL-TYPE           (A5)      /* I2
+  2 ARO-SPOOL-ATTRIBUTES     (A248)
+  2 REDEFINE ARO-SPOOL-ATTRIBUTES
+*   ---------------------------------
+*   JES
+*   ---------------------------------
+    3 ARO-SPOOL-JES-NODE     (A5)      /* N5
+    3 ARO-SPOOL-JES-JOB-NAME (A10)
+    3 ARO-SPOOL-JES-JOB-NUMBER (A7)    /* N7
+    3 ARO-SPOOL-JES-DSTYPE   (A2)
+    3 ARO-SPOOL-JES-DSNO-OLD (A3)      /* N3
+    3 ARO-SPOOL-JES-DATASET-KEY (A7)   /* N7
+    3 ARO-SPOOL-JES-GROUP-ID (A20)
+    3 ARO-SPOOL-JES-PROCNAME (A8)
+    3 ARO-SPOOL-JES-STEPNAME (A8)
+    3 ARO-SPOOL-JES-DDNAME   (A8)
+    3 ARO-SPOOL-JES-CHARS    (A20)
+    3 ARO-SPOOL-JES-FCB      (A4)
+    3 ARO-SPOOL-JES-FLASH    (A4)
+    3 ARO-SPOOL-JES-FORM     (A8)
+    3 ARO-SPOOL-JES-FORMDEF  (A8)
+    3 ARO-SPOOL-JES-PAGEDEF  (A8)
+    3 ARO-SPOOL-JES-TRC      (A3)
+    3 ARO-SPOOL-JES-RECFM    (A3)
+    3 ARO-SPOOL-JES-COPIES   (A3)      /* N3
+    3 ARO-SPOOL-JES-UCS      (A4)
+    3 ARO-SPOOL-JES-BURST    (A3)
+    3 ARO-SPOOL-JES-COMPACT  (A8)
+    3 ARO-SPOOL-JES-LINECT   (A3)      /* N3
+    3 ARO-SPOOL-JES-DESTINATION (A8)
+    3 ARO-SPOOL-JES-TRIGGER-DSNAME (A44)
+    3 ARO-SPOOL-JES-DSNO     (A5)      /* N5
+    3 FILLER                 34X       /* free space
+  2 REDEFINE ARO-SPOOL-ATTRIBUTES
+*   ---------------------------------
+*   NAF
+*   ---------------------------------
+    3 ARO-SPOOL-NAF-DBID-OLD (A3)
+    3 ARO-SPOOL-NAF-FNR-OLD  (A3)
+    3 ARO-SPOOL-NAF-USER-ID  (A8)
+    3 ARO-SPOOL-NAF-PNR      (A2)
+    3 ARO-SPOOL-NAF-DATE-TIME (A15)
+    3 REDEFINE ARO-SPOOL-NAF-DATE-TIME
+      4 ARO-SPOOL-NAF-DATE   (A8)
+      4 ARO-SPOOL-NAF-TIME   (A7)
+    3 ARO-SPOOL-NAF-TIME-FORMAT (A1)
+    3 ARO-SPOOL-NAF-NATPGM   (A8)
+    3 ARO-SPOOL-NAF-NATLIB   (A8)
+    3 ARO-SPOOL-NAF-FORM     (A8)
+    3 ARO-SPOOL-NAF-PROFILE  (A8)
+    3 ARO-SPOOL-NAF-COPIES   (A3)
+    3 ARO-SPOOL-NAF-NAME     (A8)
+    3 ARO-SPOOL-NAF-DISP     (A1)
+    3 ARO-SPOOL-NAF-ST-ID    (A10)
+    3 ARO-SPOOL-NAF-DBID     (A5)
+    3 ARO-SPOOL-NAF-FNR      (A5)
+    3 ARO-SPOOL-NAF-DEST     (A8)
+    3 ARO-SPOOL-NAF-OUTPUT   (A8)
+    3 ARO-SPOOL-NAF-REST     (A136)    /* free space
+*   ---------------------------------
+*   BS2000
+*   ---------------------------------
+  2 REDEFINE ARO-SPOOL-ATTRIBUTES
+    3 ARO-SPOOL-BS2-NODE     (A5)
+    3 ARO-SPOOL-BS2-JOB-NAME (A8)
+    3 ARO-SPOOL-BS2-USER-ID  (A8)
+    3 ARO-SPOOL-BS2-JOB-ID   (A5)
+    3 ARO-SPOOL-BS2-ORIGINATOR-JOB-ID (A5)
+    3 ARO-SPOOL-BS2-COPIES   (A3)
+    3 ARO-SPOOL-BS2-FORM     (A8)
+    3 ARO-SPOOL-BS2-CHARS    (A16)
+    3 ARO-SPOOL-BS2-DSNAME   (A54)
+    3 ARO-SPOOL-BS2-CONTROL-OPTION (A16)
+    3 ARO-SPOOL-BS2-DESTINATION (A8)
+    3 ARO-SPOOL-BS2-DEVICE   (A8)
+    3 ARO-SPOOL-BS2-ROTATION (A8)
+    3 ARO-SPOOL-BS2-DIA      (A2)
+    3 ARO-SPOOL-BS2-SIZE     (A6)
+    3 ARO-SPOOL-BS2-RECFM    (A5)
+    3 ARO-SPOOL-BS2-RECSIZE  (A5)
+    3 ARO-SPOOL-BS2-BLKSIZE  (A5)
+    3 ARO-SPOOL-BS2-SECONDARY (A7)
+    3 ARO-SPOOL-BS2-ORIG-DSNAME (A54)
+    3 ARO-SPOOL-BS2-CLASS    (A4)
+    3 FILLER                 8X        /* free space
+*   ---------------------------------
+*   UNIX Sequential Files
+*   ---------------------------------
+  2 REDEFINE ARO-SPOOL-ATTRIBUTES
+    3 ARO-SPOOL-UNIX-NODE-NAME (A16)
+    3 ARO-SPOOL-UNIX-USERID  (A8)
+    3 ARO-SPOOL-UNIX-CIPHER-PASSWORD (A32)
+    3 ARO-SPOOL-UNIX-GROUP   (A8)
+    3 ARO-SPOOL-UNIX-PATH    (A70)
+    3 ARO-SPOOL-UNIX-FILE-NAME (A50)
+    3 ARO-SPOOL-UNIX-CONTAINER-DBID (A5) /* N5
+    3 ARO-SPOOL-UNIX-CONTAINER-FNR  (A5) /* N5
+    3 ARO-SPOOL-UNIX-FILL    (A20)
+    3 ARO-SPOOL-UNIX-SIZE    (A10)     /* I4
+    3 FILLER                 24X       /* free space
+/* End Attributes Block, original A250
+*
+  2 ARO-SPOOL-ATTR-EXTENDED  (A250/1:3)
+  2 ARO-USERID               (A8)
+  2 ARO-NATRPT-DIST          (A8/1:10)
+  2 ARO-PRINTERS             (A12/1:20)
+  2 ARO-HOLD-PRINT           (A1)
+  2 ARO-SEPMEM               (A16)
+  2 ARO-SEPNO                (A3)      /* P3
+  2 ARO-ACTIVE               (A1)
+  2 ARO-ARCHIVE              (A1)
+  2 ARO-ARCHIVE-RETENTION    (A5)
+  2 ARO-ARCHIVE-RECNO        (A8)      /* N8
+  2 ARO-ARCHIVE-DATE         (A13)     /* T
+  2 ARO-ARCHIVE-DATA-SET     (A44)
+  2 ARO-ARCHIVE-VOLSER       (A6/1:10)
+  2 ARO-REVIVE               (A1)
+  2 ARO-REVIVE-EXPIRATION    (A8)
+  2 ARO-REVIVE-DATE          (A13)     /* T
+  2 ARO-REVIVE-RETENTION-PERIOD (A12)
+  2 ARO-CHARS                (A20)
+  2 ARO-DATASET-IDENTIFIER   (A25)
+  2 ARO-DATASET-KEY          (A7)      /* N7
+  2 ARO-DSNO                 (A3)      /* N3
+  2 ARO-DSTYPE               (A2)
+  2 ARO-FCB                  (A4)
+  2 ARO-FLASH                (A4)
+  2 ARO-FORM                 (A8)
+  2 ARO-FORMDEF              (A8)
+  2 ARO-GROUP-ID             (A20)
+  2 ARO-JOBNAME              (A10)
+  2 ARO-JOBNO                (A7)      /* N7
+  2 ARO-PROCNAME             (A8)
+  2 ARO-DDNAME               (A8)
+  2 ARO-PAGEDEF              (A8)
+  2 ARO-RECFM                (A3)
+  2 ARO-STEPNAME             (A8)
+  2 ARO-TRC                  (A3)
+  2 ARO-COPIES               (A3)      /* N3
+  2 ARO-ARCHIVE-TYPE         (A1)      /* N1
+  2 ARO-STYLESHEET-URL       (A70)
+  2 ARO-REP-FORMAT           (A1)
+  2 ARO-SOURCE               (A16)
+  2 ARO-SENDER               (A16)
+  2 ARO-LAST-UPDATE          (A13)     /* T
+  2 ARO-LAST-UPDATE-USER     (A16)
+  2 ARO-OBJECT-TYPE          (A10)
+  2 ARO-OBJECT-TIME          (A13)     /* T
+*
+*
+*
+1 DR1 VIEW OF NRM-DATASET-REPORT
+  2 DR-ARCHIVE-DSNAME        (A44)
+  2 DR-REPNAME               (A25)
+  2 DR-REPRNB                (P11.0)
+  2 DR-STATUS                (A1) /* report status in bun
+*   report status in bun
+  2 DR-EXPIRATION-DATE       (A8)
+  2 DR-EXPIRATION-DATE-ORIG  (A8)
+* 2 DR-REPORT-RNB            (A31) /* SP
+*   -------- SOURCE FIELD(S) -------
+*   DR-REPNAME(1-25)
+*   DR-REPRNB(1-6)
+  2 DR-DSNAME-REPORT-RNB     (A75) /* SP
+*   -------- SOURCE FIELD(S) -------
+*   DR-ARCHIVE-DSNAME(1-44)
+*   DR-REPNAME(1-25)
+*   DR-REPRNB(1-6)
+  2 DR-OBJECT-TYPE           (A10)
+* 2 DR-OBJECT-TIME           (T)
+*
+1 DRO                        (A121)
+1 REDEFINE DRO
+  2 DRO-RECORD-TYPE          (A1)      /* D for NRM-DATASET-REPORT
+    /*
+  2 DRO-ARCHIVE-DSNAME       (A44)
+  2 DRO-REPNAME              (A25)
+  2 DRO-REPRNB               (A11)   /* P11
+  2 DRO-STATUS               (A1)
+  2 DRO-EXPIRATION-DATE      (A8)
+  2 DRO-EXPIRATION-DATE-ORIG (A8)
+  2 DRO-OBJECT-TYPE          (A10)
+  2 DRO-OBJECT-TIME          (A13)   /* (T)
+*
+*
+*
+1 MA1 VIEW OF NRM-MAIL
+* 2 MA-REP-RNB               (A31) /* SP
+*   -------- SOURCE FIELD(S) -------
+*   MA-REPNAME(1-25)
+*   MA-REPRNB(1-6)
+  2 MA-USERID                (A8)      /* When report is distr
+  2 MA-FO-ID                 (B2)
+  2 MA-REPNAME               (A25)     /* mailed report name
+  2 MA-REPRNB                (P11)     /* mailed report intern
+  2 MA-INV-TIME              (P13)     /* inverted report crea
+  2 MA-STATUS                (A1)      /* mail status(not in u
+  2 MA-LAYOUT
+    3 MA-FROM                (P3/1:10)
+    3 MA-TO                  (P3/1:10)
+  2 MA-HEADLINES             (N3)
+  2 MA-CURRENT-LOCATION      (A1)
+  2 MA-PROCESS-TIME          (P13)
+  2 MA-PROCESS-TIME-INV      (P13)
+  2 MA-OBJECT-TYPE           (A10)
+* 2 MA-OBJECT-TIME           (T)
+*
+1 MAO                        (A192)
+1 REDEFINE MAO
+  2 MAO-RECORD-TYPE          (A1)      /* 2 for NRM-MAIL
+    /*
+  2 MAO-USERID               (A8)
+  2 MAO-FO-ID                (A4)      /* B2
+  2 MAO-REPNAME              (A25)
+  2 MAO-REPRNB               (A11)     /* P11
+  2 MAO-INV-TIME             (A13)     /* P13
+  2 MAO-STATUS               (A1)
+  2 MAO-LAYOUT
+    3 MAO-FROM               (A3/1:10) /* P3/1:10
+    3 MAO-TO                 (A3/1:10) /* P3/1:10
+  2 MAO-HEADLINES            (A3)      /* N3
+  2 MAO-CURRENT-LOCATION     (A1)
+  2 MAO-PROCESS-TIME         (A13)     /* P13
+  2 MAO-PROCESS-TIME-INV     (A13)     /* P13
+  2 MAO-OBJECT-TYPE          (A10)
+  2 MAO-OBJECT-TIME          (A13)     /* T
+  2 MAO-FO-NAME              (A16)
+*
+1 FO1 VIEW OF NRM-FOLDER
+  2 FO-USER-FO-ID           (A10) /* SP
+*   -------- SOURCE FIELD(S) -------
+*   FO-USER-ID(1-8)
+*   FO-ID(1-2)
+*  2 FO-USER-NAME            (A24) /* SP
+*   -------- SOURCE FIELD(S) -------
+*   FO-USER-ID(1-8)
+*   FO-NAME(1-16)
+  2 FO-ID                    (B2)
+  2 FO-NAME                  (A16)
+  2 FO-USER-ID               (A8)
+*
+1 #FO-USER-FO-ID             (A10)
+1 REDEFINE #FO-USER-FO-ID
+  2 #FO-USER-ID              (A8)
+  2 #FO-ID                   (B2)
+*
+*
+LOCAL
+1 SEQUENTIAL-FILE-BS2        (I2) INIT<0007>
+1 JES2                       (I2) INIT<0001>
+1 NAT                        (I2) INIT<0010>
+1 SEQUENTIAL-FILE-UNIX       (I2) INIT<0016>
+*
+1 #SPOOL-GROUP
+  2 #SPOOL-ATTRIBUTES        (A250)
+  2 REDEFINE #SPOOL-ATTRIBUTES
+    3 #SPOOL-TYPE            (I2)
+    3 #SPOOL-ATTRIB          (A248)
+*   ---------------------------------
+/*SU1 SAPSPOOL
+*   ---------------------------------
+*   ---------------------------------
+*   CMASPOOL
+*   ---------------------------------
+    3 REDEFINE #SPOOL-ATTRIB
+      4 #SPOOL-CMA-SEQNO     (N10)
+      4 #SPOOL-CMA-OWNNM     (A8)
+      4 #SPOOL-CMA-WTRNM     (A8)
+      4 #SPOOL-CMA-DSTNM     (A8)
+      4 #SPOOL-CMA-CLASS     (A1)
+      4 #SPOOL-CMA-COPYS     (N3)
+      4 #SPOOL-CMA-PRIO      (N2)
+      4 #SPOOL-CMA-LINCT     (N3)
+      4 #SPOOL-CMA-RETAN     (N4)
+      4 #SPOOL-CMA-FORMS     (A4)
+      4 #SPOOL-CMA-FCB       (A4)
+      4 #SPOOL-CMA-PRMOD     (A8)
+      4 #SPOOL-CMA-FORMD     (A6)
+      4 #SPOOL-CMA-PAGED     (A6)
+      4 #SPOOL-CMA-CHARS     (A16)
+      4 #SPOOL-CMA-USRID     (A8)
+      4 #SPOOL-CMA-ACTNO     (A8)
+      4 #SPOOL-CMA-ROOM      (A4)
+      4 #SPOOL-CMA-LNCNT     (N10)
+      4 #SPOOL-CMA-PGCNT     (N10)
+      4 #SPOOL-CMA-SID       (A4)
+      4 #SPOOL-CMA-PGMNM     (A32)
+      4 #SPOOL-CMA-TRC       (A1)      /* 'Y' OR 'N'
+      4 #SPOOL-CMA-CMP       (A1)      /* 'Y' OR 'N'
+      4 #SPOOL-CMA-FNAM      (A12)
+*   ---------------------------------
+*   JES
+*   ---------------------------------
+    3 REDEFINE #SPOOL-ATTRIB
+      4 #SPOOL-JES-NODE      (N5)
+      4 REDEFINE #SPOOL-JES-NODE
+        5 #SPOOL-JES-NODE-A  (A5)
+      4 #SPOOL-JES-JOB-NAME  (A10)
+      4 #SPOOL-JES-JOB-NUMBER (N7)
+      4 REDEFINE #SPOOL-JES-JOB-NUMBER
+        5 #SPOOL-JES-JOB-NUMBER-A (A7)
+      4 #SPOOL-JES-DSTYPE    (A2)
+      4 #SPOOL-JES-DSNO-OLD  (N3)
+      4 REDEFINE #SPOOL-JES-DSNO-OLD
+        5 #SPOOL-JES-DSNO-OLD-A3 (A3)
+      4 #SPOOL-JES-DATASET-KEY (N7)
+      4 #SPOOL-JES-GROUP-ID  (A20)
+      4 #SPOOL-JES-PROCNAME  (A8)
+      4 #SPOOL-JES-STEPNAME  (A8)
+      4 #SPOOL-JES-DDNAME    (A8)
+      4 #SPOOL-JES-CHARS     (A20)
+      4 #SPOOL-JES-FCB       (A4)
+      4 #SPOOL-JES-FLASH     (A4)
+      4 #SPOOL-JES-FORM      (A8)
+      4 #SPOOL-JES-FORMDEF   (A8)
+      4 #SPOOL-JES-PAGEDEF   (A8)
+      4 #SPOOL-JES-TRC       (A3)
+      4 #SPOOL-JES-RECFM     (A3)
+      4 #SPOOL-JES-COPIES    (N3)
+      4 #SPOOL-JES-UCS       (A4)
+      4 #SPOOL-JES-BURST     (A3)
+      4 #SPOOL-JES-COMPACT   (A8)
+      4 #SPOOL-JES-LINECT    (N3)
+      4 #SPOOL-JES-DESTINATION (A8)
+      4 #SPOOL-JES-TRIGGER-DSNAME (A44)
+      4 #SPOOL-JES-DSNO      (N5)
+*   ---------------------------------
+/*SU1 POWER
+*   ---------------------------------
+*   ---------------------------------
+*   NAF
+*   ---------------------------------
+    3 REDEFINE #SPOOL-ATTRIB
+      4 #SPOOL-NAF-DBID-OLD  (N3)
+      4 #SPOOL-NAF-FNR-OLD   (N3)
+      4 #SPOOL-NAF-USER-ID   (A8)
+      4 #SPOOL-NAF-PNR       (N2)
+      4 #SPOOL-NAF-TIME      (A15)
+      4 REDEFINE #SPOOL-NAF-TIME
+        5 #NAF-DATE          (A8)
+        5 #NAF-TIME          (A7)
+      4 REDEFINE #SPOOL-NAF-TIME
+        5 #NAF-TIMX          (T)
+      4 #SPOOL-NAF-NATPGM    (A8)
+      4 #SPOOL-NAF-NATLIB    (A8)
+      4 #SPOOL-NAF-FORM      (A8)
+      4 #SPOOL-NAF-PROFILE   (A8)
+      4 #SPOOL-NAF-COPIES    (N3)
+      4 #SPOOL-NAF-NAME      (A8)
+      4 #SPOOL-NAF-DISP      (A1)
+      4 #SPOOL-NAF-ST-ID     (P10)
+      4 #SPOOL-NAF-DBID      (N5)
+      4 #SPOOL-NAF-FNR       (N5)
+      4 #SPOOL-NAF-DEST      (A8)
+      4 #SPOOL-NAF-OUTPUT    (A8)
+      4 #SPOOL-NAF-REST      (A141)    /* free space
+*   ---------------------------------
+*   BS2000
+*   ---------------------------------
+    3 REDEFINE #SPOOL-ATTRIB
+      4 #SPOOL-BS2-NODE      (N5)
+      4 REDEFINE #SPOOL-BS2-NODE
+        5 #SPOOL-BS2-NODE-A  (A5)
+      4 #SPOOL-BS2-JOB-NAME  (A8)
+      4 #SPOOL-BS2-USER-ID   (A8)
+      4 #SPOOL-BS2-JOB-ID    (A5)
+      4 #SPOOL-BS2-ORIGINATOR-JOB-ID (A5)
+      4 #SPOOL-BS2-COPIES    (N3)
+      4 #SPOOL-BS2-FORM      (A8)
+      4 #SPOOL-BS2-CHARS     (A16)
+      4 #SPOOL-BS2-DSNAME    (A54)
+      4 #SPOOL-BS2-CONTROL-OPTION (A16)
+      4 #SPOOL-BS2-DESTINATION (A8)
+      4 #SPOOL-BS2-DEVICE    (A8)
+      4 #SPOOL-BS2-ROTATION  (A8)
+      4 #SPOOL-BS2-DIA       (A2)
+      4 #SPOOL-BS2-SIZE      (A6)
+      4 #SPOOL-BS2-RECFM     (A5)
+      4 #SPOOL-BS2-RECSIZE   (N5)
+      4 #SPOOL-BS2-BLKSIZE   (N5)
+      4 #SPOOL-BS2-SECONDARY (N7)
+      4 #SPOOL-BS2-ORIG-DSNAME (A54)
+      4 #SPOOL-BS2-CLASS     (A4)
+*   ---------------------------------
+*   UNIX SEQUENTIAL FILES
+*   ---------------------------------
+    3 REDEFINE #SPOOL-ATTRIB
+      4 #SPOOL-UNIX-NODE-NAME (A16)
+      4 #SPOOL-UNIX-USERID   (A8)
+      4 #SPOOL-UNIX-CIPHER-PASSWORD (A32)
+      4 #SPOOL-UNIX-GROUP    (A8)
+      4 #SPOOL-UNIX-PATH     (A70)
+      4 #SPOOL-UNIX-FILE-NAME (A50)
+      4 #SPOOL-UNIX-CONTAINER-DBID (N5)
+      4 #SPOOL-UNIX-CONTAINER-FNR (N5)
+      4 #SPOOL-UNIX-FILL     (A20)
+      4 #SPOOL-UNIX-SIZE     (I4)
+*   ---------------------------------
+*   DIRECT INPUT
+*   ---------------------------------
+    3 REDEFINE #SPOOL-ATTRIB
+      4 #SPOOL-DI-ST-ID      (N10)
+      4 #SPOOL-DI-RPC-SERVER (A16)
+      4 #SPOOL-DI-USERID     (A8)
+      4 #SPOOL-DI-PATH       (A70)
+      4 #SPOOL-DI-FILENAME   (A50)
+      4 #SPOOL-DI-FILETYPE   (A50)
+      4 #SPOOL-DI-CONTAINER-DBID (N5)
+      4 #SPOOL-DI-CONTAINER-FNR (N5)
+      4 #SPOOL-DI-SIZE       (I4)
+*
+LOCAL
+* Handle ID record
+1 #ID-RECORD                 (A146)
+1 REDEFINE #ID-RECORD
+  /* NOM141 1-A140 NOM211 2-A142 NOM311 4-A146 NOM321 AND ABOVE
+  2 #ID-RECORD3              (A132)
+  2 REDEFINE #ID-RECORD3
+    3 #I-RECORD-TYPE3        (A1)      /* ALWAYS 'I'             1 2 4
+      /* S-SPOOL, D-DATA BASE, C-CONNECT
+    3 #ARCHIVE-FROM3         (A1)                     /*         1 2 4
+    3 #BROWSE-KEY3           (A21)                    /* 1-2-A29 4-A31
+    3 REDEFINE #BROWSE-KEY3
+      4 #REPNAME3            (A17)                    /* 1-2-A25 4-A25
+      4 #REPRNB3             (P7)                     /* 4-P11   1 2
+    3 #JOBNAME3              (A8)                     /*         1 2
+    3 #JOBNO3                (N5)                     /* 4-N7    1 2
+    3 #NODE3                 (N3)                     /* 4-N5    1 2
+    3 #REST3                 (A93)                    /*         1 2 4
+    3 REDEFINE #REST3
+      4 #DSTYPE3             (A2)
+      4 #DSNO3               (N7)
+      4 #I-ARCHIVE-DATE3     (P13)
+      4 REDEFINE #I-ARCHIVE-DATE3
+        5 #I-ARCHIVE-DATE-T3 (T)
+      4 #K-CABINET3          (A8)
+      4 #K-INDICATOR3        (A3)      /* ALWAYS 'NRM'
+      4 #K-CHARS3            (A16)
+      4 #K-RECFM3            (A3)
+      4 #K-FCB3              (A4)
+      4 #K-FLASH3            (A4)
+      4 #K-FORM3             (A8)
+      4 #K-TRC3              (A3)
+      4 #K-SEPMEM3           (A8)
+      4 #K-CREATED3          (T)
+      4 #K-NUMLINES3         (P7)
+      4 #K-USERID3           (A8)
+1 REDEFINE #ID-RECORD
+*  ------------------------------------
+  2 #ID-RECORD1              (A140)    /* NOM211 FORMAT
+  2 REDEFINE #ID-RECORD1
+    3 #I-RECORD-TYPE1        (A1)
+    3 #ARCHIVE-FROM1         (A1)
+    3 #BROWSE-KEY1           (A29)
+    3 REDEFINE #BROWSE-KEY1
+      4 #REPNAME1            (A25)
+      4 #REPRNB1             (P7)
+    3 #JOBNAME1              (A8)
+    3 #JOBNO1                (N5)
+    3 #NODE1                 (N3)
+    3 #REST1                 (A93)
+    3 REDEFINE #REST1
+      4 #DSTYPE1             (A2)
+      4 #DSNO1               (N7)
+      4 #I-ARCHIVE-DATE1     (P13)
+      4 REDEFINE #I-ARCHIVE-DATE1
+        5 #I-ARCHIVE-DATE-T1 (T)
+      4 #K-CABINET1          (A8)
+      4 #K-INDICATOR1        (A3)      /* ALWAYS = 'NRM'
+      4 #K-CHARS1            (A16)
+      4 #K-RECFM1            (A3)
+      4 #K-FCB1              (A4)
+      4 #K-FLASH1            (A4)
+      4 #K-FORM1             (A8)
+      4 #K-TRC1              (A3)
+      4 #K-SEPMEM1           (A8)
+      4 #K-CREATED1          (T)
+      4 #K-NUMLINES1         (P7)
+      4 #K-USERID1           (A8)
+*  ------------------------------------
+1 REDEFINE #ID-RECORD
+  2 #ID-RECORD2              (A142)    /* NOM311 FORMAT
+  2 REDEFINE #ID-RECORD2
+    3 #I-RECORD-TYPE2        (A1)      /* ALWAYS 'I'
+    3 #ARCHIVE-FROM2         (A1)   /* S-SPOOL, D-DATABASE, C-CONNECT
+    3 #BROWSE-KEY2           (A29)
+    3 REDEFINE #BROWSE-KEY2
+      4 #REPNAME2            (A25)
+      4 #REPRNB2             (P7)
+    3 #JOBNAME2              (A8)
+    3 #JOBNO2                (N7)
+    3 #NODE2                 (N3)
+    3 #REST2                 (A93)
+    3 REDEFINE #REST2
+      4 #DSTYPE2             (A2)
+      4 #DSNO2               (N7)
+      4 #I-ARCHIVE-DATE2     (P13)
+      4 REDEFINE #I-ARCHIVE-DATE2
+        5 #I-ARCHIVE-DATE-T2 (T)
+      4 #K-CABINET2          (A8)
+      4 #K-INDICATOR2        (A3)      /* ALWAYS = 'NRM'
+      4 #K-CHARS2            (A16)
+      4 #K-RECFM2            (A3)
+      4 #K-FCB2              (A4)
+      4 #K-FLASH2            (A4)
+      4 #K-FORM2             (A8)
+      4 #K-TRC2              (A3)
+      4 #K-SEPMEM2           (A8)
+      4 #K-CREATED2          (T)
+      4 #K-NUMLINES2         (P7)
+      4 #K-USERID2           (A8)
+*  ------------------------------------
+1 REDEFINE #ID-RECORD
+  2 #ID-RECORD4              (A146)    /* NOM321 FORMAT AND ABOVE
+  2 REDEFINE #ID-RECORD4
+    3 #I-RECORD-TYPE         (A1)      /* ALWAYS 'I'
+    3 #ARCHIVE-FROM          (A1)   /* S-SPOOL, D-DATABASE, C-CONNECT
+    3 #BROWSE-KEY            (A31)
+    3 REDEFINE #BROWSE-KEY
+      4 #REPNAME             (A25)
+      4 #REPRNB              (P11)
+    3 #JOBNAME               (A8)
+    3 #JOBNO                 (N7)
+    3 REDEFINE #JOBNO
+      4 #JOBNO-A7            (A7)
+    3 #NODE                  (N5)
+    3 REDEFINE #NODE
+      4 #NODE-A5             (A5)
+    3 #REST                  (A93)
+    3 REDEFINE #REST
+      4 #DSTYPE              (A2)
+      4 #DSNO                (N7)
+      4 REDEFINE #DSNO
+        5 #DSNO-A7           (A7)
+      4 #I-ARCHIVE-DATE      (P13)
+      4 REDEFINE #I-ARCHIVE-DATE
+        5 #I-ARCHIVE-DATE-T  (T)
+      4 #K-CABINET           (A8)
+      4 #K-INDICATOR         (A3)      /* ALWAYS = 'NRM'
+      4 #K-CHARS             (A16)
+      4 #K-RECFM             (A3)
+      4 #K-FCB               (A4)
+      4 #K-FLASH             (A4)
+      4 #K-FORM              (A8)
+      4 #K-TRC               (A3)
+      4 #K-SEPMEM            (A8)
+      4 #K-CREATED           (T)
+      4 #K-NUMLINES          (P7)
+      4 #K-USERID            (A8)
+*
+1 WF-ID-RECORD               (A165)
+1 REDEFINE WF-ID-RECORD
+  2 WF-RECORD-TYPE           (A1)   /* ALWAYS 'I'
+  2 WF-ARCHIVE-FROM          (A1)   /* S-SPOOL, D-DATABASE, C-CONNECT
+  2 WF-BROWSE-KEY            (A36)  /* A31
+  2 REDEFINE WF-BROWSE-KEY
+    3 WF-REPNAME             (A25)
+    3 WF-REPRNB              (A11)  /* P11
+  2 WF-JOBNAME               (A8)
+  2 WF-JOBNO                 (A7)   /* N7
+  2 WF-NODE                  (A5)   /* N5
+  2 WF-REST                  (A107) /* A93
+  2 REDEFINE WF-REST
+    3 WF-DSTYPE              (A2)
+    3 WF-DSNO                (A7)   /* N7
+    3 WF-I-ARCHIVE-DATE      (A13)  /* P13
+      /* 3 REDEFINE WF-I-ARCHIVE-DATE
+      /*   4 WF-I-ARCHIVE-DATE-T  (T)
+    3 WF-CABINET             (A8)
+    3 WF-INDICATOR           (A3)   /* ALWAYS = 'NRM'
+    3 WF-CHARS               (A16)
+    3 WF-RECFM               (A3)
+    3 WF-FCB                 (A4)
+    3 WF-FLASH               (A4)
+    3 WF-FORM                (A8)
+    3 WF-TRC                 (A3)
+    3 WF-SEPMEM              (A8)
+    3 WF-CREATED             (A13) /* T
+    3 WF-NUMLINES            (A7)  /* P7
+    3 WF-USERID              (A8)
+*
+* For returning LFILE 91 and 206
+* CALLNAT 'NAT23001' PARAMETER_BLOCK P_RESP
+*
+1 PARAMETER_BLOCK            (B52)
+1 REDEFINE PARAMETER_BLOCK
+  2 FUNCTION_CODE            (I4)
+  2 ACTIVE_NUMBER            (I4) /* TOTAL NUMBER OF ENTRYS */
+  2 ENTRY                    (I4) /* INDEX OF AN ENTRY IN TABLE */
+  2 SRC_L_FILE               (I4) /* COPY: LOGICAL SOURCE FILENUMBER */
+  2 L_FILE                   (I4) /* LOGICAL FILE NUMBER */
+  2 DBID                     (I4) /* DATABASE ID */
+  2 FNR                      (I4) /* FILE NUMBER */
+  2 PASSWORD                 (A8) /* PASSWORD */
+  2 CIPHER                   (N8) /* CIPHER */
+  2 BLOCKSIZE                (I4) /* MAX. BLOCKSIZE OF DATABASE */
+    /* IF 0 THEN 4K IS ASSUMED */
+  2 DBTYPE                   (I1) /* DATABASE TYPE (SEE 2M/NAMDBTEQ) */
+  2 DBOPTIONS                (B1) /* OPTIONS (SEE 2M/NAMDBT) */
+  2 FREE                     (A2) /* FREE SPACE */
+*
+1 P_RESP                     (I4) /* RESPONSE CODE */
+1 #NOM-AD                    (A10)
+*
+* For de-compression
+* CALLNAT 'R-NRMCMP' COMPCB #T-TEXT #F-TEXT G-NATRP-ERC G-NATRP-ERT
+*
+1 COMPCB                     (B40)
+1 REDEFINE    COMPCB
+  2 COMPCB-OP                (A1)
+  2 COMPCB-CHAR              (B1)
+  2 COMPCB-ILEN-OLD          (B1)
+  2 COMPCB-OLEN-OLD          (B1)
+  2 COMPCB-ILEN              (B2)
+  2 COMPCB-OLEN              (B2)
+1 G-NATRP-ERC                (N4)
+1 G-NATRP-ERT                (A250)
+1 #F-TEXT                    (A251)
+*
+LOCAL
+****************************
+** PARAMETER FOR USR2029N **
+****************************
+01 PA-FILE
+  02 PA-NAME                (A54)
+  02 PA-LINK                (A8)
+  02 PA-SPACEP              (N8.0)
+  02 PA-SPACES              (N8.0)
+  02 PA-BLKSIZE             (A8)
+  02 PA-RECFORM             (A1)
+  02 PA-RECSIZE             (N5.0)
+  02 PA-OPEN                (A8)
+  02 PA-STATE               (A8)
+  02 PA-DEVICE              (A8)
+  02 PA-VOLUME              (A11)
+  02 PA-LABEL               (A7)
+  02 PA-FSEQ                (A4)
+  02 PA-RETPD               (N5.0)
+  02 PA-MOUNT               (A1)
+  02 PA-FCBTYPE             (A4)
+  02 PA-KEYLEN              (N2.0)
+  02 PA-KEYPOS              (N5.0)
+  02 PA-DUPKEY              (A3)
+01 PA-ERRTEXT               (A80)
+01 PA-VSNLIST               (A6/1:160)
+01 PA-RC(N2)
+01 PA-RC2(A8)
+*
+01 #SPACEP                  (N8.0)
+01 #SPACES                  (N8.0)
+*
+LOCAL
+1 #ARCHIVE-DSNAME            (A44)
+1 #RECORD-LENGTH             (I4)
+1 #TEXT-RECORD               (A257)
+1 REDEFINE #TEXT-RECORD
+  2 #T-RECORD-TYPE           (A1)
+  2 #T-TEXT                  (A256)
+1 REDEFINE #TEXT-RECORD
+  2 #TEXT-RECORD-V           (A1/1:257)
+1 #AR1-KEY                   (A31)
+1 REDEFINE #AR1-KEY
+  2 #AR-REPNAME              (A25)
+  2 #AR-REPRNB               (P11)
+1 #DR1-KEY                   (A75)
+1 REDEFINE #DR1-KEY
+  2 #DR-ARCHIVE-DSNAME       (A44)
+  2 #DR-REPNAME              (A25)
+  2 #DR-REPRNB               (P11)
+1 #TABLE                     (A2/1:64)
+1 REDEFINE #TABLE
+  2 #TABLE-A                 (A128)
+1 #P13                       (P13)
+1 #WF-1                      (A78)
+1 #WF-2                      (A78)
+/* 1 #PORTABLE-DSNAME           (A44)
+1 #LOG                       (N1)
+1 #CNT-REP                   (I4)
+1 #CNT-MAIL                  (I4)
+1 #CNT-AR                    (I4)
+1 #CNT-DR                    (I4)
+1 #CNT-TXT                   (I4)
+1 #ARCS-TOTAL                (I4)
+1 #CNT-TOTAL                 (I4)
+1 #MSG                       (A78)
+1 REDEFINE #MSG
+  2 FILLER                   25X
+  2 #MSG-1                   (A28)
+1 REDEFINE #MSG
+  2 FILLER                   25X
+  2 #MSG-2                   (A25)
+1 #WARN                      (L)
+1 #CNT-WARN                  (I4)
+*
+*
+*
+*  1. Check if DBID/FNR is defined and running
+*  2. Check if a given field is defined on this FDT
+1 LF-IX                      (I2) CONST<2>
+*
+1 L-DBID                     (N05)
+1 L-FNR                      (N05)
+1 L-RSP                      (I04)
+1 L-FIELD-SNAME              (A02/1:LF-IX)
+1 L-FIELD-LEN                (I04/1:LF-IX)
+1 L-FIELD-FOR                (A01/1:LF-IX)
+1 L-MATCH                    (L/1:LF-IX)
+*
+1 L-VERS                     (N2)
+*
+LOCAL
+1 CB                        (B80)
+1 REDEFINE CB
+  2 CB-1ST                   (B1)
+  2 CB-RS1                   (A1)
+  2 CB-COM                   (A2)
+  2 CB-CID                   (A4)
+  2 CB-FILE                  (B2)
+  2 REDEFINE CB-FILE
+    3 CB-DBID                (B1)
+    3 CB-FNR                 (B1)
+  2 CB-RSP                   (B2)
+  2 CB-ISN                   (B4)
+  2 CB-ILL                   (B4)
+  2 CB-ISQ                   (B4)
+  2 CB-FBL                   (B2)
+  2 CB-RBL                   (B2)
+  2 CB-SBL                   (B2)
+  2 CB-VBL                   (B2)
+  2 CB-IBL                   (B2)
+  2 CB-CO1                   (A1)
+  2 CB-CO2                   (A1)
+  2 CB-AD1                   (A8)
+  2 CB-AD2                   (A4)
+  2 CB-AD3                   (A8)
+  2 CB-AD4                   (A8)
+  2 CB-RS2                   (A8)
+  2 CB-CTI                   (A4)
+  2 CB-USA                   (A4)
+1 FB                         (A250)
+1 RB                         (A250/1:132)
+1 REDEFINE RB
+  2 P-LF-INF-LENGTH          (B2)       /* Total length of information
+  2 P-LF-FIELD-NR            (B2)       /* Number of fields
+  2 P-LF-ENTRY-I             (A8/1:4095)
+  2 P-LE-OPTION-A            (L)
+  2 P-LE-LENGTH-A            (N10)
+  2 REDEFINE P-LE-LENGTH-A
+    3 P-LE-LENGTH-A10        (A10)
+  2 P-DY-OPTION-A            (L)
+1 SB                         (A5)
+1 VB                         (A5)
+1 IB                         (A5)
+1 #WORK                      (A5)
+1 #I2                        (I2)
+1 LF-ENTRY                   (A8)
+1 REDEFINE LF-ENTRY
+  2 LF-INDIC                 (A1)       /* Seq. changed and add.
+  2 LF-NAME                  (A2)       /* Fields
+  2 LF-OPTIONS               (B1)
+  2 LF-LEVEL                 (B1)
+  2 LF-LENGTH                (B1)
+  2 LF-FORMAT                (A1)
+  2 LF-OPTIONS-C             (B1)       /* Options continue
+1 NEXT-LF-ENTRY              (A8)
+1 REDEFINE NEXT-LF-ENTRY
+  2 NEXT-LF-INDIC            (A1)
+  2 FIL3                     (A3)
+  2 NEXT-LF-LEVEL            (B1)
+  2 FIL4                     (A3)
+1 FIELD-NR                   (N7)
+1 I                          (N7)
+1 J                          (N7)
+*
+*
+1 #IX                        (I2)
+1 #MESSAGE                   (A79)
+1 USR2011L
+  2 INPUTS
+    3 FUNCTION               (A01)
+    3 WORK-NUM               (I01)
+  2 INPUT-OUTPUTS
+    3 WORK-FILE              (A253)
+    3 REDEFINE WORK-FILE
+      4 WORK-FILE-A          (A50/1:5)
+    3 WORK-TYPE              (A01)
+  2 OUTPUTS
+    3 MAX-NUM                (I01)
+    3 RESPONSE               (I04)
+      /*
+1 USR2011N
+  2 VERSION                  (I01) INIT <0>
+1 REDEFINE USR2011N
+  2 EXTENDED-PARMS
+    3 EXTENDED-DATA          (A01/1:1)
+/*
+1 USR8223N-DDNAME            (A8)  /* Input
+1 USR8223N-DSNAME            (A44) /* Output
+1 USR8223N-RETURN-CODE       (I4)  /* Output
+1 MESSAGE                    (A79)
+/*
+1 #ARCHIVE-DSNAME-A          (A44/1:*)
+1 #PORTABLE-DSNAME-A         (A44/1:*)
+1 #XDIM                      (I2)
+1 #LEN                       (I2)
+/* NAT00083
+LOCAL
+1 FIELD                      (A253)
+1 MASK                       (A253)
+1 WILDCARD                   (A1)
+1 ASTERISK                   (A1)
+1 LENGTH                     (I2)
+1 MATCHED                    (A1)
+/* USR2021N
+LOCAL
+01 ALC                          /* DYNAMIC ALLOCATION (MVS ONLY)
+  02 ALC-FUNCTION        (A8)   /* FUNCTION (ALLOC/UNALLOC)
+  02 ALC-ERROR-CODE      (B2)   /* SVC 99 ERROR CODE OR NUMBER
+  02 ALC-INFO-CODE       (B2)   /* SVC 99 INFORMATION CODE
+  02 ALC-ERROR-TEXT      (A60)  /* ERROR TEXT FROM LAST ERROR
+  02 ALC-DDNAME          (A8)   /* LOGICAL DATASET NAME
+  02 ALC-DSNAME          (A44)  /* PHYSICAL DATASET NAME
+  02 ALC-MEMBER          (A8)   /* PDS MEMBER NAME
+  02 ALC-DUMMY           (A1)   /* (Y,N, ) Y = DUMMY DATASET
+  02 ALC-TERM            (A1)   /* (Y,N, ) Y = TSO TERMINAL DATASET
+  02 ALC-DISP1           (A4)   /* DISPOSITION (NEW/OLD/MOD/SHR)
+  02 ALC-DISP2           (A8)   /* (CATLG/UNCATLG/KEEP/DELETE)
+  02 ALC-DISP3           (A8)   /* (CATLG/UNCATLG/KEEP/DELETE)
+  02 ALC-UNALLOC-CLOSE   (A1)   /* (Y,N, ) Y = UNALLOCATE AT CLOSE
+  02 ALC-SPACE-TYPE      (A8)   /* CYLINDER/TRACKS/BLOCKS
+  02 ALC-SPACE-PRIMARY   (N8)   /* PRIMARY SPACE AMOUNT
+  02 ALC-SPACE-SECONDARY (N8)   /* SECONDARY SPACE AMOUNT
+  02 ALC-SPACE-DIRECTORY (N8)   /* NUMBER OF DIRECTORY BLOCKS
+  02 ALC-SPACE-RELEASE   (A1)   /* (Y,N, ) Y = RELEASE UNUSED SPACE
+  02 ALC-SPACE-FORMAT    (A6)   /* (CONTIG/ALX/MXIG)
+  02 ALC-SPACE-ROUND     (A1)   /* (Y,N, ) Y = ROUND UP TO NEXT CYL.
+  02 ALC-VOLUME-SERIAL   (A6)   /* VOLUME NAME
+  02 ALC-UNIT            (A8)   /* TYPE OF UNIT
+  02 ALC-UNIT-DEFER      (A1)   /* (Y,N, ) Y = DEFER MOUNTING
+  02 ALC-LABEL-SEQUENCE  (N4)   /* SEQUENCE NUMBER ON TAPE
+  02 ALC-LABEL-TYPE      (A3)   /* (SL/NL/BLP/AL/AUL/SUL/NSL/LTM
+  02 ALC-LABEL-EXPDT     (N7)   /* EXPIRATION DATE (YYYYDDD)
+  02 ALC-LABEL-RETPD     (N4)   /* RETENTION PERIOD IN DAYS
+  02 ALC-SYSOUT-CLASS    (A1)   /* JES OUTPUT CLASS
+  02 ALC-SYSOUT-PROGRAM  (A8)   /* JES OUTPUT WRITER NAME
+  02 ALC-SYSOUT-FORM     (A4)   /* JES OUTPUT FORM NAME
+  02 ALC-SYSOUT-LIMIT    (N8)   /* JES OUTPUT LIMIT
+  02 ALC-SYSOUT-COPIES   (N3)   /* JES OUTPUT COPIES
+  02 ALC-SYSOUT-HOLD     (A1)   /* (Y,N, ) Y = JES OUTPUT HOLD QUEUE
+  02 ALC-SYSOUT-SEGMENT  (N5)   /* JES OUTPUT SEGMENTATION
+  02 ALC-SYSOUT-NODE     (A8)   /* JES OUTPUT REMOTE NODE
+  02 ALC-SYSOUT-USERID   (A8)   /* JES OUTPUT REMOTE NODE USERID
+  02 ALC-SYSOUT-OUTPUT   (A8)   /* REFERENCED OUTPUT STATEMENT
+  02 ALC-DCB-DDNAME      (A8)   /* DCB RETRIEVED FROM DDNAME
+  02 ALC-DCB-DSORG       (A3)   /* DATASET ORG. (PS/PO/DA)
+  02 ALC-DCB-RECFM       (A4)   /* RECORD FORMAT
+  02 ALC-DCB-BLKSZ       (N5)   /* BLOCK SIZE
+  02 ALC-DCB-LRECL       (N5)   /* RECORD LENGTH
+  02 ALC-DCB-BUFNO       (N2)   /* NUMBER OF I/O BUFFERS
+/* In version 1 V1-ALC-DCB-BUFNO(N3) will be used instead
+  02 ALC-DCB-DENSITY     (N1)   /* TAPE DENSITY (1/2/3/4)
+  02 ALC-SMS-STORCLAS    (A8)   /* SMS STORAGE CLASS
+  02 ALC-SMS-MGMTCLAS    (A8)   /* SMS MANAGEMENT CLASS
+  02 ALC-SMS-DATACLAS    (A8)   /* SMS DATA CLASS
+  02 ALC-PATH            (A253) /* PATH NAME
+  02 ALC-PATH-DISP1      (A6)   /* PATH DISP. 1 (DELETE/KEEP)
+  02 ALC-PATH-DISP2      (A6)   /* PATH DISP. 2 (DELETE/KEEP)
+  02 ALC-PATH-OPTS       (B4)   /* PATH OPTIONS
+  02 ALC-PATH-MODE       (B4)   /* PATH MODE
+  02 ALC-PATH-FILEDAT    (A6)   /* FILE TYPE (BINARY/TEXT)
+/*
+01 USR2021N
+  02 VERSION             (I01)     INIT <2>
+  02 V1-ALC-DCB-BUFNO    (N03)
+  02 V2-ALC-DSTYPE       (A04)   /* DATASET TYPE (PDS/PDSE)
+01 REDEFINE USR2021N
+  02 EXTENDED-PARMS
+    03 EXTENDED-DATA     (A01/1:8)
+*
+* NOM Check for Admin rights, enter a Log
+LOCAL USING NOMFNC-E            /* NOM API's
+LOCAL USING NOMUS--P
+LOCAL USING NOMUS--E
+LOCAL USING RLOG-L
+LOCAL
+01 #ACCESS-CODE          (A8)
+END-DEFINE
+*
+*
+*
+*
+*
+DEFINE SUBROUTINE ADD-ARC-TO-ARRAY
+ADD 1 TO #XDIM
+WRITE #XDIM #ARCHIVE-DSNAME
+EXPAND ARRAY #ARCHIVE-DSNAME-A TO (1:#XDIM)
+#ARCHIVE-DSNAME-A(#XDIM) := #ARCHIVE-DSNAME
+EXPAND ARRAY #PORTABLE-DSNAME-A TO (1:#XDIM)
+EXAMINE #ARCHIVE-DSNAME FOR '*' GIVING LENGTH #LEN
+IF #LEN LE 42
+  COMPRESS #ARCHIVE-DSNAME '.P' INTO  #PORTABLE-DSNAME-A(#XDIM)
+    LEAVING NO
+ELSE
+  /* Should never happen, since an archive name should be less than
+  /* 42 byte
+  #PORTABLE-DSNAME-A(#XDIM) := #ARCHIVE-DSNAME
+  EXAMINE #PORTABLE-DSNAME-A(#XDIM) FOR 'NOM' REPLACE 'P-M'
+END-IF
+END-SUBROUTINE
+*
+*
+*
+DEFINE SUBROUTINE HANDLE-ONE-ACHIVE
+/*
+/* Add entry to user log
+PL-PARMS.LG-USERID      := *USER
+PL-PARMS.LG-CODE        := 'UI'   /* User information
+PL-PARMS.LG-OBJECT-NAME := *PROGRAM
+COMPRESS #ARCHIVE-DSNAME-A(#XDIM) 'unloading.'
+  INTO PL-PARMS.LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+*
+* NOMLGUS-PARMS.LG-OBJECT-NAME := *PROGRAM
+* COMPRESS 'Unload' #ARCHIVE-DSNAME-A(#XDIM)
+*   INTO NOMLGUS-PARMS.LG-MSG
+* CALLNAT 'NOMLGUSN' NOMLGUS-VERSION NOMLGUS-PARMS
+END TRANSACTION
+/*
+/*
+FIND AD1 WITH AD-ARCHIVE-DSNAME = #ARCHIVE-DSNAME-A(#XDIM)
+*
+  IF NO RECORD FOUND
+    WRITE 'Error: No entry in NRM-ARCHIVE-DATASET for'
+      #ARCHIVE-DSNAME-A(#XDIM)
+    ESCAPE ROUTINE
+  END-NOREC
+*
+  RESET ADO
+*
+  ADO-RECORD-TYPE := 'A' /* A for NRM-ARCHIVE-DATASET
+*
+  ADO-ARCHIVE-DSNAME := AD1.AD-ARCHIVE-DSNAME                /* A44       0001 - 0044
+  IF AD1.AD-CREATED = 0
+    RESET ADO-CREATED
+  ELSE
+    #P13 := AD1.AD-CREATED
+    MOVE EDITED #P13 (EM=9999999999999) TO ADO-CREATED       /* A13 := T  0045 - 0057
+  END-IF
+  IF AD1.AD-CREATED-INV = 0
+    RESET ADO-CREATED-INV
+  ELSE
+    #P13 := AD1.AD-CREATED-INV
+    MOVE EDITED #P13 (EM=999999999999) TO ADO-CREATED-INV    /* A13 := T  0058 - 0070
+  END-IF
+  ADO-EXPIRATION-DATE := AD1.AD-EXPIRATION-DATE              /* A8        0071 - 0078
+  ADO-EXPIRATION-DATE-PHYS := AD1.AD-EXPIRATION-DATE-PHYS    /* A8        0079 - 0086
+  ADO-CONDENSE-OUTPUT := AD1.AD-CONDENSE-OUTPUT              /* A1        0087 - 0087
+  MOVE EDITED AD1.AD-ORIGINAL-REPORT-COUNT (EM=9999999)
+    TO ADO-ORIGINAL-REPORT-COUNT                             /* A7 := P7  0088 - 0094
+  ADO-VOLSERS(*) := AD1.AD-VOLSERS(*)                        /* A6/1:20   0095 - 0214
+  ADO-MARK-FOR-CONDENSE := AD1.AD-MARK-FOR-CONDENSE          /* A1        0215 - 0215
+  MOVE EDITED AD1.AD-ARCHIVE-TYPE (EM=9) TO ADO-ARCHIVE-TYPE /* A1 := N1  0216 - 0216
+  ADO-OBJECT-TYPE := AD1.AD-OBJECT-TYPE                      /* A10       0217 - 0226
+*   IF AD1.AD-OBJECT-TIME = 0
+*     RESET ADO-OBJECT-TIME
+*   ELSE
+*     #P13 := AD1.AD-OBJECT-TIME
+*     MOVE EDITED #P13 (EM=9999999999999) TO ADO-OBJECT-TIME   /* A13 := T  0227 - 0239
+*   END-IF
+  WRITE WORK 2 VARIABLE ADO
+*
+  IF #LOG GT 2
+    WRITE '  Archive:' AD1.AD-ARCHIVE-DSNAME
+      / '  ========'
+      / '  Volser1:'ADO-VOLSERS(1) 'Volser2:' ADO-VOLSERS(2)
+      'NumRp:' AD1.AD-ORIGINAL-REPORT-COUNT (AD=L)
+      'ArcType:' ADO-ARCHIVE-TYPE
+      / '  Created:' AD1.AD-CREATED (EM=YYYY-MM-DD' 'HH:II)
+      'LogExpD:' ADO-EXPIRATION-DATE
+      'PhysExpD:' ADO-EXPIRATION-DATE-PHYS
+  END-IF
+*
+END-FIND
+*
+ADD 1 TO #ARCS-TOTAL
+RESET #CNT-REP #CNT-WARN
+*
+IF #LOG GT 1
+  MOVE ALL '=' TO #MSG
+  COMPRESS ' Start reading archive' #XDIM INTO #MSG-1
+  WRITE NOTITLE NOHDR #MSG
+END-IF
+*
+*
+READ WORK FILE 1 #TEXT-RECORD GIVING LENGTH #RECORD-LENGTH
+  DECIDE ON FIRST VALUE OF #T-RECORD-TYPE
+    VALUE 'I'
+      RESET #WARN
+/*
+      IF #CNT-TXT NE 0
+        IF #LOG GT 2
+          WRITE '  Act-Reps:' #CNT-AR 'DS-Reps:' #CNT-DR
+            'Mail-Recs:' #CNT-MAIL 'Txt-Recs:' #CNT-TXT
+        END-IF
+      END-IF
+      RESET #CNT-AR #CNT-DR #CNT-MAIL #CNT-TXT
+/*
+      #ID-RECORD := #TEXT-RECORD
+/*
+      WF-RECORD-TYPE  := #I-RECORD-TYPE  /* A1  ALWAYS 'I'
+      WF-ARCHIVE-FROM := #ARCHIVE-FROM   /* A1  S-SPOOL, D-DATABASE, C-CONNECT
+/*
+      DECIDE FOR FIRST CONDITION
+          /*
+          /* repname a17,reprnb p7,jobnumber n5,node n3
+        WHEN #RECORD-LENGTH LE 132                           /* NOM141
+          #AR-REPNAME:= #REPNAME3
+          #AR-REPRNB:= #REPRNB3
+          /*
+          WF-REPNAME        := #REPNAME3                      /* A25 := A17
+          MOVE EDITED #REPRNB3 (EM=99999999999) TO WF-REPRNB  /* P7 TO A11
+          WF-JOBNAME        := #JOBNAME3                      /* A8
+          MOVE EDITED #JOBNO3 (EM=9999999) TO WF-JOBNO        /* N5 TO A7
+          MOVE EDITED #NODE3 (EM=99999) TO WF-NODE            /* N3 TO A5
+          WF-DSTYPE         := #DSTYPE3                       /* A2
+          MOVE EDITED #DSNO3 (EM=9999999) TO WF-DSNO          /* N7 TO A7
+          MOVE EDITED #I-ARCHIVE-DATE3 (EM=9999999999999) TO WF-I-ARCHIVE-DATE /* P13(T) TO A13
+          WF-CABINET        := #K-CABINET3                    /* A8
+          WF-INDICATOR      := #K-INDICATOR3                  /* A3
+          WF-CHARS          := #K-CHARS3                      /* A16
+          WF-RECFM          := #K-RECFM3                      /* A3
+          WF-FCB            := #K-FCB3                        /* A4
+          WF-FLASH          := #K-FLASH3                      /* A4
+          WF-FORM           := #K-FORM3                       /* A8
+          WF-TRC            := #K-TRC3                        /* A3
+          WF-SEPMEM         := #K-SEPMEM3                     /* A8
+          IF #K-CREATED3 = 0
+            RESET WF-CREATED
+          ELSE
+            #P13 := #K-CREATED3                               /* P13 := T
+            MOVE EDITED #P13 (EM=9999999999999) TO WF-CREATED /* P13 TO A13 := T
+          END-IF
+          MOVE EDITED #K-NUMLINES3 (EM=9999999) TO WF-NUMLINES /* P7 TO A7
+          WF-USERID         := #K-USERID3                     /* A8
+          /*
+          /* repname a25,reprnb p7,jobnumber n5,node n3
+        WHEN #RECORD-LENGTH = 133 THRU 140                   /* NOM211
+          #AR-REPNAME:= #REPNAME1 /* jobname (n5)
+          #AR-REPRNB:= #REPRNB1
+          /*
+          WF-REPNAME        := #REPNAME1                      /* A25 := A25
+          MOVE EDITED #REPRNB1 (EM=99999999999) TO WF-REPRNB  /* P7 TO A11
+          WF-JOBNAME        := #JOBNAME1                      /* A8
+          MOVE EDITED #JOBNO1 (EM=9999999) TO WF-JOBNO        /* N5 TO A7
+          MOVE EDITED #NODE1 (EM=99999) TO WF-NODE            /* N3 TO A5
+          WF-DSTYPE         := #DSTYPE1                       /* A2
+          MOVE EDITED #DSNO1 (EM=9999999) TO WF-DSNO          /* N7 TO A7
+          MOVE EDITED #I-ARCHIVE-DATE1 (EM=9999999999999) TO WF-I-ARCHIVE-DATE /* P13(T) TO A13
+          WF-CABINET        := #K-CABINET1                    /* A8
+          WF-INDICATOR      := #K-INDICATOR1                  /* A3
+          WF-CHARS          := #K-CHARS1                      /* A16
+          WF-RECFM          := #K-RECFM1                      /* A3
+          WF-FCB            := #K-FCB1                        /* A4
+          WF-FLASH          := #K-FLASH1                      /* A4
+          WF-FORM           := #K-FORM1                       /* A8
+          WF-TRC            := #K-TRC1                        /* A3
+          WF-SEPMEM         := #K-SEPMEM1                     /* A8
+          IF #K-CREATED1 = 0
+            RESET WF-CREATED
+          ELSE
+            #P13 := #K-CREATED1                               /* P13 := T
+            MOVE EDITED #P13 (EM=9999999999999) TO WF-CREATED /* P13 TO A13 := T
+          END-IF
+          MOVE EDITED #K-NUMLINES1 (EM=9999999) TO WF-NUMLINES /* P7 TO A7
+          WF-USERID         := #K-USERID1                     /* A8
+          /*
+          /* repname a25,reprnb p7,jobnumber n7,node n3
+        WHEN #RECORD-LENGTH = 141 THRU 142                   /* NOM311
+          #AR-REPNAME:= #REPNAME2
+          #AR-REPRNB:= #REPRNB2
+          /*
+          WF-REPNAME        := #REPNAME2                      /* A25 := A25
+          MOVE EDITED #REPRNB2 (EM=99999999999) TO WF-REPRNB  /* P7 TO A11
+          WF-JOBNAME        := #JOBNAME2                      /* A8
+          MOVE EDITED #JOBNO2 (EM=9999999) TO WF-JOBNO        /* N7 TO A7
+          MOVE EDITED #NODE2 (EM=99999) TO WF-NODE            /* N3 TO A5
+          WF-DSTYPE         := #DSTYPE2                       /* A2
+          MOVE EDITED #DSNO2 (EM=9999999) TO WF-DSNO          /* N7 TO A7
+          MOVE EDITED #I-ARCHIVE-DATE2 (EM=9999999999999) TO WF-I-ARCHIVE-DATE /* P13(T) TO A13
+          WF-CABINET        := #K-CABINET2                    /* A8
+          WF-INDICATOR      := #K-INDICATOR2                  /* A3
+          WF-CHARS          := #K-CHARS2                      /* A16
+          WF-RECFM          := #K-RECFM2                      /* A3
+          WF-FCB            := #K-FCB2                        /* A4
+          WF-FLASH          := #K-FLASH2                      /* A4
+          WF-FORM           := #K-FORM2                       /* A8
+          WF-TRC            := #K-TRC2                        /* A3
+          WF-SEPMEM         := #K-SEPMEM2                     /* A8
+          IF #K-CREATED2 = 0
+            RESET WF-CREATED
+          ELSE
+            #P13 := #K-CREATED2                               /* P13 := T
+            MOVE EDITED #P13 (EM=9999999999999) TO WF-CREATED /* P13 TO A13 := T
+          END-IF
+          MOVE EDITED #K-NUMLINES2 (EM=9999999) TO WF-NUMLINES /* P7 TO A7
+          WF-USERID         := #K-USERID2                     /* A8
+          /*
+          /* repname a25,reprnb p11,jobnumber n7,node n5
+        WHEN #RECORD-LENGTH > 142                            /* NOM321
+          #AR-REPNAME:= #REPNAME /* rnb(p11), node (n5)
+          #AR-REPRNB:= #REPRNB
+          /*
+          WF-REPNAME        := #REPNAME                       /* A25 := A25
+          MOVE EDITED #REPRNB  (EM=99999999999) TO WF-REPRNB  /* P7 TO A11
+          WF-JOBNAME        := #JOBNAME                       /* A8
+          IF #JOBNO-A7 = ' '
+            RESET WF-JOBNO
+          ELSE
+            MOVE EDITED #JOBNO  (EM=9999999) TO WF-JOBNO      /* N7 TO A7
+          END-IF
+          IF #NODE-A5 = ' '
+            RESET WF-NODE
+          ELSE
+            MOVE EDITED #NODE  (EM=99999) TO WF-NODE          /* N5 TO A5
+          END-IF
+          WF-DSTYPE         := #DSTYPE                        /* A2
+          IF #DSNO-A7 = ' '
+            RESET WF-DSNO
+          ELSE
+            MOVE EDITED #DSNO  (EM=9999999) TO WF-DSNO        /* N7 TO A7
+          END-IF
+          MOVE EDITED #I-ARCHIVE-DATE  (EM=9999999999999) TO WF-I-ARCHIVE-DATE /* P13(T) TO A13
+          WF-CABINET        := #K-CABINET                     /* A8
+          WF-INDICATOR      := #K-INDICATOR                   /* A3
+          WF-CHARS          := #K-CHARS                       /* A16
+          WF-RECFM          := #K-RECFM                       /* A3
+          WF-FCB            := #K-FCB                         /* A4
+          WF-FLASH          := #K-FLASH                       /* A4
+          WF-FORM           := #K-FORM                        /* A8
+          WF-TRC            := #K-TRC                         /* A3
+          WF-SEPMEM         := #K-SEPMEM                      /* A8
+          IF #K-CREATED = 0
+            RESET WF-CREATED
+          ELSE
+            #P13 := #K-CREATED                                /* P13 := T
+            MOVE EDITED #P13 (EM=9999999999999) TO WF-CREATED /* P13 TO A13 := T
+          END-IF
+          MOVE EDITED #K-NUMLINES (EM=9999999) TO WF-NUMLINES /* P7 TO A7
+          WF-USERID         := #K-USERID                      /* A8
+        WHEN NONE IGNORE
+      END-DECIDE
+      /*
+      /*
+      #DR-ARCHIVE-DSNAME := #ARCHIVE-DSNAME-A(#XDIM)
+      #DR-REPNAME := #AR-REPNAME
+      #DR-REPRNB := #AR-REPRNB
+      FIND NUMBER DR1 WITH DR-DSNAME-REPORT-RNB = #DR1-KEY
+      IF *NUMBER GT 0
+        /* Use old v343 view, since FIND NUMBER returns the same
+        /* result than the v351 view (2 additinal, none key fields).
+        FIND NUMBER AR1-343 WITH AR-REPORT-RNB = #AR1-KEY
+        IF *NUMBER GT 0
+          FIND NUMBER MA1 WITH MA-REP-RNB = #AR1-KEY
+          IF *NUMBER GT 0
+            /*
+            /*
+*  Record Type 'D'
+            /* Write 'D' before record type 'I', to check for
+            /* duplicated when loading the records
+            FIND DR1 WITH DR-DSNAME-REPORT-RNB = #DR1-KEY
+              /* Cannot happen, checked above
+              /* IF NO RECORDS FOUND
+              /*   WRITE 'Warning: No entry in NRM-DATASET-REPORT for'
+              /*     #DR-ARCHIVE-DSNAME #DR-REPNAME #DR-REPRNB
+              /*   #WARN := TRUE
+              /*   ESCAPE BOTTOM
+              /* END-NOREC
+              /*
+              RESET DRO
+              DRO-ARCHIVE-DSNAME       := DR1.DR-ARCHIVE-DSNAME
+              DRO-REPNAME              := DR1.DR-REPNAME
+              MOVE EDITED DR1.DR-REPRNB (EM=99999999999) TO DRO-REPRNB
+              DRO-STATUS               := DR1.DR-STATUS
+              DRO-EXPIRATION-DATE      := DR1.DR-EXPIRATION-DATE
+              DRO-EXPIRATION-DATE-ORIG := DR1.DR-EXPIRATION-DATE-ORIG
+              DRO-OBJECT-TYPE          := DR1.DR-OBJECT-TYPE
+              /* IF DR1.DR-OBJECT-TIME = 0
+              /*   RESET DRO-OBJECT-TIME
+              /* ELSE
+              /*   #P13 := DR1.DR-OBJECT-TIME
+              /*   MOVE EDITED #P13 (EM=9999999999999) TO DRO-OBJECT-TIME
+              /* END-IF
+              /*
+              DRO-RECORD-TYPE := 'D'
+              /*
+              WRITE WORK 2 VARIABLE DRO
+              ADD 1 TO #CNT-DR
+            END-FIND
+            /*
+            /*
+            /*
+*  Record Type 'I'
+            /* Write 'I' after record type 'D', to check for
+            /* duplicated when loading the records
+            WRITE WORK 2 VARIABLE WF-ID-RECORD
+            /*
+            /*
+            /*
+          ELSE
+            IF #LOG GT 2
+              WRITE 'Report:' #AR-REPNAME 'Rnb:' #AR-REPRNB
+                / '  skipped, NRM-MAIL entry missing'
+            END-IF
+            ADD 1 TO #CNT-WARN
+            #WARN := TRUE
+            ESCAPE TOP
+          END-IF
+        ELSE
+          IF #LOG GT 2
+            WRITE 'Report:' #AR-REPNAME 'Rnb:' #AR-REPRNB
+              / '  skipped, NRM-ACTIVE-REPORTS entry missing'
+          END-IF
+          ADD 1 TO #CNT-WARN
+          #WARN := TRUE
+          ESCAPE TOP
+        END-IF
+      ELSE
+        IF #LOG GT 2
+          WRITE 'Archive:' #DR-ARCHIVE-DSNAME
+            / 'Report:' #DR-REPNAME 'Rnb:' #DR-REPRNB
+            / '  skipped, NRM-DATASET-REPORT entry missing'
+        END-IF
+        ADD 1 TO #CNT-WARN
+        #WARN := TRUE
+        ESCAPE TOP
+      END-IF
+      /*
+      /*
+      /*
+      ADD 1 TO #CNT-REP
+      IF #LOG GT 1
+        WRITE 'Report:' #AR-REPNAME 'Rnb:' #AR-REPRNB
+      END-IF
+      /*
+      /*
+      /*
+      /*
+      /*
+*  Record Type 'R'
+      FIND AR1-343 WITH AR-REPORT-RNB = #AR1-KEY
+*        WHERE AR-REVIVE ='D' OR='S' /*SU5 OR='C'
+        /* Cannot happen, checked above
+        /* IF NO RECORDS FOUND
+        /*   WRITE 'Warning: No entry in NRM-ACTIVE-REPORTS for'
+        /*     #AR-REPNAME #AR-REPRNB
+        /*   #WARN := TRUE
+        /*   ESCAPE BOTTOM
+        /* END-NOREC
+*
+        RESET ARO
+*
+        ARO-KEYWORDS(*)             := AR-KEYWORDS(*)       /* (A15/1:6)           0001 - 0090
+*                                                           /* (A13) := (P13.0)    0091 - 0103
+        MOVE EDITED AR-PROCESS-TIME-INV (EM=9999999999999) TO ARO-PROCESS-TIME-INV
+        ARO-REPNAME                 := AR-REPNAME           /* (A25)               0104 - 0128
+        MOVE EDITED AR-REPRNB (EM=99999999999) TO ARO-REPRNB /* A11 := P11.0       0129 - 0139
+        ARO-MASTER-REPNAME          := AR-MASTER-REPNAME    /* (A25)               0140 - 0164
+        /* (A11) := (P11.0)    0165 - 0175
+*       MOVE EDITED AR-INTERNAL-NODE-ID (EM=99999999999) TO ARO-INTERNAL-NODE-ID
+        ARO-NODE-UX                 := AR-NODE-UX           /* (A16)               0176 - 0191
+        ARO-STATUS                  := AR-STATUS            /* (A1)                0192 - 0192
+        ARO-EXPIRATION              := AR-EXPIRATION        /* (A8)                0193 - 0200
+        ARO-RETENTION-ACTION        := AR-RETENTION-ACTION  /* (A1)                0201 - 0201
+        ARO-RETENTION-PERIOD        := AR-RETENTION-PERIOD  /* (A12)               0202 - 0213
+        ARO-DESC                    := AR-DESC              /* (A50)               0214 - 0263
+        ARO-REMOTE-CODEPAGE         := AR-REMOTE-CODEPAGE   /* (A64)               0264 - 0327
+*       ARO-LOCAL-CODEPAGE          := AR-LOCAL-CODEPAGE    /* (A64)               0328 - 0391
+        IF AR-PROCESS-TIME = 0
+          RESET ARO-PROCESS-TIME
+        ELSE
+          #P13 := AR1-343.AR-PROCESS-TIME                         /* P13 := T
+          MOVE EDITED #P13 (EM=9999999999999) TO ARO-PROCESS-TIME /* A13 := P13    0392 - 0404
+        END-IF
+        /* (A8) := (P8.0)
+        MOVE EDITED AR-NUMBER-OF-LINES (EM=99999999) TO ARO-NUMBER-OF-LINES     /* 0405 - 0412
+        ARO-INSERTED                := AR-INSERTED          /* (A1)                0413 - 0413
+        ARO-CURRENT-LOCATION        := AR-CURRENT-LOCATION  /* (A1)                0414 - 0414
+        ARO-STORE-NATRPT            := AR-STORE-NATRPT      /* (A1)                0415 - 0415
+        MOVE EDITED AR-ORDER-ID (EM=9999999999) TO ARO-ORDER-ID    /* A10 := P10.0 0416 - 0425
+        MOVE EDITED AR-SOURCE-ID (EM=9999999999) TO ARO-SOURCE-ID  /* A10 := P10.0 0426 - 0435
+        MOVE EDITED AR-CC-TYPE (EM=HHHH) TO ARO-CC-TYPE            /* A4 := B2     0436 - 0439
+        MOVE EDITED AR-RECORD-LENGTH (EM=999) TO ARO-RECORD-LENGTH /* A3 := N3.0   0440 - 0442
+*
+        #SPOOL-ATTRIBUTES           := AR-SPOOL-ATTRIBUTES     /* A250 := A250
+        CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+*
+*
+        MOVE EDITED #SPOOL-TYPE (EM=99999) TO ARO-SPOOL-TYPE   /* (A5) := (I2)     0443 - 0447
+*
+*
+        DECIDE ON FIRST VALUE OF #SPOOL-TYPE
+            /*
+          VALUE SEQUENTIAL-FILE-BS2  /* 0007
+*   ---------------------------------      -----------------------------------
+*   BS2000
+*   ---------------------------------      -----------------------------------
+            MOVE EDITED #SPOOL-BS2-NODE (EM=99999) TO ARO-SPOOL-BS2-NODE /* A5 := N5 0448 - 0452
+            ARO-SPOOL-BS2-JOB-NAME    := #SPOOL-BS2-JOB-NAME          /* (A8)        0453 - 0460
+            ARO-SPOOL-BS2-USER-ID     := #SPOOL-BS2-USER-ID           /* (A8)        0461 - 0468
+            ARO-SPOOL-BS2-JOB-ID      := #SPOOL-BS2-JOB-ID            /* (A5)        0469 - 0473
+            ARO-SPOOL-BS2-ORIGINATOR-JOB-ID := #SPOOL-BS2-ORIGINATOR-JOB-ID /* (A5)  0474 - 0478
+            /* A3 := N3
+            MOVE EDITED #SPOOL-BS2-COPIES (EM=999) TO ARO-SPOOL-BS2-COPIES        /* 0479 - 0481
+            ARO-SPOOL-BS2-FORM        := #SPOOL-BS2-FORM              /* (A8)        0482 - 0489
+            ARO-SPOOL-BS2-CHARS       := #SPOOL-BS2-CHARS             /* (A16)       0490 - 0505
+            ARO-SPOOL-BS2-DSNAME      := #SPOOL-BS2-DSNAME            /* (A54)       0506 - 0559
+            ARO-SPOOL-BS2-CONTROL-OPTION := #SPOOL-BS2-CONTROL-OPTION /* (A16)       0560 - 0575
+            ARO-SPOOL-BS2-DESTINATION := #SPOOL-BS2-DESTINATION       /* (A8)        0576 - 0583
+            ARO-SPOOL-BS2-DEVICE      := #SPOOL-BS2-DEVICE            /* (A8)        0584 - 0591
+            ARO-SPOOL-BS2-ROTATION    := #SPOOL-BS2-ROTATION          /* (A8)        0592 - 0599
+            ARO-SPOOL-BS2-DIA         := #SPOOL-BS2-DIA               /* (A2)        0600 - 0601
+            ARO-SPOOL-BS2-SIZE        := #SPOOL-BS2-SIZE              /* (A6)        0602 - 0607
+            ARO-SPOOL-BS2-RECFM       := #SPOOL-BS2-RECFM             /* (A5)        0608 - 0612
+            /* A5 := N5
+            MOVE EDITED #SPOOL-BS2-RECSIZE (EM=99999) TO ARO-SPOOL-BS2-RECSIZE    /* 0613 - 0617
+            /* A5 := N5
+            MOVE EDITED #SPOOL-BS2-BLKSIZE (EM=99999) TO ARO-SPOOL-BS2-BLKSIZE    /* 0618 - 0622
+            /* A7 := N7    0623 - 0629
+            MOVE EDITED #SPOOL-BS2-SECONDARY (EM=9999999) TO ARO-SPOOL-BS2-SECONDARY
+            ARO-SPOOL-BS2-ORIG-DSNAME := #SPOOL-BS2-ORIG-DSNAME       /* (A54)       0630 - 0683
+            ARO-SPOOL-BS2-CLASS       := #SPOOL-BS2-CLASS             /* (A4)        0684 - 0687
+            /* 8 free      0688 - 0695
+          VALUE JES2                 /* 0001
+            /* A5 := N5
+            MOVE EDITED #SPOOL-JES-NODE (EM=99999) TO ARO-SPOOL-JES-NODE          /* 0448 - 0452
+            ARO-SPOOL-JES-JOB-NAME    := #SPOOL-JES-JOB-NAME          /* (A10)       0453 - 0462
+            /* A7 := N7    0463 - 0469
+            MOVE EDITED #SPOOL-JES-JOB-NUMBER (EM=9999999) TO ARO-SPOOL-JES-JOB-NUMBER
+            ARO-SPOOL-JES-DSTYPE      := #SPOOL-JES-DSTYPE            /* (A2)        0470 - 0471
+            /* A3 := N3
+            MOVE EDITED #SPOOL-JES-DSNO-OLD (EM=999) TO ARO-SPOOL-JES-DSNO-OLD    /* 0472 - 0474
+            /* A7 := N7    0475 - 0481
+            MOVE EDITED #SPOOL-JES-DATASET-KEY (EM=9999999) TO ARO-SPOOL-JES-DATASET-KEY
+            ARO-SPOOL-JES-GROUP-ID    := #SPOOL-JES-GROUP-ID          /* (A20)       0482 - 0501
+            ARO-SPOOL-JES-PROCNAME    := #SPOOL-JES-PROCNAME          /* (A8)        0502 - 0509
+            ARO-SPOOL-JES-STEPNAME    := #SPOOL-JES-STEPNAME          /* (A8)        0510 - 0517
+            ARO-SPOOL-JES-DDNAME      := #SPOOL-JES-DDNAME            /* (A8)        0518 - 0525
+            ARO-SPOOL-JES-CHARS       := #SPOOL-JES-CHARS             /* (A20)       0526 - 0545
+            ARO-SPOOL-JES-FCB         := #SPOOL-JES-FCB               /* (A4)        0546 - 0549
+            ARO-SPOOL-JES-FLASH       := #SPOOL-JES-FLASH             /* (A4)        0550 - 0553
+            ARO-SPOOL-JES-FORM        := #SPOOL-JES-FORM              /* (A8)        0554 - 0561
+            ARO-SPOOL-JES-FORMDEF     := #SPOOL-JES-FORMDEF           /* (A8)        0562 - 0569
+            ARO-SPOOL-JES-PAGEDEF     := #SPOOL-JES-PAGEDEF           /* (A8)        0570 - 0577
+            ARO-SPOOL-JES-TRC         := #SPOOL-JES-TRC               /* (A3)        0578 - 0580
+            ARO-SPOOL-JES-RECFM       := #SPOOL-JES-RECFM             /* (A3)        0581 - 0583
+            /* A3 := N3
+            MOVE EDITED #SPOOL-JES-COPIES (EM=999) TO ARO-SPOOL-JES-COPIES        /* 0584 - 0586
+            ARO-SPOOL-JES-UCS         := #SPOOL-JES-UCS               /* (A4)        0587 - 0590
+            ARO-SPOOL-JES-BURST       := #SPOOL-JES-BURST             /* (A3)        0591 - 0593
+            ARO-SPOOL-JES-COMPACT     := #SPOOL-JES-COMPACT           /* (A8)        0594 - 0601
+            /* A3 := N3
+            MOVE EDITED #SPOOL-JES-LINECT (EM=999) TO ARO-SPOOL-JES-LINECT        /* 0602 - 0604
+            ARO-SPOOL-JES-DESTINATION := #SPOOL-JES-DESTINATION       /* (A8)        0605 - 0612
+            ARO-SPOOL-JES-TRIGGER-DSNAME := #SPOOL-JES-TRIGGER-DSNAME /* (A44)       0613 - 0656
+            /* A5 := N5
+            MOVE EDITED #SPOOL-JES-DSNO (EM=99999) TO ARO-SPOOL-JES-DSNO          /* 0657 - 0661
+            /* 34 free     0662 - 0695
+            /*
+          VALUE NAT                  /* 0010
+            /* A3 := N3
+            MOVE EDITED #SPOOL-NAF-DBID-OLD (EM=999) TO ARO-SPOOL-NAF-DBID-OLD    /* 0448 - 0450
+            /* A3 := N3
+            MOVE EDITED #SPOOL-NAF-FNR-OLD (EM=999) TO ARO-SPOOL-NAF-FNR-OLD      /* 0451 - 0453
+            ARO-SPOOL-NAF-USER-ID     := #SPOOL-NAF-USER-ID           /* (A8)        0454 - 0461
+            MOVE EDITED #SPOOL-NAF-PNR (EM=99) TO ARO-SPOOL-NAF-PNR   /* A2 := N2    0462 - 0463
+*
+            IF #NAF-DATE = MASK(YYYYMMDD)
+              ARO-SPOOL-NAF-DATE-TIME   := #SPOOL-NAF-TIME            /* A15      ÜÜ 0464 - 0478
+              ARO-SPOOL-NAF-TIME-FORMAT := 'A'                        /* A1       ÜÜ 0479 - 0479
+            ELSE
+              IF #SPOOL-NAF-TIME NE ' ' AND #NAF-TIMX NE 0
+                #P13 := #NAF-TIMX                                     /* P13 := T
+                MOVE EDITED #P13 (EM=9999999999999)
+                  TO ARO-SPOOL-NAF-DATE-TIME                          /* A15 := P13Ü 0464 - 0478
+                ARO-SPOOL-NAF-TIME-FORMAT := 'T'                      /* A1       ÜÜ 0479 - 0479
+              ELSE
+                RESET ARO-SPOOL-NAF-DATE-TIME                         /*          ÜÜ 0464 - 0478
+                RESET ARO-SPOOL-NAF-TIME-FORMAT                       /* A1       ÜÜ 0479 - 0479
+              END-IF
+            END-IF
+*
+            ARO-SPOOL-NAF-NATPGM      := #SPOOL-NAF-NATPGM            /* (A8)        0480 - 0487
+            ARO-SPOOL-NAF-NATLIB      := #SPOOL-NAF-NATLIB            /* (A8)        0488 - 0495
+            ARO-SPOOL-NAF-FORM        := #SPOOL-NAF-FORM              /* (A8)        0496 - 0503
+            ARO-SPOOL-NAF-PROFILE     := #SPOOL-NAF-PROFILE           /* (A8)        0504 - 0511
+            /* A3 := N3
+            MOVE EDITED #SPOOL-NAF-COPIES (EM=999) TO ARO-SPOOL-NAF-COPIES        /* 0512 - 0514
+            ARO-SPOOL-NAF-NAME        := #SPOOL-NAF-NAME              /* (A8)        0515 - 0522
+            ARO-SPOOL-NAF-DISP        := #SPOOL-NAF-DISP              /* (A1)        0523 - 0522
+            /* A10 := P10
+            MOVE EDITED #SPOOL-NAF-ST-ID (EM=99999) TO ARO-SPOOL-NAF-ST-ID        /* 0524 - 0533
+            MOVE EDITED #SPOOL-NAF-DBID (EM=99999) TO ARO-SPOOL-NAF-DBID /* A5 := N5 0534 - 0538
+            MOVE EDITED #SPOOL-NAF-FNR (EM=99999) TO ARO-SPOOL-NAF-FNR   /* A5 := N5 0539 - 0543
+            ARO-SPOOL-NAF-DEST        := #SPOOL-NAF-DEST              /* (A8)        0544 - 0551
+            ARO-SPOOL-NAF-OUTPUT      := #SPOOL-NAF-OUTPUT            /* (A8)        0552 - 0559
+            ARO-SPOOL-NAF-REST        := #SPOOL-NAF-REST              /* 136 free    0560 - 0695
+            /*
+          VALUE SEQUENTIAL-FILE-UNIX
+            ARO-SPOOL-UNIX-NODE-NAME  := #SPOOL-UNIX-NODE-NAME        /* (A16)
+            ARO-SPOOL-UNIX-USERID     := #SPOOL-UNIX-USERID           /* (A8)
+            ARO-SPOOL-UNIX-CIPHER-PASSWORD := #SPOOL-UNIX-CIPHER-PASSWORD /* (A32)
+            ARO-SPOOL-UNIX-GROUP      := #SPOOL-UNIX-GROUP            /* (A8)
+            ARO-SPOOL-UNIX-PATH       := #SPOOL-UNIX-PATH             /* (A70)
+            ARO-SPOOL-UNIX-FILE-NAME  := #SPOOL-UNIX-FILE-NAME        /* (A50)
+            MOVE EDITED #SPOOL-UNIX-CONTAINER-DBID (EM=99999) TO ARO-SPOOL-UNIX-CONTAINER-DBID /* A5 = N5
+            MOVE EDITED #SPOOL-UNIX-CONTAINER-FNR (EM=99999) TO ARO-SPOOL-UNIX-CONTAINER-FNR   /* A5 = N5
+            ARO-SPOOL-UNIX-FILL       := #SPOOL-UNIX-FILL             /* (A20)
+            MOVE EDITED #SPOOL-UNIX-SIZE (EM=9999999999) TO ARO-SPOOL-UNIX-SIZE /* A10 = I4
+          NONE
+            WRITE 'Unknown #SPOOL-TYPE:' #SPOOL-TYPE
+        END-DECIDE
+*
+        ARO-SPOOL-ATTR-EXTENDED(*)  := AR-SPOOL-ATTR-EXTENDED(1:3) /* (A250/1:3)   0696 - 1445
+        ARO-USERID                  := AR-USERID            /* (A8)                1446 - 1453
+        ARO-NATRPT-DIST(*)          := AR-NATRPT-DIST(*)    /* (A8/1:10)           1454 - 1533
+        ARO-PRINTERS(*)             := AR-PRINTERS(*)       /* (A12/1:20)          1536 - 1773
+        ARO-HOLD-PRINT              := AR-HOLD-PRINT        /* (A1)                1774 - 1774
+        ARO-SEPMEM                  := AR-SEPMEM            /* (A16)               1774 - 1790
+        MOVE EDITED AR-SEPNO (EM=999) TO ARO-SEPNO          /* (A3) := (P3.0)      1791 - 1793
+        ARO-ACTIVE                  := AR-ACTIVE            /* (A1)                1794 - 1794
+        ARO-ARCHIVE                 := AR-ARCHIVE           /* (A1)                1795 - 1795
+        ARO-ARCHIVE-RETENTION       := AR-ARCHIVE-RETENTION /* (A5)                1796 - 1800
+        /* (A8) := (N8.0)
+        MOVE EDITED AR-ARCHIVE-RECNO (EM=99999999) TO ARO-ARCHIVE-RECNO         /* 1801 - 1808
+        IF AR1-343.AR-ARCHIVE-DATE = 0
+          RESET ARO-ARCHIVE-DATE
+        ELSE
+          #P13 := AR1-343.AR-ARCHIVE-DATE                         /* P13 := T
+          MOVE EDITED #P13 (EM=9999999999999) TO ARO-ARCHIVE-DATE /* A13 := P13    1809 - 1821
+        END-IF
+        ARO-ARCHIVE-DATA-SET        := AR-ARCHIVE-DATA-SET  /* (A44)               1822 - 1865
+        ARO-ARCHIVE-VOLSER(*)       := AR-ARCHIVE-VOLSER(*) /* (A6/1:10)           1866 - 1925
+        ARO-REVIVE                  := AR-REVIVE            /* (A1)                1926 - 1926
+        ARO-REVIVE-EXPIRATION       := AR-REVIVE-EXPIRATION /* (A8)                1927 - 1934
+        IF AR1-343.AR-REVIVE-DATE = 0
+          RESET ARO-REVIVE-DATE
+        ELSE
+          #P13 := AR1-343.AR-REVIVE-DATE                         /* P13 := T
+          MOVE EDITED #P13 (EM=9999999999999) TO ARO-REVIVE-DATE /* A13 := P13     1935 - 1947
+        END-IF
+        ARO-REVIVE-RETENTION-PERIOD := AR-REVIVE-RETENTION-PERIOD  /* (A12)        1948 - 1959
+        ARO-CHARS                   := AR-CHARS                    /* (A20)        1960 - 1979
+        ARO-DATASET-IDENTIFIER      := AR-DATASET-IDENTIFIER       /* (A25)        1980 - 2004
+        MOVE EDITED AR-DATASET-KEY (EM=9999999) TO ARO-DATASET-KEY /* A7 := N7.0   2005 - 2011
+        MOVE EDITED AR-DSNO (EM=999) TO ARO-DSNO                   /* A3 := N3.0   2012 - 2014
+        ARO-DSTYPE                  := AR-DSTYPE            /* (A2)                2015 - 2016
+        ARO-FCB                     := AR-FCB               /* (A4)                2017 - 2020
+        ARO-FLASH                   := AR-FLASH             /* (A4)                2021 - 2024
+        ARO-FORM                    := AR-FORM              /* (A8)                2025 - 2032
+        ARO-FORMDEF                 := AR-FORMDEF           /* (A8)                2033 - 2040
+        ARO-GROUP-ID                := AR-GROUP-ID          /* (A20)               2041 - 2060
+        ARO-JOBNAME                 := AR-JOBNAME           /* (A10)               2061 - 2070
+        MOVE EDITED AR-JOBNO (EM=9999999) TO ARO-JOBNO      /* (A7) := (N7.0)      2071 - 2077
+        ARO-PROCNAME                := AR-PROCNAME          /* (A8)                2078 - 2085
+        ARO-DDNAME                  := AR-DDNAME            /* (A8)                2086 - 2093
+        ARO-PAGEDEF                 := AR-PAGEDEF           /* (A8)                2094 - 2101
+        ARO-RECFM                   := AR-RECFM             /* (A3)                2102 - 2104
+        ARO-STEPNAME                := AR-STEPNAME          /* (A8)                2105 - 2112
+        ARO-TRC                     := AR-TRC               /* (A3)                2113 - 2115
+        MOVE EDITED AR-COPIES (EM=999) TO ARO-COPIES               /* A3 := N3.0   2116 - 2118
+        MOVE EDITED AR-ARCHIVE-TYPE (EM=9) TO ARO-ARCHIVE-TYPE     /* A1 := N1.0   2119 - 2119
+        ARO-STYLESHEET-URL          := AR-STYLESHEET-URL    /* (A70)               2120 - 2189
+        ARO-REP-FORMAT              := AR-REP-FORMAT        /* (A1)                2190 - 2190
+        ARO-SOURCE                  := AR-SOURCE            /* (A16)               2191 - 2206
+        ARO-SENDER                  := AR-SENDER            /* (A16)               2207 - 2222
+        IF AR-LAST-UPDATE = 0
+          RESET ARO-LAST-UPDATE
+        ELSE
+          #P13 := AR1-343.AR-LAST-UPDATE                         /* P13 := T
+          MOVE EDITED #P13 (EM=9999999999999) TO ARO-LAST-UPDATE /* A13 := P13     2223 - 2235
+        END-IF
+        ARO-LAST-UPDATE-USER        := AR-LAST-UPDATE-USER  /* (A16)               2236 - 2251
+        ARO-OBJECT-TYPE             := AR-OBJECT-TYPE       /* (A10)               2252 - 2261
+*         IF AR-OBJECT-TIME = 0
+*           RESET ARO-OBJECT-TIME
+*         ELSE
+*           #P13 := AR1.AR-OBJECT-TIME                             /* P13 := T
+*           MOVE EDITED #P13 (EM=9999999999999) TO ARO-OBJECT-TIME /* A13 := P13     2262 - 2274
+*         END-IF
+*
+
+        IF L-VERS = 35
+          FIND AR1 WITH AR-REPORT-RNB = #AR1-KEY
+            /* (A11) := (P11.0)    0165 - 0175
+            MOVE EDITED AR-INTERNAL-NODE-ID (EM=99999999999) TO ARO-INTERNAL-NODE-ID
+            ARO-LOCAL-CODEPAGE          := AR-LOCAL-CODEPAGE    /* (A64)               0328 - 0391
+          END-FIND
+        END-IF
+
+        ARO-RECORD-TYPE := 'R'
+*
+        WRITE WORK 2 VARIABLE ARO
+        ADD 1 TO #CNT-AR
+*
+      END-FIND
+      /*
+      /*
+      /*
+      /*
+      /*
+*  Record Type 'M'
+      FIND MA1 WITH MA-REP-RNB = #AR1-KEY
+*
+        /* Cannot happen, checked above
+        /* IF NO RECORDS FOUND
+        /*   WRITE 'Warning: No entry in NRM-MAIL for'
+        /*     #AR-REPNAME #AR-REPRNB
+        /*   #WARN := TRUE
+        /*   ESCAPE BOTTOM
+        /* END-NOREC
+*
+        RESET MAO
+*
+        MAO-USERID := MA1.MA-USERID                             /* A8              0001 - 0008
+        MOVE EDITED MA1.MA-FO-ID (EM=HHHH) TO MAO-FO-ID         /* A4 := B2        0009 - 0012
+        MAO-REPNAME := MA1.MA-REPNAME                           /* A25             0013 - 0037
+        MOVE EDITED MA1.MA-REPRNB (EM=99999999999) TO MAO-REPRNB  /* A11 := P11    0038 - 0048
+        /* A13 := P13.0
+        MOVE EDITED MA1.MA-INV-TIME (EM=9999999999999) TO MAO-INV-TIME         /*  0049 - 0061
+        MAO-STATUS := MA1.MA-STATUS                             /* A1              0062 - 0062
+        /* A3/1:10 := P3/1:10
+        MOVE EDITED MA1.MA-FROM(*) (EM=999) TO MAO-FROM(*)                     /*  0063 - 0092
+        /* A3/1:10 := P3/1:10
+        MOVE EDITED MA1.MA-TO(*) (EM=999) TO MAO-TO(*)                         /*  0093 - 0122
+        MOVE EDITED MA1.MA-HEADLINES (EM=999) TO MAO-HEADLINES  /* A3 := N3.0      0123 - 0125
+        MAO-CURRENT-LOCATION := MA1.MA-CURRENT-LOCATION         /* A1              0126 - 0126
+        /* A13 := P13.0
+        MOVE EDITED MA1.MA-PROCESS-TIME (EM=9999999999999) TO MAO-PROCESS-TIME /*  0127 - 0139
+        /* A13 := P13.0    0140 - 0152
+        MOVE EDITED MA1.MA-PROCESS-TIME-INV (EM=9999999999999) TO MAO-PROCESS-TIME-INV
+        MAO-OBJECT-TYPE := MA1.MA-OBJECT-TYPE                   /* A10             0153 - 0162
+*         IF MA1.MA-OBJECT-TIME = 0
+*           RESET MAO-OBJECT-TIME
+*         ELSE
+*           #P13 := MA1.MA-OBJECT-TIME
+*           MOVE EDITED #P13 (EM=9999999999999) TO MAO-OBJECT-TIME /* A13 := T       0163 - 0175
+*         END-IF
+*
+*
+        #FO-USER-ID := MA1.MA-USERID
+        #FO-ID      := MA1.MA-FO-ID
+        FIND FO1 WITH FO-USER-FO-ID = #FO-USER-FO-ID
+          IF NO RECORDS FOUND
+            RESET MAO-FO-NAME
+          END-NOREC
+          MAO-FO-NAME := FO1.FO-NAME
+        END-FIND
+        /*
+        MAO-RECORD-TYPE := 'M'
+        WRITE WORK 2 VARIABLE MAO
+        ADD 1 TO #CNT-MAIL
+*
+*
+      END-FIND
+      /*
+      /*
+    VALUE 'T'
+      IF NOT #WARN
+        /*
+        /* Decompress archive records
+        COMPCB-OP:='D'
+        COMPCB-CHAR:='N'                             /* 'N' - New parm list
+        SUBTRACT 1 FROM #RECORD-LENGTH
+        COMPCB-ILEN := #RECORD-LENGTH
+        COMPCB-ILEN-OLD := #RECORD-LENGTH   /* For compat
+        IF #RECORD-LENGTH > 251
+          COMPCB-ILEN := 251
+          COMPCB-ILEN-OLD := 251            /* For compat
+        END-IF
+        CALLNAT 'R-NRMCMP' COMPCB #T-TEXT #F-TEXT
+          G-NATRP-ERC G-NATRP-ERT
+        #RECORD-LENGTH := COMPCB-OLEN
+        RESET COMPCB-OLEN       /* Zero output length
+        ADD 1 TO #RECORD-LENGTH
+        #T-TEXT := #F-TEXT
+        /*
+        EXAMINE #TEXT-RECORD AND TRANSLATE USING #TABLE (*)
+        WRITE WORK 2 VARIABLE #TEXT-RECORD-V(1:#RECORD-LENGTH)
+        ADD 1 TO #CNT-TXT
+      END-IF
+    NONE VALUE
+      IGNORE
+  END-DECIDE
+*
+END-WORK
+*
+IF #CNT-TXT NE 0
+  IF #LOG GT 2
+    WRITE '  Act-Reps:' #CNT-AR 'DS-Reps:' #CNT-DR
+      'Mail-Recs:' #CNT-MAIL 'Txt-Recs:' #CNT-TXT
+  END-IF
+END-IF
+*
+RESET #TEXT-RECORD
+#T-RECORD-TYPE := 'E'
+WRITE WORK 2 VARIABLE #TEXT-RECORD-V(1:1)
+*
+CLOSE WORK 1
+CLOSE WORK 2
+*
+IF #LOG GT 1
+  MOVE ALL '=' TO #MSG
+  COMPRESS ' End reading archive' #XDIM INTO #MSG-1
+  WRITE NOTITLE NOHDR #MSG
+END-IF
+*
+IF #LOG GT 0
+  COMPRESS #CNT-REP 'reports unloaded to' #PORTABLE-DSNAME-A(#XDIM) INTO #MSG
+  WRITE 'Unload archive finished' *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    / #MSG
+END-IF
+/*
+/* Add entry to user log
+PL-PARMS.LG-USERID      := *USER
+PL-PARMS.LG-CODE        := 'UI'   /* User information
+PL-PARMS.LG-OBJECT-NAME := *PROGRAM
+COMPRESS #PORTABLE-DSNAME-A(#XDIM) 'created with' #CNT-REP 'reports.'
+  INTO PL-PARMS.LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+/*
+IF #CNT-WARN GT 0
+  COMPRESS #CNT-WARN 'reports with no or uncomplete catalog data, not unloaded.'
+    INTO #MSG
+  WRITE #MSG
+END-IF
+*
+END-SUBROUTINE
+*
+*
+DEFINE SUBROUTINE BACKOUT
+NOMUS-FUNCTION := NOMUS-FCT-BACKOUT
+CALLNAT NOM-USER-MAINTENANCE
+  NOMUS-NOMVERS NOMUS-PARMS (*)
+*
+IF NOMUS-ERROR-CODE NE 0
+  PRINT '=' NOMUS-ERROR-CODE
+  PRINT '=' NOMUS-ERROR-TEXT
+END-IF
+END-SUBROUTINE
+*
+*
+*
+*
+*
+IF *MACHINE-CLASS NE 'MAINFRAME'
+  COMPRESS 'Machine-Class' *MACHINE-CLASS 'not supported.'
+    INTO #MESSAGE
+  WRITE #MESSAGE
+  ESCAPE ROUTINE
+END-IF
+*
+*
+INPUT (AD=MIT'_' IP=OFF) 'Enter access code ..' #ACCESS-CODE
+IF #ACCESS-CODE NE *PROGRAM
+  WRITE 'Wrong access code. Stopping..'
+  ESCAPE ROUTINE
+END-IF
+*
+*
+NOMUS-NOMVERS  := NOM-CURRENT-VERSION
+NOMUS-USER     := *USER
+NOMUS-LANGUAGE := *LANGUAGE
+NOMUS-LOG-TYP  := 'U'
+NOMUS-USER-ID  := *USER
+RESET NOMUS-ERROR-CODE
+  NOMUS-ERROR-TEXT
+* read record from users file
+RESET NOMUS-ATTR(*)
+NOMUS-FUNCTION := NOMUS-FCT-READ
+CALLNAT NOM-USER-MAINTENANCE
+  NOMUS-NOMVERS NOMUS-PARMS (*)
+IF NOMUS-ERROR-CODE NE 0
+  PRINT '=' NOMUS-ERROR-CODE
+  PRINT '=' NOMUS-ERROR-TEXT
+  ESCAPE ROUTINE
+END-IF
+PERFORM BACKOUT
+IF NOMUS-PROF-TYPE NE 'A'
+  WRITE 'User' NOMUS-USER-ID 'is not an administrator. The type is'
+    NOMUS-PROF-TYPE
+    / 'Stopping ...'
+  ESCAPE ROUTINE
+END-IF
+*
+* Enter entry in Monitor log
+*
+PL-PARMS.LG-USERID := *USER
+PL-PARMS.LG-CODE   :=  'MO'
+COMPRESS 'Program' *PROGRAM 'started' INTO PL-PARMS.LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+*
+*
+*
+WRITE '-' (26) (YEI)
+  / 'Create Portable Archive(s)' (YEI)
+  / '-' (26) (YEI)
+*
+COMPRESS
+  H'00' '?' H'01' '?' H'02' '?' H'03' '?' H'04' '?' H'05' '?' H'06' '?'
+  H'07' '?' H'08' '?' H'09' '?' H'0A' '?' H'0B' '?' H'0C' '?' H'0D' '?'
+  H'0E' '?' H'0F' '?' H'10' '?' H'11' '?' H'12' '?' H'13' '?' H'14' '?'
+  H'15' '?' H'16' '?' H'17' '?' H'18' '?' H'19' '?' H'1A' '?' H'1B' '?'
+  H'1C' '?' H'1D' '?' H'1E' '?' H'1F' '?'
+  H'20' '?' H'21' '?' H'22' '?' H'23' '?' H'24' '?' H'25' '?' H'26' '?'
+  H'27' '?' H'28' '?' H'29' '?' H'2A' '?' H'2B' '?' H'2C' '?' H'2D' '?'
+  H'2E' '?' H'2F' '?' H'30' '?' H'31' '?' H'32' '?' H'33' '?' H'34' '?'
+  H'35' '?' H'36' '?' H'37' '?' H'38' '?' H'39' '?' H'3A' '?' H'3B' '?'
+  H'3C' '?' H'3D' '?' H'3E' '?' H'3F' '?'
+  TO #TABLE-A LEAVING NO
+*
+*
+*
+* #ARCHIVE-DSNAME := 'FHI.ARC350.NOM1482'
+IF *OPSYS = MASK('BS2') THEN
+  #ARCHIVE-DSNAME  := '$SAGESM.ARC.NOM.NOM0187'
+* #PORTABLE-DSNAME := '$SAGESM.ARC.NOM.NOM0187.P'
+* #PORTABLE-DSNAME := '$SAGESM.GGS.NOM.WORK01'
+ELSE
+  #ARCHIVE-DSNAME  := 'FHI.CDN350.NOM1507'
+* #PORTABLE-DSNAME := 'FHI.CDN350.NOM1507.P'
+* #PORTABLE-DSNAME := 'GGS.NOM.WORK01'
+END-IF
+#LOG := 2
+*
+FUNCTION_CODE := 5
+L_FILE := 91
+CALLNAT 'NAT23001' PARAMETER_BLOCK P_RESP
+COMPRESS '(' DBID ',' FNR ')' INTO #NOM-AD LEAVING NO
+*
+*
+* Check NOM Active Data (Lfile 91) for version
+*  1. Check if DBID/FNR is defined and running
+*  2. Check if a given field is defined on this FDT
+*
+L-DBID := DBID
+L-FNR := FNR
+*
+* from TST.NOM351.JOBS.OLD(NOM35DBS)
+*
+* NEWFIELD FNDEF='01,J5,6,P,NU'
+* NEWFIELD FNDEF='01,ZK,64,A,NU'
+L-FIELD-SNAME(1) := 'J5'
+L-FIELD-LEN(1)   := 6
+L-FIELD-FOR(1)   := 'P'
+L-FIELD-SNAME(2) := 'ZK'
+L-FIELD-LEN(2)   := 64
+L-FIELD-FOR(2)   := 'A'
+*
+FOR #IX = 1 TO LF-IX
+*
+* Subprogram N-DBFDT copied from SYSREVDB
+* CALLNAT 'N-DBFDT' L-DBID L-FNR L-RSP L-FIELD-SNAME(#IX)
+*   L-FIELD-LEN(#IX) L-FIELD-FOR(#IX) L-MATCH(#IX)
+*
+  RESET L-RSP L-MATCH(#IX)
+*
+  MOVE 'LF' TO CB-COM
+  IF L-DBID > 255 OR L-FNR > 255 THEN
+    MOVE H'30' TO CB-1ST
+    MOVE L-DBID TO CB-RSP
+    MOVE L-FNR TO CB-FILE
+  ELSE
+    MOVE L-DBID TO CB-DBID
+    MOVE L-FNR TO CB-FNR
+  END-IF
+  MOVE 32766 TO CB-RBL
+  RESET CB-FBL CB-SBL CB-VBL CB-IBL
+  MOVE 'S' TO CB-CO2
+  CALL 'CMADA' CB FB RB(*) SB VB IB #WORK
+  IF CB-RSP NE H'0000' THEN
+    L-RSP := CB-RSP
+  ELSE
+    MOVE P-LF-FIELD-NR TO FIELD-NR
+    FOR I = 1 TO FIELD-NR
+      MOVE P-LF-ENTRY-I(I) TO LF-ENTRY
+      J := I + 1
+      MOVE P-LF-ENTRY-I(J) TO NEXT-LF-ENTRY
+      IF LF-INDIC = 'F' /* Field
+        IF LF-NAME = L-FIELD-SNAME(#IX) AND
+            LF-LENGTH = L-FIELD-LEN(#IX) AND
+            LF-FORMAT = L-FIELD-FOR(#IX) THEN
+          L-MATCH(#IX) := TRUE
+          ESCAPE BOTTOM
+        END-IF
+      END-IF
+    END-FOR
+  END-IF
+*   IF L-RSP NE 0
+*     DECIDE ON FIRST VALUE OF L-RSP
+*       VALUE 17
+*         COMPRESS 'Invalid file number' L-FNR 'on DBID' L-DBID
+*           INTO #MESSAGE
+*         COMPRESS #MESSAGE '.' INTO #MESSAGE LEAVING NO
+*       VALUE 148
+*         COMPRESS 'DBID' L-DBID 'not active.' INTO #MESSAGE
+*       NONE
+*         COMPRESS 'Adabas rsp' L-RSP 'accessing DBID' L-DBID
+*           'FNR' L-FNR INTO #MESSAGE
+*         COMPRESS #MESSAGE '.' INTO #MESSAGE LEAVING NO
+*     END-DECIDE
+*   ELSE
+*     IF NOT L-MATCH(#IX)
+*       COMPRESS 'DBID' L-DBID 'and FNR' L-FNR 'is not a REVIEW-DB.'
+*         INTO #MESSAGE
+*     ELSE
+*       COMPRESS 'ShortName' L-FIELD-SNAME(#IX) 'exists and has format'
+*         L-FIELD-FOR(#IX)  'and length' L-FIELD-LEN(#IX)
+*         INTO #MESSAGE
+*     END-IF
+*   END-IF
+*
+*   WRITE #IX #MESSAGE (AL=70)
+END-FOR
+*
+DECIDE FOR EVERY CONDITION
+  WHEN L-MATCH(1) AND L-MATCH(2)
+    L-VERS := 35
+    WRITE 'Reading from NOM35 Active Data (LFILE 91)' (TU) #NOM-AD
+  WHEN NOT(L-MATCH(1) AND L-MATCH(2))
+    L-VERS := 34
+    WRITE 'Reading from NOM34 Active Data (LFILE 91)' (TU) #NOM-AD
+  WHEN NONE
+    L-VERS := 0
+END-DECIDE
+*
+*
+*
+*
+WRITE 'Create portable archive(s) for' (YEI)
+IF *DEVICE = 'BATCH' OR *TPSYS = 'TSO' OR *OPSYS = MASK('BS2')
+  /*
+  IF *OPSYS = MASK('BS2')
+    #SPACEP := 3840
+    #SPACES := 768
+    INPUT (AD=MIT'_' IP=OFF) #ARCHIVE-DSNAME
+      / 'Space for a portable archive, Primary..' #SPACEP
+      'Secondary ..' #SPACES
+      / 'Log output ...................' #LOG '(0-3)'
+  ELSE
+    ALC-SPACE-TYPE := 'CYLINDER' /* TRACKS, BLOCKS
+    ALC-SPACE-PRIMARY := 100
+    ALC-SPACE-SECONDARY := 10
+    INPUT (AD=MIT'_' IP=OFF) #ARCHIVE-DSNAME
+      / 'Space for a portable archive, Type ..' ALC-SPACE-TYPE
+      'Primary ..' ALC-SPACE-PRIMARY
+      'Secondary ..' ALC-SPACE-SECONDARY
+      / 'Log output ...................' #LOG '(0-3)'
+  END-IF
+  /*
+  IF #ARCHIVE-DSNAME = SCAN('*') OR = SCAN('?')
+    MASK := #ARCHIVE-DSNAME
+    /* WILDCARD default is '?', ASTERISK default is '*'
+    /* MATCHED return value 'Y' or 'N'
+    READ AD1 BY AD-CREATED-INV /* = #RSTART
+      FIELD := AD-ARCHIVE-DSNAME
+      CALLNAT 'NAT00083' FIELD MASK WILDCARD ASTERISK LENGTH MATCHED
+      IF MATCHED = 'Y'
+        #ARCHIVE-DSNAME := AD-ARCHIVE-DSNAME
+        PERFORM ADD-ARC-TO-ARRAY
+      END-IF
+    END-READ
+  ELSE
+    PERFORM ADD-ARC-TO-ARRAY
+  END-IF
+  /*
+ELSE
+  INPUT (AD=MIT'_' IP=OFF CD=NE)
+    'Log output ...................' (TU) #LOG '(0-3)'
+  /*
+  PERFORM ADD-ARC-TO-ARRAY
+END-IF
+*
+*
+IF #LOG GT 1
+  WRITE '-' (19)
+    / 'Start processing... LOG level' #LOG
+    /  '-' (19)
+END-IF
+*
+FOR #XDIM = 1 TO *OCC(#ARCHIVE-DSNAME-A)
+*
+  IF #LOG GT 1
+    MOVE ALL '=' TO #MSG
+    COMPRESS ' Processing archive' #XDIM INTO #MSG-2
+    WRITE NOTITLE NOHDR #MSG
+  END-IF
+  /*
+  IF #LOG GT 0
+    WRITE '  Reading from Work File 1' #ARCHIVE-DSNAME-A(#XDIM)
+      / '  Writing to   Work File 2' #PORTABLE-DSNAME-A(#XDIM)
+  END-IF
+*
+  IF *OPSYS = MASK('BS2') THEN  /* batch and online
+    /*
+    RESET PA-FILE
+    RESET PA-VSNLIST(*)
+    PA-NAME := #ARCHIVE-DSNAME-A(#XDIM)
+    PA-LINK := 'W01'
+    OPTIONS ECHECK=OFF
+    CALLNAT 'USR2029N' PA-FILE PA-ERRTEXT PA-VSNLIST (*) PA-RC PA-RC2
+    OPTIONS ECHECK=ON
+    /* ***************************************************************
+    /* CHECK RETURN CODE
+    /* ***************************************************************
+    DECIDE ON FIRST VALUE OF PA-RC
+      VALUE 0
+        RESET PA-FILE
+        RESET PA-VSNLIST (*)
+        WRITE 'USR2029N: Work file 1 allocated.'
+        /*
+        DEFINE WORK FILE 1 'W01' TYPE 'FORMATTED'
+        /*
+      NONE VALUE
+        WRITE 'USR2029N ended with returncode' PA-RC ':'
+        WRITE PA-ERRTEXT (AL=79)
+        WRITE 'WORK FILE 1 not available, stopping...'
+        STOP
+    END-DECIDE
+    PA-NAME := #PORTABLE-DSNAME-A(#XDIM)
+    PA-LINK := 'W02'
+    PA-BLKSIZE := '(STD,2)'  /* (A8)
+    PA-RECFORM := 'V'      /* (A1)
+    PA-FCBTYPE := 'SAM'
+    PA-SPACEP := #SPACEP
+    PA-SPACES := #SPACES
+    /* PA-RECSIZE := 32756    /* (N5.0) does not matter for RECFORM V
+    OPTIONS ECHECK=OFF
+    CALLNAT 'USR2029N' PA-FILE PA-ERRTEXT PA-VSNLIST (*) PA-RC PA-RC2
+    OPTIONS ECHECK=ON
+    /* ***************************************************************
+    /* CHECK RETURN CODE
+    /* ***************************************************************
+    DECIDE ON FIRST VALUE OF PA-RC
+      VALUE 0
+        RESET PA-FILE
+        RESET PA-VSNLIST (*)
+        WRITE 'USR2029N: Work file 2 allocated.'
+        /*
+        DEFINE WORK FILE 2 'W02' TYPE 'FORMATTED'
+        /*
+      NONE VALUE
+        WRITE 'USR2029N ended with returncode' PA-RC ':'
+        WRITE PA-ERRTEXT (AL=79)
+        WRITE 'WORK FILE 2 not available, stopping...'
+        STOP
+    END-DECIDE
+  ELSE /* z/OS
+    IF *DEVICE = 'BATCH' OR *TPSYS = 'TSO'
+      /*
+      COMPRESS '''' #ARCHIVE-DSNAME-A(#XDIM) '''' INTO #WF-1 LEAVING NO
+      COMPRESS '''' #PORTABLE-DSNAME-A(#XDIM) '''' INTO #WF-2 LEAVING NO
+      /*
+      DEFINE WORK FILE 1 #WF-1 TYPE 'FORMATTED'
+      /*
+      IF *OPSYS NE MASK('MVS') THEN
+        WRITE NOTITLE 'USR2021N can be used under MVS only' (I)
+        ESCAPE ROUTINE
+      ELSE
+        ALC-FUNCTION := 'UNALLOC'
+        ALC-DDNAME := 'CMWKF02'
+        OPTIONS ECHECK=OFF
+        CALLNAT 'USR2021N' ALC USR2021N.EXTENDED-PARMS
+        OPTIONS ECHECK=ON
+        IF ALC-ERROR-CODE = 0 OR = H'0438' /* Specified ddname not found.
+          IGNORE
+        ELSE
+          WRITE 'UNALLOC' ALC-ERROR-TEXT (AL=50) ALC-ERROR-CODE (EM=HHHH)
+            ALC-INFO-CODE (EM=HHHH)
+        END-IF
+        /*
+        ALC-FUNCTION := 'ALLOC'
+        ALC-DDNAME := 'CMWKF02'
+        ALC-DSNAME := #PORTABLE-DSNAME-A(#XDIM)
+        ALC-DISP1 := 'NEW'
+        /* Returns an error, if the dataset already exists.
+        /* Processing continues with the existig dataset.
+        /* ALC-DISP1 := 'OLD'
+        /* ALC-DISP1 := 'SHR'
+        /* ALC-DISP1 := 'MOD'
+        ALC-DISP2 := 'CATLG'
+        /* ALC-DISP2 := 'UNCATLG'
+        /* ALC-DISP2 := 'KEEP'
+        /* ALC-DISP2 := 'DELETE'
+        /* ALC-SPACE-TYPE := 'CYLINDER'
+        /* ALC-SPACE-TYPE := 'TRACKS'
+        /* ALC-SPACE-TYPE := 'BLOCKS'
+        /* ALC-SPACE-PRIMARY := 2
+        /* ALC-SPACE-SECONDARY := 1
+        ALC-DCB-RECFM := 'VB'
+        ALC-DCB-BLKSZ := 4096
+        ALC-DCB-LRECL := 4090
+        IF ALC-UNIT NE ' ' AND ALC-VOLUME-SERIAL NE ' ' THEN
+          ALC-UNIT := ' '
+        END-IF
+        ALC-SPACE-DIRECTORY := 0
+        ALC-DCB-DSORG := 'PS'
+        OPTIONS ECHECK=OFF
+        CALLNAT 'USR2021N' ALC USR2021N.EXTENDED-PARMS
+        OPTIONS ECHECK=ON
+        IF ALC-ERROR-CODE = 0 OR = H'970C'
+          /* 970C: Severe SMS VTOC service err => dataset already exists
+          IGNORE
+        ELSE
+          WRITE '  ALLOC' ALC-ERROR-TEXT (AL=50) ALC-ERROR-CODE (EM=HHHH)
+            ALC-INFO-CODE (EM=HHHH)
+        END-IF
+      END-IF
+      /*
+      DEFINE WORK FILE 2 #WF-2 TYPE 'FORMATTED'
+    ELSE
+      WRITE 'Environment not supported, try batch or TSO. Stopping...'
+      STOP
+*       FUNCTION  := 'G'
+*       WORK-NUM  := 1
+*       WORK-TYPE := 'D'
+*       CALLNAT 'USR2011N'  USR2011L  USR2011N.EXTENDED-PARMS
+*       USR8223N-DDNAME := WORK-FILE-A(1)
+*       CALLNAT 'USR8223N' USR8223N-DDNAME USR8223N-DSNAME
+*         USR8223N-RETURN-CODE
+*       DECIDE ON FIRST VALUE OF USR8223N-RETURN-CODE
+*         VALUE   0   COMPRESS 'Found DSNAME for DDNAME' USR8223N-DDNAME
+*                       INTO MESSAGE
+*           /*
+*           DEFINE WORK FILE 1 'WF1' TYPE 'FORMATTED'
+*           /*
+*         VALUE   4   COMPRESS 'DSNAME for DDNAME' USR8223N-DDNAME 'not found'
+*                       INTO MESSAGE
+*         VALUE   8   MESSAGE := 'Program is not running under z/OS'
+*         VALUE  12   MESSAGE := 'Invalid number of parameters for system call'
+*         NONE VALUE  COMPRESS NUMERIC 'Unknown return code'
+*                       USR8223N-RETURN-CODE INTO MESSAGE
+*       END-DECIDE
+*       PRINT 'Get z/OS Work File 1, Return code' USR8223N-RETURN-CODE
+*         / 'Message ...' MESSAGE
+*         / '  DDNAME ..' USR8223N-DDNAME
+*         / '  DSNAME ..' USR8223N-DSNAME
+*       IF USR8223N-RETURN-CODE NE 0
+*         WRITE 'WORK FILE 1 not available, stopping...'
+*         STOP
+*       END-IF
+*       FUNCTION  := 'G'
+*       WORK-NUM  := 2
+*       WORK-TYPE := 'D'
+*       CALLNAT 'USR2011N'  USR2011L  USR2011N.EXTENDED-PARMS
+*       USR8223N-DDNAME := WORK-FILE-A(1)
+*       CALLNAT 'USR8223N' USR8223N-DDNAME USR8223N-DSNAME
+*         USR8223N-RETURN-CODE
+*       DECIDE ON FIRST VALUE OF USR8223N-RETURN-CODE
+*         VALUE   0   COMPRESS 'Found DSNAME for DDNAME' USR8223N-DDNAME
+*                       INTO MESSAGE
+*           /*
+*           DEFINE WORK FILE 2 'WF2' TYPE 'FORMATTED'
+*           /*
+*         VALUE   4   COMPRESS 'DSNAME for DDNAME' USR8223N-DDNAME 'not found'
+*                       INTO MESSAGE
+*         VALUE   8   MESSAGE := 'Program is not running under z/OS'
+*         VALUE  12   MESSAGE := 'Invalid number of parameters for system call'
+*         NONE VALUE  COMPRESS NUMERIC 'Unknown return code'
+*                       USR8223N-RETURN-CODE INTO MESSAGE
+*       END-DECIDE
+*       PRINT 'Get z/OS Work File 2, Return code' USR8223N-RETURN-CODE
+*         / 'Message ...' MESSAGE
+*         / '  DDNAME ..' USR8223N-DDNAME
+*         / '  DSNAME ..' USR8223N-DSNAME
+*       IF USR8223N-RETURN-CODE NE 0
+*         WRITE 'WORK FILE 2 not available, stopping...'
+*         STOP
+*       END-IF
+    END-IF
+    /*
+  END-IF
+  /*
+  PERFORM HANDLE-ONE-ACHIVE
+  /*
+  ADD #CNT-REP  TO #CNT-TOTAL
+  /*
+END-FOR
+*
+REDUCE ARRAY #ARCHIVE-DSNAME-A TO 0
+REDUCE ARRAY #PORTABLE-DSNAME-A TO 0
+*
+WRITE '-' (7) / 'Summary' / '-' (7)
+COMPRESS #ARCS-TOTAL 'archive(s) with total' #CNT-TOTAL
+  'reports unloaded.' INTO #MSG
+WRITE #MSG
+  / '-' (15)
+  / 'End processing.'
+  / '-' (15)
+*
+END

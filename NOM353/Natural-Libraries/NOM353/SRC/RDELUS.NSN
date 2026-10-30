@@ -1,0 +1,285 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDELUS - Delete User
+* Note      delete it's occurence in all destination lists
+*           delete all it's authorizations
+*           delete all it's folders
+*           delete all it's mail-reports   /* P(169674)
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  95-12-06 s(999999) cleaned up
+* jvd 98-03-12 P(169674) NOM security for users incorrect
+* xsiszha 2000-08-01 (CE7461) Extend Report and Bundle Names
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-12 NOMALL-1058 correct parameter for log text
+* xsetggr 2012-02-01 NOMALL-1100 write language independant msgs in log
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* xsetggr 2013-06-17 NOMALL-1198 delete all grants for deleted user
+* xsetggr 2013-06-19 NOMALL-89 delete grants for default folder
+*                              deleted user
+* SU2     2015-09-02 NOMALL-1650 performance+hold Queue+warningNoRecords
+* SU3     2019-09-11 NOMALL-2314 avoid log msgs without nr
+* ----------------------------------------------------------------------
+*
+DEFINE DATA PARAMETER
+1 P-USERID                 (A8)
+1 G-USERID                 (A8)
+1 G-CONFIRM                (L)
+1 G-ERC                    (N4)
+************************************************************************
+LOCAL USING RLOG-L
+LOCAL USING VMAILR-L
+LOCAL USING VGRANT-L
+*
+LOCAL
+1 USERS VIEW OF NRM-USERS
+1 FOLDER VIEW OF NRM-FOLDER
+  2 FO-USER-ID
+  2 FO-NAME
+  2 FO-LINKED-FO-ID
+  2 FO-USER-FO-ID
+1 LINKED-FOLDER VIEW OF NRM-FOLDER
+  2 FO-NAME
+  2 FO-USER-ID
+  2 FO-LINKED-FO-ID
+1 LISTS  VIEW  OF  NRM-DISTRIBUTION-LIST
+  2 C*D-USER-LIST
+  2 D-USER-LIST            (191)
+* *****
+1 #CONFIRMED               (L)
+1 G-DISPLAY-LONG-NAMES     (L) CONST <FALSE>
+1 G-ERT                    (A250)
+1 LOWER-CASE               (L) CONST <FALSE>
+1 #OBJECT-NAME             (A32)
+*
+1 #FO-USER-FO-ID           (A10)
+1 REDEFINE  #FO-USER-FO-ID
+  2 #FO-USER               (A8)
+  2 #FO-ID                 (B2)
+1 #OBJ                     (A50)
+1 #LISTS-MODIFIED          (L) INIT <TRUE>
+1 #GR-SUPER                (A34)
+1 REDEFINE #GR-SUPER
+  2 #GR-T                  (A1)
+  2 #GR-U                  (A8)
+  2 #GR-N                  (A25)
+1 #GRANT-TYPE              (A1/5) INIT<'B','L','F','P','R'>
+1 I                        (P3)
+1 #I                       (I2)
+1 #FO-ID-N                 (N5)
+1 REDEFINE #FO-ID-N
+  2 #FO-ID-A               (A5)
+1 #LINKED-USER-FO-ID       (A10)
+1 #GR-TYPE-NAME            (A26)
+1 REDEFINE #GR-TYPE-NAME
+  2 #GR-TYPE               (A1)
+  2 #GR-NAME               (A25)
+1 ##ETS                    (I2)
+1 #USER1                   (A10) /*SU2
+1 #USER2                   (A10) /*SU2
+1 #FOUND-REC               (I4)  /*SU2
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+G-ERC := 17 /*Object was not deleted.
+*
+FIND USERS  WITH USER-ID = P-USERID
+  PERFORM GET_NR-RECORDS /*SU2
+  IF G-CONFIRM OR #FOUND-REC > 0
+    #OBJECT-NAME := P-USERID
+    CALLNAT 'N-CNFRM' #OBJECT-NAME 'U' G-DISPLAY-LONG-NAMES
+      #CONFIRMED G-ERT LOWER-CASE
+    IF NOT #CONFIRMED
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+  IF #CONFIRMED OR NOT G-CONFIRM
+    PERFORM UPDATE-DISTRIBUTION-LISTS
+    PERFORM DELETE-AUTHORIZATIONS
+    PERFORM DELETE-FOLDERS
+    DELETE
+    #OBJ := P-USERID
+    PERFORM RMLOGDEL #OBJ 'USER'
+    PERFORM WRITE-LOG-MESSAGE
+    /*SU2 END TRANSACTION
+    /* Doing this after update so as not to fill up hold-queue
+    PERFORM UPDATE-USER-MAIL
+    END TRANSACTION /*final ET Ü
+  END-IF
+END-FIND
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-DISTRIBUTION-LISTS
+************************************************************************
+FIND LISTS WITH D-USER-LIST = P-USERID
+  IF NO RECORDS FOUND
+    RESET #LISTS-MODIFIED
+    ESCAPE BOTTOM
+  END-NOREC
+*
+  FOR I 1 TO C*D-USER-LIST
+    IF D-USER-LIST(I) = P-USERID
+      RESET D-USER-LIST(I)
+    END-IF
+  END-FOR
+  UPDATE
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-DISTRIBUTION-LISTS
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-AUTHORIZATIONS
+************************************************************************
+FOR #I = 1 TO 5
+  #GR-U := P-USERID
+  #GR-T := #GRANT-TYPE(#I)
+  RESET #GR-N /*SU2 #CNT
+  RDGR. READ GRANTS WITH GR-SUPER = #GR-SUPER
+    IF GR-OBJECT-TYPE NE #GR-T OR GR-USERID NE #GR-U
+      ESCAPE BOTTOM(RDGR.)
+    END-IF
+    DELETE
+    PERFORM ETS
+  END-READ
+/*SU2  IF #CNT > 0 END TRANSACTION END-IF
+END-FOR
+* delete auth by name = deleted default folder name
+#GR-TYPE :=  'F'
+#FO-ID-N := 1
+COMPRESS P-USERID #FO-ID-A TO #GR-NAME LEAVING NO
+FIND GRANTS WITH GR-TYPE-NAME = #GR-TYPE-NAME
+  DELETE
+  PERFORM ETS
+END-FIND
+/*SU2 IF #CNT > 0 END TRANSACTION END-IF
+*
+END-SUBROUTINE /* DELETE-AUTHORIZATIONS
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-FOLDERS
+************************************************************************
+#FO-USER := P-USERID
+RESET  #FO-ID
+*
+READFO. READ FOLDER BY FO-USER-FO-ID = #FO-USER-FO-ID
+  IF FO-USER-ID NE P-USERID
+    ESCAPE BOTTOM
+  END-IF
+  GETFO. GET FOLDER *ISN(READFO.)
+  IF FOLDER.FO-LINKED-FO-ID NE ' '
+    #LINKED-USER-FO-ID := FOLDER.FO-USER-FO-ID
+    PERFORM DELETE-LINKS
+  END-IF
+  DELETE
+  COMPRESS FO-USER-ID '/' FO-NAME TO #OBJ LEAVING NO
+  PERFORM RMLOGDEL #OBJ 'FOLDER'
+  PERFORM ETS /*SU2 END TRANSACTION
+*
+END-READ
+*
+END-SUBROUTINE /* DELETE-FOLDERS
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-LINKS
+************************************************************************
+READ LINKED-FOLDER BY FO-USER-FO-ID
+  ACCEPT IF LINKED-FOLDER.FO-LINKED-FO-ID = #LINKED-USER-FO-ID
+  DELETE
+  COMPRESS LINKED-FOLDER.FO-USER-ID '/' LINKED-FOLDER.FO-NAME
+  TO #OBJ LEAVING NO
+  PERFORM RMLOGDEL #OBJ 'FOLDER'
+  PERFORM ETS /*SU2 END TRANSACTION
+END-READ
+*
+END-SUBROUTINE /* DELETE-LINKS
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-USER-MAIL
+************************************************************************
+READ MAIL-REPORTS BY MA-USER-REP-TIME = P-USERID
+  IF MA-USERID > P-USERID
+    ESCAPE BOTTOM
+  END-IF
+  IF MA-USERID = P-USERID
+    DELETE
+    PERFORM ETS
+  END-IF
+END-READ
+*
+G-ERC := 18 /*Object deleted.
+LG-USERID := G-USERID
+LG-CODE := 'UM'
+COMPRESS '0372' P-USERID TO LG-MSG /*Folders of user :1: deleted.
+LG-USERID := LG-OBJECT-NAME := P-USERID
+CALLNAT 'RLOG' PL-PARMS
+*
+END-SUBROUTINE /* UPDATE-USER-MAIL
+*
+************************************************************************
+DEFINE SUBROUTINE GET_NR-RECORDS /*SU2
+************************************************************************
+#USER1 := #USER2 := P-USERID /*SU2 ->
+MOVE H'0000' TO SUBSTR(#USER1,9,2)
+MOVE H'FFFF' TO SUBSTR(#USER2,9,2)
+#NUM. FIND NUMBER MAIL-REPORTS WITH MA-USER-REP-TIME =#USER1 THRU #USER2
+IF *NUMBER (#NUM.) > 10000 /*see NOUSFF-N
+  #FOUND-REC := *NUMBER (#NUM.)
+  IF *LANGUAGE = 2
+    COMPRESS #FOUND-REC 'Saetze zu loeschen. Alternativ Batch-Programm'
+      'NOMDELUS verwenden.' TO G-ERT
+  ELSE
+    COMPRESS #FOUND-REC 'records to be deleted. Use Batch-Program'
+      'NOMDELUS.' TO G-ERT
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* GET_NR-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-MESSAGE
+************************************************************************
+G-ERC := 18 /*Object deleted.
+LG-CODE := 'UM'
+LG-USERID := G-USERID
+LG-OBJECT-NAME := P-USERID
+COMPRESS '0767' P-USERID TO LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+*
+/*SU3 LG-USERID:=G-USERID LG-CODE:='UM' LG-MSG:='USER RIGHTS REMOVED'
+/*SU3 LG-USERID := LG-OBJECT-NAME := P-USERID CALLNAT 'RLOG' PL-PARMS
+*
+IF #LISTS-MODIFIED
+  LG-USERID := G-USERID
+  LG-CODE := 'UM'
+  LG-OBJECT-NAME := P-USERID
+  COMPRESS '0774' P-USERID TO LG-MSG /*Dist. lists contains member:1:upd
+  CALLNAT 'RLOG' PL-PARMS
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG-MESSAGE
+*
+************************************************************************
+DEFINE SUBROUTINE ETS /*SU2 in
+************************************************************************
+ADD 1 TO ##ETS
+IF ##ETS > 200
+  END TRANSACTION
+  RESET ##ETS
+END-IF
+*
+END-SUBROUTINE /* ETS
+*
+END

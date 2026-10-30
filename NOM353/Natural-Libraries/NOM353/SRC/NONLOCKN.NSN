@@ -1,0 +1,180 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NONLOCKN - Handle locking of Natural members
+*            Copy of NOP-CLKN (EOR) and ISP-CLKN
+*   Note: Prerequisite of NAT42003 and NATJ0102 is SLOCK=PRE (FUSER)
+*         NOP42003 checks the locks under SLOCK=SPOD (FDIC)
+*
+* Modifications:
+* CF     2017-03-20  NOMALL-2089  Created (basing on NOP-CLKN of EOR)
+* ---------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER
+1 #OBJTYPE-INTERNAL  (A1)
+1 #SYSTEM-DB-B2      (I4)
+1 #SYSTEM-FNR-B2     (I4)
+1 #LIBRARY           (A8)
+1 #MEMBER            (A8)
+1 #FUNCTION          (A01)     /* C = Check
+*                             /* X = Exclusive Lock
+*                             /* Y = Exclusive Unlock
+1 #LOCKED            (L)
+1 #ERROR-NR          (N4)
+1 #ERROR-TEXT        (A75)
+************************************************************************
+LOCAL
+1 NAT42003-PARMS
+  2 P-FUNCTION       (A1)
+  2 P-OBJECT-NAME    (A32)
+  2 P-OBJECT-TYPE    (A1)
+  2 P-LIBRARY        (A8)
+  2 P-DBID           (N5)
+  2 P-FNR            (N5)
+  2 P-RESPONSE       (I4)
+  2 P-MSG            (A79)
+1 NAD-MSG
+  2 MSG-TEXT         (A79)
+  2 MSG-NR           (I4)
+  2 MSG-TYPE         (I1)
+  2 MSG-DATA         (A32/1:3)
+1 INT-FUNC           (A1)
+1 PROD-ID            (A3)
+1 RETURN-CODE        (N4)   /*   0 = no error
+1 ERROR-TEXT         (A72)  /*   error message
+1 PROD-ACTIVE        (A1)   /*   'A' = Active
+*                            /*   'S' = Sleeping
+*                            /*   'D' = Deleted
+1 PROD-EXTENT        (I2)   /*   extent number for this product ID
+1 PROD-VERSION       (I1)   /*   version number
+1 PROD-RELEASE       (I1)   /*   release number
+1 PROD-SMLEVEL       (I1)   /*   system maintenance level
+1 PROD-UPDLEVEL      (I1)   /*   update level
+1 PROD-DATE          (N8)   /*   *DATN for this information
+1 PROD-TIME          (N7)   /*   *TIMN for this information
+1 PROD-USER          (A8)
+1 PROD-REMARK        (A16)
+1 PROD-SAGSIS        (I4/1:20)
+1 PRODS              (A3/100) /* list of product IDs
+*
+1 P-INTERNAL-EXTERNAL(A1)
+1 P-OBJECT-TYPE-03   (A2)
+1 P-OBJ              (A253)
+1 REDEFINE P-OBJ
+  2 P-PGM            (A8)
+1 P-FUSER
+  2 P-DB-LUW         (N5)
+  2 P-FNR-LUW        (N5)
+  2 P-LIB-LUW        (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+P-FUNCTION    := #FUNCTION
+P-OBJECT-TYPE := #OBJTYPE-INTERNAL
+P-DBID        := #SYSTEM-DB-B2
+P-FNR         := #SYSTEM-FNR-B2
+P-LIBRARY     := #LIBRARY
+P-OBJECT-NAME := #MEMBER
+*
+RESET #LOCKED #ERROR-NR #ERROR-TEXT
+*
+IF *MACHINE-CLASS = 'MAINFRAME'
+  IF P-FUNCTION EQ 'C'                     /* 'check' for SPOD
+* Note: SLOCK=SPOD handles locking in FDIC
+    CALLNAT 'NON42003' NAT42003-PARMS      /* is it nessecary ??
+  END-IF
+**PRINT '1' '=' *PROGRAM '=' P-FUNCTION '=' P-RESPONSE
+  IF P-RESPONSE EQ -2 OR P-FUNCTION NE 'C' /* not handled above
+* Note: SLOCK=PRE handles locking in FUSER
+    CALLNAT 'NAT42003' NAT42003-PARMS      /* handles SLOCK PRE
+**PRINT '2' '=' *PROGRAM '=' P-RESPONSE '=' P-MSG
+  END-IF
+*
+  DECIDE ON FIRST VALUE OF P-RESPONSE
+    VALUE 0
+      #LOCKED := FALSE             /* checked for function 'C'
+    VALUE 1,2
+      #LOCKED := TRUE              /* checked for function 'C'
+      #ERROR-TEXT := P-MSG         /* Locking text
+    NONE
+* negative response value: this means no lock, maybe P-MSG is filled
+      #LOCKED     := FALSE         /* checked for function 'C'
+      #ERROR-TEXT := P-MSG         /* checked for all functions
+  END-DECIDE
+ELSE
+  INT-FUNC := 'R'
+  PROD-ID  := 'NDV'
+  CALLNAT 'INTSUB2'
+    INT-FUNC
+    RETURN-CODE                /*   0 = no error
+    ERROR-TEXT                 /*   error message
+    PROD-ID                    /*   product ID
+    PROD-ACTIVE                /*   'A' = Active
+  /*   'S' = Sleeping
+  /*   'D' = Deleted
+    PROD-EXTENT                /*   extent number for this product ID
+    PROD-VERSION               /*   version number
+    PROD-RELEASE               /*   release number
+    PROD-SMLEVEL               /*   system maintenance level
+    PROD-UPDLEVEL              /*   update level
+    PROD-DATE                  /*   *DATN for this information
+    PROD-TIME                  /*   *TIMN for this information
+    PROD-USER
+    PROD-REMARK
+    PROD-SAGSIS(*)
+    PRODS (*)                  /*   list of product IDs
+  IF RETURN-CODE NE 0          /* no record of product found
+    ESCAPE ROUTINE
+  END-IF
+  INT-FUNC := P-FUNCTION
+  IF INT-FUNC = 'X'
+    INT-FUNC := 'L'
+  END-IF
+  IF INT-FUNC = 'Y'
+    INT-FUNC := 'U'
+  END-IF
+  IF INT-FUNC = '6'
+    INT-FUNC := 'L'
+  END-IF
+  IF INT-FUNC = '7'
+    INT-FUNC := 'U'
+  END-IF
+  P-INTERNAL-EXTERNAL := 'I'
+  P-OBJECT-TYPE-03 := 'N'  /* Natural
+  P-OBJ := #MEMBER
+  P-DB-LUW := #SYSTEM-DB-B2
+  P-FNR-LUW := #SYSTEM-FNR-B2
+  P-LIB-LUW := #LIBRARY
+  CALLNAT 'PRDLCK03' INT-FUNC P-OBJECT-TYPE-03 P-INTERNAL-EXTERNAL
+    P-FUSER  P-OBJ NAD-MSG
+  IF MSG-TYPE = 100 OR MSG-NR > 0
+* negative response value: this means no lock, maybe P-MSG is filled
+    #LOCKED     := FALSE         /* checked for function 'C'
+    #ERROR-TEXT := MSG-TEXT      /* checked for all functions
+    ESCAPE ROUTINE
+  END-IF
+  IF MSG-TYPE = 0 AND MSG-NR = 0
+    #LOCKED := FALSE             /* checked for function 'C'
+    ESCAPE ROUTINE
+  END-IF
+  IF MSG-NR = -7600
+    #LOCKED := TRUE              /* checked for function 'C'
+    #ERROR-TEXT  := MSG-TEXT
+  END-IF
+END-IF
+*
+ON ERROR
+  IF *ERROR-NR = 82 /* do nothing if NAT42003 not found
+      OR *ERROR-NR = 6972  /* RPC directory error
+    #ERROR-NR := P-RESPONSE
+    ESCAPE ROUTINE
+  END-IF
+END-ERROR
+END

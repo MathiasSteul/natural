@@ -1,0 +1,268 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOCAOP-N - NOM API Maintain of Export Tasks - get/new/upd/del
+*
+* Maintenance:
+* SU      2013-07-26 NOMALL-86 created
+* SU      2013-10-07 include NOEXNW-N (new/upd/del)
+* CF1     2015-07-02 NOMALL-1657 no modification possible
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-01-11 NOMALL-1961 Change descriptor of NRM-ORDER
+* fhi     2018-07-18 NOMALL-2008 Delete order sources
+* fhi     2018-08-06 NOMALL-2135 Use internal node id in orders
+* SU1     2021-01-29 NOMALL-2443 allow objectname with '*'
+* HEB1    2021-08-26 NOMALL-2483 object type Mainframe node missing
+* --------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOEXOP-A
+************************************************************************
+INDEPENDENT
+1 +NOD-CURRENT-INTERNAL-ID (P11) /* Internal node id of the curr. node
+************************************************************************
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RMODTY-E
+LOCAL
+1 UX-NODES  VIEW OF NRM-UX-NODES
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-ID                   (P10)
+  2 OD-MONITOR-ID           (A8)
+  2 OD-TYPE                 (B2)
+  2 OD-PARAMETER            (A250/1:1)
+  2 REDEFINE OD-PARAMETER
+    3 OD-OBJECT             (A2)
+    3 OD-OBJECT-PREFIX      (A25)
+    3 OD-OBJECT-MASK        (A25)
+    3 OD-WILDCARD           (A1)
+    3 OD-MASK-CHAR          (A1)
+    3 OD-LOG                (A1)
+    3 OD-NODE               (A16)
+    3 OD-FILE               (A50)
+  2 OD-INTERNAL-NODE-ID     (P15)
+  2 OD-TIME-SCHEDULED       (T)
+  2 OD-TIME-CREATED         (T)
+*
+1 #OD-TYPE-TIME             (A9)
+1 REDEFINE #OD-TYPE-TIME
+  2 #OD-TYPE                (B2)
+  2 #FILLER                 (B7)
+1 #OD-TYPE-TIME-END         (A9)
+1 REDEFINE #OD-TYPE-TIME-END
+  2 #OD-TYPE-END            (B2)
+  2 #FILLER-END             (B7)
+1 #MSG-REP1                 (A32)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 G-NATRP-ERC               (N4)
+1 G-NATRP-ERT               (A250)
+1 #NEW                      (L)
+1 #DEL                      (L)
+1 #GET                      (L)
+1 #UPD                      (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+ES-RC := 1
+RESET ES-MSG-NR
+MOVE ALL H'00' TO #FILLER
+MOVE ALL H'FF' TO #FILLER-END
+IF NOT (ES-FUNCTION = 'OP')
+  ESCAPE ROUTINE
+END-IF
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+  VALUE ' '    #GET := TRUE
+  VALUE 'NEW'  #NEW := TRUE
+  VALUE 'UPD'  #UPD := TRUE
+  VALUE 'DEL'  #DEL := TRUE
+  NONE         ESCAPE MODULE
+END-DECIDE
+DECIDE FOR FIRST CONDITION
+  WHEN ES-KEY-PARM (1) = ' '
+    ES-MSG-TXT := 'object tpye empty'
+  WHEN ES-KEY-PARM (2) = ' '
+    ES-MSG-TXT := 'prefix empty'
+  WHEN ANY
+    ESCAPE MODULE
+  WHEN NONE IGNORE
+END-DECIDE
+RESET ES-RC
+PERFORM HANDLE-IT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-IT
+************************************************************************
+#OD-TYPE       := #OD-TYPE-END        := OD-EXPORT-NOM-OBJECT
+FND. FIND ORDER WITH OD-TYPE-TIME = #OD-TYPE-TIME THRU #OD-TYPE-TIME-END
+WHERE ORDER.OD-OBJECT         = ES-KEY-PARM (1) /*NOEX-OBJECT-TYPE    /*
+AND   ORDER.OD-OBJECT-PREFIX  = ES-KEY-PARM (2) /*NOEX-OBJECT-PREFIX  /*
+  IF NO RECORDS FOUND
+    ENTER
+  END-NOREC
+  IF #UPD AND (ES-KEY-PARM (1) NE NOEX-OBJECT-TYPE                /* CF1
+  OR ES-KEY-PARM (2) NE NOEX-OBJECT-PREFIX)                       /* CF1
+    FND2. FIND ORDER WITH OD-TYPE-TIME = #OD-TYPE-TIME
+    THRU #OD-TYPE-TIME-END WHERE ORDER.OD-OBJECT = NOEX-OBJECT-TYPE   /*
+    AND   ORDER.OD-OBJECT-PREFIX  = NOEX-OBJECT-PREFIX                /*
+    END-FIND
+  END-IF
+  DECIDE FOR FIRST CONDITION
+    WHEN NOT #NEW AND *COUNTER (FND.) = 0
+      ES-MSG-NR := 0034 /*:1:does not exist
+    WHEN #DEL
+      DEL. GET ORDER *ISN (FND.)
+      DELETE (DEL.)
+      CALLNAT 'RMPRGOS' OD-ID /* NOMALL-2008 fhi in
+      END TRANSACTION
+      ES-MSG-NR := 18 /*deleted
+      ESCAPE ROUTINE IMMEDIATE
+    WHEN (#NEW AND *COUNTER (FND.) NE 0)
+    OR (#UPD AND *COUNTER (FND2.) NE 0)                               /*
+      ES-MSG-NR := 0033 /*:1:already defined
+    WHEN #GET
+      PERFORM GET-DATA
+      ESCAPE ROUTINE IMMEDIATE
+    WHEN ANY
+      #MSG-REP1    := 'Export Task'
+      ES-MSG-FIELD := 'OBJECT-TYPE'
+    WHEN NONE
+      PERFORM VALIDATE
+  END-DECIDE
+  IF ES-MSG-NR NE 0
+    PERFORM GET-MSG-TXT
+    IF *NUMBER (FND.) NE 0
+      BACKOUT TRANSACTION
+    END-IF
+    ESCAPE MODULE
+  END-IF
+* All checks are ok:
+  IF NOT #NEW
+    G. GET ORDER *ISN (FND.)
+  END-IF
+  PERFORM FILL-FIELDS
+  IF #NEW
+    CALLNAT 'RMODID-N' ORDER.OD-ID G-NATRP-ERC G-NATRP-ERT /*getOrder-nr
+    IF G-NATRP-ERC NE 0
+      ES-MSG-NR := G-NATRP-ERC
+      PERFORM GET-MSG-TXT
+      ESCAPE ROUTINE
+    END-IF
+    ORDER.OD-MONITOR-ID        := F#MONITOR-TASK-USER-ID-LOG1 (<>)
+    ORDER.OD-TYPE              := OD-EXPORT-NOM-OBJECT
+    ORDER.OD-INTERNAL-NODE-ID  := +NOD-CURRENT-INTERNAL-ID
+    STORE ORDER
+  ELSE
+    UPDATE (G.)
+  END-IF
+  END TRANSACTION
+END-FIND
+*
+END-SUBROUTINE /* HANDLE-IT
+*
+************************************************************************
+DEFINE SUBROUTINE GET-DATA
+************************************************************************
+NOEX-OBJECT-TYPE   := ORDER.OD-OBJECT
+NOEX-OBJECT-PREFIX := ORDER.OD-OBJECT-PREFIX
+NOEX-LOG           := ORDER.OD-LOG
+NOEX-NODE          := ORDER.OD-NODE
+NOEX-FILE          := ORDER.OD-FILE
+MOVE EDITED ORDER.OD-TIME-CREATED   (EM=YYYY-MM-DD' 'HH:II:SS)
+  TO NOEX-TIME-CREATED
+MOVE EDITED ORDER.OD-TIME-SCHEDULED (EM=YYYY-MM-DD' 'HH:II:SS)
+  TO NOEX-TIME-SCHEDULED
+*
+END-SUBROUTINE /* GET-DATA
+*
+************************************************************************
+DEFINE SUBROUTINE FILL-FIELDS
+************************************************************************
+ORDER.OD-OBJECT        := NOEX-OBJECT-TYPE
+ORDER.OD-OBJECT-PREFIX := NOEX-OBJECT-PREFIX
+ORDER.OD-LOG           := NOEX-LOG
+ORDER.OD-NODE          := NOEX-NODE
+ORDER.OD-FILE          := NOEX-FILE
+ORDER.OD-WILDCARD      := '*' /*required in exp. pgms SU1
+IF #NEW
+  MOVE EDITED NOEX-TIME-CREATED
+    TO ORDER.OD-TIME-CREATED   (EM=YYYY-MM-DD' 'HH:II:SS)
+END-IF
+MOVE EDITED NOEX-TIME-SCHEDULED
+  TO ORDER.OD-TIME-SCHEDULED (EM=YYYY-MM-DD' 'HH:II:SS)
+*
+END-SUBROUTINE /* FILL-FIELDS
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE
+************************************************************************
+DECIDE FOR EVERY CONDITION
+  WHEN NOT ( NOEX-OBJECT-TYPE = 'BU' OR = 'RP' OR = 'CA' OR
+      = 'PR' OR = 'PH' OR = 'DL' OR = 'US' OR = 'UX' OR = 'NO' ) /* HEB1
+    ES-MSG-NR := 6004
+    ES-MSG-FIELD := 'L-OBJECT-TYPE'
+  WHEN NOEX-OBJECT-PREFIX = ' '         /* must not be empty
+    ES-MSG-NR := 0070
+    ES-MSG-FIELD := 'L-OBJECT-PREFIX'
+  WHEN NOEX-LOG = ' '
+    NOEX-LOG := 'N'
+  WHEN NOT(NOEX-LOG ='Y' OR='N')
+    ES-MSG-NR := 1099
+    ES-MSG-FIELD := 'L-LOG'
+* WHEN NOEX-TIME-SCHEDULED = 0
+*   NOEX-TIME-SCHEDULED := *DATX + 1
+  WHEN NOEX-NODE = ' '
+    ES-MSG-NR := 2020
+    ES-MSG-FIELD := 'L-NODE'
+  WHEN NOT (NOEX-NODE IS (N5))
+    NODE. FIND NUMBER UX-NODES WITH UX-NODE-NAME = NOEX-NODE
+    IF *NUMBER (NODE.) = 0
+      ES-MSG-NR := 2024
+      ES-MSG-FIELD := 'L-NODE'
+    END-IF
+  WHEN NOEX-FILE = ' '
+    ES-MSG-NR := 2020
+    ES-MSG-FIELD := 'L-FILE'
+**WHEN NOT(NOEX-TIME-SCHEDULED IS (T))
+**WHEN NOT(NOEX-TIME-CREATED IS (T))
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND    := 'U'
+NADA2000.ERROR-NUMBER   := ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+NADA2000.LIBRARY        := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-TXT := SHORT-MSG
+#ES-MSG-NR := ES-MSG-NR
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #MSG-REP1
+EXAMINE ES-MSG-TXT FOR ':2:' REPLACE ' '
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+END

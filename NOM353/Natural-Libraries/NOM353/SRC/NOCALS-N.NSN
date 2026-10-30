@@ -1,0 +1,161 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOCALS-N - EOM API Calendar list
+*
+* Maintenance:
+* XSETHZ 2001-10-17  created
+* XSETGGR 2004-07-21 modified
+* XSETGGR 2004-09-21 add selection
+* XSETGGR 2004-12-28 add headers from SYSERR
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOCALS-A
+************************************************************************
+LOCAL USING NOCASL-A
+LOCAL USING ESMCONSL
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL
+1 #I2           (I4)
+1 #IMAX         (I4)
+1 CALENDARS VIEW OF NRM-CALENDARS
+  2 CA-CALENDAR-ID
+  2 REDEFINE CA-CALENDAR-ID
+    3 CA-ID     (A8)
+    3 CA-YEAR   (N4)
+1 #DATEN8       (A8)
+1 REDEFINE #DATEN8
+  2 #Y          (A4)
+1 #CALENDAR-ID-E (A12)
+1 REDEFINE #CALENDAR-ID-E
+  2 #CA-NAME-E  (A8)
+  2 #CA-YEAR-E  (N4)
+1 #CALENDAR-ID-S (A12)
+1 REDEFINE #CALENDAR-ID-S
+  2 #CA-NAME-S  (A8)
+  2 #CA-YEAR-S  (N4)
+1 #MSG-NR       (N4)      CONST <6122>
+1 #YEAR-A       (A4)
+1 REDEFINE #YEAR-A
+  2 #YEAR-N     (N4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+************************************************************************
+#DATEN8 := *DATN
+RESET ES-RC ES-SORTKEY ES-SORTORDER ES-NUMBER ES-STARTINDEX
+ES-OPTION-COUNT := 10
+IF ES-EXPAND = 'E'
+  #IMAX := 766
+  ES-FIELD-COUNT := 1
+  NOCAEX-FIELD-LENGTH(1) := 13
+ELSE
+  DECIDE ON FIRST VALUE OF ES-FUNCTION
+    VALUE 'LS'
+      #IMAX := 790
+      ES-FIELD-COUNT := 2
+      NOCALS-FIELD-LENGTH(1) := 8
+      NOCALS-FIELD-LENGTH(2) := 4
+    VALUE 'LS1'
+      #IMAX := 3162
+      ES-FIELD-COUNT := 1
+      NOCAL1-FIELD-LENGTH(1) := 8
+    NONE VALUE IGNORE
+  END-DECIDE
+END-IF
+#NOCASL := ES-SELECT
+ES-EOF := 'X'
+IF #NOCASL.#NAME NE ' '
+  EXAMINE #NOCASL.#NAME FOR '*' DELETE
+  COMPRESS #NOCASL.#NAME H'FF' TO #CA-NAME-E LEAVING NO
+ELSE
+  MOVE H'FF' TO #CA-NAME-E
+END-IF
+#CA-YEAR-E := 9999
+IF ES-NEXT-KEY-PARM(1) > ' '
+  #CA-NAME-S := ES-NEXT-KEY-PARM(1)
+  #CA-YEAR-S := VAL(ES-NEXT-KEY-PARM(2))
+ELSE
+  #CA-NAME-S := #NOCASL.#NAME
+  RESET #CA-YEAR-S
+  IF ES-EXPAND NE 'E' AND ES-FUNCTION = 'LS'
+    ES-STARTINDEX := 2
+    #I2 := 1
+    PERFORM GET-TXT
+    NOCALS-HEADER(1) := LONG-MSG(1)
+    COMPRESS NOCALS-HEADER(1) C-HEADER-DELIMITER LONG-MSG(2)
+      TO NOCALS-HEADER(1) LEAVING NO
+  END-IF
+END-IF
+READ CALENDARS BY CA-CALENDAR-ID=#CALENDAR-ID-S ENDING AT #CALENDAR-ID-E
+  IF #NOCASL.#YEAR NE ' '
+    ACCEPT IF CA-YEAR = VAL(#NOCASL.#YEAR)
+  ELSE
+    IF ES-FUNCTION = 'LS1'
+      ACCEPT IF CA-YEAR = VAL(#Y)
+    END-IF
+  END-IF
+  ADD 1 TO #I2
+  IF #I2 > #IMAX
+    ES-NEXT-KEY-PARM(1) := CA-CALENDAR-ID
+    #YEAR-N := CA-YEAR
+    ES-NEXT-KEY-PARM(2) := #YEAR-A
+    ES-NUMBER := #IMAX
+    RESET  ES-EOF
+    ESCAPE BOTTOM
+  END-IF
+  IF ES-EXPAND = 'E'
+    COMPRESS CA-ID C-PARM-DELIMITER CA-YEAR
+      TO NOCAEX-CA-ID(#I2) LEAVING NO
+  ELSE
+    DECIDE ON FIRST VALUE OF ES-FUNCTION
+      VALUE 'LS'
+        NOCALS-CA-ID(#I2) := CA-ID
+        NOCALS-YEAR(#I2)  := CA-YEAR
+        MOVE RIGHT JUSTIFIED NOCALS-YEAR(#I2) TO NOCALS-YEAR(#I2)
+      VALUE 'LS1'
+        NOCAL1-CA-ID(#I2) := CA-ID
+      NONE VALUE IGNORE
+    END-DECIDE
+  END-IF
+  ES-NUMBER := #I2
+END-READ
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+*
+END-SUBROUTINE /* GET-TXT
+*
+END

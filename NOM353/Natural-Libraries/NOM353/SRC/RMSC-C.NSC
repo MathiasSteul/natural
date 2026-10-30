@@ -1,0 +1,224 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+************************************************************************
+* Member    RMSC-C
+* Function  Copycode with common subroutines for scan programs
+* Version   3.5
+* Usage:
+*   INCLUDE RMSC-C
+*      ' ' / 'PERFORM FILL-IDENT-FILE'                             &1&
+*      ' ' / only RMSCBS2: 'PERFORM CANCEL-QUEUE-ENTRY'            &2&
+*      'PERFORM HANDLE-IT' / only RMSCNP: 'PERFORM HANDLE-IT-SPEC' &3&
+*
+* Maintenance
+* uuu    yyyy-mm-dd             Comment
+* ------ ---------- ----------- ----------------------------------------
+* SU     2018-08-10 NOMALL-2133 created
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE MASTER-DEFINITIONS-GEN
+************************************************************************
+#TYPE := 'Master'
+IF #TRACING
+  COMPRESS #TYPE 'defs' TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+MASTER-GEN. FIND REPORT WITH R-TYPE-IDENT =#IDENT(01) OR=#IDENT(02)
+OR=#IDENT(03) OR=#IDENT(04) OR=#IDENT(05) OR=#IDENT(06) OR=#IDENT(07) /*
+OR=#IDENT(08) OR=#IDENT(09) OR=#IDENT(10) OR=#IDENT(11) OR=#IDENT(12) /*
+    &3& /*PERFORM HANDLE-IT/PERFORM HANDLE-IT-SPEC
+  IF G-NATRP-ERC NE 0
+    ESCAPE BOTTOM (MASTER-GEN.)
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* MASTER-DEFINITIONS-GEN
+*
+************************************************************************
+DEFINE SUBROUTINE DEFAULT-DEFINITIONS-GEN
+************************************************************************
+#TYPE := 'Default'
+IF #TRACING
+  COMPRESS #TYPE 'defs' TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+FORDEF. FOR #I = 1 TO #TJ
+  DEFAULT. FIND REPORT WITH R-TYPE-IDENT = #IDENT (#I)
+      &3& /*PERFORM HANDLE-IT/PERFORM HANDLE-IT-SPEC
+    ESCAPE BOTTOM (FORDEF.)
+  END-FIND
+END-FOR
+*
+END-SUBROUTINE /* DEFAULT-DEFINITIONS-GEN
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-IT
+************************************************************************
+IF #CHECK-NODE AND NOT F#NODEMATCH (<REPORT.R-INTERNAL-NODE-ID>)
+  ESCAPE TOP /*nodes different - ignore
+END-IF
+IF #TRACING
+  COMPRESS #TYPE 'report=' REPORT.R-REPNAME TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+IF REPORT.C*R-IDENT-FILES > 0
+    &1& /*'PERFORM FILL-IDENT-FILE' / 'IGNORE'
+  PERFORM IS-DATASET-DEFINED
+  IF NOT DATASET-FOUND
+    ESCAPE TOP
+  END-IF
+END-IF
+ADD 1 TO #COUNT
+PERFORM WRITE-ORDER-RECORD
+*
+END-SUBROUTINE /* HANDLE-IT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-ERROR-LOG
+************************************************************************
+DECIDE ON FIRST G-NATRP-ERC /*21=NOM0021E Error<:1:>occurred.
+  VALUE  5  LG-MSG := G-NATRP-ERT /*:1:
+  NONE      COMPRESS G-NATRP-ERC G-NATRP-ERT TO LG-MSG
+END-DECIDE
+LG-USERID := G-LG-USERID
+LG-CODE   := 'MO'
+CALLNAT 'RLOG' PL-PARMS
+END OF TRANSACTION
+IF #TRACING
+  COMPRESS 'Error: --->' G-NATRP-ERC-A LG-MSG TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* WRITE-ERROR-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-NOM-EXIT-001
+************************************************************************
+* The NOM Exit 001 allows the customer to make the decision whether
+* undefined lists are to be processed by NOM or not. The exit must
+* perform actions to move the spool queue entry from NOM's input queue
+* when returning FALSE.
+* The exit is not called directly to have full control over it.
+* Processed-by-NOM is assumed if the exit abends.
+************************************************************************
+PROCESSED-BY-NOM := TRUE
+CALLNAT 'NOMEX001' #SPOOL-ATTRIBUTES (AD=O) PROCESSED-BY-NOM
+  G-NATRP-ERC G-NATRP-ERT
+IF G-NATRP-ERC NE 0
+  PROCESSED-BY-NOM := TRUE
+  PERFORM WRITE-ERROR-LOG
+END-IF
+IF #TRACING
+  MOVE EDITED PROCESSED-BY-NOM (EM='no'/'yes') TO G-TRACE-MSG
+  COMPRESS 'nomex001 process=' G-TRACE-MSG ',erc=' G-NATRP-ERC
+    ',ert=' G-NATRP-ERT TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+IF PROCESSED-BY-NOM
+  PERFORM WRITE-LOG-RECORD
+    &2& /*RMSCBS2: 'PERFORM CANCEL-QUEUE-ENTRY' else 'IGNORE'
+END-IF
+*
+END-SUBROUTINE /* CALL-NOM-EXIT-001
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-NOM-EXIT-002
+************************************************************************
+* The NOM Exit 002 allows the customer to modify spool attributes
+* before they are stored in the NOM DB.
+************************************************************************
+CALLNAT 'NOMEX002' #SPOOL-ATTRIBUTES G-NATRP-ERC G-NATRP-ERT
+IF G-NATRP-ERC NE 0
+  PERFORM WRITE-ERROR-LOG
+END-IF
+IF #TRACING
+  COMPRESS 'nomex002 erc=' G-NATRP-ERC ',ert=' G-NATRP-ERT
+    TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* CALL-NOM-EXIT-002
+*
+************************************************************************
+DEFINE SUBROUTINE IS-DATASET-DEFINED
+************************************************************************
+#DEFINED-NUMBER := REPORT.C*R-IDENT-FILES
+CALLNAT 'RMISDEFN' DATASET-FOUND #SOURCE-TYPE #IDENT-FILE
+  #DEFINED-NUMBER REPORT.R-IDENT-FILES (1:10) G-NATRP-ERC G-NATRP-ERT
+IF #TRACING
+  MOVE EDITED DATASET-FOUND(EM='not'/' ') TO G-TRACE-MSG
+  COMPRESS 'file:' #IDENT-FILE G-TRACE-MSG 'defined' TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* IS-DATASET-DEFINED
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-ORDER-RECORD-GEN
+************************************************************************
+RESET ORDER.OD-PARAMETER (1)
+ORDER.OD-MONITOR-ID       := G-MONITOR-ID
+ORDER.OD-USER-ID          := REPORT.R-USERID
+ORDER.OD-MASTER           := REPORT.R-REPNAME
+ORDER.OD-SOURCE-ID        := SOURCE.SR-ID
+ORDER.OD-TIME-CREATED     := *TIMX
+ORDER.OD-MAX-RETRIES      := #MAX-RETRIES
+ORDER.OD-RETRY-INTERVAL   := #RETRY-INTERVAL
+ORDER.OD-TYPE             := #OD-TYPE
+ORDER.OD-INTERNAL-NODE-ID := +NOD-CURRENT-INTERNAL-ID
+IF *PROGRAM NE 'RMSCJE32'
+  RESET ORDER.OD-TIME-SCHEDULED
+END-IF
+*
+STOLO. STORE ORDER
+END TRANSACTION
+#ISN := *ISN(STOLO.)
+*
+IF #TRACING
+  COMPRESS 'Store order:ID=' ORDER.OD-ID ',USER=' REPORT.R-USERID
+    ',REPNAME='    REPORT.R-REPNAME       ',SOURCE-ID=' SOURCE.SR-ID
+    ',PARAMETER='  ORDER.OD-PARAMETER (1) ',TYPE='      ORDER.OD-TYPE
+    ',MONITOR-ID=' ORDER.OD-MONITOR-ID    ',USER-ID='   ORDER.OD-USER-ID
+    ',MASTER='    ORDER.OD-MASTER       ',SOURCE-ID=' ORDER.OD-SOURCE-ID
+    TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  COMPRESS 'TIME-CREATED=' ORDER.OD-TIME-CREATED
+    ',TIME-SCHEDULED=' ORDER.OD-TIME-SCHEDULED
+    ',RETRY-INTERVAL=' ORDER.OD-RETRY-INTERVAL
+    ',MAX-RETRIES='    ORDER.OD-MAX-RETRIES TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+* ',isn=' #ISN ',erc=' G-NATRP-ERC ',ert=' G-NATRP-ERT
+END-IF
+*
+END-SUBROUTINE /* WRITE-ORDER-RECORD-GEN
+*
+************************************************************************
+DEFINE SUBROUTINE START-FIRST-ORDER-GEN
+************************************************************************
+PERFORM START-FIRST-ORDER-GEN1
+RESET G-CYCLE-WAS-IDLE
+CALLNAT 'N-WAKEUP' /*Wake up monitor to "create RP" + copy source
+*
+END-SUBROUTINE /* START-FIRST-ORDER-GEN
+*
+************************************************************************
+DEFINE SUBROUTINE START-FIRST-ORDER-GEN1
+************************************************************************
+GETOD. GET ORDER #LAST-ORDER-ISN
+OD-TIME-SCHEDULED := *TIMX
+UPDATE (GETOD.)
+END OF TRANSACTION
+IF #TRACING
+  COMPRESS 'Start first order:ID=' ORDER.OD-ID
+    TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+* 'Start order id=' #LAST-ORDER-ISN
+END-IF
+*
+END-SUBROUTINE /* START-FIRST-ORDER-GEN1
+*
+** End of copycode RMSC-C  *********************************************

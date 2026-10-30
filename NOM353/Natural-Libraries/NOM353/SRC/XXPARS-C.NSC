@@ -1,0 +1,968 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    XXPARS-C
+* Version   3.4
+* Function  Copycode Parser for import, replaces parse statement
+*
+* Maintenance
+* uuu     yyyy-mm-dd iTrac        Comment
+* ESI     2014-06-02 Copyied from SYSEXXT - PARSER-X and extended
+* ---------------------------------------------------------- PARAMETER
+*
+* XML Parser Version 2.0.1 for long and dynamic varibles
+*
+*
+* &1& 'XML_PARSER_INPUT'              /* XML file to be parsed
+* &2& 'XML_PARSER_XPATH'              /* XPATH to repesent tag...
+* &3& 'XML_PARSER_XPATH_TYPE'         /* Type of the XPATH:
+*                                        ? Processing instruction
+*                                        D DOCTYPE
+*                                        Ü Comment
+*                                        C CDATA section
+*                                        T Starting Tag
+*                                        § Attribute
+*                                        / Close Tag
+*                                        $ Parsed Data
+* &4& 'XML_PARSER_CONTENT'            /* Content of found tag
+* &5& 'XML_PARSER_CONTENT_IS_EMPTY'   /* Is TRUE if tag is empty
+* &6& 'XML_PARSER_ERROR_TEXT'         /* Error Message
+* &7& 'XML_PARSER_RESPONSE'           /* Error NR; 0 = OK
+* &8& 'XML_TAG'                       /* Current Tag (NEW)
+*
+* ------------------------------------------------------- SET DEFAULTS
+XML_PARSER_XPATH_NAMES_MAX := 0
+XML_PARSER_NEXT := 1
+* ------------- CAN BE REPLACED BY OPTION TQ=OFF WITH NEXT NAT VERSION
+IF H'41' EQ "A" THEN /* ASCII
+  XML_PARSER_APOSTROPHE     := H'27'
+  XML_PARSER_QUOT_MARK      := H'22'
+  XML_PARSER_ATSIGN         := H'40' /*'§'
+  XML_PARSER_CDATA          := H'5B'- 'CDATA' - H'5B'
+  XML_PARSER_CDATA_START    := '<'- H'215B'- 'CDATA' - H'5B'
+  XML_PARSER_CDATA_END      := H'5D5D'-'>'
+  XML_PARSER_PROCESSING     := H'3F'
+  XML_PARSER_PROCESSING_END := H'3F'-'>'
+  XML_PARSER_DOCTYPE        := H'5B'
+  XML_PARSER_DOCTYPE_START  := H'21'-'DOCTYPE['
+  XML_PARSER_DOCTYPE_END    := H'5D'-'>'
+  XML_PARSER_COMMENT        := H'21'
+  XML_PARSER_COMMENT_START  := H'21'-'--'
+ELSE
+  XML_PARSER_APOSTROPHE     := H'7D'
+  XML_PARSER_QUOT_MARK      := H'7F'
+  XML_PARSER_ATSIGN         := H'7C'
+  XML_PARSER_CDATA          := H'BB'-'CDATA'-H'BB'
+  XML_PARSER_CDATA_START    := '<' - H'5ABB'-'CDATA'-H'BB'
+  XML_PARSER_CDATA_END      := H'BDBD'-'>'
+  XML_PARSER_PROCESSING     := '?'
+  XML_PARSER_PROCESSING_END := '?>'
+  XML_PARSER_DOCTYPE        := H'BB'
+  XML_PARSER_DOCTYPE_START  := H'5A'-'DOCTYPE['
+  XML_PARSER_DOCTYPE_END    := H'BD'-'>'
+  XML_PARSER_COMMENT        := H'5A'
+  XML_PARSER_COMMENT_START  := H'5A'-'--'
+
+END-IF
+* -------------if not unicode, a xml document always starts with a "<"
+IF SUBSTRING(&1&,1,1) = "<" THEN
+* --------------------------------- get length without trailing blanks
+  EXAMINE &1& FOR " " GIVING LENGTH XML_PARSER_INPUT_LENGTH
+* -------------------------------------------- walk over all CHAR
+  FOR XML_PARSER_II = 1 TO XML_PARSER_INPUT_LENGTH
+    XML_PARSER_XML_2CHARS := SUBSTR(&1&,XML_PARSER_II)
+    DECIDE ON FIRST XML_PARSER_XML_1ST_CHAR
+* ---------------------------------------------------------- A new Tag
+      VALUE ">"
+        &6& := 'A section was not closed. Line %2% Column %3%.'
+        /* calculate the current line
+        XML_PARSER_IK := 1
+        XML_PARSER_IL := XML_PARSER_II
+        FOR XML_PARSER_IJ = 1 TO XML_PARSER_II
+          IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+            ADD 1 TO XML_PARSER_IK
+            XML_PARSER_IL := XML_PARSER_II - XML_PARSER_IJ
+          END-IF
+        END-FOR
+        XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+        EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+        XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+        EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+        &7&   := -21
+        PERFORM PARSER_ERROR
+        ESCAPE ROUTINE
+      VALUE "<"
+* Replaced by redefiniton of XML_PARSER_XML_2CHARS
+*       add 1 to XML_PARSER_II
+*       XML_PARSER_XML_2ND_CHAR := substring(&1&,XML_PARSER_II,1)
+*       add -1 to XML_PARSER_II
+* ------------------------------------ Tag is a processing instruction
+        IF XML_PARSER_XML_2ND_CHAR = "?"
+          ADD 1 TO XML_PARSER_XPATH_NAMES_MAX
+          XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX) := "?"
+          ADD 2 TO XML_PARSER_II
+          COMPRESS XML_PARSER_XPATH_NAMES(1:XML_PARSER_XPATH_NAMES_MAX) INTO &2& WITH DELIMITER "/"
+          FOR XML_PARSER_IJ = XML_PARSER_II TO XML_PARSER_INPUT_LENGTH
+            XML_PARSER_TAG_2CHAR := SUBSTR(&1&,XML_PARSER_IJ)
+            IF XML_PARSER_TAG_2CHAR = XML_PARSER_PROCESSING_END THEN
+              XML_PARSER_IL := XML_PARSER_IJ - XML_PARSER_II
+              IF XML_PARSER_IL > 0 THEN
+                &4& := SUBSTR(&1&,XML_PARSER_II,XML_PARSER_IL)
+                &5& := FALSE
+              ELSE
+                COMPRESS " " INTO &4& LEAVING NO
+                &5& := TRUE
+              END-IF
+              ADD -1 TO XML_PARSER_XPATH_NAMES_MAX
+              &3& := "?"
+              COMPRESS " " INTO &8& LEAVING NO
+              PERFORM CALLBACK
+              XML_PARSER_II := XML_PARSER_IJ + 1
+              XML_PARSER_NEXT := XML_PARSER_II + 1
+              ESCAPE BOTTOM
+            END-IF
+          END-FOR
+*
+          IF XML_PARSER_IJ > XML_PARSER_INPUT_LENGTH THEN
+            &6& := 'Processing instruction was not closed. '-
+              'Line %2% Column %3%.'
+            EXAMINE &6& FOR "%1%" REPLACE
+              WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+            /* calculate the current line
+            XML_PARSER_IK := 1
+            XML_PARSER_IL := XML_PARSER_II
+            FOR XML_PARSER_IJ = 1 TO XML_PARSER_II
+              IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+                ADD 1 TO XML_PARSER_IK
+                XML_PARSER_IL := XML_PARSER_II - XML_PARSER_IJ
+              END-IF
+            END-FOR
+            XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+            EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+            XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+            EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+            &7&   := -2
+            PERFORM PARSER_ERROR
+            ESCAPE ROUTINE
+          END-IF
+        ELSE
+* --------------------------------------------------- Tag is a comment
+          IF XML_PARSER_XML_2ND_CHAR = XML_PARSER_COMMENT
+            ADD 2 TO XML_PARSER_II
+            XML_PARSER_TAG_7CHAR := SUBSTR(&1&,XML_PARSER_II)
+* --------------------------------------------------- Tag is a DOCTYPE
+            IF XML_PARSER_TAG_7CHAR = "DOCTYPE" THEN
+              ADD 1 TO XML_PARSER_XPATH_NAMES_MAX
+              COMPRESS XML_PARSER_DOCTYPE_START INTO
+                XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                LEAVING NO
+              XML_PARSER_IS_INLINE_DEFINED := FALSE
+              FOR XML_PARSER_IJ = XML_PARSER_II TO XML_PARSER_INPUT_LENGTH
+                XML_PARSER_CDATA_1CHAR := SUBSTR(&1&,XML_PARSER_IJ,1)
+                IF XML_PARSER_CDATA_1CHAR = "<" THEN
+                  XML_PARSER_CDATA_9CHAR := SUBSTR(&1&,XML_PARSER_IJ)
+                  IF XML_PARSER_CDATA_9CHAR = XML_PARSER_CDATA_START THEN
+                    FOR XML_PARSER_IK = XML_PARSER_IJ
+                        TO XML_PARSER_INPUT_LENGTH
+                      XML_PARSER_CDATA_3CHAR :=
+                        SUBSTR(&1&,XML_PARSER_IK)
+                      IF  XML_PARSER_CDATA_3CHAR = XML_PARSER_CDATA_END THEN
+                        XML_PARSER_IJ := XML_PARSER_IK + 3
+                        ESCAPE BOTTOM
+                      END-IF
+                    END-FOR
+                    IF XML_PARSER_IK > XML_PARSER_INPUT_LENGTH THEN
+                      &6& := 'A CDATA section was not closed. Line %2% Column %3%.'
+                      EXAMINE &6& FOR "%1%" REPLACE WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                      /* calculate the current line
+                      XML_PARSER_IK := 1
+                      XML_PARSER_IL := XML_PARSER_IJ
+                      FOR XML_PARSER_II = 1 TO XML_PARSER_IJ
+                        IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+                          ADD 1 TO XML_PARSER_IK
+                          XML_PARSER_IL := XML_PARSER_IJ - XML_PARSER_II
+                        END-IF
+                      END-FOR
+                      /*
+                      XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+                      EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                      XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                      EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                      &7&   := -3
+                      PERFORM PARSER_ERROR
+                      ESCAPE ROUTINE
+                    END-IF
+                  END-IF
+                  XML_PARSER_CDATA_1CHAR := SUBSTR(&1&,XML_PARSER_IJ,1)
+                END-IF
+                IF XML_PARSER_CDATA_1CHAR = XML_PARSER_DOCTYPE
+                    AND XML_PARSER_IS_INLINE_DEFINED = FALSE THEN
+* -------------------------- Tag is a DOCTYPE with internal definition
+                  XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX) :=
+                    XML_PARSER_DOCTYPE_START
+                  XML_PARSER_IS_INLINE_DEFINED := TRUE
+                END-IF
+                IF XML_PARSER_IS_INLINE_DEFINED = TRUE THEN
+                  XML_PARSER_TAG_2CHAR := SUBSTR(&1&,XML_PARSER_IJ)
+                  IF  XML_PARSER_TAG_2CHAR = XML_PARSER_DOCTYPE_END THEN
+                    COMPRESS
+                      XML_PARSER_XPATH_NAMES(1:XML_PARSER_XPATH_NAMES_MAX)
+                      INTO &2& WITH DELIMITER "/"
+                    XML_PARSER_IL := XML_PARSER_IJ - XML_PARSER_II + 1
+                    IF XML_PARSER_IL > 0 THEN
+                      &4& := SUBSTR(&1&,XML_PARSER_II,XML_PARSER_IL)
+                      &5& := FALSE
+                    ELSE
+                      COMPRESS " " INTO &4& LEAVING NO
+                      &5& := TRUE
+                    END-IF
+                    ADD -1 TO XML_PARSER_XPATH_NAMES_MAX
+                    &3& := "D"
+                    COMPRESS " " INTO &8& LEAVING NO
+                    PERFORM CALLBACK
+                    XML_PARSER_II := XML_PARSER_IJ + 1
+                    XML_PARSER_NEXT := XML_PARSER_II + 1
+                    ESCAPE BOTTOM
+                  END-IF
+                ELSE
+                  IF XML_PARSER_CDATA_1CHAR = ">"  THEN
+                    COMPRESS XML_PARSER_XPATH_NAMES(1:XML_PARSER_XPATH_NAMES_MAX)
+                      INTO &2& WITH DELIMITER "/"
+                    XML_PARSER_IL := XML_PARSER_IJ - XML_PARSER_II
+                    IF XML_PARSER_IL > 0 THEN
+                      &4& := SUBSTR(&1&,XML_PARSER_II,XML_PARSER_IL)
+                      &5& := FALSE
+                    ELSE
+                      COMPRESS " " INTO &4& LEAVING NO
+                      &5& := TRUE
+                    END-IF
+                    ADD -1 TO XML_PARSER_XPATH_NAMES_MAX
+                    &3& := "D"
+                    COMPRESS " " INTO &8& LEAVING NO
+                    PERFORM CALLBACK
+                    XML_PARSER_II := XML_PARSER_IJ + 1
+                    XML_PARSER_NEXT := XML_PARSER_II + 1
+                    ESCAPE BOTTOM
+                  END-IF
+                END-IF
+              END-FOR
+              IF XML_PARSER_IJ > XML_PARSER_INPUT_LENGTH THEN
+                COMPRESS XML_PARSER_COMMENT
+                  'DOCTYPE section was not closed. Line %2% Column %3%.'
+                  INTO &6&  LEAVING NO
+                EXAMINE &6& FOR "%1%" REPLACE WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                /* calculate the current line
+                XML_PARSER_IK := 1
+                XML_PARSER_IL := XML_PARSER_II
+                FOR XML_PARSER_IJ = 1 TO XML_PARSER_II
+                  IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+                    ADD 1 TO XML_PARSER_IK
+                    XML_PARSER_IL := XML_PARSER_II - XML_PARSER_IJ
+                  END-IF
+                END-FOR
+                /*
+                XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+                EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                &7&   := -4
+                PERFORM PARSER_ERROR
+                ESCAPE ROUTINE
+              END-IF
+            ELSE
+              /*
+              XML_PARSER_TAG_2CHAR := XML_PARSER_TAG_7CHAR
+* --------------------------- Tag is a comment over more then one line
+              IF XML_PARSER_TAG_2CHAR = "--" THEN
+                ADD 1 TO XML_PARSER_XPATH_NAMES_MAX
+                COMPRESS XML_PARSER_COMMENT '--' INTO
+                  XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                  LEAVING NO
+                /*
+                ADD 2 TO XML_PARSER_II
+                FOR XML_PARSER_IJ = XML_PARSER_II TO XML_PARSER_INPUT_LENGTH
+                  XML_PARSER_TAG_2CHAR := SUBSTR(&1&,XML_PARSER_IJ)
+                  IF  XML_PARSER_TAG_2CHAR = "--" THEN
+                    COMPRESS XML_PARSER_XPATH_NAMES(1:XML_PARSER_XPATH_NAMES_MAX) INTO &2& WITH DELIMITER "/"
+                    XML_PARSER_IL := XML_PARSER_IJ - XML_PARSER_II
+                    ADD 2 TO XML_PARSER_IJ
+                    IF  SUBSTRING(&1&,XML_PARSER_IJ,1) NE ">" THEN
+                      &6& := 'Incorrect syntax was used in a comment. Line %2% Column %3%.'
+                      EXAMINE &6& FOR "%1%" REPLACE WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                      /* calculate the current line
+                      XML_PARSER_IK := 1
+                      XML_PARSER_IL := XML_PARSER_IJ
+                      FOR XML_PARSER_II = 1 TO XML_PARSER_IJ
+                        IF SUBSTR(&1&,XML_PARSER_II,1) = H'0A' THEN
+                          ADD 1 TO XML_PARSER_IK
+                          XML_PARSER_IL := XML_PARSER_IJ - XML_PARSER_II
+                        END-IF
+                      END-FOR
+                      /*
+                      XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+                      EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                      XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                      EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                      &7&   := -5
+                      PERFORM PARSER_ERROR
+                      ESCAPE ROUTINE
+                    END-IF
+                    IF XML_PARSER_IL > 0 THEN
+                      &4& := SUBSTR(&1&,XML_PARSER_II,XML_PARSER_IL)
+                      &5& := FALSE
+                    ELSE
+                      COMPRESS " " INTO &4& LEAVING NO
+                      &5& := TRUE
+                    END-IF
+                    ADD -1 TO XML_PARSER_XPATH_NAMES_MAX
+                    &3& := XML_PARSER_COMMENT
+                    COMPRESS " " INTO &8& LEAVING NO
+                    PERFORM CALLBACK
+                    XML_PARSER_II := XML_PARSER_IJ
+                    XML_PARSER_NEXT := XML_PARSER_II + 1
+                    ESCAPE BOTTOM
+                  END-IF
+                END-FOR
+                IF XML_PARSER_IJ > XML_PARSER_INPUT_LENGTH THEN
+                  &6& := 'A Comment was not closed. Line %2% Column %3%.'
+                  EXAMINE &6& FOR "%1%" REPLACE WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                  /* calculate the current line
+                  XML_PARSER_IK := 1
+                  XML_PARSER_IL := XML_PARSER_II
+                  FOR XML_PARSER_IJ = 1 TO XML_PARSER_II
+                    IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+                      ADD 1 TO XML_PARSER_IK
+                      XML_PARSER_IL := XML_PARSER_II - XML_PARSER_IJ
+                    END-IF
+                  END-FOR
+                  /*
+                  XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+                  EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                  XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                  EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                  &7&   := -6
+                  PERFORM PARSER_ERROR
+                  ESCAPE ROUTINE
+                END-IF
+              ELSE
+* --------------------------------------------- Tag is a CDATA comment
+                IF XML_PARSER_TAG_7CHAR = XML_PARSER_CDATA THEN
+                  ADD 1 TO XML_PARSER_XPATH_NAMES_MAX
+                  XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX) :=
+                    XML_PARSER_CDATA_START
+                  /*
+                  ADD 7 TO XML_PARSER_II
+                  FOR XML_PARSER_IJ = XML_PARSER_II TO XML_PARSER_INPUT_LENGTH
+                    XML_PARSER_TAG_3CHAR := SUBSTR(&1&,XML_PARSER_IJ)
+                    IF XML_PARSER_TAG_3CHAR = XML_PARSER_CDATA_END THEN
+                      COMPRESS XML_PARSER_XPATH_NAMES(1:XML_PARSER_XPATH_NAMES_MAX) INTO &2& WITH DELIMITER "/"
+                      XML_PARSER_IL := XML_PARSER_IJ - XML_PARSER_II
+                      IF XML_PARSER_IL > 0 THEN
+                        &4& := SUBSTR(&1&,XML_PARSER_II,XML_PARSER_IL)
+                        &5& := FALSE
+                      ELSE
+                        COMPRESS " " INTO &4& LEAVING NO
+                        &5& := TRUE
+                      END-IF
+                      ADD -1 TO XML_PARSER_XPATH_NAMES_MAX
+                      &3& := "C"
+                      COMPRESS " " INTO &8& LEAVING NO
+                      PERFORM CALLBACK
+                      XML_PARSER_II := XML_PARSER_IJ + 2
+                      XML_PARSER_NEXT := XML_PARSER_II + 1
+                      ESCAPE BOTTOM
+                    END-IF
+                  END-FOR
+                  IF XML_PARSER_IJ > XML_PARSER_INPUT_LENGTH THEN
+                    &6& := 'A CDATA section was not closed. Line %2% Column %3%.'
+                    EXAMINE &6& FOR "%1%" REPLACE WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                    /* calculate the current line
+                    XML_PARSER_IK := 1
+                    XML_PARSER_IL := XML_PARSER_II
+                    FOR XML_PARSER_IJ = 1 TO XML_PARSER_II
+                      IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+                        ADD 1 TO XML_PARSER_IK
+                        XML_PARSER_IL := XML_PARSER_II - XML_PARSER_IJ
+                      END-IF
+                    END-FOR
+                    /*
+                    XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+                    EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                    XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                    EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                    &7&   := -7
+                    PERFORM PARSER_ERROR
+                    ESCAPE ROUTINE
+                  END-IF
+                ELSE
+* ---------------------------------------------- Tag is simple comment
+                  ADD 1 TO XML_PARSER_XPATH_NAMES_MAX
+                  XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX) :=
+                    XML_PARSER_COMMENT
+                  FOR XML_PARSER_IJ = XML_PARSER_II TO XML_PARSER_INPUT_LENGTH
+                    XML_PARSER_TAG_1CHAR2 := SUBSTR(&1&,XML_PARSER_IJ,1)
+                    IF XML_PARSER_TAG_1CHAR2 = ">"THEN
+                      COMPRESS XML_PARSER_XPATH_NAMES(1:XML_PARSER_XPATH_NAMES_MAX) INTO &2& WITH DELIMITER "/"
+                      XML_PARSER_IL := XML_PARSER_IJ - XML_PARSER_II
+                      IF XML_PARSER_IL > 0 THEN
+                        &4& := SUBSTR(&1&,XML_PARSER_II,XML_PARSER_IL)
+                        &5& := FALSE
+                      ELSE
+                        COMPRESS " " INTO &4& LEAVING NO
+                        &5& := TRUE
+                      END-IF
+                      ADD -1 TO XML_PARSER_XPATH_NAMES_MAX
+                      &3& := XML_PARSER_COMMENT
+                      COMPRESS " " INTO &8& LEAVING NO
+                      PERFORM CALLBACK
+                      XML_PARSER_II := XML_PARSER_IJ
+                      XML_PARSER_NEXT := XML_PARSER_II + 1
+                      ESCAPE BOTTOM
+                    END-IF
+                  END-FOR
+                  IF XML_PARSER_IJ > XML_PARSER_INPUT_LENGTH THEN
+                    &6& := 'A Comment section was not closed. Line %2% Column %3%.'
+                    EXAMINE &6& FOR "%1%" REPLACE WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                    /* calculate the current line
+                    XML_PARSER_IK := 1
+                    XML_PARSER_IL := XML_PARSER_II
+                    FOR XML_PARSER_IJ = 1 TO XML_PARSER_II
+                      IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+                        ADD 1 TO XML_PARSER_IK
+                        XML_PARSER_IL := XML_PARSER_II - XML_PARSER_IJ
+                      END-IF
+                    END-FOR
+                    /*
+                    XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+                    EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                    XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                    EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                    &7&   := -8
+                    PERFORM PARSER_ERROR
+                    ESCAPE ROUTINE
+                  END-IF
+                END-IF
+              END-IF
+            END-IF
+          ELSE
+* -------------------------------------------------------- Parsed Data
+            IF XML_PARSER_II GE XML_PARSER_NEXT THEN
+              XML_PARSER_IL := XML_PARSER_II - XML_PARSER_NEXT
+              /*
+              IF XML_PARSER_XPATH_NAMES_MAX > 0 THEN
+                COMPRESS XML_PARSER_XPATH_NAMES(1:XML_PARSER_XPATH_NAMES_MAX) "$" INTO &2& WITH DELIMITER "/"
+
+              ELSE
+                &2& := "$"
+                COMPRESS " " INTO &8& LEAVING NO
+              END-IF
+              IF XML_PARSER_IL > 0 AND &2& NE "$" THEN
+                &4& := SUBSTR(&1&,XML_PARSER_NEXT,XML_PARSER_IL)
+                &5& := FALSE
+                &3& :="$"
+                COMPRESS " " INTO &8& LEAVING NO
+                EXAMINE &4& FOR '&lt;' REPLACE '<'
+                EXAMINE &4& FOR '&gt;' REPLACE '>'
+                EXAMINE &4& FOR '&apos;' REPLACE XML_PARSER_APOSTROPHE
+                EXAMINE &4& FOR '&quot;' REPLACE XML_PARSER_QUOT_MARK
+                EXAMINE &4& FOR '&amp;' REPLACE '&'
+
+                PERFORM CALLBACK
+              ELSE
+                COMPRESS " " INTO &4& LEAVING NO
+                &5& := TRUE
+              END-IF
+            END-IF
+            ADD 1 TO XML_PARSER_II
+            IF XML_PARSER_XML_2ND_CHAR = "/"
+* ----------------------------------------------- Tag is a end element
+              ADD 1 TO XML_PARSER_II
+              FOR XML_PARSER_IJ = XML_PARSER_II TO XML_PARSER_INPUT_LENGTH
+                XML_PARSER_WHITETEST := SUBSTR(&1&,XML_PARSER_IJ,1)
+                IF XML_PARSER_WHITESPACE = SCAN XML_PARSER_WHITETEST OR
+                    SUBSTR(&1&,XML_PARSER_IJ,1) = ">" THEN
+                  XML_PARSER_IL := XML_PARSER_IJ - XML_PARSER_II
+                  /*
+                  IF XML_PARSER_IL LE 0 THEN
+                    &6& := 'Closing tag name was started with an invalid character. Line %2% Column %3%.'
+                    EXAMINE &6& FOR "%1%" REPLACE WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                    /* calculate the current line
+                    XML_PARSER_IK := 1
+                    XML_PARSER_IL := XML_PARSER_II
+                    FOR XML_PARSER_IJ = 1 TO XML_PARSER_II
+                      IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+                        ADD 1 TO XML_PARSER_IK
+                        XML_PARSER_IL := XML_PARSER_II - XML_PARSER_IJ
+                      END-IF
+                    END-FOR
+                    /*
+                    XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+                    EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                    XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                    EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                    &7&   := -9
+                    PERFORM PARSER_ERROR
+                    ESCAPE ROUTINE
+                  END-IF
+                  IF XML_PARSER_XPATH_NAMES_MAX LE 0 THEN
+                    &6& := 'Closing tag without starting element. Line %2% Column %3%.'
+                    /* calculate the current line
+                    XML_PARSER_IK := 1
+                    XML_PARSER_IL := XML_PARSER_II
+                    FOR XML_PARSER_IJ = 1 TO XML_PARSER_II
+                      IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+                        ADD 1 TO XML_PARSER_IK
+                        XML_PARSER_IL := XML_PARSER_II - XML_PARSER_IJ
+                      END-IF
+                    END-FOR
+                    /*
+                    XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+                    EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                    XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                    EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                    &7&   := -10
+                    PERFORM PARSER_ERROR
+                    ESCAPE ROUTINE
+                  END-IF
+                  /* NAMESPACE !!
+                  IF SUBSTRING(&1&,XML_PARSER_II,XML_PARSER_IL) NE XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX) THEN
+                    &6& := 'Closing tag "%4%" does not match the start tag "%1%". Line %2% Column %3%.'
+                    EXAMINE &6& FOR "%1%" REPLACE WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                    /* NAMESPACE !!
+                    XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX) := SUBSTRING(&1&,XML_PARSER_II,XML_PARSER_IL)
+                    EXAMINE &6& FOR "%4%" REPLACE WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                    /* calculate the current line
+                    XML_PARSER_IK := 1
+                    XML_PARSER_IL := XML_PARSER_II
+                    FOR XML_PARSER_IJ = 1 TO XML_PARSER_II
+                      IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+                        ADD 1 TO XML_PARSER_IK
+                        XML_PARSER_IL := XML_PARSER_II - XML_PARSER_IJ
+                      END-IF
+                    END-FOR
+                    /*
+                    XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+                    EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                    XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                    EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                    &7&   := -11
+                    PERFORM PARSER_ERROR
+                    ESCAPE ROUTINE
+                  END-IF
+                  COMPRESS XML_PARSER_XPATH_NAMES(1:XML_PARSER_XPATH_NAMES_MAX) "/" INTO &2& WITH DELIMITER "/"
+                  COMPRESS " " INTO &4& LEAVING NO
+                  &5& := TRUE
+                  &3& := "/"
+                  COMPRESS XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX) INTO &8& LEAVING NO
+                  PERFORM CALLBACK
+                  ADD -1 TO XML_PARSER_XPATH_NAMES_MAX
+                  IF SUBSTR(&1&,XML_PARSER_IJ,1) NE ">" THEN
+                    FOR XML_PARSER_IK = XML_PARSER_IJ TO XML_PARSER_INPUT_LENGTH
+                      IF  SUBSTRING(&1&,XML_PARSER_IK,1) = ">" THEN
+                        XML_PARSER_IJ := XML_PARSER_IK
+                        ESCAPE BOTTOM
+                      END-IF
+                    END-FOR
+                    IF XML_PARSER_IK > XML_PARSER_INPUT_LENGTH THEN
+                      &6& := 'Closing tag was not closed. Line %2% Column %3%.'
+                      /* calculate the current line
+                      XML_PARSER_IK := 1
+                      XML_PARSER_IL := XML_PARSER_IJ
+                      FOR XML_PARSER_II = 1 TO XML_PARSER_IJ
+                        IF SUBSTR(&1&,XML_PARSER_II,1) = H'0A' THEN
+                          ADD 1 TO XML_PARSER_IK
+                          XML_PARSER_IL := XML_PARSER_IJ - XML_PARSER_II
+                        END-IF
+                      END-FOR
+                      /*
+                      XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+                      EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                      XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                      EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                      &7&   := -12
+                      PERFORM PARSER_ERROR
+                      ESCAPE ROUTINE
+                    END-IF
+                  END-IF
+                  XML_PARSER_II := XML_PARSER_IJ
+                  XML_PARSER_NEXT := XML_PARSER_II + 1
+                  ESCAPE BOTTOM
+                END-IF
+              END-FOR
+              IF XML_PARSER_IJ > XML_PARSER_INPUT_LENGTH THEN
+                &6& := 'Closing tag "%1%" was not closed. Line %2% Column %3%.'
+                EXAMINE &6& FOR "%1%" REPLACE WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                /* calculate the current line
+                XML_PARSER_IK := 1
+                XML_PARSER_IL := XML_PARSER_II
+                FOR XML_PARSER_IJ = 1 TO XML_PARSER_II
+                  IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+                    ADD 1 TO XML_PARSER_IK
+                    XML_PARSER_IL := XML_PARSER_II - XML_PARSER_IJ
+                  END-IF
+                END-FOR
+                /*
+                XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+                EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                &7&   := -13
+                PERFORM PARSER_ERROR
+                ESCAPE ROUTINE
+              END-IF
+            ELSE
+* --------------------------------------------------- Tag is a element
+              ADD 1 TO XML_PARSER_XPATH_NAMES_MAX
+              XML_PARSER_HAS_ATTRIBUTE := FALSE
+              FOR XML_PARSER_IJ = XML_PARSER_II TO XML_PARSER_INPUT_LENGTH
+                XML_PARSER_TAG_1CHAR2 := SUBSTR(&1&,XML_PARSER_IJ,1)
+                IF ( XML_PARSER_WHITESPACE = SCAN XML_PARSER_TAG_1CHAR2 OR
+                    XML_PARSER_TAG_1CHAR2 = "/" ) AND
+                    XML_PARSER_HAS_ATTRIBUTE = FALSE THEN
+* --------------------------------------------- Element has attributes
+                  XML_PARSER_IL := XML_PARSER_IJ - XML_PARSER_II
+                  IF XML_PARSER_IL LE 0 THEN
+                    &6& := 'Starting tag name was started with an invalid character. Line %2% Column %3%.'
+                    EXAMINE &6& FOR "%1%" REPLACE WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                    /* calculate the current line
+                    XML_PARSER_IK := 1
+                    XML_PARSER_IL := XML_PARSER_II
+                    FOR XML_PARSER_IJ = 1 TO XML_PARSER_II
+                      IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+                        ADD 1 TO XML_PARSER_IK
+                        XML_PARSER_IL := XML_PARSER_II - XML_PARSER_IJ
+                      END-IF
+                    END-FOR
+                    /*
+                    XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+                    EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                    XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                    EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                    &7&   := -14
+                    PERFORM PARSER_ERROR
+                    ESCAPE ROUTINE
+                  END-IF
+                  /* NAMESPACE !!
+                  XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX) := SUBSTR(&1&,XML_PARSER_II,XML_PARSER_IL)
+                  COMPRESS XML_PARSER_XPATH_NAMES(1:XML_PARSER_XPATH_NAMES_MAX) INTO &2& WITH DELIMITER "/"
+                  COMPRESS " " INTO &4& LEAVING NO
+                  &5& := TRUE
+                  &3& := "T"
+                  COMPRESS XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX) INTO &8& LEAVING NO
+                  PERFORM CALLBACK
+                  XML_PARSER_HAS_ATTRIBUTE := TRUE
+                  XML_PARSER_II := XML_PARSER_IJ + 1
+                ELSE
+                  IF XML_PARSER_TAG_1CHAR2 = ">" THEN
+                    XML_PARSER_IL := XML_PARSER_IJ - XML_PARSER_II
+                    ADD -1 TO XML_PARSER_IJ
+                    XML_PARSER_TAG_1CHAR2 := SUBSTR(&1&,XML_PARSER_IJ,1)
+                    IF XML_PARSER_HAS_ATTRIBUTE = FALSE THEN
+                      IF XML_PARSER_IL LE 0 THEN
+                        &6& := 'Starting tag name was started with an invalid character. Line %2% Column %3%.'
+                        /* calculate the current line
+                        XML_PARSER_IK := 1
+                        XML_PARSER_IL := XML_PARSER_II
+                        FOR XML_PARSER_IJ = 1 TO XML_PARSER_II
+                          IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+                            ADD 1 TO XML_PARSER_IK
+                            XML_PARSER_IL := XML_PARSER_II - XML_PARSER_IJ
+                          END-IF
+                        END-FOR
+                        /*
+                        XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+                        EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                        XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                        EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                        &7&   := -14
+                        PERFORM PARSER_ERROR
+                        ESCAPE ROUTINE
+                      END-IF
+                      /* NAMESPACE !!
+                      XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX) := SUBSTR(&1&,XML_PARSER_II,XML_PARSER_IL)
+                      COMPRESS XML_PARSER_XPATH_NAMES(1:XML_PARSER_XPATH_NAMES_MAX) INTO &2& WITH DELIMITER "/"
+                      COMPRESS " " INTO &4& LEAVING NO
+                      &5& := TRUE
+                      &3& :="T"
+                      COMPRESS XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX) INTO &8& LEAVING NO
+                      PERFORM CALLBACK
+                    ELSE
+                      IF XML_PARSER_TAG_1CHAR2 = "/" THEN
+                        ADD -1 TO XML_PARSER_IL
+                      END-IF
+* ------------------------------------------------- Process Attributes
+                      REPEAT WHILE XML_PARSER_II <= XML_PARSER_IJ
+                        REPEAT WHILE XML_PARSER_II <= XML_PARSER_IJ
+                          XML_PARSER_WHITETEST := SUBSTR(&1&,XML_PARSER_II,1)
+                          IF XML_PARSER_WHITESPACE NE SCAN XML_PARSER_WHITETEST THEN
+                            XML_PARSER_NEXT_ATTRIBUTE := XML_PARSER_II
+                            ADD 1 TO XML_PARSER_II
+                            ESCAPE BOTTOM
+                          END-IF
+                          ADD 1 TO XML_PARSER_II
+                        END-REPEAT
+                        IF XML_PARSER_II > XML_PARSER_IJ THEN
+                          ESCAPE BOTTOM
+                        END-IF
+                        REPEAT WHILE XML_PARSER_II <= XML_PARSER_IJ
+                          IF SUBSTRING(&1&,XML_PARSER_II,1) = "=" THEN
+                            ESCAPE BOTTOM
+                          END-IF
+                          ADD 1 TO XML_PARSER_II
+                        END-REPEAT
+* ----------------------------------------------- Attribute name found
+                        XML_PARSER_IL := XML_PARSER_II - XML_PARSER_NEXT_ATTRIBUTE
+                        &2& := SUBSTR(&1&,XML_PARSER_NEXT_ATTRIBUTE,XML_PARSER_IL)
+                        IF &2& = " " THEN
+                          &6& := 'Attribut name of tag "%1%" not found. Line %2% Column %3%.'
+                          EXAMINE &6& FOR "%1%" REPLACE WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                          /* calculate the current line
+                          XML_PARSER_IK := 1
+                          XML_PARSER_IL := XML_PARSER_NEXT_ATTRIBUTE
+                          FOR XML_PARSER_IJ = 1 TO XML_PARSER_NEXT_ATTRIBUTE
+                            IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+                              ADD 1 TO XML_PARSER_IK
+                              XML_PARSER_IL := XML_PARSER_NEXT_ATTRIBUTE - XML_PARSER_IJ
+                            END-IF
+                          END-FOR
+                          /*
+                          XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+                          EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                          XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                          EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                          &7&   := -15
+                          PERFORM PARSER_ERROR
+                          ESCAPE ROUTINE
+                        END-IF
+                        COMPRESS &2& INTO &8& LEAVING NO
+                        COMPRESS XML_PARSER_ATSIGN &2& INTO &2& LEAVING NO
+                        COMPRESS XML_PARSER_XPATH_NAMES(1:XML_PARSER_XPATH_NAMES_MAX) &2& INTO &2& WITH DELIMITER "/"
+
+* ---------------------------------------------- SEARCH start OF VALUE
+                        REPEAT WHILE XML_PARSER_II <= XML_PARSER_IJ
+                          IF SUBSTRING(&1&,XML_PARSER_II,1) = XML_PARSER_APOSTROPHE OR
+                              SUBSTRING(&1&,XML_PARSER_II,1) = XML_PARSER_QUOT_MARK THEN
+                            XML_PARSER_ATTRIBUTE_DELIMITER := SUBSTRING(&1&,XML_PARSER_II,1)
+                            ADD 1 TO XML_PARSER_II
+                            XML_PARSER_IL := XML_PARSER_II
+                            ESCAPE BOTTOM
+                          END-IF
+                          ADD 1 TO XML_PARSER_II
+                        END-REPEAT
+                        IF XML_PARSER_II > XML_PARSER_IJ THEN
+                          &6& := 'Attribut name of tag "%1%" contains an invalid character. Line %2% Column %3%.'
+                          EXAMINE &6& FOR "%1%" REPLACE WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                          /* calculate the current line
+                          XML_PARSER_IK := 1
+                          XML_PARSER_IL := XML_PARSER_II
+                          FOR XML_PARSER_IJ = 1 TO XML_PARSER_II
+                            IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+                              ADD 1 TO XML_PARSER_IK
+                              XML_PARSER_IL := XML_PARSER_II - XML_PARSER_IJ
+                            END-IF
+                          END-FOR
+                          /*
+                          COMPRESS XML_PARSER_IK INTO XML_PARSER_CDATA_9CHAR
+                          EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                          XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                          EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                          &7&   := -16
+                          PERFORM PARSER_ERROR
+                          ESCAPE ROUTINE
+                        END-IF
+* ------------------------------------------------ SEARCH END OF VALUE
+                        REPEAT WHILE XML_PARSER_II <= XML_PARSER_IJ
+                          IF SUBSTRING(&1&,XML_PARSER_II,1) = XML_PARSER_ATTRIBUTE_DELIMITER THEN
+                            XML_PARSER_IK := XML_PARSER_II - XML_PARSER_IL
+                            IF XML_PARSER_IK > 0 THEN
+                              &4& := SUBSTRING(&1&,XML_PARSER_IL,XML_PARSER_IK)
+                              &5& := FALSE
+                            ELSE
+                              COMPRESS " " INTO &4& LEAVING NO
+                              &5& := TRUE
+                            END-IF
+                            &3& := XML_PARSER_ATSIGN
+                            PERFORM CALLBACK
+                            ADD 1 TO XML_PARSER_II
+                            XML_PARSER_NEXT_ATTRIBUTE := XML_PARSER_II
+                            ESCAPE BOTTOM
+                          END-IF
+                          ADD 1 TO XML_PARSER_II
+                        END-REPEAT
+                        IF XML_PARSER_II NE XML_PARSER_NEXT_ATTRIBUTE AND XML_PARSER_II > XML_PARSER_IJ THEN
+                          IF XML_PARSER_ATTRIBUTE_DELIMITER = XML_PARSER_QUOT_MARK THEN
+                            &6& := 'Attribut value of tag "%1%" ending quotation mark missing. Line %2% Column %3%.'
+                            EXAMINE &6& FOR "%1%" REPLACE WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                            /* calculate the current line
+                            XML_PARSER_IK := 1
+                            XML_PARSER_IL := XML_PARSER_II
+                            FOR XML_PARSER_IJ = 1 TO XML_PARSER_II
+                              IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+                                ADD 1 TO XML_PARSER_IK
+                                XML_PARSER_IL := XML_PARSER_II - XML_PARSER_IJ
+                              END-IF
+                            END-FOR
+                            /*
+                            XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+                            EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                            XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                            EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                            &7&   := -17
+                            PERFORM PARSER_ERROR
+                            ESCAPE ROUTINE
+                          ELSE
+                            &6& := 'Attribut value of tag "%1%" ending apostrophe missing. Line %2% Column %3%.'
+                            EXAMINE &6& FOR "%1%" REPLACE WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                            /* calculate the current line
+                            XML_PARSER_IK := 1
+                            XML_PARSER_IL := XML_PARSER_NEXT_ATTRIBUTE
+                            FOR XML_PARSER_II = 1 TO XML_PARSER_NEXT_ATTRIBUTE
+                              IF SUBSTR(&1&,XML_PARSER_II,1) = H'0A' THEN
+                                ADD 1 TO XML_PARSER_IK
+                                XML_PARSER_IL := XML_PARSER_NEXT_ATTRIBUTE - XML_PARSER_II
+                              END-IF
+                            END-FOR
+                            /*
+                            XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+                            EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                            XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                            EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                            &7&   := -18
+                            PERFORM PARSER_ERROR
+                            ESCAPE ROUTINE
+                          END-IF
+                        END-IF
+                      END-REPEAT
+                    END-IF
+* --------------------------------------------- Tag is a empty element
+                    IF XML_PARSER_TAG_1CHAR2 = "/" THEN
+                      /* compress XML_PARSER_XPATH_NAMES(1:XML_PARSER_XPATH_NAMES_MAX) "$" into &2& with delimiter "/"
+                      /* COMPRESS " " INTO &4& LEAVING NO
+                      /* &5& := TRUE
+                      /* &3& := "$"
+                      /* PERFORM CALLBACK
+                      COMPRESS XML_PARSER_XPATH_NAMES(1:XML_PARSER_XPATH_NAMES_MAX) "/" INTO &2& WITH DELIMITER "/"
+                      COMPRESS " " INTO &4& LEAVING NO
+                      &5& := TRUE
+                      &3& := "/"
+                      COMPRESS XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX) INTO &8& LEAVING NO
+                      PERFORM CALLBACK
+                      ADD -1 TO XML_PARSER_XPATH_NAMES_MAX
+                    END-IF
+                    XML_PARSER_II := XML_PARSER_IJ + 1
+                    XML_PARSER_NEXT := XML_PARSER_II + 1
+                    ESCAPE BOTTOM
+                  END-IF
+                END-IF
+              END-FOR
+              IF XML_PARSER_IJ > XML_PARSER_INPUT_LENGTH THEN
+                &6& := 'Starting tag section was not closed. Line %2% Column %3%.'
+                EXAMINE &6& FOR "%1%" REPLACE WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+                /* calculate the current line
+                XML_PARSER_IK := 1
+                XML_PARSER_IL := XML_PARSER_II
+                FOR XML_PARSER_IJ = 1 TO XML_PARSER_II
+                  IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+                    ADD 1 TO XML_PARSER_IK
+                    XML_PARSER_IL := XML_PARSER_II - XML_PARSER_IJ
+                  END-IF
+                END-FOR
+                /*
+                XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+                EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+                EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+                &7&   := -19
+                PERFORM PARSER_ERROR
+                ESCAPE ROUTINE
+              END-IF
+            END-IF
+          END-IF
+        END-IF
+* ------------------------------------------------- User Defined Error
+        IF &7& NE 0 THEN
+          IF &7& <= -9000 THEN
+            EXAMINE &6& FOR "%1%" REPLACE WITH &2&
+            /* calculate the current line
+            XML_PARSER_IK := 1
+            XML_PARSER_IL := XML_PARSER_II
+            FOR XML_PARSER_IJ = 1 TO XML_PARSER_II
+              IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+                ADD 1 TO XML_PARSER_IK
+                XML_PARSER_IL := XML_PARSER_II - XML_PARSER_IJ
+              END-IF
+            END-FOR
+            /*
+            XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+            EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+            XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+            EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+            PERFORM PARSER_ERROR
+          END-IF
+          ESCAPE ROUTINE
+        END-IF
+      NONE
+        IGNORE
+    END-DECIDE
+  END-FOR
+* ------------------------------------- None whitespace after last tag?
+  IF XML_PARSER_NEXT < XML_PARSER_INPUT_LENGTH
+    &4& := SUBSTRING(&1&,XML_PARSER_NEXT)
+    EXAMINE &4& FOR H'0D' DELETE
+    EXAMINE &4& FOR H'0A' DELETE
+    EXAMINE &4& FOR H'09' DELETE
+    IF &4& NE " " THEN
+      &6& := 'None white space character found after last tag. Line %2% Column %3%.'
+      /* calculate the current line
+      XML_PARSER_IK := 1
+      XML_PARSER_IL := XML_PARSER_NEXT
+      FOR XML_PARSER_IJ = 1 TO XML_PARSER_NEXT
+        IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+          ADD 1 TO XML_PARSER_IK
+          XML_PARSER_IL := XML_PARSER_NEXT - XML_PARSER_IJ
+        END-IF
+      END-FOR
+      /*
+      XML_PARSER_CDATA_9CHAR := XML_PARSER_IK
+      EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+      XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+      EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+      &7&   := -31
+      PERFORM PARSER_ERROR
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+* ----------------------------------------------- All elements closed?
+  IF XML_PARSER_XPATH_NAMES_MAX > 0 THEN
+    &6& := 'Tag "%1%" section was not closed. Line %2% Column %3%.'
+    EXAMINE &6& FOR "%1%"
+      REPLACE WITH XML_PARSER_XPATH_NAMES(XML_PARSER_XPATH_NAMES_MAX)
+    /* calculate the current line
+    XML_PARSER_IK := 1
+    XML_PARSER_IL := XML_PARSER_INPUT_LENGTH
+    FOR XML_PARSER_IJ = 1 TO XML_PARSER_INPUT_LENGTH
+      IF SUBSTR(&1&,XML_PARSER_IJ,1) = H'0A' THEN
+        ADD 1 TO XML_PARSER_IK
+        XML_PARSER_IL := XML_PARSER_INPUT_LENGTH - XML_PARSER_IJ
+      END-IF
+    END-FOR
+    /*
+    XML_PARSER_CDATA_9CHAR := XML_PARSER_INPUT_LENGTH
+    EXAMINE &6& FOR "%2%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+    XML_PARSER_CDATA_9CHAR := XML_PARSER_IL
+    EXAMINE &6& FOR "%3%" REPLACE WITH XML_PARSER_CDATA_9CHAR
+    &7&   := -20
+    PERFORM PARSER_ERROR
+    ESCAPE ROUTINE
+  ELSE
+    &6& := 'Parse ended without errors.'
+    &7&   := 0
+  END-IF
+ELSE
+  &6& := 'Wrong chararter set/Document does not start with "<".'
+  &7&   := -1
+  PERFORM PARSER_ERROR
+  ESCAPE ROUTINE
+END-IF

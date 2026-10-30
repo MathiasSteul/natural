@@ -1,0 +1,144 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* CHCKWCP - Display system information to check WCP connection to NPR
+* Template  MSYSINF from NPR MF Tutorial
+*
+* ----------------------------------------------------------------------
+* Maintenance..:
+* User    Date       iTrac       Remark
+* fhi     2014-12-08 NOMALL-1478 Created from SYSNPE(CHCKWCM)
+* fhi     2015-04-09 NOMALL-1542 Correct message in case of error
+* SU1     2018-01-16 NOM 3.5: LDA CHCKWCPG+CHCKWCPL -> LOCAL
+* SU2     2020-04-15 NOMALL-2349 error handling (NPR)
+* ======================================================================
+*
+DEFINE DATA LOCAL
+1 SYSTEM-INFO VIEW OF SYSTEM-INFO
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 SYSTEM-TYPE            (A8)
+  2 SYSTEM-RELEASE         (A8)
+  2 SPOOL-TYPE             (A8)
+  2 SPOOL-RELEASE          (A8)
+  2 SECURITY               (A4)
+  2 AUTO-LOGON             (A3)
+  2 CPU-ID                 (A12)
+  2 REDEFINE CPU-ID
+    3 #CPU-ID              (A8)
+    3 #MODEL               (A4)
+  2 NODE-ID                (A50)
+  2 GMT-DIFFERENCE         (N3)
+  2 LAST-IPL-DATX          (D)
+  2 LAST-IPL-TIMX          (T)
+  2 LOCAL-DATX             (D)
+  2 LOCAL-TIMX             (T)
+  2 SMF-RECORD             (N3)
+  2 APF                    (A3)
+  2 ESY-VERSION            (A8)
+  2 SYSTEM-ID
+  2 PRODUCT-NAME           (A16)
+  2 PRODUCT-VERSION        (A8)
+  2 CPU-UTILIZATION        (N3)
+1 NODE-NAMES VIEW OF SYSTEM-INFO /*without ERROR-CODE/ERROR-TEXT
+/*SU2  2 ERROR-CODE
+  2 NODE-NAME-LIST
+1 SQ VIEW OF SPOOL-QUEUE /*without ERROR-CODE/ERROR-TEXT
+/*SU2  2 ERROR-CODE 2 ERROR-TEXT
+  2 NODE
+  2 JOB-NUMBER
+/*SU1 2 STATUS 2 PRIORITY 2 HOLD 2 CLASS 2 JOB-NAME 2 JOB-ID
+1 RS VIEW OF READ-SPOOL /*without ERROR-CODE/ERROR-TEXT
+  2 RECORD
+/*SU2 2 ERROR-CODE 2 ERROR-TEXT
+/*SU1 2 NODE 2 JOB-NAME 2 JOB-NUMBER 2 RECORD-NUMBER 2 TYPE 2 DATA-SET
+1 STARTUP-PARM VIEW OF SYSTEM-INFO /*without ERROR-CODE/ERROR-TEXT SU2
+  2 STARTUP-PARM           (A80)
+* *****
+1 ##MSG
+  2 ##MSG-NR   (N4)
+  2 ##MSG-TXT1 (A60)
+  2 ##MSG-TXT2 (A20)
+1 ##NODE       (N5)  INIT<148>
+1 ##TITLE      (A78)
+1 REDEFINE ##TITLE
+  2 ##T        (A1/1:78)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM PF-KEY
+SET KEY PF3 = PGM NAMED 'Exit'
+SET KEY PF4 = PGM NAMED 'Parm'
+SET KEY PF5 = PGM NAMED 'Name'
+SET KEY PF6 = PGM NAMED 'Recs'
+##TITLE :=
+  '         *** CHCKWCP: Access remote MF NPR and show parameters ***'
+*
+REP. REPEAT
+  INPUT WITH TEXT *##MSG-NR, ##MSG-TXT1 USING MAP 'CHCKWCM&'
+  FND. FIND (1) SYSTEM-INFO WITH NODE = ##NODE
+*
+    IF ERROR-CODE NE 0
+      ##MSG-NR := 5
+      COMPRESS '5' ERROR-TEXT TO ##MSG-TXT1
+      ESCAPE BOTTOM (FND.)
+    END-IF
+    RESET ##MSG
+    DECIDE ON FIRST VALUE OF *PF-KEY
+      VALUE 'PF3'
+        ESCAPE BOTTOM (REP.)
+      VALUE 'PF4'
+        PERFORM DISPLAY-PARMS
+      VALUE 'PF5'
+        PERFORM DISPLAY-NODE-NAMES
+      VALUE 'PF6'
+        PERFORM DISPLAY-RECORDS
+      NONE
+        ESCAPE BOTTOM (FND.)
+    END-DECIDE
+  END-FIND
+*
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DISPLAY-PARMS
+************************************************************************
+FIND STARTUP-PARM WITH NODE = ##NODE /*err->NAT
+  DISPLAY NOTITLE NOHDR STARTUP-PARM.STARTUP-PARM (AL=78)
+END-FIND
+*
+END-SUBROUTINE /* DISPLAY-PARMS
+*
+************************************************************************
+DEFINE SUBROUTINE DISPLAY-NODE-NAMES
+************************************************************************
+FIND NODE-NAMES WITH NODE = ##NODE  /*err->NAT
+  DISPLAY NOTITLE NOHDR NODE-NAMES.NODE-NAME-LIST
+END-FIND
+*
+END-SUBROUTINE /* DISPLAY-NODE-NAMES
+*
+************************************************************************
+DEFINE SUBROUTINE DISPLAY-RECORDS
+************************************************************************
+FIND (1) SQ WITH NODE  = ##NODE AND CLASS = '7' /*err->NAT
+  FIND RS WITH NODE =SQ.NODE AND JOB-NUMBER =SQ.JOB-NUMBER AND TYPE='SO'
+    DISPLAY (AL=78) RECORD /*err->NAT
+  END-FIND
+END-FIND
+*
+END-SUBROUTINE /* DISPLAY-RECORDS
+*
+INCLUDE C-PFKEY /*PF-KEY
+*
+END

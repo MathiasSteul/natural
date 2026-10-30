@@ -1,0 +1,1983 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 5
+* <Natural Source Header
+* NORPOP-N - NOM API Report Maintenance
+*
+* Maintenance:
+* XSETHZ  2001-06-12 created
+* XSETGGR 2001-07-5  developed
+* XSETHZ  2001-10-12 developed
+* XSETHZ  2002-01-29 developed
+* XSETGGR 2002-02-02 developed
+* XSETHZ  2002-02-23 PALDIES !!!
+* XSETGGR 2002-02-26 add CHK function, add authorization for func 'NW'
+* XSETGGR 2002-02-06 change mask validation
+* XSETGGR 2002-03-18 identification attributes
+* XSETGGR 2002-07-01 some changes in writing log
+* XSETGGR 2002-08-08 add existance check of separation members
+*                    and new field archive-type
+* XSETGGR 2002-08-15 changes of using user defined archive types
+* XSETGGR 2002-09-24 changes in CHECK subroutine
+* XSETGGR 2002-10-09 new field in NRM-REPORTS
+* XSETGGR 2002-11-04 consequent check of library and members,
+*                    add field NOPR-LONG-RECORDS
+* XSETGGR 2002-11-08 changes in writing ident files
+* XSETGGR 2002-11-14 use new parameter ES-APP-SERVER-LIBRARY
+* XSETGGR 2002-12-17 changes
+* XSETHZ  2003-07-10 p(240729) Restrict Usage for printer
+* XSETHZ  2003-08-11 USER-AUTODEF
+* XSETGGR 2004-02-24 p(250342) implement 'NONE'/'KEIN' separator page
+* XSETGGR 2005-05-11 NOM31 NOM31 TYPE=AL for Jes
+* XSETGGR 2005-05-11 NOM31 long records for all spool types
+* XSETGGR 2005-05-17 changes
+* XSETGGR 2005-06-03 long records read only once
+* XSETGGR 2006-06-29 p(281159) read bs2 files from report definition
+* XSETGGR 2007-03-22 replace call of ES...-N to direct call of module
+* XSETHZ  2007-03-24 ERROR 82 IN LINE 2984
+* XSETGGR 2007-03-24 Restow in Nat41
+* xsetggr 2007-05-03 NOM3201 support P11 format run numbers
+* xsetggr 2008-03-20 p(302984) add values to long rec flag (unix attrib)
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* XSETHZ  2008-10-08 p(309624) add R-REP-FORMAT for unix
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* XSETHZ  2010-11-11 NOMALL-879 change error field names & messages
+* xsetggr 2010-11-16 NOMALL-879 change validation of 'Create definition'
+* fhi     2011-01-11 NOMALL-936 Member name into message 1079
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to logÖ
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* xsetggr 2012-05-17 NOMALL-1136 improve validation of printers
+* xsetggr 2012-08-14 NOMALL-78 disabled maintenance of long records
+* raya    2012-08-21 NOMALL-78 disabled maintenance of long records
+* bli     2012-09-18 NOMALL-94 eliminate NOMOOP-A
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2013-02-26 NOMALL-1004 support PDF (binary reports)
+* SU3     2013-05-23 NOMALL-1246 identical checks GUI/CUI
+* fhi     2013-08-29 NOMALL-1288 Enhance error message 406
+* SU4     2014-06-13 NOMALL-1281 show last update user
+* SU5     2014-06-13 NOMALL-1281 no chnages - only restructured
+* SU6     2015-04-28 NOMALL-1319 Do not accept empty STD1/2/3 parameters
+* fhi     2015-06-30 NOMALL-1655 Leave copies field as entered
+* fhi     2016-08-01 NOMALL-1748 Backout Report Formatting
+* SU7     2016-09-29 NOM3.5  use N-NONE+N-SEPME2
+* SU8     2017-07-18 NOMALL-1823 NOM 3.5: remove SAP
+* CF1     2018-01-24 NOMALL-2077 Implement multi-node + code page
+* CF2     2018-02-01 according to NOMALL-1823 for NOM35 by SU
+* SU9     2018-03-26             NOM 3.5: remove 'INTERNAL-NODE-ID'
+* CF3     2018-09-11 NOMALL-2141 New option ASA formatted reports (Unix)
+* CF4     2018-12-19 NOMALL-2077 Use node spool type for identification
+* SU10    2020-04-01 NOMALL-2379 recat:VREP---L mod:Unix files A26-> A50
+* SU11    2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU12    2024-03-07 ES-34613    NOM 3.6 Remove power
+* NKEW1   2024-05-22
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER 1 NORP-PARM-AREA2 (A253/1:V)
+************************************************************************
+LOCAL USING NORPOP-A
+LOCAL USING VREP---L
+LOCAL USING NADA2000
+LOCAL USING NAD23006
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING NOMODE-A
+LOCAL USING RLOG-L
+LOCAL USING VUSARC-L
+* *****
+LOCAL
+1 REPORT-LAYOUT VIEW OF NRM-REP-TARGET
+  2 RD-REPNAME
+  2 RD-TARGET-ID
+  2 RD-LAYOUT
+    3 RD-FROM               (1:10)
+    3 RD-TO                 (1:10)
+  2 RD-HEADLINES
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+1 UX-NODES  VIEW OF NRM-UX-NODES
+  2 UX-NODE-SUSPEND         (A1)
+1 MONITOR VIEW OF NRM-MONITOR
+  2 M-MONITOR-ID
+  2 REDEFINE M-MONITOR-ID
+    3 #NOMUSR               (A6)
+    3 #NOMUSR-INTERFACE     (N3)
+  2 M-CUSTOM-APPL           (1:5)
+  2 REDEFINE M-CUSTOM-APPL
+    3 #NOMUSR-ATTR-DEF       (20)
+      4 #NOMUSR-ATTR-GRP
+        5 #NOMUSR-TYPE       (A1)
+        5 #NOMUSR-PROMPT     (A20)
+        5 #NOMUSR-OFFSET     (N3)
+        5 #NOMUSR-LENGTH     (N3)
+        5 #NOMUSR-GENERIC    (A1)
+        5 #NOMUSR-VAR        (A8)
+        5 #NOMUSR-ORDER      (N2)
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU11 was NODE-DATA VIEW OF NRM-MONITOR
+  2 MF-MONITOR-NODE           (N5)
+  2 MF-INTERNAL-NODE-ID       (P11)
+  2 MF-MONITOR-ID             (A20)
+  2 MF-SPOOL-TYPE             (A8)              /* CF1
+  2 MF-TYPE                   (A1)              /* CF1
+  2 MF-SYSTEM-TYPE            (A8) /*SU12
+* *****
+1 #NODE-MONITOR-ID           (A20)
+1 REDEFINE #NODE-MONITOR-ID
+  2 FILLER                2X
+  2 #NODE-NODE-NAME          (A16)
+/*
+1 UPDATED                    (L/1:10)
+1 #ES-CONTROL                (A250)
+1 #ES-MSG-PREF               (A7)    INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM              (A3)
+  2 #ES-MSG-NR               (N4)
+1 #ES-MSG-FIELD              (A32)
+1  REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME       (A28)
+  2 #ES-MSG-FIELD-INDEX      (N4)
+  2 REDEFINE #ES-MSG-FIELD-INDEX
+    3 #ES-MSG-FIELD-INDEX1   (N2)
+    3 #ES-MSG-FIELD-INDEX2   (N2)
+    3 REDEFINE #ES-MSG-FIELD-INDEX2
+      4 #ES-MSG-FIELD-INDEX21 (I1)
+      4 #ES-MSG-FIELD-INDEX22 (I1)
+1 #ES-MSG-TXT                (A250)
+1 #ES-INPUT-AREA             (A253/1:3)
+1 #I                         (I2)
+1 #J                         (I2)
+1 #OCC                       (I2)
+1 #F                         (I2)
+1 #ARCHIVE-RETENTION         (A5)
+1 REDEFINE #ARCHIVE-RETENTION
+  2 #ARET                    (A1/1:5)
+1  #STD-EXITMEM              (A8)
+1  REDEFINE #STD-EXITMEM
+  2  #STD-PREFIX             (A3)
+  2  #STD-EXIT-NUM           (A5)
+1 #DEF-COPIES                (N3)  INIT <1>
+1 #INUM                      (I2)  CONST <14>
+1 #T-IN                      (A50)
+1 #T-OUT                     (A78)
+1 #T                         (A80)
+1 #LAST-MODIFIED             (A15)
+1 #DATN8                     (N8)
+1 REDEFINE #DATN8
+  2 #YEAR                    (A4)
+1 #CALENDAR-ID               (A12)
+1 REDEFINE #CALENDAR-ID
+  2 #CA-ID                   (A8)
+  2 #CA-YEAR                 (A4)
+1 #AR-REPNAME-RNB            (A31)
+1 REDEFINE #AR-REPNAME-RNB
+  2 #AR-REPNAME              (A25)
+  2 #AR-REPRNB               (P11)
+1 #AR-REPNAME-R-E            (A29)
+1 #CHECK-TYPE                (I4)
+1 #FILES-EXIST               (L)
+1 #ERROR-NUMBER              (N4)
+1 REDEFINE #ERROR-NUMBER
+  2 #ERROR-NUMBER-A          (A4)
+1 #IDENT-STRING              (L)
+1 BS2                        (L)
+1 JES                        (L)
+1 NAF                        (L)
+1 CMA                        (L)
+1 UNIX                       (L)
+1 NOMUSR                     (L)
+1 #USER-LIB                  (A8)
+1 #LIBRARY-ID                (A8)
+1 #GRANTS                    (A1/6)
+1 #GR-USER                   (A8)
+1 #GR-OBJECT                 (A25)
+1 #OBJ                       (A50)
+1 #GRANTED                   (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#OCC := *OCC(NORP-PARM-AREA2)
+NORP-PARM-AREA (1:#OCC) := NORP-PARM-AREA2 (1:#OCC)
+RESET ES-RC
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+#DATN8 := *DATN
+#CA-YEAR := #YEAR
+NOMOD-PARMS := ES-SELECT
+#LIBRARY-ID := ES-APP-SERVER-LIBRARY
+COMPRESS #LIBRARY-ID 'U' TO #USER-LIB LEAVING NO
+DECIDE ON FIRST VALUE OF ES-FUNCTION
+  VALUE 'OP','PP'
+    DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+      VALUE ' '
+        PERFORM READ-RECORD
+      VALUE 'NEW'
+        PERFORM NEW-RECORD
+        IF ES-RC = 0
+          PERFORM WRITE-LOG-RECORD
+          END TRANSACTION
+        ELSE
+          BACKOUT TRANSACTION
+        END-IF
+      VALUE 'UPD'
+        PERFORM UPDATE-RECORD
+        IF ES-RC = 0
+          PERFORM WRITE-LOG-RECORD
+          END TRANSACTION
+        ELSE
+          BACKOUT TRANSACTION
+        END-IF
+      VALUE 'CHK'
+        PERFORM CHECK
+      ANY VALUE
+        RESET NORP-IDENT-TYPE(*)
+        FOR #I = 1 TO 14
+          IF  R-IDENT(#I) NE ' '
+            NORP-IDENT-TYPE(#I) := R-IDENT-TYPE(#I)
+          END-IF
+        END-FOR
+      NONE VALUE IGNORE
+    END-DECIDE
+  NONE VALUE IGNORE
+END-DECIDE
+NORP-PARM-AREA2 (1:#OCC) := NORP-PARM-AREA (1:#OCC)
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-RECORD
+************************************************************************
+RESET NORP-PARMS #ES-MSG-FIELD #ES-MSG-NR
+#RP. FIND REPORTS WITH R-REPNAME = ES-KEY-PARM(1)
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0490
+    #ES-MSG-FIELD-NAME := 'REPNAME'
+    PERFORM GET-MSG-TXT
+    ESCAPE BOTTOM
+  END-NOREC
+  NORP-REPNAME := R-REPNAME
+  NORP-MASTER-REPNAME := R-MASTER-REPNAME
+  MOVE EDITED R-LAST-MODIFIED (EM=YYYYMMDDHHIISST) TO NORP-LAST-MODIFIED
+  NORP-MODIFIED-BY := R-MODIFIED-BY
+  /*                                                       /* CF1 ->
+  IF REPORTS.R-INTERNAL-NODE-ID NE 0
+    FNDND. FIND MF-NODE WITH MF-INTERNAL-NODE-ID
+        = REPORTS.R-INTERNAL-NODE-ID
+      #NODE-MONITOR-ID      := MF-NODE.MF-MONITOR-ID
+      NORP-NODE-NAME        := #NODE-NODE-NAME
+      NORP-INTERNAL-NODE-ID := REPORTS.R-INTERNAL-NODE-ID
+      NORP-NODE-NUMBER      := MF-NODE.MF-MONITOR-NODE
+      NORP-NODE-TYPE        := MF-NODE.MF-TYPE
+      DECIDE ON FIRST VALUE OF MF-NODE.MF-SPOOL-TYPE
+        VALUE 'JES2'   NORP-NODE-SPOOL := '2'
+        VALUE 'JES3'   NORP-NODE-SPOOL := '3'
+/*SU12  VALUE 'POWR'   NORP-NODE-SPOOL := 'P'
+        VALUE 'SPOOL', 'BS2000' NORP-NODE-SPOOL := 'S' /* compatibility
+        NONE           /*SU12 -> NORP-NODE-SPOOL := ' '
+          #ES-MSG-NR  := 4501 /*Invalid Spool Type: :1:
+          COMPRESS MF-NODE.MF-SPOOL-TYPE '(' MF-SYSTEM-TYPE ')'
+            TO #ES-MSG-TXT LEAVING NO
+          #ES-MSG-FIELD-NAME := 'REPNAME'
+          PERFORM GET-MSG-TXT
+          ESCAPE BOTTOM /*SU12 <-
+      END-DECIDE
+    END-FIND
+  ELSE
+    NORP-INTERNAL-NODE-ID := NORP-NODE-NUMBER := 0
+    NORP-NODE-NAME        := NORP-NODE-SPOOL  := ' '
+    NORP-NODE-TYPE        := 'M'
+    /* The check for UNIX node is done as last step here (see below)
+  END-IF
+  /*                                                       /* CF1 <-
+  NORP-DESC := R-DESC
+  NORP-TYPE := R-TYPE
+  NORP-KEYWORDS(*) := R-KEYWORDS(*)
+  NORP-USERID := R-USERID
+  NORP-CODEPAGE := R-REMOTE-CODEPAGE                       /* CF1
+  NORP-STORE-NATRPT := R-STORE-NATRPT
+  NORP-ARCHIVE := R-ARCHIVE
+  NORP-RETENTION-PERIOD := R-RETENTION-PERIOD
+  NORP-RETENTION-ACTION := R-RETENTION-ACTION
+  NORP-LAST-UPDATE-USER := R-LAST-UPDATE-USER
+  IF R-LAST-UPDATE NE 0
+    MOVE EDITED R-LAST-UPDATE (EM=YYYYMMDDHHIISST) TO NORP-LAST-UPDATE
+  END-IF
+  IF R-ARCHIVE-RETENTION = ' '
+    RESET NORP-ARCHIVE-NUMBER NORP-ARCHIVE-FACTOR
+  ELSE
+    #ARCHIVE-RETENTION := R-ARCHIVE-RETENTION
+    IF #ARCHIVE-RETENTION IS (N4)
+      NORP-ARCHIVE-FACTOR := 'D'
+    ELSE
+      EXAMINE #ARCHIVE-RETENTION FOR 'X' GIVING LENGTH #I
+      NORP-ARCHIVE-FACTOR := #ARET (#I)
+      RESET  #ARET (#I)
+    END-IF
+    IF #ARCHIVE-RETENTION IS (N4)
+      NORP-ARCHIVE-NUMBER := VAL (#ARCHIVE-RETENTION)
+    ELSE
+      RESET NORP-ARCHIVE-NUMBER
+    END-IF
+  END-IF
+  NORP-REVIVE-RETENTION := R-REVIVE-RETENTION
+  NORP-ARCHIVE-TYPE := R-ARCHIVE-TYPE
+  IF NORP-ARCHIVE-TYPE = '0'
+    RESET NORP-ARCHIVE-TYPE
+  END-IF
+/* read distribution attributes
+  RESET NORP-NATRP-DIST(*)
+  NORP-NATRP-USER-LIST(*) := R-NATRPT-DIST(*)
+  FIND REPORT-LAYOUT WITH RD-REPNAME = ES-KEY-PARM(1)
+    EXAMINE NORP-NATRP-USER-LIST(*) FOR RD-TARGET-ID GIVING INDEX #F
+    IF #F > 0
+      NORP-HEADERLINES (#F)      := RD-HEADLINES
+      NORP-LAYOUT-COLFROM (#F,*) := RD-FROM(*)
+      NORP-LAYOUT-COLTO (#F,*)   := RD-TO(*)
+    END-IF
+  END-FIND
+  /*NORP-CONNECT-DIST(*)    := R-CONNECT-DIST(*)       /* CF2
+  /*NORP-CONNECT-CABINET    := R-CONNECT-CABINET       /* CF2
+  /*NORP-CONNECT-SUBJECT    := R-CONNECT-SUBJECT (1)   /* CF2
+/* read printing attributes
+  RESET NORP-PRINTER-TAB (*)
+  NORP-HOLD-PRINT       := R-HOLD-PRINT
+  NORP-SEPMEM           := R-SEPMEM
+  CALLNAT 'N-NONE' NORP-SEP-START NORP-SEP-END
+  NORP-SEPLENG          := R-SEPLENG
+  NORP-SEPNO            := R-SEPNO
+  NORP-PRINTERS(*)      := R-PRINTERS(*)
+  NORP-PRINT-JOBCARD(*) := R-PRINT-JOBCARD(*)
+/*  NORP-STYLESHEET-URL   := R-STYLESHEET-URL          /* CF2
+/* read separation attributes
+  IF R-TYPE NE 'C'
+    NORP-CREATE-DEFINITION := R-CREATE-DEFINITION
+    RESET NORP-E-PARAMS(*)
+    DECIDE FOR FIRST CONDITION
+      WHEN R-EXITMEM = MASK('STD'.....)
+        #STD-EXITMEM := R-EXITMEM
+        NORP-EXIT-STANDARD := VAL(#STD-EXIT-NUM)
+        RESET NORP-EXITMEM NORP-EXITLIB NORP-ASM-EXIT
+        DECIDE ON FIRST VALUE NORP-EXIT-STANDARD
+          VALUE 1
+            NORP-STD1-IDENT-LINE      := R-E-IDENT-LINE
+            NORP-STD1-IDENT-STRING    := R-E-IDENT-STRING
+            NORP-STD1-BREAK-LINE      := R-E-BREAK-LINE
+            NORP-STD1-BREAK-START     := R-E-BREAK-START
+            NORP-STD1-BREAK-END       := R-E-BREAK-END
+            NORP-STD1-REPORT-PREFIX   := R-E-REP-PREFIX
+            NORP-STD1-BUNDLE-PREFIX(1:5):= R-BUNDLE(1:5)
+          VALUE 2
+            NORP-STD2-IDENT-LINE      := R-STD2-IDENT-LINE
+            NORP-STD2-IDENT-STRING    := R-STD2-IDENT-STRING
+            NORP-STD2-BREAK-LINE(*)   := R-STD2-BREAK-LINE(*)
+            NORP-STD2-BREAK-START(*)  := R-STD2-BREAK-START(*)
+            NORP-STD2-BREAK-END(*)    := R-STD2-BREAK-END(*)
+            NORP-STD2-REPORT-PREFIX-17(*) :=
+              R-STD2-REPORT-PREFIX-17(*)
+            NORP-STD2-REPORT-PREFIX-R(*) :=
+              R-STD2-REPORT-PREFIX-R(*)
+            NORP-STD2-BUNDLE-PREFIX-8(*,*) :=
+              R-STD2-BUNDLE-PREFIX-8(*,*)
+            NORP-STD2-BUNDLE-PREFIX-R(*,*) :=
+              R-STD2-BUNDLE-PREFIX-R(*,*)
+          VALUE 3
+            NORP-E-PARAMS (*) := R-E-PARAMS (*)
+          NONE VALUE IGNORE
+        END-DECIDE
+      WHEN R-EXITMEM NE ' '
+        NORP-EXITMEM   := R-EXITMEM
+        NORP-EXITLIB   := R-EXITLIB
+        RESET NORP-EXIT-STANDARD NORP-ASM-EXIT
+        NORP-UPARMS(1:5) := R-UPARMS(1:5)
+      WHEN NONE
+        NORP-ASM-EXIT := R-ASM-EXIT
+        RESET NORP-EXIT-STANDARD NORP-EXITMEM NORP-EXITLIB
+        NORP-UPARMS(1:5):= R-UPARMS(1:5)
+    END-DECIDE
+  END-IF
+/* read identification attributes
+  RESET #I #J NORP-JES-PWR-BS2-ATTRIBUTES(*)
+  DECIDE FOR FIRST CONDITION
+/*SU12    WHEN NORP-NODE-SPOOL = 'P' power
+    WHEN NORP-NODE-SPOOL = 'S' /*BS2             /* CF4
+      FOR #I = 1 TO C*R-IDENT
+        DECIDE ON FIRST R-IDENT-TYPE (#I)
+          VALUE 0015
+            NORP-BS2-USER-ID := R-IDENT-VALUE (#I)
+            BS2 := TRUE
+          VALUE 0014
+            NORP-BS2-JOB-NAME := R-IDENT-VALUE (#I)
+            BS2 := TRUE
+          VALUE 0016
+            NORP-BS2-FORM := R-IDENT-VALUE (#I)
+            BS2 := TRUE
+          VALUE 0008, 0009, 0010, 0011, 0012, 0013
+            PERFORM READ-NAF-ATTRIBUTES
+          VALUE 0023, 0024, 0025
+            PERFORM READ-UNIX-ATTRIBUTES
+          VALUE 10000 : 19999
+            IF NOMUSR
+              ESCAPE TOP
+            END-IF
+            PERFORM READ-NOMUSR-ATTRIBUTES
+          NONE VALUE IGNORE
+        END-DECIDE
+      END-FOR
+      IF C*R-IDENT-FILES NE 0 AND BS2
+        #J := 1
+        FOR #I 1 TO 10
+          IF R-IDENT-FILES(#I)=MASK('NOM=') OR=' '
+            ESCAPE TOP
+          END-IF
+          IF NOT UNIX
+            NORP-BS2-FILES (#J) := R-IDENT-FILES (#I)
+          ELSE
+            NORP-UNIX-FILES (#J) := R-IDENT-FILES (#I)
+          END-IF
+          ADD 1 TO #J
+        END-FOR
+      END-IF
+    WHEN NONE
+      FOR #I = 1 TO  C*R-IDENT
+        DECIDE ON FIRST R-IDENT-TYPE (#I)
+          VALUE 0001
+            NORP-JES-JOB-NAME    := R-IDENT-VALUE (#I)
+            JES := TRUE
+          VALUE 0002
+            NORP-JES-WRITER      := R-IDENT-VALUE (#I)
+            JES := TRUE
+          VALUE 0003
+            NORP-JES-DESTINATION := R-IDENT-VALUE (#I)
+            JES :=TRUE
+          VALUE 0004
+            NORP-JES-FORM        := R-IDENT-VALUE (#I)
+            JES :=TRUE
+          VALUE 0008, 0009, 0010, 0011, 0012, 0013
+            PERFORM READ-NAF-ATTRIBUTES
+          VALUE 0017, 0018, 0019, 0020
+            PERFORM READ-CMA-ATTRIBUTES
+          VALUE 0023, 0024
+            PERFORM READ-UNIX-ATTRIBUTES
+          VALUE 10000 : 19999
+            IF NOMUSR
+              ESCAPE TOP
+            END-IF
+            PERFORM READ-NOMUSR-ATTRIBUTES
+          VALUE 0021, 0022, 0005, 0006, 0007 /* 2 SAP / 3 POWER SU12
+            IF R-IDENT-TYPE (#I) = 0021 OR=0022
+              #ES-MSG-TXT := 'SAP'
+            ELSE
+              #ES-MSG-TXT := 'POWER'
+            END-IF
+            ES-MSG-NR  := #ES-MSG-NR := 4501 /*Invalid Spool Type: :1:
+            ES-MSG-TXT := F#GETMSG(<#ES-MSG-NR,#ES-MSG-TXT>)
+            EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+            ES-MSG-FIELD := #ES-MSG-FIELD := 'REPNAME' /*what else..
+            ES-RC := 1
+            ESCAPE ROUTINE /*SU12 <-
+          NONE VALUE IGNORE
+        END-DECIDE
+      END-FOR
+      IF C*R-IDENT-FILES NE 0
+        #J := 1
+        FOR #I 1 TO 10
+          IF R-IDENT-FILES(#I)=MASK('NOM=') OR=' '
+            ESCAPE TOP
+          END-IF
+          IF NOT UNIX
+            NORP-JES-FILES (#J) := R-IDENT-FILES (#I)
+          ELSE
+            NORP-UNIX-FILES (#J) := R-IDENT-FILES (#I)
+          END-IF
+          ADD 1 TO #J
+        END-FOR
+      END-IF
+  END-DECIDE
+  /* UNIX node always wins: if an UNIX node is set,        /* CF1 ->
+  /* it overwrites a faultily in parallel existing MF node setting
+  /* (ensures compatibility to former NOM versions)
+  IF NORP-UNIX-NODENAME NE ' '
+    NORP-INTERNAL-NODE-ID := 0
+    NORP-NODE-NAME        := NORP-UNIX-NODENAME
+    NORP-NODE-NUMBER      := 0
+    NORP-NODE-SPOOL       := 'U'
+    FIND UX-NODES WITH UX-NODE-NAME = NORP-NODE-NAME
+      NORP-NODE-TYPE      := UX-NODES.UX-NODE-SUSPEND
+    END-FIND
+  END-IF                                                   /* CF1 <-
+  /* If node name still empty,                             /* CF1 ->
+  /* the current (default) monitor will be assigned
+  IF NORP-NODE-NAME = ' '
+    PERFORM GET-CURRENT-MONITOR
+  END-IF                                                   /* CF1 <-
+END-FIND
+*
+END-SUBROUTINE /* READ-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE READ-NAF-ATTRIBUTES
+************************************************************************
+DECIDE ON FIRST R-IDENT-TYPE (#I)
+  VALUE 0008
+    NORP-NAF-USER-ID := R-IDENT-VALUE (#I)
+  VALUE 0009
+    NORP-NAF-NATLIB:= R-IDENT-VALUE (#I)
+  VALUE 0010
+    NORP-NAF-NATPGM := R-IDENT-VALUE (#I)
+  VALUE 0011
+    NORP-NAF-FORM := R-IDENT-VALUE (#I)
+  VALUE 0012
+    NORP-NAF-REPORT-NAME := R-IDENT-VALUE (#I)
+  VALUE 0013
+    NORP-NAF-PROFILE := R-IDENT-VALUE (#I)
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* READ-NAF-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-CMA-ATTRIBUTES
+************************************************************************
+DECIDE ON FIRST R-IDENT-TYPE (#I)
+  VALUE 0017
+    NORP-CMA-USER-ID  := R-IDENT-VALUE (#I)
+  VALUE 0018
+    NORP-CMA-FILENAME := R-IDENT-VALUE (#I)
+  VALUE 0019
+    NORP-CMA-FORM     := R-IDENT-VALUE (#I)
+  VALUE 0020
+    NORP-CMA-WRITER   := R-IDENT-VALUE (#I)
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* READ-CMA-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-UNIX-ATTRIBUTES
+************************************************************************
+UNIX := TRUE
+NORP-UNIX-FORMAT:= R-REP-FORMAT
+IF NORP-UNIX-FORMAT = ' '
+  NORP-UNIX-FORMAT := 'T'
+END-IF
+DECIDE ON FIRST R-IDENT-TYPE (#I)
+  VALUE 0023
+    NORP-UNIX-NODENAME := R-IDENT-VALUE (#I)
+  VALUE 0024
+    NORP-UNIX-PATH := R-IDENT-VALUE (#I)
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* READ-UNIX-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-NOMUSR-ATTRIBUTES
+************************************************************************
+NOMUSR := TRUE
+RESET NORP-NOMUSR-INTERFACE NORP-NOMUSR-IDENT-PROMPT(*)
+  NORP-NOMUSR-IDENT-TYPE(*) NORP-NOMUSR-IDENT-VALUE(*)
+  NORP-NOMUSR-FILES-PROMPT
+NORP-NOMUSR-INTERFACE     := R-NOMUSR-INTERFACE
+MONITOR.#NOMUSR           := 'NOMUSR'
+MONITOR.#NOMUSR-INTERFACE := NORP-NOMUSR-INTERFACE
+FIND (1) MONITOR WITH M-MONITOR-ID = MONITOR.M-MONITOR-ID
+  RESET SHORT-MSG LONG-MSG(*)
+  VERSION := 0
+  NADA2000.OBJECT-KIND := 'U'
+  NADA2000.OPT-INSERT-DYN := FALSE
+  NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+  NADA2000.LIBRARY := #USER-LIB /*'NOM221U'
+  FOR #F 1 5
+    IF MONITOR.#NOMUSR-PROMPT (#F) = MASK (NNNN' ')
+      #ERROR-NUMBER-A := MONITOR.#NOMUSR-PROMPT(#F)
+      NADA2000.ERROR-NUMBER := #ERROR-NUMBER
+      CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG
+        NAD-FLD
+      IF #F = 5
+        NORP-NOMUSR-FILES-PROMPT := SHORT-MSG
+      ELSE
+        NORP-NOMUSR-IDENT-PROMPT (#F):= SHORT-MSG
+      END-IF
+    END-IF
+  END-FOR
+END-FIND
+RESET #J
+FOR #F=1 TO #INUM
+  IF R-IDENT (#F) = ' '
+    ESCAPE TOP
+  END-IF
+  IF R-IDENT-TYPE(#F) = 10000 THRU 19999
+    DIVIDE 100 INTO R-IDENT-TYPE (#F) GIVING #CHECK-TYPE
+    IF #CHECK-TYPE = R-NOMUSR-INTERFACE
+      ADD 1 TO #J
+      NORP-NOMUSR-IDENT-VALUE (#J) := R-IDENT-VALUE (#F)
+    END-IF
+  END-IF
+END-FOR
+PERFORM READ-NOMUSR-FILES
+*
+END-SUBROUTINE /* READ-NOMUSR-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-NOMUSR-FILES
+************************************************************************
+RESET #J NORP-NOMUSR-FILES(*)
+FOR #F = 1 TO 10
+  IF R-IDENT-FILES (#F) = MASK ('NOM=')
+    ADD 1 TO #J
+    MOVE LEFT JUSTIFIED R-IDENT-FILES (#F) TO NORP-NOMUSR-FILES (#J)
+    EXAMINE NORP-NOMUSR-FILES (#J) FOR 'NOM=' DELETE
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* READ-NOMUSR-FILES
+*
+************************************************************************
+DEFINE SUBROUTINE NEW-RECORD
+************************************************************************
+FNNEW. FIND NUMBER REPORTS WITH R-REPNAME = NORP-REPNAME
+IF *NUMBER(FNNEW.) NE 0
+  #ES-MSG-NR := 0304                       /* report already exist
+  #ES-MSG-FIELD-NAME := 'REPNAME'
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+PERFORM VALIDATION-S
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+PERFORM ASSIGN-ATTRIBUTE-VALUES
+MOVE EDITED R-LAST-MODIFIED (EM=YYYYMMDDHHIISST)
+  TO NORP-LAST-MODIFIED
+STORE REPORTS
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+ES-OBJECT        := 'GR'
+ES-FUNCTION      := 'FF'
+ES-ORIG-FUNCTION := 'NW'
+ES-KEY-CODE(1)   := 'R'
+ES-KEY-PARM(1)   := NORP-REPNAME
+ES-KEY-PARM(2)   := ES-USER
+ES-KEY-PARM(3)   := 'YYYYYY'
+CALLNAT 'NOGRFF-N' ES-CONTROL ES-INPUT-AREA(*)
+IF ES-USER-TYPE = 'A'
+  NORP-AUTH := 'ADMIN'
+ELSE
+  NORP-AUTH := ES-USER
+END-IF
+NORP-OPTIONS(*) := ' '
+NORP-OPTIONS(1) := 'LA'
+NORP-OPTIONS(2) := 'SS'
+ES-CONTROL := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+RESET ES-RC ES-MSG-NR ES-MSG-TXT ES-MSG-FIELD
+*
+END-SUBROUTINE /* NEW-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+FNDMOD. FIND REPORTS WITH R-REPNAME = ES-KEY-PARM(1)
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0490
+    #ES-MSG-FIELD-NAME := 'REPNAME'
+    ESCAPE BOTTOM (FNDMOD.)
+  END-NOREC
+  PERFORM VALIDATION-S
+  IF #ES-MSG-NR = 0
+    MOVE EDITED R-LAST-MODIFIED (EM=YYYYMMDDHHIISST) TO #LAST-MODIFIED
+    IF #LAST-MODIFIED > NORP-LAST-MODIFIED
+/* record has been changed by another user
+      #ES-MSG-NR := 2100
+      #ES-MSG-FIELD-NAME := 'LAST-MODIFIED'
+      ESCAPE BOTTOM (FNDMOD.)
+    END-IF
+    GETMOD. GET REPORTS *ISN(FNDMOD.)
+    PERFORM ASSIGN-ATTRIBUTE-VALUES
+    MOVE EDITED R-LAST-MODIFIED (EM=YYYYMMDDHHIISST)
+      TO NORP-LAST-MODIFIED
+    PERFORM GET-OPTIONS
+    UPDATE (GETMOD.)
+  ELSE
+    ESCAPE BOTTOM(FNDMOD.)
+  END-IF
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* UPDATE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK
+************************************************************************
+FND. FIND NUMBER REPORTS WITH R-REPNAME = NORP-REPNAME
+DECIDE FOR FIRST CONDITION
+  WHEN *NUMBER(FND.) > 0 AND ES-ORIG-FUNCTION = 'NW'
+    #ES-MSG-NR := 0304           /* report already exists
+    #ES-MSG-FIELD-NAME := 'REPNAME'
+  WHEN NONE
+    PERFORM VALIDATION-S
+END-DECIDE
+IF #ES-MSG-NR > 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* CHECK
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-ATTRIBUTE-VALUES
+************************************************************************
+/* general attributes
+REPORTS.R-LAST-MODIFIED    := *TIMX
+REPORTS.R-MODIFIED-BY      := ES-USER
+REPORTS.R-REPNAME          := NORP-REPNAME
+IF NORP-NODE-NAME = ' '                                    /* CF1 ->
+  REPORTS.R-INTERNAL-NODE-ID := 0
+ELSE
+  REPORTS.R-INTERNAL-NODE-ID := NORP-INTERNAL-NODE-ID
+END-IF                                                     /* CF1 <-
+REPORTS.R-DESC             := NORP-DESC
+REPORTS.R-TYPE             := NORP-TYPE
+REPORTS.R-KEYWORDS(*)      := NORP-KEYWORDS(*)
+REPORTS.R-USERID           := NORP-USERID
+REPORTS.R-REMOTE-CODEPAGE  := NORP-CODEPAGE                /* CF1
+REPORTS.R-STORE-NATRPT     := NORP-STORE-NATRPT
+REPORTS.R-ARCHIVE          := NORP-ARCHIVE
+REPORTS.R-RET-NUMBER       := NORP-RETENTION-NUMBER
+REPORTS.R-RET-FACTOR       := NORP-RETENTION-FACTOR
+REPORTS.R-RET-CALENDAR     := NORP-RETENTION-CALENDAR
+REPORTS.R-RETENTION-ACTION := NORP-RETENTION-ACTION
+R-LAST-UPDATE-USER         := ES-USER
+R-LAST-UPDATE              := *TIMX
+IF NORP-ARCHIVE-NUMBER = 0 AND NORP-ARCHIVE-FACTOR = ' '
+  RESET REPORTS.R-ARCHIVE-RETENTION
+ELSE
+  COMPRESS NORP-ARCHIVE-NUMBER NORP-ARCHIVE-FACTOR
+    TO REPORTS.R-ARCHIVE-RETENTION LEAVING NO
+END-IF
+REPORTS.R-REV-NUMBER        := NORP-REVIVE-NUMBER
+REPORTS.R-REV-FACTOR        := NORP-REVIVE-FACTOR
+REPORTS.R-REV-CALENDAR      := NORP-REVIVE-CALENDAR
+IF NORP-ARCHIVE-TYPE IS (N1)
+  REPORTS.R-ARCHIVE-TYPE   := VAL(NORP-ARCHIVE-TYPE)
+ELSE
+  IF NORP-ARCHIVE-TYPE = ' '
+    RESET REPORTS.R-ARCHIVE-TYPE
+  END-IF
+END-IF
+/* distribution attributes
+REPORTS.R-NATRPT-DIST(*)    := NORP-NATRP-USER-LIST(*)
+/*REPORTS.R-CONNECT-DIST(*)   := NORP-CONNECT-DIST(*)       /* CF2
+/*REPORTS.R-CONNECT-CABINET   := NORP-CONNECT-CABINET       /* CF2
+/*REPORTS.R-CONNECT-SUBJECT(1):= NORP-CONNECT-SUBJECT       /* CF2
+REPORTS.R-CREATE-DEFINITION := NORP-CREATE-DEFINITION
+RESET UPDATED(*)
+FNDRL1. FIND REPORT-LAYOUT WITH RD-REPNAME = ES-KEY-PARM(1)
+  EXAMINE NORP-NATRP-USER-LIST (*) FOR RD-TARGET-ID GIVING INDEX #I
+  IF #I > 0
+    UPDATED (#I) := TRUE
+  END-IF
+  IF #I > 0 AND (NORP-LAYOUT-COLFROM (#I,*) NE 0)
+    RD-FROM (*)  := NORP-LAYOUT-COLFROM (#I,*)
+    RD-TO   (*)  := NORP-LAYOUT-COLTO   (#I,*)
+    RD-HEADLINES := NORP-HEADERLINES (#I)
+    UPDATE (FNDRL1.)
+  ELSE
+    DELETE (FNDRL1.)
+    MOVE ES-KEY-PARM (1) TO #OBJ
+    PERFORM RMLOGDEL #OBJ 'REPORT-LAYOUT'
+  END-IF
+END-FIND
+FOR #F = 1 TO 10
+  IF UPDATED (#F) OR NORP-NATRP-USER-LIST (#F) = ' ' OR
+      NOT (NORP-LAYOUT-COLFROM (#F,*) NE 0)
+    IGNORE
+  ELSE
+    REPORT-LAYOUT.RD-REPNAME   := NORP-REPNAME
+    REPORT-LAYOUT.RD-TARGET-ID := NORP-NATRP-USER-LIST (#F)
+    REPORT-LAYOUT.RD-FROM (*)  := NORP-LAYOUT-COLFROM (#F,*)
+    REPORT-LAYOUT.RD-TO   (*)  := NORP-LAYOUT-COLTO   (#F,*)
+    REPORT-LAYOUT.RD-HEADLINES := NORP-HEADERLINES    (#F)
+    STORE REPORT-LAYOUT
+  END-IF
+END-FOR
+/* printing attributes
+REPORTS.R-HOLD-PRINT := NORP-HOLD-PRINT
+REPORTS.R-SEPMEM     := NORP-SEPMEM
+REPORTS.R-SEPLENG    := NORP-SEPLENG
+REPORTS.R-SEPNO      := NORP-SEPNO
+FOR #I = 1 TO 20
+  IF NORP-PRINTER(#I) = ' '
+    RESET REPORTS.R-PRINTERS (#I)
+  ELSE
+    REPORTS.R-PRINTERS (#I) := NORP-PRINTERS(#I)
+  END-IF
+END-FOR
+REPORTS.R-PRINT-JOBCARD(*) := NORP-PRINT-JOBCARD(*)
+/*REPORTS.R-STYLESHEET-URL   := NORP-STYLESHEET-URL         /* CF2
+/* separation attributes
+IF REPORTS.R-TYPE NE 'C'
+  REPORTS.R-CREATE-DEFINITION      := NORP-CREATE-DEFINITION
+  DECIDE FOR FIRST CONDITION
+    WHEN NORP-EXIT-STANDARD NE 0
+      COMPRESS 'STD' NORP-EXIT-STANDARD TO REPORTS.R-EXITMEM LEAVING NO
+      RESET  REPORTS.R-EXITLIB REPORTS.R-ASM-EXIT
+      DECIDE ON FIRST NORP-EXIT-STANDARD
+        VALUE 1
+          REPORTS.R-E-IDENT-LINE   := NORP-STD1-IDENT-LINE
+          REPORTS.R-E-IDENT-STRING := NORP-STD1-IDENT-STRING
+          REPORTS.R-E-BREAK-LINE   := NORP-STD1-BREAK-LINE
+          REPORTS.R-E-BREAK-START  := NORP-STD1-BREAK-START
+          REPORTS.R-E-BREAK-END    := NORP-STD1-BREAK-END
+          REPORTS.R-E-REP-PREFIX   := NORP-STD1-REPORT-PREFIX
+          REPORTS.R-BUNDLE (1:5)    := NORP-STD1-BUNDLE-PREFIX (1:5)
+          RESET  REPORTS.R-UPARMS (*) REPORTS.R-E-PARAMS (*)
+        VALUE 2
+          REPORTS.R-STD2-IDENT-LINE           := NORP-STD2-IDENT-LINE
+          REPORTS.R-STD2-IDENT-STRING         := NORP-STD2-IDENT-STRING
+          REPORTS.R-STD2-BREAK-LINE(*)        := NORP-STD2-BREAK-LINE(*)
+          REPORTS.R-STD2-BREAK-START(*)       := NORP-STD2-BREAK-START(*)
+          REPORTS.R-STD2-BREAK-END(*)         := NORP-STD2-BREAK-END(*)
+          REPORTS.R-STD2-REPORT-PREFIX-17(*)  :=
+            NORP-STD2-REPORT-PREFIX-17(*)
+          REPORTS.R-STD2-REPORT-PREFIX-R(*)   :=
+            NORP-STD2-REPORT-PREFIX-R(*)
+          REPORTS.R-STD2-BUNDLE-PREFIX-8(*,*) :=
+            NORP-STD2-BUNDLE-PREFIX-8(*,*)
+          REPORTS.R-STD2-BUNDLE-PREFIX-R(*,*) :=
+            NORP-STD2-BUNDLE-PREFIX-R(*,*)
+          RESET  REPORTS.R-UPARMS (*) REPORTS.R-E-IDENT-LINE
+            REPORTS.R-E-IDENT-STRING REPORTS.R-E-BREAK-LINE
+            REPORTS.R-E-BREAK-START REPORTS.R-E-BREAK-END
+            REPORTS.R-E-REP-PREFIX REPORTS.R-BUNDLE (*)
+        VALUE 3
+          REPORTS.R-STD3-IDENT-LINE        := NORP-STD3-IDENT-LINE
+          REPORTS.R-STD3-IDENT-STRING      := NORP-STD3-IDENT-STRING
+          REPORTS.R-STD3-START-LINE        := NORP-STD3-START-LINE
+          REPORTS.R-STD3-HEADER-LINES      := NORP-STD3-HEADER-LINES
+          REPORTS.R-STD3-VALUE-TYPE(*)     := NORP-STD3-VALUE-TYPE(*)
+          REPORTS.R-STD3-VALUE-FROM(*)     := NORP-STD3-VALUE-FROM(*)
+          REPORTS.R-STD3-VALUE-TO(*)       := NORP-STD3-VALUE-TO(*)
+          REPORTS.R-STD3-REL-CHARACTER(*)  := NORP-STD3-REL-CHARACTER(*)
+          REPORTS.R-STD3-VALUES(*)         := NORP-STD3-VALUE (*)
+          REPORTS.R-STD3-BOOL-CONECTOR(*)  := NORP-STD3-BOOL-CONECTOR(*)
+          RESET  REPORTS.R-UPARMS (*) REPORTS.R-E-IDENT-LINE
+            REPORTS.R-E-IDENT-STRING REPORTS.R-E-BREAK-LINE
+            REPORTS.R-E-BREAK-START REPORTS.R-E-BREAK-END
+            REPORTS.R-E-REP-PREFIX REPORTS.R-BUNDLE (*)
+        NONE VALUE IGNORE
+      END-DECIDE
+      RESET REPORTS.R-UPARMS (*)
+    WHEN NORP-EXITMEM NE ' '
+      REPORTS.R-EXITMEM     := NORP-EXITMEM
+      REPORTS.R-EXITLIB     := NORP-EXITLIB
+      REPORTS.R-UPARMS (1:5):= NORP-UPARMS (1:5)
+      RESET  REPORTS.R-ASM-EXIT REPORTS.R-E-IDENT-LINE
+        REPORTS.R-E-IDENT-STRING REPORTS.R-E-BREAK-LINE
+        REPORTS.R-E-BREAK-START REPORTS.R-E-BREAK-END
+        REPORTS.R-E-REP-PREFIX REPORTS.R-BUNDLE (*)
+        REPORTS.R-E-PARAMS(*)
+    WHEN NONE
+      REPORTS.R-ASM-EXIT     := NORP-ASM-EXIT
+      RESET  REPORTS.R-EXITMEM REPORTS.R-EXITLIB
+      REPORTS.R-UPARMS (1:5) := NORP-UPARMS (1:5)
+      RESET  REPORTS.R-E-IDENT-LINE REPORTS.R-E-IDENT-STRING
+        REPORTS.R-E-BREAK-LINE REPORTS.R-E-BREAK-START
+        REPORTS.R-E-BREAK-END REPORTS.R-E-REP-PREFIX
+        REPORTS.R-BUNDLE (*) REPORTS.R-E-PARAMS(*)
+  END-DECIDE
+END-IF
+/* identification attributes
+RESET REPORTS.R-IDENT (*)
+DECIDE FOR FIRST CONDITION
+/*SU12  WHEN NORP-NODE-SPOOL = 'P' /*power             /* CF4
+  WHEN NORP-NODE-SPOOL = 'S' /*bs2               /* CF4
+    #J := 1
+    IF NORP-UNIX-NODENAME = ' ' AND NORP-UNIX-PATH     = ' '
+      FOR #I 1 TO 10
+        IF REPORTS.R-IDENT-FILES(#I)=MASK('NOM=')
+          ESCAPE TOP
+        END-IF
+        REPORTS.R-IDENT-FILES (#I) := NORP-BS2-FILES (#J)
+        ADD 1 TO #J
+      END-FOR
+    END-IF
+    FOR #I = 1 TO #INUM
+      IF REPORTS.R-IDENT (#I) = ' '
+        ESCAPE TOP
+      END-IF
+      IF REPORTS.R-IDENT-TYPE (#I) = 0014 OR = 0015 OR = 0016
+        RESET REPORTS.R-IDENT (#I)
+      END-IF
+    END-FOR
+    DECIDE FOR EVERY CONDITION
+      WHEN NORP-BS2-USER-ID NE ' '
+        EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT (*),1,3)
+          FULL VALUE OF '   '  GIVING INDEX #I
+        IF #I > 0
+          REPORTS.R-IDENT-TYPE (#I)  := 15
+          REPORTS.R-IDENT-VALUE (#I) := NORP-BS2-USER-ID
+        END-IF
+      WHEN NORP-BS2-JOB-NAME NE ' '
+        EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT(*),1,3)
+          FULL VALUE OF '   ' GIVING INDEX #I
+        IF #I > 0
+          REPORTS.R-IDENT-TYPE (#I)  := 14
+          REPORTS.R-IDENT-VALUE (#I) := NORP-BS2-JOB-NAME
+        END-IF
+      WHEN NORP-BS2-FORM NE ' '
+        EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT (*),1,3)
+          FULL VALUE OF '   ' GIVING INDEX #I
+        IF #I > 0
+          REPORTS.R-IDENT-TYPE (#I) := 16
+          REPORTS.R-IDENT-VALUE (#I):= NORP-BS2-FORM
+        END-IF
+      WHEN NONE IGNORE
+    END-DECIDE
+    PERFORM CHECK-ANOTHER-ATTRIBUTES
+  WHEN NONE
+    #J := 1
+    IF NORP-UNIX-NODENAME = ' ' AND NORP-UNIX-PATH     = ' '
+      FOR #I 1 TO 10
+        IF REPORTS.R-IDENT-FILES(#I)=MASK('NOM=')
+          ESCAPE TOP
+        END-IF
+        REPORTS.R-IDENT-FILES (#I) := NORP-JES-FILES (#J)
+        ADD 1 TO #J
+      END-FOR
+    END-IF
+    FOR #I = 1 TO #INUM
+      IF REPORTS.R-IDENT (#I) = ' '
+        ESCAPE TOP
+      END-IF
+      IF REPORTS.R-IDENT-TYPE (#I) = 0001 OR = 0002 OR = 0003 OR = 0004
+        RESET REPORTS.R-IDENT (#I)
+      END-IF
+    END-FOR
+    DECIDE FOR EVERY CONDITION
+      WHEN NORP-JES-JOB-NAME NE ' '
+        EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT(*),1,3)
+          FULL VALUE OF '   ' GIVING INDEX #I
+        IF #I > 0
+          REPORTS.R-IDENT-TYPE (#I)  := 0001
+          REPORTS.R-IDENT-VALUE (#I) := NORP-JES-JOB-NAME
+        END-IF
+      WHEN NORP-JES-WRITER NE ' '
+        EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT(*),1,3)
+          FULL VALUE OF '   ' GIVING INDEX #I
+        IF #I > 0
+          REPORTS.R-IDENT-TYPE  (#I) := 0002
+          REPORTS.R-IDENT-VALUE (#I) := NORP-JES-WRITER
+        END-IF
+      WHEN NORP-JES-DESTINATION NE ' '
+        EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT(*),1,3)
+          FULL VALUE OF '   ' GIVING INDEX #I
+        IF #I > 0
+          REPORTS.R-IDENT-TYPE (#I) := 0003
+          REPORTS.R-IDENT-VALUE (#I) := NORP-JES-DESTINATION
+        END-IF
+      WHEN NORP-JES-FORM NE ' '
+        EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT(*),1,3)
+          FULL VALUE OF '   ' GIVING INDEX #I
+        IF #I > 0
+          REPORTS.R-IDENT-TYPE (#I)  := 0004
+          REPORTS.R-IDENT-VALUE (#I) := NORP-JES-FORM
+        END-IF
+      WHEN NONE IGNORE
+    END-DECIDE
+    PERFORM CHECK-ANOTHER-ATTRIBUTES
+END-DECIDE
+*
+END-SUBROUTINE /* ASSIGN-ATTRIBUTE-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-ANOTHER-ATTRIBUTES
+************************************************************************
+RESET NAF CMA NOMUSR UNIX
+DECIDE FOR EVERY CONDITION
+  WHEN NORP-NAF-USER-ID NE ' ' OR NORP-NAF-NATLIB NE ' ' OR
+      NORP-NAF-NATPGM NE ' ' OR NORP-NAF-FORM NE ' ' OR
+      NORP-NAF-REPORT-NAME NE ' ' OR NORP-NAF-PROFILE NE ' '
+    PERFORM ASSIGN-NAF-VALUES
+  WHEN NORP-CMA-USER-ID NE ' ' OR NORP-CMA-FORM NE ' ' OR
+      NORP-CMA-FILENAME NE ' ' OR NORP-CMA-WRITER NE ' '
+    PERFORM ASSIGN-CMA-VALUES
+  WHEN NORP-NOMUSR-INTERFACE NE 0
+    PERFORM ASSIGN-NOMUSR-VALUES
+  WHEN NORP-UNIX-NODENAME NE ' ' OR NORP-UNIX-PATH NE ' '
+    PERFORM ASSIGN-UNIX-VALUES
+  WHEN NONE IGNORE
+END-DECIDE
+FOR #I=1 TO #INUM
+  DECIDE ON FIRST VALUE OF REPORTS.R-IDENT-TYPE(#I)
+    VALUE 0008, 0009, 0010, 0011, 0012, 0013
+      IF NAF
+        ESCAPE TOP
+      ELSE
+        PERFORM ASSIGN-NAF-VALUES
+      END-IF
+    VALUE 0017, 0018, 0019, 0020
+      IF CMA
+        ESCAPE TOP
+      ELSE
+        PERFORM ASSIGN-CMA-VALUES
+      END-IF
+    VALUE 0023, 0024
+      IF NOT UNIX
+        PERFORM ASSIGN-UNIX-VALUES
+      ELSE
+        ESCAPE TOP
+      END-IF
+    VALUE 10000 : 19999
+      IF REPORTS.R-NOMUSR-INTERFACE NE 0 AND
+          NORP-NOMUSR-INTERFACE = 0
+        RESET REPORTS.R-IDENT(#I)
+        NOMUSR:=TRUE
+      END-IF
+    NONE VALUE IGNORE
+  END-DECIDE
+END-FOR
+IF NOMUSR
+  RESET REPORTS.R-NOMUSR-INTERFACE
+  FOR #I 1 TO 10
+    IF REPORTS.R-IDENT-FILES (#I) = MASK ('NOM=')
+      RESET REPORTS.R-IDENT-FILES (#I)
+    END-IF
+  END-FOR
+END-IF
+*
+END-SUBROUTINE /* CHECK-ANOTHER-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-NAF-VALUES
+************************************************************************
+NAF:=TRUE
+IF ES-USER-TYPE = 'G'
+  RESET NORP-NAF-NATLIB
+  NORP-NAF-USER-ID := ES-USER
+END-IF
+FOR #I = 1 TO #INUM
+  IF REPORTS.R-IDENT (#I) = ' '
+    ESCAPE TOP
+  END-IF
+  IF REPORTS.R-IDENT-TYPE (#I) = 0008 OR = 0009 OR = 0010 OR = 0011
+      OR = 0012 OR = 0013
+    RESET REPORTS.R-IDENT (#I)
+  END-IF
+END-FOR
+DECIDE FOR EVERY CONDITION
+  WHEN NORP-NAF-USER-ID NE ' '
+    EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT (*),1,3)
+      FULL VALUE OF '   '  GIVING INDEX #I
+    IF #I > 0
+      REPORTS.R-IDENT-TYPE (#I)  := 0008
+      REPORTS.R-IDENT-VALUE (#I) := NORP-NAF-USER-ID
+    END-IF
+  WHEN NORP-NAF-NATLIB NE ' '
+    EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT (*),1,3)
+      FULL VALUE OF '   ' GIVING INDEX #I
+    IF #I > 0
+      REPORTS.R-IDENT-TYPE  (#I) := 0009
+      REPORTS.R-IDENT-VALUE (#I) := NORP-NAF-NATLIB
+    END-IF
+  WHEN NORP-NAF-NATPGM NE ' '
+    EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT (*),1,3)
+      FULL VALUE OF '   ' GIVING INDEX #I
+    IF #I > 0
+      REPORTS.R-IDENT-TYPE (#I) := 0010
+      REPORTS.R-IDENT-VALUE (#I):= NORP-NAF-NATPGM
+    END-IF
+  WHEN NORP-NAF-FORM NE ' '
+    EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT (*),1,3)
+      FULL VALUE OF '   ' GIVING INDEX #I
+    IF #I > 0
+      REPORTS.R-IDENT-TYPE(#I) := 0011
+      REPORTS.R-IDENT-VALUE(#I):= NORP-NAF-FORM
+    END-IF
+  WHEN NORP-NAF-REPORT-NAME NE ' '
+    EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT(*),1,3)
+      FULL VALUE OF '   ' GIVING INDEX #I
+    IF #I > 0
+      REPORTS.R-IDENT-TYPE(#I) := 0012
+      REPORTS.R-IDENT-VALUE(#I):= NORP-NAF-REPORT-NAME
+    END-IF
+  WHEN NORP-NAF-PROFILE NE ' '
+    EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT (*),1,3)
+      FULL VALUE OF '   ' GIVING INDEX #I
+    IF #I > 0
+      REPORTS.R-IDENT-TYPE(#I) := 0013
+      REPORTS.R-IDENT-VALUE(#I):= NORP-NAF-PROFILE
+    END-IF
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* ASSIGN-NAF-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-CMA-VALUES
+************************************************************************
+CMA:=TRUE
+FOR #I = 1 TO #INUM
+  IF REPORTS.R-IDENT (#I) = ' '
+    ESCAPE TOP
+  END-IF
+  IF REPORTS.R-IDENT-TYPE (#I) = 0017 OR = 0018 OR = 0019 OR = 0020
+    RESET REPORTS.R-IDENT (#I)
+  END-IF
+END-FOR
+DECIDE FOR EVERY CONDITION
+  WHEN NORP-CMA-FILENAME NE ' '
+    EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT (*),1,3)
+      FULL VALUE OF '   '  GIVING INDEX #I
+    IF #I > 0
+      REPORTS.R-IDENT-TYPE (#I)  := 0018
+      REPORTS.R-IDENT-VALUE (#I) := NORP-CMA-FILENAME
+    END-IF
+  WHEN NORP-CMA-USER-ID NE ' '
+    EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT (*),1,3)
+      FULL VALUE OF '   ' GIVING INDEX #I
+    IF #I > 0
+      REPORTS.R-IDENT-TYPE (#I) := 0017
+      REPORTS.R-IDENT-VALUE (#I):= NORP-CMA-USER-ID
+    END-IF
+  WHEN NORP-CMA-FORM NE ' '
+    EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT(*),1,3)
+      FULL VALUE OF '   ' GIVING INDEX #I
+    IF #I > 0
+      REPORTS.R-IDENT-VALUE (#I):= NORP-CMA-FORM
+      REPORTS.R-IDENT-TYPE(#I) := 0019
+    END-IF
+  WHEN NORP-CMA-WRITER NE ' '
+    EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT (*),1,3)
+      FULL VALUE OF '   '  GIVING INDEX #I
+    IF #I > 0
+      REPORTS.R-IDENT-TYPE (#I)  := 0020
+      REPORTS.R-IDENT-VALUE (#I) := NORP-CMA-WRITER
+    END-IF
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* ASSIGN-CMA-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-UNIX-VALUES
+************************************************************************
+UNIX:=TRUE
+#J := 1
+FOR #I 1 TO 10
+  IF REPORTS.R-IDENT-FILES(#I)=MASK('NOM=')
+    ESCAPE TOP
+  END-IF
+  REPORTS.R-IDENT-FILES (#I) := NORP-UNIX-FILES (#J)
+  ADD 1 TO #J
+END-FOR
+FOR #I = 1 TO #INUM
+  IF REPORTS.R-IDENT (#I) = ' '
+    ESCAPE TOP
+  END-IF
+  IF REPORTS.R-IDENT-TYPE (#I) = 0023 OR = 0024
+    RESET REPORTS.R-IDENT(#I)
+  END-IF
+END-FOR
+DECIDE FOR EVERY CONDITION
+  WHEN NORP-UNIX-NODENAME NE ' '
+    EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT (*),1,3)
+      FULL VALUE OF '   '  GIVING INDEX #I
+    IF #I > 0
+      REPORTS.R-IDENT-TYPE (#I)  := 0023
+      REPORTS.R-IDENT-VALUE (#I) := NORP-UNIX-NODENAME
+    END-IF
+  WHEN NORP-UNIX-PATH NE ' '
+    EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT (*),1,3)
+      FULL VALUE OF '   ' GIVING INDEX #I
+    IF #I > 0
+      REPORTS.R-IDENT-TYPE (#I) := 0024
+      REPORTS.R-IDENT-VALUE (#I):= NORP-UNIX-PATH
+    END-IF
+  WHEN NONE IGNORE
+END-DECIDE
+R-REP-FORMAT:= NORP-UNIX-FORMAT
+*
+END-SUBROUTINE /* ASSIGN-UNIX-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-NOMUSR-VALUES
+************************************************************************
+REPORTS.R-NOMUSR-INTERFACE := NORP-NOMUSR-INTERFACE
+RESET #J
+FOR #I 1 TO 10
+  IF REPORTS.R-IDENT-FILES (#I) = MASK ('NOM=')
+    RESET REPORTS.R-IDENT-FILES (#I)
+  END-IF
+END-FOR
+FOR #I 1 TO 10
+  IF NORP-NOMUSR-FILES (#I) = ' '
+    ESCAPE TOP
+  END-IF
+  J1. REPEAT
+    ADD 1 TO #J
+    IF REPORTS.R-IDENT-FILES (#J) = ' '
+      ESCAPE BOTTOM(J1.)
+    END-IF
+  END-REPEAT
+  IF #J LE 10
+    COMPRESS 'NOM=' NORP-NOMUSR-FILES (#I)
+      TO REPORTS.R-IDENT-FILES (#J) LEAVING NO
+  END-IF
+END-FOR
+RESET #J
+FOR #I = 1 TO #INUM
+  IF REPORTS.R-IDENT (#I) = ' '
+    ESCAPE TOP
+  END-IF
+  DIVIDE 100 INTO REPORTS.R-IDENT-TYPE (#I) GIVING #CHECK-TYPE
+  IF #CHECK-TYPE = REPORTS.R-NOMUSR-INTERFACE
+    RESET REPORTS.R-IDENT (#I)
+  END-IF
+END-FOR
+FOR #J 1 TO 4
+  EXAMINE FULL VALUE OF SUBSTRING (REPORTS.R-IDENT (*),1,3)
+    FULL VALUE OF '   ' GIVING INDEX #I
+  IF #I > 0
+    NORP-NOMUSR-IDENT-TYPE (#J) := NORP-NOMUSR-INTERFACE * 100 + #J
+    REPORTS.R-IDENT-TYPE (#I)  := NORP-NOMUSR-IDENT-TYPE (#J)
+    REPORTS.R-IDENT-VALUE (#I) := NORP-NOMUSR-IDENT-VALUE (#J)
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* ASSIGN-NOMUSR-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION-S
+************************************************************************
+PERFORM VALIDATION
+ES-CONTROL := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+*
+END-SUBROUTINE /* VALIDATION-S
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+RESET #ES-MSG-NR #ES-MSG-FIELD NORP-UNIX-NODENAME
+/* validation of general attributes
+DECIDE FOR FIRST CONDITION
+  WHEN NORP-REPNAME = ' '
+    #ES-MSG-NR := 0305                     /* enter report name
+    #ES-MSG-FIELD-NAME := 'REPNAME'
+  WHEN NORP-REPNAME NE MASK (P........................)
+    #ES-MSG-NR := 0019           /* name must start with letter
+    #ES-MSG-FIELD-NAME := 'REPNAME'
+  WHEN ES-EXTEND-FUNCTION = 'UPD' AND
+      REPORTS.R-TYPE = 'C' AND NORP-TYPE NE 'C'
+    #ES-MSG-NR := 2101     /* this type of report may not be changed
+    #ES-MSG-FIELD := 'TYPE'
+  WHEN NOT (NORP-TYPE = 'C' OR = 'M' OR = 'S' OR = 'D')
+    #ES-MSG-NR := 1103
+    #ES-MSG-FIELD := 'TYPE'
+  WHEN NORP-TYPE = 'C' AND ES-EXTEND-FUNCTION = 'NEW'
+    #ES-MSG-NR := 1102       /* report with type 'C' may not be added
+    #ES-MSG-FIELD := 'TYPE'
+  WHEN ES-EXTEND-FUNCTION = 'UPD' AND
+      REPORTS.R-TYPE NE 'C' AND NORP-TYPE = 'C'
+    #ES-MSG-FIELD := 'TYPE'
+    #ES-MSG-NR := 1101      /* report type must not be changed to 'C'
+  WHEN ANY
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+/*
+IF NORP-NODE-NAME NE ' '                               /* CF1 ->
+  /* Check for INTERNAL-NODE-ID (if MF node)
+  IF NORP-INTERNAL-NODE-ID NE 0
+    FIND MF-NODE WITH MF-INTERNAL-NODE-ID = NORP-INTERNAL-NODE-ID
+      IF NO RECORDS FOUND
+        #ES-MSG-NR         := 2024
+        #ES-MSG-FIELD-NAME := 'NODE-NAME'
+        ESCAPE ROUTINE
+      END-NOREC
+      #NODE-MONITOR-ID := MF-NODE.MF-MONITOR-ID
+      NORP-NODE-NAME   := #NODE-NODE-NAME
+      NORP-NODE-NUMBER := MF-NODE.MF-MONITOR-NODE
+    END-FIND
+  ELSE
+    FIND UX-NODES WITH UX-NODE-NAME = NORP-NODE-NAME
+      IF NO RECORDS FOUND
+        #ES-MSG-NR         := 2024
+        #ES-MSG-FIELD-NAME := 'NODE-NAME'
+        ESCAPE ROUTINE
+      END-NOREC
+      RESET NORP-NODE-NUMBER
+      NORP-UNIX-NODENAME := NORP-NODE-NAME
+    END-FIND
+  END-IF
+END-IF
+/*                                                     /* CF1 <-
+IF NORP-USERID =  ' '
+  NORP-USERID := ES-USER
+ELSE
+  IF NOT (NOMOD-USER-AUTODEF = 'P' OR = 'Y')
+    ES-OBJECT := 'US'
+    ES-FUNCTION := 'EX'
+    ES-KEY-PARM(1) := NORP-USERID
+/* check user existance
+    CALLNAT 'NOXXEX-N' ES-CONTROL ES-INPUT
+    IF ES-RC NE 0
+      #ES-MSG-NR := 0002
+      #ES-MSG-FIELD-NAME := 'USERID'
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+END-IF
+DECIDE FOR FIRST CONDITION
+  WHEN NOT (NORP-STORE-NATRPT =  'Y' OR = 'N')
+    #ES-MSG-NR := 1099
+    #ES-MSG-FIELD-NAME := 'STORE-NATRPT'
+    ESCAPE ROUTINE
+  WHEN NOT (NORP-ARCHIVE = 'Y' OR = 'N' OR = 'I')
+    #ES-MSG-NR := 1107   /* invalid 'Archive directly' option
+    #ES-MSG-FIELD-NAME := 'ARCHIVE'
+    ESCAPE ROUTINE
+  WHEN NORP-RETENTION-NUMBER = 0 AND (NORP-RETENTION-FACTOR  NE ' '
+      OR NORP-RETENTION-CALENDAR NE ' ')
+    #ES-MSG-NR := 1087    /* invalid retention period
+    #ES-MSG-FIELD-NAME := 'RETENTION-NUMBER'
+    ESCAPE ROUTINE
+  WHEN NORP-REVIVE-NUMBER = 0 AND (NORP-REVIVE-FACTOR NE ' ' OR
+      NORP-REVIVE-CALENDAR NE ' ')
+    #ES-MSG-NR := 1087
+    #ES-MSG-FIELD-NAME := 'REVIVE-NUMBER'
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+IF NORP-RETENTION-NUMBER > 0
+  IF NOT (NORP-RETENTION-FACTOR = 'W' OR = 'A' OR = 'V'
+      OR = 'M' OR = 'G')
+    #ES-MSG-NR := 1087
+    #ES-MSG-FIELD-NAME := 'RETENTION-FACTOR'
+    ESCAPE ROUTINE
+  END-IF
+  IF NORP-RETENTION-FACTOR = 'G'
+    RESET NORP-RETENTION-CALENDAR
+  END-IF
+  IF NORP-RETENTION-FACTOR = 'W'
+    IF NORP-RETENTION-CALENDAR = ' '
+      #ES-MSG-NR := 2003
+      #ES-MSG-FIELD-NAME := 'RETENTION-CALENDAR'
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+  IF NORP-RETENTION-CALENDAR NE ' '
+    ES-OBJECT   := 'CA'
+    ES-FUNCTION := 'EX'
+    #CA-ID := NORP-RETENTION-CALENDAR
+    ES-KEY-PARM(1) := #CALENDAR-ID
+/* check calendar existance
+    CALLNAT 'NOXXEX-N' ES-CONTROL ES-INPUT
+    IF ES-RC NE 0
+      #ES-MSG-NR := 2004
+      #ES-MSG-FIELD-NAME := 'RETENTION-CALENDAR'
+      ESCAPE ROUTINE
+    END-IF
+    NORP-RETENTION-FACTOR := 'W'
+  END-IF
+END-IF
+IF NOT (NORP-RETENTION-ACTION = 'A' OR = 'P')
+  #ES-MSG-NR := 1088
+  #ES-MSG-FIELD-NAME := 'RETENTION-ACTION'
+  ESCAPE ROUTINE
+END-IF
+IF NORP-ARCHIVE-NUMBER > 0 AND
+    NOT (NORP-ARCHIVE-FACTOR = 'D' OR = 'W' OR = 'M' OR = 'Y')
+  #ES-MSG-NR := 1083
+  #ES-MSG-FIELD-NAME := 'ARCHIVE-FACTOR'
+  ESCAPE ROUTINE
+END-IF
+IF NORP-ARCHIVE-NUMBER = 0 AND NORP-ARCHIVE-FACTOR NE ' '
+  #ES-MSG-NR := 0415
+  #ES-MSG-FIELD-NAME := 'ARCHIVE-NUMBER'
+  ESCAPE ROUTINE
+END-IF
+IF NORP-REVIVE-NUMBER > 0
+  IF NOT (NORP-REVIVE-FACTOR = 'W' OR = 'A' OR = 'V' OR = 'M' )
+    #ES-MSG-NR := 1087
+    #ES-MSG-FIELD-NAME := 'REVIVE-FACTOR'
+    ESCAPE ROUTINE
+  END-IF
+  IF NORP-REVIVE-FACTOR = 'W'
+    IF NORP-REVIVE-CALENDAR = ' '
+      RESET NORP-REVIVE-FACTOR
+      #ES-MSG-NR := 2003
+      #ES-MSG-FIELD-NAME := 'REVIVE-CALENDAR'
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+  IF NORP-REVIVE-CALENDAR NE ' '
+    ES-OBJECT := 'CA'
+    ES-FUNCTION := 'EX'
+    #CA-ID :=  NORP-REVIVE-CALENDAR
+    ES-KEY-PARM(1) := #CALENDAR-ID
+/* check-calendar existance
+    CALLNAT 'NOXXEX-N' ES-CONTROL ES-INPUT
+    IF ES-RC NE 0
+      #ES-MSG-NR := 2004
+      #ES-MSG-FIELD-NAME := 'REVIVE-CALENDAR'
+      ESCAPE ROUTINE
+    END-IF
+    NORP-REVIVE-FACTOR := 'W'
+  END-IF
+END-IF
+/* validation of distribution attributes
+FOR #I = 1 TO 10
+  IF NORP-NATRP-USER-LIST(#I)= ' '
+    RESET NORP-NATRP-DIST(#I)
+  ELSE
+    EXAMINE FULL VALUE OF NORP-NATRP-USER-LIST (*)
+      FOR FULL VALUE OF NORP-NATRP-USER-LIST (#I) GIVING NUMBER IN #J
+    IF #J > 1
+      #ES-MSG-NR := 1091         /* user list already defined
+      #ES-MSG-FIELD-NAME  := 'NATRP-USER-LIST'
+      #ES-MSG-FIELD-INDEX := #I
+      ESCAPE ROUTINE
+    END-IF
+    IF NOT (NOMOD-USER-AUTODEF = 'P' OR = 'Y')
+      ES-KEY-PARM(1) := NORP-NATRP-USER-LIST (#I)
+      ES-OBJECT := 'US'
+      ES-FUNCTION := 'EX'
+/* check user existance
+      CALLNAT 'NOXXEX-N' ES-CONTROL ES-INPUT
+      IF ES-RC NE 0
+        ES-OBJECT := 'DL'
+/* check DL existance
+        CALLNAT 'NOXXEX-N' ES-CONTROL ES-INPUT
+        IF ES-RC NE 0
+          #ES-MSG-NR := 0602
+          #ES-MSG-FIELD-NAME  := 'NATRP-USER-LIST'
+          #ES-MSG-FIELD-INDEX := #I
+          ESCAPE ROUTINE
+        END-IF
+      END-IF
+    END-IF
+    FOR #F = 1 TO 10
+      IF NORP-LAYOUT-COLFROM (#I,#F) > 0 AND
+          NORP-LAYOUT-COLTO   (#I,#F) = 0
+        #ES-MSG-NR := 1086       /* enter TO column
+        #ES-MSG-FIELD-NAME := 'NATRP-USER-LIST'
+        #ES-MSG-FIELD-INDEX1 := #I
+        #ES-MSG-FIELD-INDEX21 := #F
+        #ES-MSG-FIELD-INDEX22 := 02
+        ESCAPE ROUTINE
+      END-IF
+      IF NORP-LAYOUT-COLTO   (#I,#F) > 0 AND
+          NORP-LAYOUT-COLFROM (#I,#F) = 0
+        #ES-MSG-NR := 1085       /* enter FROM column
+        #ES-MSG-FIELD-NAME := 'NATRP-USER-LIST'
+        #ES-MSG-FIELD-INDEX1 := #I
+        #ES-MSG-FIELD-INDEX21 := #F
+        #ES-MSG-FIELD-INDEX22 := 01
+        ESCAPE ROUTINE
+      END-IF
+      IF NORP-LAYOUT-COLFROM (#I,#F) > NORP-LAYOUT-COLTO (#I,#F)
+        #ES-MSG-NR := 1084       /* FROM must be greater than TO
+        #ES-MSG-FIELD-NAME := 'NATRP-USER-LIST'
+        #ES-MSG-FIELD-INDEX1 := #I
+        #ES-MSG-FIELD-INDEX21 := #F
+        #ES-MSG-FIELD-INDEX22 := 01
+        ESCAPE ROUTINE
+      END-IF
+    END-FOR
+  END-IF
+END-FOR
+/* validation of printing attributes
+IF NOT (NORP-HOLD-PRINT = ' ' OR = 'H' OR = 'C' OR = 'R' )
+  #ES-MSG-NR := 1089
+  #ES-MSG-FIELD-NAME := 'HOLD-PRINT'
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'N-SEPME2' ES-CONTROL ES-INPUT NORP-SEP-START 1X
+  NORP-SEP-END 1X 'R' #ES-MSG-NR #ES-MSG-FIELD-NAME
+IF #ES-MSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+FOR #I = 1 TO 20
+  IF NORP-PRINTER (#I)  = ' '
+    RESET NORP-COPIES (#I)
+  ELSE
+    EXAMINE FULL NORP-PRINTERS(*) FOR FULL VALUE OF NORP-PRINTER(#I)
+      GIVING NUMBER IN #J
+    IF #J > 1
+      #ES-MSG-NR := 0104      /* printer already defined
+      #ES-MSG-FIELD-NAME  := 'PRINTERS'
+      #ES-MSG-FIELD-INDEX := #I
+      ESCAPE ROUTINE
+    END-IF
+    ES-KEY-PARM(1) := NORP-PRINTER (#I)
+    ES-OBJECT := 'PR'
+    ES-FUNCTION := 'EX'
+/* check printer existance
+    CALLNAT 'NOXXEX-N' ES-CONTROL ES-INPUT
+    IF ES-RC NE 0
+      #ES-MSG-NR := 0108
+      #ES-MSG-FIELD-NAME  := 'PRINTERS'
+      #ES-MSG-FIELD-INDEX := #I
+      ESCAPE ROUTINE
+    END-IF
+    IF ES-USER-TYPE NE 'A'         /* authorization check
+      #GR-OBJECT := NORP-PRINTER(#I)
+      CALLNAT 'NOGRRU-N' 'P' #GR-OBJECT ES-USER #GR-USER #GRANTED
+      IF NOT  #GRANTED
+        #ES-MSG-NR := 1090
+        #ES-MSG-FIELD-NAME  := 'PRINTERS'
+        #ES-MSG-FIELD-INDEX := #I
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+    IF NORP-COPIES(#I) = 0
+      NORP-COPIES(#I) := #DEF-COPIES
+    END-IF
+  END-IF
+END-FOR
+/* validation of separation attributes
+*
+IF NOT(NORP-CREATE-DEFINITION = 'Y' OR = 'N') AND
+   (NORP-EXIT-STANDARD > 0 OR NORP-EXITMEM > ' ' OR NORP-ASM-EXIT > ' ')
+  #ES-MSG-NR := 1122
+  #ES-MSG-FIELD-NAME := 'CREATE-DEFINITION-J'
+  ESCAPE ROUTINE
+END-IF
+DECIDE ON FIRST NORP-EXIT-STANDARD
+  VALUE 01   PERFORM VALIDATE-STD1-ATTRIBUTES
+  VALUE 02   PERFORM VALIDATE-STD2-ATTRIBUTES
+  VALUE 03   PERFORM VALIDATE-STD3-ATTRIBUTES
+  ANY        RESET NORP-EXITLIB NORP-EXITMEM NORP-ASM-EXIT
+  NONE
+    RESET NORP-EXIT-STANDARD
+    DECIDE FOR EVERY CONDITION
+      WHEN NORP-EXITMEM NE ' ' AND NORP-ASM-EXIT  NE ' '
+        #ES-MSG-NR := 1081
+        #ES-MSG-FIELD-NAME := 'EXITMEM'
+        ESCAPE ROUTINE
+      WHEN NORP-EXITMEM NE ' ' AND NORP-EXITLIB = ' '
+        #ES-MSG-NR := 1080     /* enter NATURAL library name
+        #ES-MSG-FIELD-NAME := 'EXITTLIB'
+        ESCAPE ROUTINE
+      WHEN NORP-EXITMEM = ' ' AND NORP-EXITLIB NE ' '
+        #ES-MSG-NR := 4101   /* no exit member defined
+        #ES-MSG-FIELD-NAME := 'EXITMEM'
+        ESCAPE ROUTINE
+      WHEN NORP-EXITLIB NE ' ' AND NORP-EXITMEM NE ' '
+        ES-KEY-PARM(2) := NORP-EXITMEM
+        ES-KEY-PARM(1) := NORP-EXITLIB
+        CALLNAT 'NOSFEX-N' ES-CONTROL ES-INPUT
+        IF ES-RC NE 0
+          #ES-MSG-NR  := 1079  /* library or member not found
+          #ES-MSG-TXT := NORP-EXITMEM
+          #ES-MSG-FIELD-NAME := 'EXITMEM'
+          ESCAPE ROUTINE
+        END-IF
+      WHEN NORP-ASM-EXIT NE ' '
+        RESET NORP-EXITMEM NORP-EXITLIB
+      WHEN NONE
+        RESET NORP-EXITLIB
+    END-DECIDE
+END-DECIDE
+IF #ES-MSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+/* validation of identification attributes
+IF NOT (NORP-NODE-SPOOL = 'P' OR= 'S')                     /* CF4
+  CALLNAT 'N-CHKRPJ' ' ' NORP-JES-FILES(*) #ES-MSG-NR
+    #ES-MSG-FIELD-NAME #ES-MSG-FIELD-INDEX
+END-IF
+IF NORP-UNIX-NODENAME NE ' '
+  IF NORP-UNIX-PATH = ' '
+    #ES-MSG-NR := 2023       /* please select a path
+    #ES-MSG-FIELD-NAME := 'UNIX-PATH'
+    ESCAPE ROUTINE
+  END-IF
+/*  IF NOT (NORP-UNIX-FORMAT = ' ' OR  = 'B' OR = 'T')     /* CF3
+  IF NOT (NORP-UNIX-FORMAT = ' ' OR= 'B' OR= 'T' OR= 'A')  /* CF3
+    #ES-MSG-FIELD-NAME:= 'UNIX-READ-BINARY'
+    #ES-MSG-NR := 2139
+    ESCAPE ROUTINE
+  END-IF
+  RESET #FILES-EXIST
+  FOR #I = 1 TO 10
+    IF NORP-UNIX-FILES(#I) NE ' '
+      #FILES-EXIST:= TRUE
+      IF NORP-UNIX-FILES(#I) = SCAN '/'
+        #ES-MSG-NR := 2041 /* paths are not allowed in file def.
+        #ES-MSG-FIELD-NAME := 'UNIX-FILES'
+        #ES-MSG-FIELD-INDEX:= #I
+      END-IF
+    END-IF
+  END-FOR
+  IF NOT #FILES-EXIST
+    #ES-MSG-NR := 2020           /*please enter field
+    #ES-MSG-FIELD-NAME := 'UNIX-FILES'
+    #ES-MSG-FIELD-INDEX:= 1
+  END-IF
+END-IF
+IF #ES-MSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-MASK
+************************************************************************
+MOVE LEFT JUSTIFIED #T-IN TO #T
+EXAMINE SUBSTR (#T,1,4) TRANSLATE INTO UPPER
+EXAMINE #T FOR ' ' DELETE
+IF #T = MASK ('MASK(')
+  MOVE LEFT JUSTIFIED #T-IN TO #T
+  MOVE SUBSTRING (#T,5,46) TO #T-OUT
+  MOVE LEFT JUSTIFIED #T-OUT TO #T-OUT
+  SEPARATE #T-OUT INTO #T-OUT #T-OUT IGNORE WITH DELIMITER '()'
+  IF #T = MASK #T-OUT /* provoke NAT0258 if invalid mask
+    IGNORE
+  END-IF
+END-IF
+RESET #T-OUT
+*
+END-SUBROUTINE /* VALIDATE-MASK
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  #FUNCTION   := 7
+  #DYN_STRING := 'N'
+  #E-TEXT-LEN := #RSP := 0
+  IF *ERROR-NR = 258
+    CALLNAT 'NAT23006' #CB #TEXT
+    #ES-MSG-NR    := 0667     /* incorrect MASK arument construction
+    DECIDE ON FIRST NORP-EXIT-STANDARD
+      VALUE 1
+        #ES-MSG-FIELD-NAME := 'STD1-IDENT-STRING'
+      VALUE 2
+        #ES-MSG-FIELD-NAME := 'STD2-IDENT-STRING'
+      VALUE 3
+        IF #IDENT-STRING
+          #ES-MSG-FIELD-NAME := 'STD3-IDENT-STRING'
+        ELSE
+          #ES-MSG-FIELD-INDEX1 :=#I
+          #ES-MSG-FIELD-INDEX2 := 6
+          #ES-MSG-FIELD-NAME := 'STD3-TAB'
+        END-IF
+      NONE VALUE IGNORE
+    END-DECIDE
+    PERFORM GET-MSG-TXT
+    ESCAPE ROUTINE
+  END-IF
+  ES-RC := 1
+  ES-MSG-NR := *ERROR-NR
+  COMPRESS *PROGRAM 'ERROR' *ERROR-LINE ES-KEY-PARM-COUNT TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-STD1-ATTRIBUTES
+************************************************************************
+IF NORP-STD1-IDENT-STRING NE ' '
+  #T-IN := NORP-STD1-IDENT-STRING
+  PERFORM VALIDATE-MASK
+END-IF
+DECIDE FOR FIRST CONDITION
+  WHEN NORP-STD1-IDENT-STRING = ' '
+    #ES-MSG-NR := 0651
+    #ES-MSG-FIELD-NAME := 'STD1-IDENT-STRING'
+    ESCAPE ROUTINE
+  WHEN NORP-STD1-BREAK-START = 0
+    #ES-MSG-NR    := 0653
+    #ES-MSG-FIELD-NAME := 'STD1-BREAK-START'
+    ESCAPE ROUTINE
+  WHEN NORP-STD1-BREAK-END = 0
+    #ES-MSG-NR    := 0653
+    #ES-MSG-FIELD-NAME := 'STD1-BREAK-END'
+    ESCAPE ROUTINE
+  WHEN NORP-STD1-BREAK-START > NORP-STD1-BREAK-END
+    #ES-MSG-NR    := 0654
+    #ES-MSG-FIELD-NAME := 'STD1-BREAK-START'
+    ESCAPE ROUTINE
+  WHEN NORP-STD1-REPORT-PREFIX = ' '
+    #ES-MSG-NR    := 0655
+    #ES-MSG-FIELD-NAME := 'STD1-REPORT-PREFIX'
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATE-STD1-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-STD2-ATTRIBUTES
+************************************************************************
+RESET #J
+IF NORP-STD2-IDENT-STRING = ' '
+  #ES-MSG-NR := 0651
+  #ES-MSG-FIELD-NAME := 'STD2-IDENT-STRING'
+  ESCAPE ROUTINE
+END-IF
+#T-IN := NORP-STD2-IDENT-STRING
+PERFORM VALIDATE-MASK
+FOR #I = 1 TO 5
+  IF NORP-STD2-BREAK-START (#I) = 0 AND NORP-STD2-BREAK-END(#I) = 0
+  AND NORP-STD2-BREAK-LINE (#I) =0 AND NORP-STD2-REPORT-PREFIX (#I) =' '
+    RESET NORP-STD2-TAB (#I)
+    ESCAPE TOP
+  END-IF
+  DECIDE FOR FIRST CONDITION
+    WHEN NORP-STD2-BREAK-START (#I) = 0
+      #ES-MSG-NR := 0653
+    WHEN NORP-STD2-BREAK-END   (#I) = 0
+      #ES-MSG-NR := 0653
+    WHEN NORP-STD2-BREAK-START (#I) > NORP-STD2-BREAK-END (#I)
+      #ES-MSG-NR := 0654
+    WHEN NORP-STD2-REPORT-PREFIX (#I) = ' '
+      #ES-MSG-NR := 0655
+    WHEN ANY
+      #ES-MSG-FIELD-NAME := 'STD2-TAB'
+      #ES-MSG-FIELD-INDEX := #I
+      ESCAPE ROUTINE
+    WHEN NONE IGNORE
+  END-DECIDE
+  ADD 1 TO #J
+END-FOR
+IF #J = 0
+  #ES-MSG-NR := 0656 /* at least 1 break condition should be defined
+  #ES-MSG-FIELD-NAME := 'STD2-REPORT-PREFIX'
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-STD2-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-STD3-ATTRIBUTES
+************************************************************************
+RESET #I
+IF NORP-STD3-IDENT-STRING = ' '
+  #ES-MSG-NR := 0651
+  #ES-MSG-FIELD-NAME := 'STD3-IDENT-STRING'
+  ESCAPE ROUTINE
+END-IF
+#IDENT-STRING := TRUE
+#T-IN  := NORP-STD3-IDENT-STRING
+PERFORM VALIDATE-MASK /* check for correct Natural mask
+RESET #IDENT-STRING
+IF NORP-STD3-HEADER-LINES > 20
+  #ES-MSG-NR := 0672
+  #ES-MSG-FIELD-NAME := 'STD3-HEADER-LINES'
+  ESCAPE ROUTINE
+END-IF
+IF NORP-STD3-HEADER-LINES >=  NORP-STD3-START-LINE AND
+    NORP-STD3-HEADER-LINES > 0
+  #ES-MSG-NR := 0673
+  #ES-MSG-FIELD-NAME := 'STD3-HEADER-LINES'
+  ESCAPE ROUTINE
+END-IF
+IF NORP-STD3-IDENT-LINE =  0 AND NORP-STD3-IDENT-STRING NE ' '
+  #ES-MSG-NR := 0670
+  #ES-MSG-FIELD-NAME := 'STD3-IDENT-LINE'
+  ESCAPE ROUTINE
+END-IF
+IF NORP-STD3-IDENT-LINE >=  NORP-STD3-START-LINE
+  #ES-MSG-NR := 0671
+  #ES-MSG-FIELD-NAME := 'STD3-IDENT-LINE'
+  ESCAPE ROUTINE
+END-IF
+FOR #I = 1 TO 5
+  IF NORP-STD3-VALUE-FROM (#I) = 0 AND NORP-STD3-VALUE-TO (#I) = 0 AND
+      NORP-STD3-VALUE-TYPE (#I) = ' '
+    RESET NORP-STD3-TAB (#I)
+    ESCAPE TOP
+  END-IF
+  IF NOT (NORP-STD3-BOOL-CONECTOR (#I) = 'AND' OR = 'OR') AND #I > 1
+    #ES-MSG-NR := 0678             /* enter valid boolian operator
+    #ES-MSG-FIELD-NAME  := 'STD3-TAB'
+    #ES-MSG-FIELD-INDEX1 := #I
+    #ES-MSG-FIELD-INDEX2 := 1
+    ESCAPE ROUTINE
+  END-IF
+  IF NORP-STD3-BOOL-CONECTOR (#I) NE 'OR' OR
+      NORP-STD3-VALUE-FROM (#I) NE 0 OR NORP-STD3-VALUE-TO (#I) NE 0
+    DECIDE FOR FIRST CONDITION
+      WHEN NORP-STD3-VALUE-FROM (#I) = 0
+        #ES-MSG-NR := 0653
+        #ES-MSG-FIELD-INDEX2 := 2
+      WHEN NORP-STD3-VALUE-TO (#I) = 0
+        #ES-MSG-NR := 0653
+        #ES-MSG-FIELD-INDEX2 := 3
+      WHEN NORP-STD3-VALUE-TO (#I) < NORP-STD3-VALUE-FROM (#I)
+        #ES-MSG-NR := 0654
+        #ES-MSG-FIELD-INDEX2 := 3
+      WHEN ANY
+        #ES-MSG-FIELD-INDEX1 := #I
+        #ES-MSG-FIELD-NAME  := 'STD3-TAB'
+        ESCAPE ROUTINE
+      WHEN NONE IGNORE
+    END-DECIDE
+  END-IF
+  DECIDE ON EVERY NORP-STD3-VALUE-TYPE (#I)
+    VALUE 'A','N'
+      IF NOT (NORP-STD3-REL-CHARACTER (#I) = 'EQ' OR = 'NE'
+          OR = 'LT' OR = 'LE' OR = 'GT' OR = 'GE'
+          OR = '='  OR = '!'  OR = '<'  OR = '<=' OR = '>'  OR = '>=')
+        #ES-MSG-NR := 0674                 /* enter valid expression
+        #ES-MSG-FIELD-NAME := 'STD3-TAB'
+        #ES-MSG-FIELD-INDEX1 := #I
+        #ES-MSG-FIELD-INDEX2 := 5
+        ESCAPE ROUTINE
+      END-IF
+    VALUE 'N'
+      IF NOT (NORP-STD3-VALUE (#I) IS (N27))
+        #ES-MSG-NR := 0675                  /* value not numeric
+        #ES-MSG-FIELD-NAME := 'STD3-TAB'
+        #ES-MSG-FIELD-INDEX1 := #I
+        #ES-MSG-FIELD-INDEX2 := 6
+        ESCAPE ROUTINE
+      END-IF
+    VALUE 'M'
+      RESET NORP-STD3-REL-CHARACTER (#I)
+      #T-IN := NORP-STD3-VALUE (#I)
+      PERFORM VALIDATE-MASK         /* check for correct Natural mask
+      ESCAPE ROUTINE
+    NONE
+      #ES-MSG-NR := 0677                 /* enter valid value type
+      #ES-MSG-FIELD-NAME  := 'STD3-TAB'
+      #ES-MSG-FIELD-INDEX1 := #I
+      #ES-MSG-FIELD-INDEX2 := 4
+      ESCAPE ROUTINE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* VALIDATE-STD3-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+/*NKEW1 < new implementation?
+ES-MSG-NR := #ES-MSG-NR
+ES-MSG-TXT := F#GETMSG(<#ES-MSG-NR,#ES-MSG-TXT,ES-LANGUAGE,
+  #LIBRARY-ID >)
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+ES-MSG-FIELD := #ES-MSG-FIELD
+ES-RC := 1 /* NKEW1 >
+* RESET SHORT-MSG LONG-MSG(*)
+* VERSION := 0
+* NADA2000.OBJECT-KIND := 'U'
+* NADA2000.ERROR-NUMBER := #ES-MSG-NR
+* NADA2000.OPT-INSERT-DYN := FALSE
+* NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+* NADA2000.LIBRARY := #LIBRARY-ID                      /*'NOM221'
+* CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+* ES-MSG-NR    := #ES-MSG-NR
+* ES-MSG-TXT   := SHORT-MSG
+* EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+* EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT  /*SU12 was ' '
+* EXAMINE ES-MSG-TXT FOR ':2:' REPLACE ' '
+* ES-MSG-FIELD := #ES-MSG-FIELD
+* ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE GET-OPTIONS
+************************************************************************
+#AR-REPNAME     := R-REPNAME
+#AR-REPRNB      := 99999999999
+#AR-REPNAME-R-E := #AR-REPNAME-RNB
+#AR-REPRNB      := 0
+NORP-OPTIONS (*) := ' '
+FAR. FIND NUMBER ACTIVE-REPORT
+  WITH AR-REPORT-RNB = #AR-REPNAME-RNB THRU #AR-REPNAME-R-E
+IF *NUMBER(FAR.) = 0
+  NORP-OPTIONS(1) := 'LA'
+  NORP-OPTIONS(2) := 'SS'
+END-IF
+IF ES-USER-TYPE NE 'A'
+  CALLNAT 'NOGROU-N' 'R' R-REPNAME ES-USER NORP-AUTH #GRANTS(*)
+  IF #GRANTS(1) NE 'Y' AND #GRANTS(3) NE 'Y'
+    NORP-OPTIONS(3) := 'DL'
+  END-IF
+ELSE
+  NORP-AUTH := 'ADMIN'
+END-IF
+*
+END-SUBROUTINE /* GET-OPTIONS
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+IF NOMOD-LOG-TYPES (*) = 'R'
+  DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+    VALUE 'NEW'
+      COMPRESS '2500' NORP-REPNAME TO LG-MSG
+    VALUE 'UPD'
+      COMPRESS '2501' NORP-REPNAME TO LG-MSG
+    ANY VALUE
+      LG-USERID := ES-USER
+      LG-CODE   := 'RM'
+      LG-REPNAME := NORP-REPNAME
+      LG-OBJECT-NAME := NORP-REPNAME
+      CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+    NONE VALUE IGNORE
+  END-DECIDE
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE GET-CURRENT-MONITOR
+************************************************************************
+/* First: Search in NODE-DATA (MF) for the currently active monitor
+MFMON. FIND MF-NODE WITH MF-TYPE-ID = 'MR-'-H'00' THRU 'MR-'-H'FF'
+  #NODE-MONITOR-ID      := MF-NODE.MF-MONITOR-ID
+  NORP-NODE-NAME        := ' ' /*#NODE-NODE-NAME
+  NORP-INTERNAL-NODE-ID := MF-NODE.MF-INTERNAL-NODE-ID
+  NORP-NODE-NUMBER      := MF-NODE.MF-MONITOR-NODE
+  NORP-NODE-TYPE        := MF-NODE.MF-TYPE
+  DECIDE ON FIRST VALUE OF MF-NODE.MF-SPOOL-TYPE
+    VALUE 'JES2'   NORP-NODE-SPOOL := '2'
+    VALUE 'JES3'   NORP-NODE-SPOOL := '3'
+/*SU12  VALUE 'POWR'   NORP-NODE-SPOOL := 'P'
+/*SU12  VALUE 'SPOOL'  NORP-NODE-SPOOL := 'S'
+/*SU12  VALUE 'BS2000' NORP-NODE-SPOOL := 'S' /* compatibility
+    NONE           NORP-NODE-SPOOL := ' ' /*SU12 what happens ? (err ?)
+  END-DECIDE
+END-FIND
+/*
+/* Second: Search in UX for the currently active monitor
+/*
+IF NORP-NODE-TYPE NE 'M' /* Check for monitor type 'M' (via RPC)
+  UXMON. FIND UX-NODES WITH UX-SUSP-NAME = 'M'-H'00' THRU 'M'-H'FF'
+    RESET NORP-NODE-NUMBER
+    NORP-INTERNAL-NODE-ID := 0
+    NORP-NODE-TYPE        := 'M'
+    NORP-NODE-SPOOL       := 'U'
+  END-FIND
+END-IF
+/*
+IF NORP-NODE-TYPE NE 'M' /* Check for monitor type 'L' (via none-RPC)
+  UXLOC. FIND UX-NODES WITH UX-SUSP-NAME = 'L'-H'00' THRU 'L'-H'FF'
+    RESET NORP-NODE-NUMBER
+    NORP-INTERNAL-NODE-ID := 0
+    NORP-NODE-TYPE        := 'M'
+    NORP-NODE-SPOOL       := 'U'
+  END-FIND
+END-IF
+/*
+END-SUBROUTINE /* GET-CURRENT-MONITOR
+*
+END

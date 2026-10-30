@@ -1,0 +1,493 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RBINSZ-N - To compute size of binary documents in bytes
+*
+* Maintenance:
+* uuu     yyyy-mm-dd s(999999) ....
+* xsetggr 2007-11-09 NRT2768   created
+* xsetggr 2008-02-24  add new parameter, add source type direct-input
+* xsetggr 2008-03-11 p(302778) change format of p-rec-length
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* xsetggr 2008-08-21 p(306461) improve error handling
+* xsetggr 2008-11-04 p(306461) add unix-sequential-files
+* xsetggr 2008-11-26 p(310384) backed out changes about unix seq files
+* fhi     2009-07-28 P319282 Binary files on Linux corrupted
+* fhi     2009-09-15 P320367 Use compression routine NOMCOMPR
+* fhi     2010-06-15 NOMALL-813  Re-activate GET-NEXT option
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SPLILDAV 2012-06-27 NOMALL-1078 SUPPORT COMPRESSION 16K BYTE RECORDS
+* raya     2012-10-02 NOMALL-1143 work with lob fields
+* fhi      2012-11-13 NOMALL-1143 READ-NOMDB-PORTION rewritten because
+*                                 of a loop in this routine. No tags
+* fhi      2013-02-15 NOMALL-1143 backout: for future use
+* SU1      2014-01-27 NOMALL-1341 remove LA-fields
+* SU2      2014-09-08 NOMALL-1447 NGC: return max. line nr.
+* fhi      2015-04-10 NOMALL-1552 Get better performance: Cache values
+* fhi      2015-05-06 NOMALL-1552 Reduce size to 3/4 (not base64 size)
+* fhi      2015-05-18 NOMALL-1552 Improve caching values
+* SU3     2016-08-08 NOM 3.5: remove unused code
+* SU4     2017-12-27 NOMALL-1823 NOM 3.5: remove CONNECT
+* SU5     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ---------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 P-NAME            (A25) /* in
+1 P-RNB             (P11) /* in
+1 P-TYPE            (A1)  /* in 'B' - bundle, 'R' - report
+1 P-REC-NUMBER      (I4)  /* out
+1 P-SIZE            (I4)  /* out
+1 P-ERC             (N4)
+1 P-ERT             (A250)
+************************************************************************
+INDEPENDENT
+1 +SZ-IX-LAST                 (N10)
+1 +SZ-REP                     (A/*)   DYNAMIC
+1 +SZ-SIZE                    (I4/*)
+1 +SZ-RECNO                   (I4/*)
+* *****
+LOCAL USING VFSYS-L
+LOCAL USING RCCTYP-E
+LOCAL USING RMSR---E
+LOCAL USING VRPCT-L
+LOCAL USING RMSR---L
+LOCAL USING RMSPL--L
+LOCAL
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-CURRENT-LOCATION
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-SOURCE-ID
+  2 AR-CC-TYPE
+1 SOURCE-TEXT VIEW OF NRM-SOURCE-TEXT
+  2 ST-ID
+  2 ST-LINE-START
+  2 ST-LINE-END
+  2 C*ST-TEXT
+  2 ST-TEXT (1:66)
+  2 REDEFINE ST-TEXT
+    3 ST-TEXT-LOB                   (A16381)
+  2 REDEFINE ST-TEXT
+    3 #ST-TEXT-BUFFER-LENGTH        (B2)
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-TYPE
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-SPOOL-ATTRIBUTES
+/*SU5 -> 2 SR-REMOTE-CODEPAGE 2 SR-SPOOL-ATTR-EXTENDED(1:2)
+/* 2 REDEFINE SR-SPOOL-ATTR-EXTENDED 3 #EXTRA-SEGMENTS (N3)
+/*SU5 <- 3 #EXTRA-LAST-LINES (B4/41:127)
+1 READ-SPOOL VIEW OF READ-SPOOL
+  2 ERROR-CODE
+  2 RECORD-NUMBER
+  2 RECORD
+1 READ-FILE VIEW OF READ-FILE
+  2 ERROR-CODE
+  2 RECORD-NUMBER
+  2 RECORD
+1 BC VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-BUNDLE
+  2 BC-REPNAME
+  2 BC-REPRNB
+  2 BC-BUNDRNB
+1 #KEY                    (A35)
+1 REDEFINE  #KEY
+  2 #K-NAME               (A25)
+  2 #K-RNB                (P11)
+  2 #K-SEQ                (B4)
+1 #AR-REPORT-RNB          (A31)
+1 REDEFINE #AR-REPORT-RNB
+  2 #AR-REPNAME           (A25)
+  2 #AR-REPRNB            (P11)
+1 #BYTE-START             (I4)
+1 #BYTE-END               (I4)
+1 #BYTE1-LEN              (B1)
+1 #BYTE1-LEN-I            (I1)
+1 #BYTE2-LEN              (B2)
+1 #BYTE2-LEN-I            (I2)
+1 #LEN                    (I4)
+1 #BYTES                  (I4)
+1 #I                      (I4)
+1 #J                      (I4)
+1 #L                      (P3)
+1 #TARGET                 (N10)
+1 REDEFINE #TARGET
+  2 #TARGET-DBID          (N5)
+  2 #TARGET-FNR           (N5)
+1 #FROM-LINE              (N9)
+1 #TO-LINE                (N9)
+1 #ERROR-CODE             (N4)
+1 #ERROR-TEXT             (A250)
+1 #RECORD-NUMBER          (P10)
+1 #ST-ID-LINE             (B10)
+1 REDEFINE #ST-ID-LINE
+  2 #ST-ID                (P10)
+  2 #ST-LINE              (B4)
+1 #START-LINE             (P10)
+1 #LFILE-RC               (I4)
+1 #LFILE-NEWDBID          (P5)
+1 #LFILE-NEWFILE          (P5)
+1 #CALLER                 (A8)
+1 #SZ-IX                  (I4)
+1 #SZ-REP                 (A37)
+1 #SZ-REPRNB              (N11)
+1 REDEFINE #SZ-REPRNB
+  2 #SZ-REPRNB-A          (A11)
+1 #SIZE                   (I4)
+1 #RECNO                  (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-SIZE #ERROR-CODE #ERROR-TEXT P-REC-NUMBER
+#SZ-REP        := P-NAME
+#SZ-REPRNB     := P-RNB
+PERFORM GET-IX-ENTRY
+IF #SIZE NE 0
+  P-SIZE       := #SIZE * 3 / 4 /* original size, not base64
+  P-REC-NUMBER := #RECNO
+  ESCAPE ROUTINE
+END-IF
+DECIDE ON FIRST VALUE OF P-TYPE
+  VALUE 'R'
+    #AR-REPNAME := P-NAME
+    #AR-REPRNB  := P-RNB
+    AR2. FIND AR WITH AR-REPORT-RNB = #AR-REPORT-RNB
+      IF AR-CC-TYPE NE BINARY
+        ESCAPE ROUTINE
+      END-IF
+      PERFORM FIND-SOURCE
+    END-FIND
+  VALUE 'B'
+    #K-NAME := P-NAME
+    #K-RNB  := P-RNB
+    RESET #K-SEQ
+    READ BC WITH BC-BUNDLE-RNB = #KEY
+      IF BC-BUNDLE NE P-NAME OR BC-BUNDRNB NE P-RNB
+        ESCAPE BOTTOM
+      END-IF
+      #AR-REPNAME := BC-REPNAME
+      #AR-REPRNB  := BC-REPRNB
+      FIND AR WITH AR-REPORT-RNB = #AR-REPORT-RNB
+        PERFORM FIND-SOURCE
+      END-FIND
+    END-READ
+  NONE VALUE
+    P-ERC := 01
+    P-ERT := 'type not specified'
+END-DECIDE
+P-SIZE := P-SIZE * 3 / 4 /* original size, not base64
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE FIND-SOURCE
+************************************************************************
+DECIDE ON FIRST VALUE OF AR-CURRENT-LOCATION
+  VALUE 'D' PERFORM READ-NRM
+  VALUE 'S' PERFORM READ-SPOOL
+  NONE IGNORE /*???? SU at least MSG ?
+END-DECIDE
+#SZ-REP    := P-NAME
+#SZ-REPRNB := P-RNB
+#SIZE      := P-SIZE
+#RECNO     := P-REC-NUMBER
+PERFORM ADD-IX-ENTRY
+*
+END-SUBROUTINE /* FIND-SOURCE
+*
+************************************************************************
+DEFINE SUBROUTINE READ-NRM
+************************************************************************
+#K-NAME := AR-REPNAME
+#K-RNB  := AR-REPRNB
+RESET #K-SEQ
+READ-NRM. READ REPORT-TEXT BY F-REPNAME-RNB-SEQ = #KEY
+  IF F-REPNAME NE #K-NAME OR F-REPRNB NE #K-RNB
+    ESCAPE BOTTOM
+  END-IF
+  FOR #I 1 TO C*F-TEXT
+    RESET #BYTES
+    EXAMINE F-TEXT(#I) FOR ' ' GIVING LENGTH #BYTES
+    ADD 1 TO P-REC-NUMBER
+    ADD #BYTES TO P-SIZE
+  END-FOR
+END-READ
+*
+END-SUBROUTINE /* READ-NRM
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SPOOL
+************************************************************************
+FIND SOURCE WITH SR-ID = AR.AR-SOURCE-ID
+  IF NO RECORDS FOUND
+    P-ERC := 02
+    P-ERT := 'No source found'
+  END-NOREC
+  #SOURCE-ATTRIBUTES := SR-ATTRIBUTES-IDENT
+  CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES SR-TYPE /*conv Jobnr N5->N7
+  #SPOOL-ATTRIBUTES := SR-SPOOL-ATTRIBUTES
+  CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE /*conv Jobnr N5->N7
+  IF SR-TYPE = NOM-DATA-BASE
+    #TARGET-DBID := #NOMDB-DBID
+    #TARGET-FNR  := #NOMDB-FNR
+    PERFORM SET-LFILE
+    IF P-ERC NE 0
+      P-ERT := 'Set lfile error'
+    END-IF
+  END-IF
+END-FIND
+#K-NAME := AR.AR-REPNAME
+#K-RNB  := AR.AR-REPRNB
+RESET #K-SEQ #BYTES
+READ-CONT. READ REPORT-CONTENTS BY AC-REP-RNB-SEQ = #KEY
+  IF AC-REPNAME NE #K-NAME OR AC-REPRNB NE #K-RNB
+    ESCAPE BOTTOM
+  END-IF
+*
+  FOR #L 1 TO C*AC-INSERTED-LINE
+    RESET #BYTES
+    EXAMINE AC-INSERTED-LINE(#L) FOR ' ' GIVING LENGTH IN #BYTES
+    ADD #BYTES TO P-SIZE
+    ADD 1 TO P-REC-NUMBER
+  END-FOR
+  DECIDE FOR FIRST CONDITION
+    WHEN C*AC-CONTENTS-N9 > 0
+      FOR #I 1 TO C*AC-CONTENTS-N9
+        #FROM-LINE := AC-FROM-LINE-N9(#I)
+        #TO-LINE := AC-TO-LINE-N9(#I)
+        PERFORM READ-SYSOUT-PORTION
+        IF #ERROR-CODE > 0
+          P-ERC := #ERROR-CODE
+          P-ERT := #ERROR-TEXT
+          ESCAPE ROUTINE
+        END-IF
+      END-FOR
+    WHEN C*AC-CONTENTS > 0
+      FOR #I 1 TO C*AC-CONTENTS
+        #FROM-LINE :=  AC-FROM-LINE(#I)
+        #TO-LINE   :=  AC-TO-LINE(#I)
+        PERFORM READ-SYSOUT-PORTION
+        IF #ERROR-CODE NE 0
+          P-ERC := #ERROR-CODE
+          P-ERT := #ERROR-TEXT
+          ESCAPE ROUTINE
+        END-IF
+      END-FOR
+    WHEN NONE IGNORE
+  END-DECIDE
+END-READ
+*
+END-SUBROUTINE /* READ-SPOOL
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SYSOUT-PORTION
+************************************************************************
+DECIDE ON FIRST VALUE OF SR-TYPE
+  VALUE JES2, JES3            PERFORM READ-JES-PORTION
+/*SU5 VALUE POWER                 PERFORM READ-POWER-PORTION
+/*SU5 VALUE SEQUENTIAL-FILE-VSE   PERFORM READ-FVSE-PORTION
+  VALUE SEQUENTIAL-FILE-MVS   PERFORM READ-FMVS-PORTION
+  VALUE SEQUENTIAL-FILE-BS2   PERFORM READ-FBS2-PORTION
+  VALUE NOM-DATA-BASE         PERFORM READ-NOMDB-PORTION
+  NONE  IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* READ-SYSOUT-PORTION
+*
+************************************************************************
+DEFINE SUBROUTINE READ-JES-PORTION
+************************************************************************
+JES. FIND READ-SPOOL WITH NODE = #JES-NODE AND JOB-NAME = #JES-JOB-NAME
+    AND JOB-NUMBER   = #JES-JOB-NUMBER AND TYPE           = #JES-TYPE
+    AND DATA-SET-KEY = #JES-DATA-SET-KEY AND RECORD-NUMBER >= #FROM-LINE
+*
+  IF ERROR-CODE > 0
+    #ERROR-CODE := ERROR-CODE
+    #ERROR-TEXT := 'error reading spool'
+    ESCAPE ROUTINE
+  END-IF
+*
+  IF RECORD-NUMBER > #TO-LINE
+    ESCAPE BOTTOM
+  END-IF
+*
+  RESET #BYTES
+  EXAMINE RECORD FOR ' ' GIVING LENGTH IN #BYTES
+  ADD #BYTES TO P-SIZE
+  ADD 1 TO P-REC-NUMBER
+END-FIND
+*
+END-SUBROUTINE /* READ-JES-PORTION
+*
+************************************************************************
+DEFINE SUBROUTINE READ-FMVS-PORTION
+************************************************************************
+FMVS. FIND READ-FILE WITH NODE = #FMVS-NODE AND DSNAME = #FMVS-DSNAME
+    AND RECFM = #FMVS-RECFM AND LRECL = #FMVS-LRECL
+    AND BLKSIZE = #FMVS-BLKSIZE AND RECORD-NUMBER >= #FROM-LINE
+    AND SEGMENT-LENGTH = 251
+*
+  IF ERROR-CODE > 0
+    #ERROR-CODE := ERROR-CODE
+    #ERROR-TEXT := 'Error reading spool'
+    ESCAPE ROUTINE
+  END-IF
+*
+  IF RECORD-NUMBER > #TO-LINE
+    ESCAPE BOTTOM
+  END-IF
+*
+  RESET #BYTES
+  EXAMINE RECORD FOR ' ' GIVING LENGTH IN #BYTES
+  ADD #BYTES TO P-SIZE
+  ADD 1 TO P-REC-NUMBER
+END-FIND
+*
+END-SUBROUTINE /* READ-FMVS-PORTION
+*
+************************************************************************
+DEFINE SUBROUTINE READ-FBS2-PORTION
+************************************************************************
+FBS2. FIND READ-FILE WITH NODE = #FBS2-NODE AND DSNAME = #FBS2-DSNAME
+    AND RECORD-NUMBER >= #FROM-LINE AND SEGMENT-LENGTH = 251
+*
+  IF ERROR-CODE > 0
+    #ERROR-CODE := ERROR-CODE
+    #ERROR-TEXT := 'Error reading spool'
+    ESCAPE ROUTINE
+  END-IF
+*
+  IF RECORD-NUMBER > #TO-LINE
+    ESCAPE BOTTOM
+  END-IF
+*
+  RESET #BYTES
+  EXAMINE RECORD FOR ' ' GIVING LENGTH IN #BYTES
+  ADD #BYTES TO P-SIZE
+  ADD 1 TO P-REC-NUMBER
+END-FIND
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+#LFILE-NEWDBID := #TARGET-DBID
+#LFILE-NEWFILE := #TARGET-FNR
+CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-NEWDBID #LFILE-NEWFILE
+P-ERC := #LFILE-RC
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE READ-NOMDB-PORTION
+************************************************************************
+PERFORM XXLSLEVL-GET-LAST-LEVEL #CALLER /*XXLSLEVL
+RESET P-REC-NUMBER
+IF #SPOOL-TYPE = DIRECT-INPUT
+  #ST-ID := #SPOOL-DI-ST-ID
+ELSE
+  #ST-ID := #NOMDB-ID
+END-IF
+#ST-LINE := #START-LINE := #FROM-LINE
+NOMDB. READ SOURCE-TEXT BY ST-ID-LINE = #ST-ID-LINE
+  #BYTE-START   := ST-LINE-START
+  #BYTE-END     := ST-LINE-END
+  IF ST-ID NE #ST-ID /* OR #BYTE-START > #FROM-LINE NOMALL-1447 TEST !!
+    ESCAPE BOTTOM(NOMDB.)
+  END-IF
+*
+  ADD C*ST-TEXT TO P-REC-NUMBER
+  EXAMINE ST-TEXT-LOB FOR ' ' GIVING LENGTH IN #BYTES
+  IF SUBSTR(ST-TEXT-LOB,1,3) < 'V34'
+    #BYTES      := #ST-TEXT-BUFFER-LENGTH
+    #BYTES      := #BYTES - 2     /* subtract buffer-length bytes
+    #BYTES      := #BYTES - (#BYTE-END - #BYTE-START + 1)
+*               /* line above: subtract length of line-length bytes
+  ELSE                  /* = new format 'N' with eye catcher 'V34'
+    #BYTES      := #BYTES - 7     /* subtract buffer-length bytes
+    #BYTES      := #BYTES - (#BYTE-END - #BYTE-START + 1) * 2
+*               /* line above: subtract length of line-length bytes
+  END-IF
+*
+  IF ST-LINE-END > #TO-LINE /* take only part of the buffer
+    #RECORD-NUMBER := ST-LINE-START
+    #LEN           := #BYTES
+    RESET #BYTES
+    FORREC. FOR #I = 1 TO #LEN
+      DECIDE FOR EVERY CONDITION
+        WHEN #I = 1
+          IF SUBSTR(ST-TEXT-LOB,1,3) >= 'V34'  /* format of NOM 3.4
+            ADD 6 TO #I
+          ELSE
+            ADD 1 TO #I
+          END-IF
+          ESCAPE TOP
+        WHEN SUBSTR(ST-TEXT-LOB,1,3) >= 'V34'
+          #BYTE2-LEN   := SUBSTR(ST-TEXT-LOB,#I,2)
+          #BYTE2-LEN-I := #BYTE2-LEN
+          #BYTES       := #BYTES + #BYTE2-LEN-I
+          #I           := #I + #BYTE2-LEN-I + 2 /* next length - 1
+        WHEN SUBSTR(ST-TEXT-LOB,1,3) < 'V34'
+          #BYTE1-LEN   := SUBSTR(ST-TEXT-LOB,#I,1)
+          #BYTE1-LEN-I := #BYTE1-LEN
+          #BYTES       := #BYTES + #BYTE1-LEN-I
+          #I           := #I + #BYTE1-LEN-I + 1 /* next length - 1
+        WHEN NONE
+          IGNORE
+      END-DECIDE
+      ADD 1 TO #RECORD-NUMBER
+      IF #RECORD-NUMBER > #TO-LINE
+        ESCAPE BOTTOM (FORREC.)
+      END-IF
+    END-FOR
+  END-IF
+  ADD #BYTES TO P-SIZE
+END-READ
+IF #CALLER = 'NOARBR-N' /*NGC
+  P-REC-NUMBER := 99999999 /*read all data until EOF
+END-IF
+*
+END-SUBROUTINE /* READ-NOMDB-PORTION
+*
+************************************************************************--
+DEFINE SUBROUTINE ADD-IX-ENTRY
+************************************************************************--
+COMPRESS #SZ-REP '/' #SZ-REPRNB-A TO #SZ-REP LEAVING NO
+IF +SZ-IX-LAST GE *OCC (+SZ-REP)
+  #J := *OCC (+SZ-REP) + 50
+  EXPAND ARRAY +SZ-REP    TO (1:#J)
+  EXPAND ARRAY +SZ-SIZE   TO (1:#J)
+  EXPAND ARRAY +SZ-RECNO  TO (1:#J)
+END-IF
+ADD 1 TO +SZ-IX-LAST
++SZ-REP  (+SZ-IX-LAST) := #SZ-REP
++SZ-SIZE (+SZ-IX-LAST) := #SIZE
++SZ-RECNO(+SZ-IX-LAST) := #RECNO
+#SZ-IX                 := +SZ-IX-LAST
+*
+END-SUBROUTINE
+*
+************************************************************************--
+DEFINE SUBROUTINE GET-IX-ENTRY
+************************************************************************--
+RESET #SIZE #RECNO
+IF +SZ-IX-LAST = 0
+  ESCAPE ROUTINE
+END-IF
+COMPRESS #SZ-REP '/' #SZ-REPRNB-A TO #SZ-REP LEAVING NO
+EXAMINE +SZ-REP (*) FOR #SZ-REP GIVING INDEX #SZ-IX
+IF #SZ-IX NE 0
+  #SIZE  := +SZ-SIZE  (#SZ-IX)
+  #RECNO := +SZ-RECNO (#SZ-IX)
+END-IF
+*
+END-SUBROUTINE
+*
+END

@@ -1,0 +1,374 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMRDCDSP - NATURAL Data Collector Trace Facility
+*            Flush RDC buffer
+*
+* Description of the original example program:
+*   "This program demonstrates the usage of the trace record retrieval
+*   functions of the CMRDC utility. It displays some fields from the
+*   collected trace data records in the RDCSIZE buffer for the current
+*   session (one output line per trace record).
+*   Note, that incore trace recording is automatically stopped by the
+*   first retrieval call (Function 'F' or 'G')."
+*
+* It has been adapted for usage with NOM monitor. It can be called to
+* flush the current RDC buffer to the monitor output and the log.
+*
+*  Can be forced by deleting monitor bufferpool, see RMBPPG
+*
+* MAINTENANCE:
+* uuu yyyy-mm-dd iTrac       Description
+* fhi 2017-03-28 NOMALL-2009 Handle switching of RDC better
+* fhi 2017-04-05 NOMALL-2009 Trace RDC if TRACE-RDC=ON is found
+***********************************************************************
+DEFINE DATA
+INDEPENDENT
+1 +TRACE-RDC      (L)
+LOCAL
+1 GDATA (A252)                   /* Data Collector Structure
+1 REDEFINE GDATA
+  2 GLENG (I2)                   /* LENGTH
+  2 GFILLER1 (A2)
+  2 GWRKA (B4)
+  2 GBASP (A8)                   /* BASE SOFTWARE AG PRODUCT
+  2 GVER (A4)                    /* PRODUCT VERSION AND SM-LEVEL
+  2 GFILLER2 (A4)
+  2 GTPM (A8)                    /* TP-MONITOR (*TPSYS)
+  2 GOPS (A8)                    /* OPERATING SYSTEM (*OPSYS)
+  2 GMOD1 (B1)                   /* RUN MODES (XA-ESA SYSTEMS)
+  2 GMOD2 (B1)
+  2 GFILLER3 (A6)
+  2 GCPUT (B4)
+  2 GANCH (B4)
+  2 GTERM (A8)                   /* TP-TERMINAL ID  (*INIT-ID)
+  2 GIUID (A8)                   /* INITIAL USER ID (*INIT-USER)
+  2 GCUID (A8)                   /* CURRENT USER ID (*USER)
+  2 GGRP (A8)                    /* CURRENT GROUP   (*GROUP)
+  2 GCAPL (A8)                   /* CURRENT LOGON   (*APPLIC-ID)
+  2 GPGM (A8)                    /* CURRENT PROGRAM (*PROGRAM)
+  2 GLINE (N4)                   /* CURRENT STATEMENT LINE NUMBER
+  2 GLEV (I1)                    /* CURRENT PROGRAM LEVEL (*LEVEL
+  2 GTYPE (A1)                   /* CURRENT EVENT TYPE
+1 LDATA (A252)                   /* LOCAL DATA AREA
+1 REDEFINE LDATA
+  2 LLENG (I2)                   /* LENGTH OF LOCAL DATA
+  2 LTYPE (A1)                   /* CURRENT EVENT SUBTYPE
+1 LOCALP (A40)                   /* PROGRAM EVENT DATA
+1 REDEFINE LOCALP
+  2 PLENG (I2)                   /* LENGTH OF PROGRAM DATA
+  2 PTYPE (A1)                   /* PROGRAM EVENT SUBTYPE
+  2 PPTYP (A1)                   /* PROGRAM TYPE
+  2 PRLIB (A8)                   /* PROGRAM LIBRARY
+  2 PRNAM (A8)                   /* PROGRAM NAME
+  2 PDBID (I4)                   /* SYSTEM FILE DBID
+  2 PFNR (I4)                    /* SYSTEM FILE FNR
+1 LOCALD (A40)                   /* DATABASE CALL EVENT DATA
+1 REDEFINE LOCALD
+  2 DLENG (I2)                   /* LENGTH OF DATABASE CALL DATA
+  2 DTYPE (A1)                   /* BEFORE/AFTER DATABASE CALL
+  2 DBTYP (A1)                   /* DATABASE TYPE
+  2 DBAL (B4)
+  2 DCMD (A4)                    /* COMMAND CODE
+  2 DCID (B4)                    /* COMMAND ID
+  2 DDBID (I4)                   /* DATABASE ID
+  2 DFNR (I4)                    /* FILE NUMBER
+  2 DRSP (I4)                    /* RESPONSE CODE
+1 LOCALI (A40)                   /* TERMINAL I/O EVENT DATA
+1 REDEFINE LOCALI
+  2 ILENG (I2)                   /* LENGTH OF TERMINAL I/O DATA
+  2 ITYPE (A1)                   /* BEFORE/AFTER TERMINAL I/O
+  2 IFILLER1 (A1)
+  2 IOLNG (I4)                   /* NUMBER OF BYTES SEND OUT
+  2 IILNG (I4)                   /* NUMBER OF BYTES READ IN
+  2 ITSA (I4)                    /* TOTAL SESSION STORAGE ALLOC.
+  2 ICMP (I4)                    /* COMPRESSED STORAGE LENGTH
+1 LOCALC (A40)                   /* EXT. SUBPROG. CALL EVENT DATA
+1 REDEFINE LOCALC
+  2 CLENG (I2)                   /* LENGTH OF EXT. PGM. CALL DATA
+  2 CTYPE (A1)                   /* BEFORE/AFTER SUBPROGRAM CALL
+  2 CMODE (A1)                   /* STATIC/DYNAMIC SUBPROGRAM
+  2 CLOC (A1)                    /* STATIC SUBPROGRAM LOCATION
+  2 CCALL (A1)                   /* CALL BY REFERENCE/VALUE
+  2 CFILLER1 (A2)
+  2 CPADR (B4)                   /* SUBPROGRAM PARAMETER ADDRESS
+  2 CDADR (B4)                   /* PARAMETER DESCRIPTION ADDRESS
+  2 CNAME (A8)                   /* SUBPROGRAM NAME
+  2 CRESP (B4)                   /* SUBPROGRAM RESPONSE CODE
+1 LOCALE (A40)                   /* RUNTIME ERROR EVENT DATA
+1 REDEFINE LOCALE
+  2 ELENG (I2)                   /* LENGTH OF RUNTIME ERROR DATA
+  2 ETYPE (A1)
+  2 EFILLER1 (A1)
+  2 ENUM (N4)                    /* ERROR NUMBER
+  2 EABC (A4)                    /* EXTERNAL ABEND CODE (NAT0954)
+  2 ETA (A8)                     /* ERROR HANDLING PGM (*ERROR-TA
+1 LOCALN (A253)                  /* INTERNAL TRACE EVENT DATA
+1 REDEFINE LOCALN
+  2 NLENG (I2)                   /* LENGTH OF INTERNAL TRACE DATA
+  2 NTYPE (A1)                   /* INTERNAL TRACE EVENT SUBTYPE
+  2 NDATA (A250)                 /* INTERNAL TRACE DATA
+1 LOCALU (A252)                  /* USER TRACE CALL EVENT DATA
+1 REDEFINE LOCALU
+  2 ULENG (I2)                   /* LENGTH OF USER TRACE DATA
+  2 UDATA (A250)                 /* USER TRACE DATA
+1 ETOD       (N6.4)             /* EVENT TIME (HHMMSS.XXXX)
+1 REDEFINE ETOD
+  2 ETODHH   (N2)
+  2 ETODMM   (N2)
+  2 ETODSS   (N2.4)
+1 ETIME      (N6.4)             /* EVENT ELAPSED TIME
+1 FUNCTION   (A1)  INIT<'F'>    /* FUNCTION CODE FOR NATRDC
+1 RETCODE    (I4)               /* RETURN CODE
+1 EVENT-TYPE (A2)               /* EVENT TYPE/SUBTYPE
+1 REDEFINE EVENT-TYPE
+  2 TYPE1    (A1)
+  2 TYPE2    (A1)
+1 LEVEL      (I1)               /* PROGRAM LEVEL
+1 PROG-TYPE  (A1)               /* PROGRAM TYPE
+1 COMMAND    (A2)               /* DATABASE COMMAND
+1 DBID       (I2)               /* DATABASE ID
+1 FNR        (I2)               /* DATABASE FNR
+1 RC         (I2)               /* DATABASE RC
+1 #MSG       (A92)
+1 #MSG-OLD   (A92)
+1 #GTYPE     (A1)               /* Remember GTYPE
+1 #LEVEL-A   (A3)
+1 #DBID-A    (A5)
+1 #FNR-A     (A5)
+1 #RC-A      (A5)
+1 #I4-A      (A10)
+1 #COMMAND-OLD (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF NOT +TRACE-RDC
+  ESCAPE ROUTINE
+END-IF
+FORMAT LS=93
+IF *MACHINE-CLASS NE 'MAINFRAME'
+  ESCAPE ROUTINE
+END-IF
+CALL 'CMRDC' 'P' /* Stop RDC statistics
+*
+#GTYPE := H'01' /* initial value
+#MSG := 'Natural Data Collection Utility (RDC) Report:'
+PERFORM XXRLOG-WRITE-LOG 'T' #MSG
+*
+FORMAT SG=OFF ZP=OFF
+*
+REPEAT UNTIL RETCODE > 0
+  ETIME      := ETOD
+  RESET LDATA GDATA
+  CALL 'CMRDC' FUNCTION ETOD GDATA LDATA  /* GET TRACE RECORD
+  RETCODE := RET('CMRDC')
+  IF RETCODE = 4 AND FUNCTION = 'F' AND ETOD = 0
+    #MSG := 'No trace data available.'
+    PERFORM XXRLOG-WRITE-LOG 'T' #MSG
+*   END TRANSACTION /* No ET allowed, often called in open transactionsÜ
+    ESCAPE BOTTOM
+  END-IF
+  ETOD := 3600 * ETODHH + 60 * ETODMM + ETODSS
+  IF FUNCTION = 'G'
+    ETIME := ETOD - ETIME
+  END-IF
+  FUNCTION   := 'G'
+  RESET LOCALP LOCALD LOCALI LOCALC
+  DECIDE ON FIRST VALUE OF GTYPE
+    VALUE 'P' LOCALP := LDATA
+    VALUE 'C' LOCALC := LDATA
+    VALUE 'D' LOCALD := LDATA
+    VALUE 'I' LOCALI := LDATA
+    VALUE 'E' LOCALE := LDATA
+    VALUE 'N' LOCALN := LDATA
+    VALUE 'U' LOCALU := LDATA
+    NONE IGNORE
+  END-DECIDE
+  TYPE1 := GTYPE
+  IF GTYPE NE 'U'
+    TYPE2 := LTYPE
+  ELSE
+    RESET TYPE2
+  END-IF
+  LEVEL      := GLEV
+  PROG-TYPE  := PPTYP
+  RESET COMMAND DBID FNR RC
+  DECIDE FOR EVERY CONDITION
+    WHEN TYPE1 = 'D'
+      COMMAND  := DCMD
+      DBID     := DDBID
+      FNR      := DFNR
+    WHEN EVENT-TYPE = 'DA'
+      RC       := DRSP
+    WHEN EVENT-TYPE = 'CA' AND CRESP < H'00010000'
+      RC       := CRESP
+    WHEN EVENT-TYPE = 'PS'
+      DBID     := PDBID
+      FNR      := PFNR
+    WHEN TYPE1 = 'C'
+      PRNAM    := CNAME
+      COMMAND  := CMODE
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+  IF RETCODE <= 4
+    #LEVEL-A := LEVEL
+    #DBID-A  := DBID
+    #FNR-A   := FNR
+    #RC-A    := RC
+    IF PRNAM = 'CMRDC' AND COMMAND = 'S' AND COMMAND = #COMMAND-OLD
+      RETCODE := 4
+      RESET #COMMAND-OLD
+      ESCAPE BOTTOM
+    END-IF
+    MOVE ALL '.' TO #MSG
+    IF #GTYPE NE GTYPE
+      MOVE 'User'      TO SUBSTR (#MSG,01,4)
+      MOVE 'Time'      TO SUBSTR (#MSG,10,4)
+      MOVE 'Ty'        TO SUBSTR (#MSG,22,2)
+      MOVE 'Lev'       TO SUBSTR (#MSG,25,3)
+      MOVE 'Program'   TO SUBSTR (#MSG,29,7)
+      MOVE 'T'         TO SUBSTR (#MSG,38,1)
+      MOVE 'Appl'      TO SUBSTR (#MSG,40,4)
+      DECIDE ON FIRST VALUE OF GTYPE
+        VALUE ' '
+          MOVE 'Library'   TO SUBSTR (#MSG,49,7)
+          MOVE 'Program'   TO SUBSTR (#MSG,58,7)
+          MOVE 'Co'        TO SUBSTR (#MSG,67,2)
+          MOVE 'DBID'      TO SUBSTR (#MSG,70,4)
+          MOVE 'Fnr'       TO SUBSTR (#MSG,76,3)
+          MOVE 'RC'        TO SUBSTR (#MSG,82)
+        VALUE 'U'
+          MOVE 'Udata'     TO SUBSTR (#MSG,49)
+        VALUE 'N'
+          IF EVENT-TYPE = 'NS'
+            NDATA := GLINE
+          END-IF
+          MOVE 'Ndata'     TO SUBSTR (#MSG,49)
+        VALUE 'I'
+          MOVE 'Storage'   TO SUBSTR (#MSG,49,7)
+          MOVE 'Stor-cmp'  TO SUBSTR (#MSG,60,8)
+          MOVE 'Sent'      TO SUBSTR (#MSG,71,4)
+          MOVE 'Receivd'   TO SUBSTR (#MSG,82)
+        VALUE 'E'
+          MOVE 'Err'       TO SUBSTR (#MSG,49,3)
+          MOVE 'Abnd'      TO SUBSTR (#MSG,54,4)
+          MOVE 'Err-Trns'  TO SUBSTR (#MSG,59,8)
+          MOVE 'Line'      TO SUBSTR (#MSG,68)
+        NONE VALUE
+          MOVE 'Library'   TO SUBSTR (#MSG,49,7)
+          MOVE 'Program'   TO SUBSTR (#MSG,58,7)
+          MOVE 'Co'        TO SUBSTR (#MSG,67,2)
+          MOVE 'DBID'      TO SUBSTR (#MSG,70,4)
+          MOVE 'Fnr'       TO SUBSTR (#MSG,76,3)
+          MOVE 'RC'        TO SUBSTR (#MSG,82)
+      END-DECIDE
+      IF PRNAM = 'CMRDC' AND COMMAND = 'S' AND COMMAND = #COMMAND-OLD
+        RETCODE := 4
+        RESET #COMMAND-OLD
+        ESCAPE BOTTOM
+      ELSE
+        RESET #COMMAND-OLD
+      END-IF
+      IF SUBSTR(#MSG,22) = SUBSTR(#MSG-OLD,22) /* identical line
+        ESCAPE TOP
+      END-IF
+      #MSG-OLD := #MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #MSG
+      MOVE ALL '-' TO #MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #MSG
+      #GTYPE := GTYPE
+    END-IF
+*
+    MOVE ALL '.' TO #MSG
+    MOVE GCUID       TO SUBSTR (#MSG,01,8)
+    MOVE ETIME       TO SUBSTR (#MSG,10,11)
+    MOVE EVENT-TYPE  TO SUBSTR (#MSG,22,2)
+    MOVE #LEVEL-A    TO SUBSTR (#MSG,25,3)
+    MOVE GPGM        TO SUBSTR (#MSG,29,8)
+    MOVE PROG-TYPE   TO SUBSTR (#MSG,38,1)
+    MOVE GCAPL       TO SUBSTR (#MSG,40,8)
+    DECIDE ON FIRST VALUE OF GTYPE
+      VALUE ' '
+        MOVE PRLIB       TO SUBSTR (#MSG,49,8)
+        MOVE PRNAM       TO SUBSTR (#MSG,58,8)
+        MOVE COMMAND     TO SUBSTR (#MSG,67,2)
+        MOVE #DBID-A     TO SUBSTR (#MSG,70,5)
+        MOVE #FNR-A      TO SUBSTR (#MSG,76,5)
+        MOVE #RC-A       TO SUBSTR (#MSG,82)
+      VALUE 'U'
+        MOVE UDATA       TO SUBSTR (#MSG,49)
+      VALUE 'N'
+        IF EVENT-TYPE = 'NS'
+          NDATA := GLINE
+        END-IF
+        MOVE NDATA       TO SUBSTR (#MSG,49)
+      VALUE 'I'
+        MOVE EDITED ITSA  (EM=9(10)) TO #I4-A
+        MOVE        #I4-A            TO SUBSTR (#MSG,49,10)
+        MOVE EDITED ICMP  (EM=9(10)) TO #I4-A
+        MOVE        #I4-A            TO SUBSTR (#MSG,60,10)
+        MOVE EDITED IOLNG (EM=9(10)) TO #I4-A
+        MOVE        #I4-A            TO SUBSTR (#MSG,71,10)
+        MOVE EDITED IILNG (EM=9(10)) TO #I4-A
+        MOVE        #I4-A            TO SUBSTR (#MSG,82,10)
+      VALUE 'E'
+        MOVE ENUM        TO SUBSTR (#MSG,49,4)
+        MOVE EABC        TO SUBSTR (#MSG,54,4)
+        MOVE ETA         TO SUBSTR (#MSG,59,8)
+        MOVE GLINE       TO SUBSTR (#MSG,68)
+      NONE VALUE
+        MOVE PRLIB       TO SUBSTR (#MSG,49,8)
+        MOVE PRNAM       TO SUBSTR (#MSG,58,8)
+        MOVE COMMAND     TO SUBSTR (#MSG,67,2)
+        MOVE #DBID-A     TO SUBSTR (#MSG,70,5)
+        MOVE #FNR-A      TO SUBSTR (#MSG,76,5)
+        MOVE #RC-A       TO SUBSTR (#MSG,82)
+    END-DECIDE
+    EXAMINE FULL #MSG FOR ' ' REPLACE WITH '.'
+    IF SUBSTR(#MSG,22) = SUBSTR(#MSG-OLD,22) /* identical line
+      ESCAPE TOP
+    END-IF
+    #MSG-OLD := #MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #MSG
+*   END TRANSACTION /* No ET allowed, often called in open transactionsÜ
+*
+  END-IF
+*
+  IF  PRNAM = 'CMRDC' AND COMMAND = 'S'
+    #COMMAND-OLD := 'S'
+  ELSE
+    RESET #COMMAND-OLD
+  END-IF
+END-REPEAT
+*
+RESET #MSG
+DECIDE ON FIRST VALUE OF RETCODE
+  VALUE 8
+    #MSG := 'Too few parameters.'
+  VALUE 12
+    #MSG := 'Invalid function code.'
+  VALUE 16
+    #MSG := 'Data collector switched off. Use parms: '
+    PERFORM XXRLOG-WRITE-LOG 'T' #MSG
+    #MSG := 'RDC=(SIZE=128,FNAT=ON),ITRACE=ON,'-
+      'TRACE=(NATEDT,NATPROX,DYNPARMS,NATAM12)'
+  VALUE 20
+    #MSG := 'Data collector disabled.'
+  VALUE 24
+    #MSG := 'No buffer space for trace.'
+  VALUE 28
+    #MSG := 'Invalid parameter value.'
+  ANY
+    PERFORM XXRLOG-WRITE-LOG 'T' #MSG
+  NONE
+    IGNORE
+END-DECIDE
+*   END TRANSACTION /* No ET allowed, often called in open transactionsÜ
+END

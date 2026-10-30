@@ -1,0 +1,257 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMSRCK-N - Check existance of report source
+*
+* Creation and Maintenance History
+* uuu yy-mm-dd s(999999) ...
+* gw  93-02-01 s(999999) created
+* mrs 93-10-18 s(999999) check existance of spool-queue entry
+* mrs 93-11-02 s(999999) error 409 commented out
+* mrs 94-02-17 s(999999) JES3 implemented
+* mrs 94-03-01 s(999999) BS2 implemented
+* mrs 94-06-15 s(999999) FGG implemented
+* mrs 95-02-24 s(218213) since a bug in rmscbs2 (long data set names)
+*                        an error 5750 may occur when checking data set
+*                        assume that data set does not exist.
+* fhi 00-02-28 FHI01     Does not compile under Nat312, label POWER
+*                        is duplicate. Changing to POWER1
+* sju 00-03-07 p(192737) better error reporting
+* fhi 00-08-24 QA03      Use NAT23006 for error values
+* sju 01-06-06 p(208693) treat 5733 as doesn't exist for BS2 files
+* sju 03-02-05 special   Handle TYPE=AL Jes sources
+* fhi 05-04-19 NOM31107  Support 7-byte job numbers
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* fhi     2014-11-05 NOMALL-1514 Add trace statements for z/OS
+* SU2     2018-04-27 NOMALL-1823 remove SAP - nothing to do here
+* SU3     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+*
+DEFINE DATA PARAMETER
+1 P-RCHKSPLN
+  2 P-ERC          (N4)
+  2 P-ERT          (A250)
+  2 P-SOURCE-ID    (P10)
+  2 P-EXIST        (L)
+  2 P-TRACING      (L) OPTIONAL
+************************************************************************
+LOCAL USING RMSR---E
+LOCAL USING RMSR---L
+*
+LOCAL
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-TYPE
+  2 SR-ATTRIBUTES-IDENT
+1 SPOOL-FILE VIEW OF SPOOL-FILES
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 REDEFINE ERROR-TEXT
+    3 ERROR-IDENT  (A8)
+1 SPOOL-QUEUE VIEW OF SPOOL-QUEUE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 REDEFINE ERROR-TEXT
+    3 ERROR-IDENT  (A8)
+/*SU3  2 QUEUE
+/*SU3 1 VTOC VIEW OF VTOC 2 ERROR-CODE 2 ERROR-TEXT
+/*SU3  2 REDEFINE ERROR-TEXT 3 ERROR-IDENT  (A8)
+1 CATALOG VIEW OF CATALOG
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 REDEFINE ERROR-TEXT
+    3 ERROR-IDENT(A8)
+*
+1 #JES-FILE-TYPE         (A2)
+1 #TRACING               (L)
+1 #TRACE-MSG             (A250)
+1 #SOURCE-TYPES          (A30/17)
+  INIT <
+  'JES2','JES3','POWER','NOM-DATA-BASE','SEQUENTIAL-FILE-MVS',
+  'SEQUENTIAL-FILE-VSE','SEQUENTIAL-FILE-BS2','LMS',
+  'EPS','NAT','NAF','JES2-QUEUE-ENTRY','JES3-QUEUE-ENTRY',
+  'CMASPOOL','SAPSPOOL','SEQUENTIAL-FILE-UNIX','DIRECT-INPUT'
+  > /*SU2/SU3 must stay to be upward compatible
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+P-EXIST := TRUE
+*
+IF P-TRACING SPECIFIED
+  #TRACING := P-TRACING
+ELSE
+  RESET #TRACING
+END-IF
+*
+FNDSRC. FIND (1) SOURCE WITH SR-ID = P-SOURCE-ID
+  IF NO RECORDS FOUND
+    IF #TRACING
+      COMPRESS 'Source' P-SOURCE-ID 'not found in' *PROGRAM 'line' *LINE
+        TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      ESCAPE BOTTOM (FNDSRC.)
+    END-IF
+  END-NOREC
+  IF #TRACING
+    COMPRESS 'Source' P-SOURCE-ID 'found in' *PROGRAM 'line' *LINE
+      TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    ESCAPE BOTTOM (FNDSRC.)
+  END-IF
+  #SOURCE-ATTRIBUTES := SR-ATTRIBUTES-IDENT
+END-FIND
+CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES SR-TYPE
+IF #TRACING
+  COMPRESS 'Got source type' #SOURCE-TYPES(SR-TYPE) 'with parameters:'
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  DECIDE ON FIRST VALUE SR-TYPE
+    VALUE JES2-QUEUE-ENTRY , JES3-QUEUE-ENTRY
+      COMPRESS 'Node' #JES-QUEUE-NODE '- job name' #JES-QUEUE-JOB-NAME
+        '/ ' #JES-QUEUE-JOB-NUMBER '- job group' #JES-QUEUE-GROUP-ID
+        TO #TRACE-MSG
+    VALUE JES2 , JES3
+      COMPRESS 'Node' #JES-NODE '- job name' #JES-JOB-NAME
+        '/ ' #JES-JOB-NUMBER '- type' #JES-FILE-TYPE
+        '- key'  #JES-DATA-SET-KEY TO #TRACE-MSG
+/*SU3  VALUE POWER
+    VALUE SEQUENTIAL-FILE-MVS
+      COMPRESS 'Node' #FMVS-NODE '- DS' #FMVS-DSNAME TO #TRACE-MSG
+    NONE
+      IGNORE
+  END-DECIDE
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+DECIDE ON FIRST VALUE SR-TYPE
+  VALUE JES2-QUEUE-ENTRY , JES3-QUEUE-ENTRY
+    JESQ. FIND (1) SPOOL-QUEUE WITH NODE       = #JES-QUEUE-NODE
+    AND JOB-NAME   = #JES-QUEUE-JOB-NAME                              /*
+    AND JOB-NUMBER = #JES-QUEUE-JOB-NUMBER                            /*
+    AND GROUP-ID   = #JES-QUEUE-GROUP-ID                              /*
+      IF NO RECORDS FOUND
+        IF #TRACING
+          COMPRESS 'not found in Spool Q of node' #JES-QUEUE-NODE
+            '- job name' #JES-QUEUE-JOB-NAME '/ ' #JES-QUEUE-JOB-NUMBER
+            '- job group' #JES-QUEUE-GROUP-ID TO #TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+        P-EXIST := FALSE
+      END-NOREC
+      IF ERROR-CODE > 0
+        IF #TRACING
+          COMPRESS 'Error in Spool Q of node' #JES-QUEUE-NODE
+            '- job' #JES-QUEUE-JOB-NAME '/ ' #JES-QUEUE-JOB-NUMBER
+            '- group' #JES-QUEUE-GROUP-ID '- Error no' ERROR-CODE
+            '- Text' ERROR-TEXT TO #TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+        P-ERC := 0005
+        COMPRESS ERROR-IDENT #JES-QUEUE-NODE #JES-QUEUE-JOB-NAME
+          #JES-QUEUE-JOB-NUMBER #JES-QUEUE-GROUP-ID TO P-ERT
+      END-IF
+    END-FIND
+    IF *COUNTER (JESQ.) = 0
+      P-EXIST := FALSE
+    END-IF
+  VALUE JES2 , JES3
+    #JES-FILE-TYPE:= #JES-TYPE
+    IF #JES-FILE-TYPE = 'AL'
+      #JES-FILE-TYPE:= '*'
+    END-IF
+    FIND SPOOL-FILE WITH JOB-NAME = #JES-JOB-NAME
+    AND JOB-NUMBER = #JES-JOB-NUMBER AND TYPE = #JES-FILE-TYPE        /*
+    AND DATA-SET-KEY = #JES-DATA-SET-KEY AND NODE = #JES-NODE         /*
+      IF NO
+        IF #TRACING
+          COMPRESS 'not found in Spool Q of node' #JES-NODE
+            '- job name' #JES-JOB-NAME '/ ' #JES-JOB-NUMBER
+            '- type' #JES-FILE-TYPE '- key' #JES-DATA-SET-KEY
+            TO #TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+        P-EXIST := FALSE
+      END-NOREC
+      IF #TRACING AND ERROR-CODE NE 0
+        COMPRESS 'RC in Spool Q of node' #JES-NODE
+          '- job name' #JES-JOB-NAME '/ ' #JES-JOB-NUMBER
+          '- type' #JES-FILE-TYPE '- key' #JES-DATA-SET-KEY
+          '- RC' ERROR-CODE '- txt' ERROR-TEXT TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      DECIDE ON FIRST ERROR-CODE
+        VALUE 0
+          IGNORE
+        VALUE 724, 722
+          P-EXIST := FALSE
+        NONE VALUE
+          P-ERC := 0005
+          COMPRESS ERROR-IDENT #JES-NODE #JES-JOB-NAME
+            #JES-JOB-NUMBER #JES-TYPE #JES-DATA-SET-KEY TO P-ERT
+      END-DECIDE
+    END-FIND
+*
+/*SU3  VALUE POWER
+/*SU3 VALUE SEQUENTIAL-FILE-VSE
+*
+  VALUE NOM-DATA-BASE
+    IGNORE
+*
+  VALUE SEQUENTIAL-FILE-MVS
+    FNDCAT. FIND CATALOG WITH NODE = #FMVS-NODE AND DSNAME =#FMVS-DSNAME
+    AND PREFIX = 'NO'                                                 /*
+      DECIDE ON FIRST ERROR-CODE
+        VALUE 0
+          IGNORE
+        VALUE 562
+          P-EXIST := FALSE
+        NONE VALUE
+          P-ERC := 0005
+          COMPRESS ERROR-IDENT #FMVS-NODE #FMVS-DSNAME TO P-ERT
+      END-DECIDE
+    END-FIND
+    IF *COUNTER (FNDCAT.) = 0
+      IF #TRACING
+        COMPRESS 'not found in catalog of node' #FMVS-NODE
+          '- DS' #FMVS-DSNAME TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      P-EXIST := FALSE
+    END-IF
+*
+  VALUE SEQUENTIAL-FILE-BS2
+    FNDBS2. FIND CATALOG WITH NODE = #FBS2-NODE AND DSNAME =#FBS2-DSNAME
+    AND GEN = 'YES'                                                   /*
+      DECIDE ON FIRST ERROR-CODE
+        VALUE 0
+          IGNORE
+        VALUE 722, 733, 750
+          P-EXIST := FALSE
+        NONE VALUE
+          P-ERC := 0005
+          COMPRESS ERROR-IDENT #FBS2-NODE #FBS2-DSNAME TO P-ERT
+      END-DECIDE
+    END-FIND
+    IF *COUNTER (FNDBS2.) = 0
+      P-EXIST := FALSE
+    END-IF
+*
+  NONE /*VALUE LMS, EPS
+    IGNORE
+END-DECIDE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  P-ERC := 0021
+  CALLNAT 'C-NATERN' P-ERT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

@@ -1,0 +1,202 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMFB01N - API to flush a Act. Bu. and update its Printing attributes.
+*   This routine will look for an opened Bundle with
+*   the same name as passed via the parameter, then
+*   will update the bundle's printing attributes as
+*   desired.
+*   If only a Bundle name is supplied and a match
+*   is found then it is closed.
+*   If a Printer name is passed the the routine will
+*   will check if this is a valid Printer if it is
+*   a valid printer then the Bundle is close with copy
+*   copy infomation if passed.
+*   All other printing attributes will only be updated
+*   if bundle is matched.
+*
+* Parameters:  Length 300 bytes (A250(1:2))
+* Parameters:  Length 482 bytes (A250(1:2)) for Version 2.1
+* Input  Parameter :
+*           NOMFB-rc (I2)          /* return code
+*             /* Returned values :
+*                0 - Closed successfully
+*                1 - Bundle not found or Not in opened status
+*                2 - Printer not found
+*                3 - SAT log file not set        sju 00-11-21
+*                4 - Error setting lfile 91      sju 02-02-25 nom221
+*                5 - error adding steplibs       xsetggr 08-12-05
+*                6 - Printer type not allowed
+*
+*           NOMFB-Bundle (A8)
+*           NOMFB-Bundle (A25)    for Version 2.1
+*             /* Name of Bundle to be closed.
+*
+*           NOMFB-Logigal-Printer (A40)
+*           NOMFB-Logigal-Printer (A160)  for Version 2.1
+*             /* Up to 20 printers, will be validated against defined
+*             /* printers. Printer name has a length is alpha 8.
+*
+*           NOMFB-Print-Copies   (A15)
+*           NOMFB-Print-Copies   (A60)    for Version 2.1
+*             /* Number of copies for for each printer, if nothing
+*             /* is entered then the default value 1 is used.
+*             /* Copy length is numeric 3 for each printer.
+*
+*           NOMFB-Separation     (A19)
+*             /* Separation start name, end name and copies
+*             /* Copies default value 1 is used when nothing is entered.
+*             /* Separation start name length is alpha 8.
+*             /* Separation end name length is alpha 8.
+*             /* Separation copy length is numeric 3.
+*
+*           NOMFB-JobCards       (A216)
+*             /* Jobcars up to 3, lentgh alpha 72 each.
+*
+*           NOMFB-ERT             (A70)
+*             /* error text - from NOM version 32
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* JVD 97-12-03 p(167813) CREATED AS REQUESTED BY CU
+* JWO 97-12-08 p(167813) adapted to standards
+* xsiszha 2000-09-06 (CE7267) Increase to  20 printers
+* xsiszha 2000-09-06 (CE7461) Extend Report and Bundle Names
+* sju 00-11-21 s(999999) Check setting of lfile 131 (SAT log file)
+* xsetggr 01-06-07 p(208730)   make possible to reset printers and
+*                              separator pages
+* sju 02-02-25 NOM221          New lfile for active data
+* fhi 05-12-14 P272732         cataloged, because VPRINT-L was changed.
+* xsetggr 2006-05-19 p(279655) prevent missing bundle printing attrib
+* xsetggr 2008-08-11 p(300323) add steplibs
+* xsetggr 2008-12-05 p(300323) change adding of steplibs
+* xsetggr 2009-02-10 P300323   delete steplib handling
+* xsetggr 2009-10-01 P314431 allow only NATUNIX&DISKUNIX printers for
+*                        Unix systems,UNIXLP printers only for mainframe
+* xsetggr 2010-11-03 NOMALL-865 restow due to changes in EOMPHTYE
+* xsetggr 2012-02-01 NOMALL-1100 write language independant msgs in log
+* SU1     2014-06-30 NOMALL-1279 fill fields for Adabas Vista
+* raya    2012-11-12 nomall-932
+* SU2     2014-11-12 NOMALL-1527 getting rid of coding for old versions
+* SU3     2016-01-15 NOMALL-1802 do not update Adabas Vista fields
+* ---------------------------------------------------------------------
+DEFINE DATA PARAMETER USING NOMFB--P
+************************************************************************
+LOCAL USING NOMFB02L
+LOCAL USING VABUND-L
+LOCAL USING VPRINT-L
+LOCAL USING RLOG-L
+LOCAL USING SATLGV1P
+LOCAL USING RACTLF-A
+LOCAL USING EOMPHTYE
+LOCAL
+1 PHYSICAL VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-PRINTER-TYPE
+1 #AB-BUNDLE-STATUS (A27)
+1 REDEFINE #AB-BUNDLE-STATUS
+  2 #AB-BUNDLE      (A25)
+  2 #AB-STATUS      (A2)
+*
+1 #DEFAULT-COPY     (N3) INIT <1>
+1 #IND              (P3)
+1 #JOBC             (P3)
+1 #BLANK-JBC        (A72)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+NOMFB-PARMS(*) := NOMFB-PARMS-P(*)
+*
+RESET NOMFB-RC #BLANK-JBC #AB-BUNDLE-STATUS #IND #JOBC
+CALLNAT 'SATLGFVN' SATLGV-PARMS
+IF SATLGV-RC NE 0
+  NOMFB-RC-P:= 3
+  ESCAPE ROUTINE
+END-IF
+RESET RACTLF-LOGGING RACTLF-ERROR-LOGGING
+RACTLF-LFILE-1:= 91
+RACTLF-LFILE-2:= 206
+CALLNAT 'RACTLF-N' RACTLF-PARMS
+IF RACTLF-ERROR-CODE NE 0
+  NOMFB-RC-P:= 4
+  ESCAPE ROUTINE
+END-IF
+#AB-BUNDLE := NOMFB-BUNDLE
+#AB-STATUS := 'O' /* For Open Bundles Only
+*
+FAB1. FIND ACTIVE-BUNDLES WITH AB-BUNDLE-STATUS = #AB-BUNDLE-STATUS
+  IF NO RECORDS FOUND
+    NOMFB-RC := 1
+    ESCAPE BOTTOM (FAB1.)
+  END-NOREC
+*
+  FOR1. FOR #IND 1 TO 20
+    IF NOMFB-LOG-PRT (#IND) NE ' '
+      FPR1. FIND PRINTERS WITH P-ID = NOMFB-LOG-PRT (#IND)
+        IF NO RECORDS FOUND
+          NOMFB-RC := 2
+          ESCAPE BOTTOM (FOR1.)
+        END-NOREC
+        FIND PHYSICAL WITH PH-VTAMID = P-PHYSICAL-NAME
+          IF *MACHINE-CLASS = 'MAINFRAME'
+            IF PH-PRINTER-TYPE = ##PHYS-NATUNIX
+              NOMFB-RC := 6
+              ESCAPE BOTTOM (FOR1.)
+            END-IF
+          ELSE
+           IF NOT(PH-PRINTER-TYPE = ##PHYS-DISKUNIX OR = ##PHYS-NATUNIX)
+              NOMFB-RC := 6
+              ESCAPE BOTTOM (FOR1.)
+            END-IF
+          END-IF
+        END-FIND
+        /* Printer Name
+        AB-PRINTER (#IND) := NOMFB-LOG-PRT(#IND)
+        /* No. of copies
+        DECIDE FOR FIRST CONDITION
+          WHEN NOMFB-PRT-COPY(#IND) > #DEFAULT-COPY
+            AB-PRINTER-COPIES(#IND) := NOMFB-PRT-COPY(#IND)
+          WHEN NONE
+            AB-PRINTER-COPIES(#IND) := #DEFAULT-COPY
+        END-DECIDE
+      END-FIND /* (FPR1.)
+    END-IF
+  END-FOR  /* (FOR1.)
+  /* Separation of Bundles
+  IF NOMFB-SEP-START NE ' '
+    AB-SEPSTART := NOMFB-SEP-START
+  END-IF
+  IF NOMFB-SEP-END NE ' '
+    AB-SEPEND := NOMFB-SEP-END
+  END-IF
+  IF NOMFB-SEP-COPY > #DEFAULT-COPY
+    AB-SEPNO := NOMFB-SEP-COPY
+  END-IF
+  /* Job cards
+  FOR2. FOR #JOBC 1 TO 3
+    IF NOMFB-JOBCARD(#JOBC) NE #BLANK-JBC
+      AB-PRINT-JOBCARD(#JOBC) := NOMFB-JOBCARD(#JOBC)
+    END-IF
+  END-FOR  /* (FOR2.)
+*
+  IF NOMFB-RC = 0
+    AB-STATUS      := 'P'
+    AB-FLUSH-TIME  := *TIMX
+    UPDATE (FAB1.)
+    LG-CODE := 'AB'
+    LG-BUNDLE := AB-BUNDLE
+    LG-BUNDRNB := AB-BUNDRNB
+    COMPRESS AB-BUNDLE '-' AB-BUNDRNB TO LG-OBJECT-NAME LEAVING NO
+    LG-USERID := *USER
+    COMPRESS '0488' LG-OBJECT-NAME LG-USERID TO LG-MSG
+    CALLNAT 'RLOG' PL-PARMS
+  END-IF
+  END TRANSACTION
+END-FIND  /* (FAB1.)
+NOMFB-RC-P := NOMFB-RC
+*
+END

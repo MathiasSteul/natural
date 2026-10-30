@@ -1,0 +1,87 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMPOSTN - Return status text for printout status
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* gw      1993-07-01           created
+* jvd     1999-02-17 p(179432) NAT1320 when using VAL
+* sju     2000-11-14 s(999999) SAT log server
+* sju     2001-04-32 p(204915) bundle print control exit
+* xsetggr 2007-05-03 NOM3201   restow due changes in NEOMPOM-P
+* xsetggr 2007-05-29 p(294790) restow due changed eompom-p
+* xsetggr 2007-06-27 NOM3201   support 5 byte node numbers and 11 byte
+*                              run numbers - restow due changes eompom-p
+* fhi     2008-02-19 P(302238) Follow print status
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER USING EOMPOM-P
+* ----------------------------------------------------------------------
+LOCAL USING EOMPOSTE
+LOCAL USING RTXT---L
+*
+LOCAL
+1 #IDENT                 (I2)
+1 #EOMPOM-MSG            (A250)
+1 REDEFINE  #EOMPOM-MSG
+  2 #EOMPOM-MSG-NNNN     (N4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST VALUE OF EOMPOM-STATUS
+  VALUE ##STATUS-READY-TO-PRINT
+    #IDENT := ##TXT-READY-TO-PRINT
+  VALUE ##STATUS-PRINTER-BUSY
+    IF EOMPOM-PHYSICAL-NAME = 'SYSPRINT'
+      #IDENT := ##TXT-FAILED-RETRY
+    END-IF
+  VALUE ##STATUS-CURRENTLY-PRINTING
+    IF EOMPOM-MSG = MASK(NNNN)
+      #EOMPOM-MSG := EOMPOM-MSG
+      #IDENT := #EOMPOM-MSG-NNNN
+    ELSE
+      #IDENT := ##TXT-SENT-TO-PRINTER
+    END-IF
+  VALUE ##STATUS-IN-HOLD
+    #IDENT := ##TXT-HOLD
+  VALUE ##STATUS-AWAITING-CONFIRMATION
+    #IDENT := ##TXT-CONFIRMATION-REQUIRED
+  VALUE ##STATUS-PRINTED-SUCCESSFULLY
+    IF EOMPOM-MSG = ' '      /* leave msgs from bundle print exit
+      #IDENT := ##TXT-PRINTED-SUCCESSFULLY
+    END-IF
+  VALUE ##STATUS-PRINTER-OUTPUT
+    #IDENT := ##TXT-PRINTER-PRINTING
+  VALUE ##STATUS-UNKNOWN
+    #IDENT := ##TXT-STATUS-UNKNOWN
+  VALUE ##STATUS-PRINT-FAILED
+    IF EOMPOM-MSG = MASK(NNNN)
+      #EOMPOM-MSG:= EOMPOM-MSG
+      CALLNAT 'RSUBMSGN' #EOMPOM-MSG
+      EOMPOM-MSG:= #EOMPOM-MSG
+    END-IF
+  VALUE ##STATUS-ERROR
+    IF EOMPOM-MSG = MASK(NNNN)
+      #EOMPOM-MSG:= EOMPOM-MSG
+      CALLNAT 'RSUBMSGN' #EOMPOM-MSG
+      EOMPOM-MSG:= #EOMPOM-MSG
+    END-IF
+  ANY VALUE
+    IF #IDENT NE 0
+      EOMPOM-MSG  := #IDENT
+      #EOMPOM-MSG := EOMPOM-MSG
+      CALLNAT 'RSUBMSGN' #EOMPOM-MSG
+      EOMPOM-MSG := #EOMPOM-MSG
+    END-IF
+  NONE VALUE
+    IGNORE
+END-DECIDE
+*
+END

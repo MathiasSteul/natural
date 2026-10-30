@@ -1,0 +1,214 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    MIGVIST2
+* Function  For one active report copy field OBJECT-TIME to all related
+*           OBJECT-TYPEs: AC,FS,MA,DR,PO (for AB too)
+* Version   3.4
+*
+* Maintenance:
+* uuu     yyyy-mm-dd itrac ....
+* SU1     2015-05-25 NOMALL-1631 created (based on EOMARMVN)
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER
+1 #AR-REPORT-RNB_P    (A31) /*in
+1 REDEFINE #AR-REPORT-RNB_P
+  2 P-REPNAME         (A25)
+  2 P-REPRNB          (P11)
+1 #AR-TIME            (T)   /*in
+1 #COUNTER-OT         (I4)  /*in/out: for upd. related objets
+1 #COUNTER-OT-NOT     (I4)  /*in/out: for not upd. related objets
+* *****
+LOCAL USING SUPER-L
+LOCAL USING VDSNRP-L /*NRM-DATASET-REPORT
+LOCAL
+1 REPORT-CONTENTS VIEW OF NRM-REPORT-CONTENTS
+  2 AC-REPNAME
+  2 AC-REPRNB
+  2 AC-OBJECT-TYPE
+  2 AC-OBJECT-TIME
+1 REPORT-TEXT VIEW OF NRM-FILED-SYSOUTS
+  2 F-REPNAME
+  2 F-REPRNB
+  2 F-OBJECT-TYPE
+  2 F-OBJECT-TIME
+1 MAIL-REPORTS VIEW OF NRM-MAIL
+  2 MA-REPNAME
+  2 MA-REPRNB
+  2 MA-USERID
+  2 MA-OBJECT-TYPE
+  2 MA-OBJECT-TIME
+1 PRINTOUTS VIEW OF NRM-PRINTOUTS
+  2 PO-OBJECT-TYPE
+  2 PO-OBJECT-TIME
+* *****
+1 #UPD-COUNT          (I2)
+1 #I                  (I2)
+1 #OBJ-TYPE-TAB       (A22/1:5) CONST <
+  'AC'-'REPORT-CONTENTS' ,
+  'FS'-'FILED-SYSOUTS' ,
+  'MA'-'MAIL' ,
+  'DR'-'DATASET-REPORT' ,
+  'PO'-'PRINTOUTS' >
+1 REDEFINE #OBJ-TYPE-TAB
+  2 #TAB-GR           (1:5)
+    3 #OBJ-TYPE       (A2)
+    3 #OBJ-NAME       (A20)
+1 #TEST (L) CONST <FALSE> /*must be set to FALSE for delivery
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF #TEST AND #COUNTER-OT = 0 AND #COUNTER-OT-NOT = 0
+  PRINT *PROGRAM '>'(8) 'in test mode.'
+END-IF
+#AC-REPNAME := P-REPNAME
+#AC-REPRNB  := P-REPRNB
+RESET #AC-SEQ
+FOR #I = 1 TO *OCC(#OBJ-TYPE-TAB)
+  DECIDE ON FIRST VALUE OF #OBJ-TYPE (#I)
+    VALUE '  ' ESCAPE TOP
+    VALUE 'AC' PERFORM #AC
+    VALUE 'FS' PERFORM #FS
+    VALUE 'MA' PERFORM #MA
+    VALUE 'DR' PERFORM #DR
+
+    VALUE 'PO' PERFORM #PO
+    NONE
+      PRINT (AD=L) 'Invalid object type:'
+        #OBJ-TYPE (#I) #OBJ-NAME (#I) '=' #I
+  END-DECIDE
+  END TRANSACTION
+END-FOR
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE #AC /*REPORT-CONTENTS (from RDELRC-N):
+************************************************************************
+AC. READ REPORT-CONTENTS BY AC-REP-RNB-SEQ = #AC-REP-RNB-SEQ
+  IF AC-REPNAME NE #AC-REPNAME OR AC-REPRNB NE #AC-REPRNB
+    ESCAPE BOTTOM (AC.)
+  END-IF
+  IF AC-OBJECT-TYPE (AC.) = #OBJ-TYPE (#I) AND AC-OBJECT-TIME NE 0
+    ADD 1 TO #COUNTER-OT-NOT
+  ELSE
+    ADD 1 TO #COUNTER-OT
+    AC-OBJECT-TYPE := #OBJ-TYPE (#I)
+    AC-OBJECT-TIME := #AR-TIME
+    IF NOT #TEST
+      UPDATE (AC.)
+    END-IF
+  END-IF
+  PERFORM #ET
+END-READ /*(AC.)
+*
+END-SUBROUTINE /* #AC
+*
+************************************************************************
+DEFINE SUBROUTINE #FS /*FILED-SYSOUTS (from RDELSO-N):
+************************************************************************
+FS. READ REPORT-TEXT BY F-REPNAME-RNB-SEQ = #AC-REP-RNB-SEQ
+  IF F-REPNAME NE #AC-REPNAME OR F-REPRNB NE #AC-REPRNB
+    ESCAPE BOTTOM
+  END-IF
+  IF F-OBJECT-TYPE (FS.) = #OBJ-TYPE (#I) AND F-OBJECT-TIME NE 0
+    ADD 1 TO #COUNTER-OT-NOT
+  ELSE
+    ADD 1 TO #COUNTER-OT
+    F-OBJECT-TYPE := #OBJ-TYPE (#I)
+    F-OBJECT-TIME := #AR-TIME
+    IF NOT #TEST
+      UPDATE (FS.)
+    END-IF
+  END-IF
+  PERFORM #ET
+END-READ /*(FS.)
+*
+END-SUBROUTINE /* #FS
+*
+************************************************************************
+DEFINE SUBROUTINE #MA /*MAIL (from RDELMA-N):
+************************************************************************
+MA. READ MAIL-REPORTS BY MA-REP-RNB = #AC-REP-RNB-SEQ
+  IF MA-REPNAME NE #AC-REPNAME OR MA-REPRNB NE #AC-REPRNB
+    ESCAPE BOTTOM
+  END-IF
+  IF MA-OBJECT-TYPE (MA.) = #OBJ-TYPE (#I) AND MA-OBJECT-TIME NE 0
+    ADD 1 TO #COUNTER-OT-NOT
+  ELSE
+    ADD 1 TO #COUNTER-OT
+    MA-OBJECT-TYPE := #OBJ-TYPE (#I)
+    MA-OBJECT-TIME := #AR-TIME
+    IF NOT #TEST
+      UPDATE (MA.)
+    END-IF
+  END-IF
+  PERFORM #ET
+END-READ /*(MA.)
+*
+END-SUBROUTINE /* #MA
+*
+************************************************************************
+DEFINE SUBROUTINE #DR /*DATASET-REPORT (from RDELDR):
+************************************************************************
+DR. FIND DATASET-REPORT WITH DR-REPORT-RNB = #AC-REP-RNB
+  IF DR-OBJECT-TYPE (DR.) = #OBJ-TYPE (#I) AND DR-OBJECT-TIME NE 0
+    ADD 1 TO #COUNTER-OT-NOT
+  ELSE
+    ADD 1 TO #COUNTER-OT
+    DR-OBJECT-TYPE := #OBJ-TYPE (#I)
+    DR-OBJECT-TIME := #AR-TIME
+    IF NOT #TEST
+      UPDATE (DR.)
+    END-IF
+  END-IF
+  PERFORM #ET
+END-FIND /*(DR.)
+*
+END-SUBROUTINE /* #DR
+*
+************************************************************************
+DEFINE SUBROUTINE #PO /*DATASET-REPORT (from RDELPO-N):
+************************************************************************
+PO. FIND PRINTOUTS WITH PO-REPORT-RNB = #AC-REP-RNB
+  IF PO-OBJECT-TYPE (PO.) = #OBJ-TYPE (#I) AND PO-OBJECT-TIME NE 0
+    ADD 1 TO #COUNTER-OT-NOT
+  ELSE
+    ADD 1 TO #COUNTER-OT
+    PO-OBJECT-TYPE := #OBJ-TYPE (#I)
+    PO-OBJECT-TIME := #AR-TIME
+    IF NOT #TEST
+      UPDATE (PO.)
+    END-IF
+  END-IF
+  PERFORM #ET
+END-FIND /*(PO.)
+*
+END-SUBROUTINE /* #PO
+*
+************************************************************************
+DEFINE SUBROUTINE #ET
+************************************************************************
+ADD 1 TO #UPD-COUNT
+IF #UPD-COUNT GE 50
+  IF #TEST
+    BACKOUT TRANSACTION
+  ELSE
+    END TRANSACTION
+  END-IF
+  RESET #UPD-COUNT
+END-IF
+*
+END-SUBROUTINE /* #ET
+*
+END

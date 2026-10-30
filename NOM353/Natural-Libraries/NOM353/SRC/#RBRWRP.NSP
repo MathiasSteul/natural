@@ -1,0 +1,1291 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 5
+* <Natural Source Header
+* RBRWRP - Browse a active Report
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-11-24 s(999999) clean up
+* mrs 93-12-13 s(999999) hard coded messages
+* gw  94-01-04 s(999999) issue 'invalid command' for FIND PREVIOUS
+* mrs 94-02-18 s(195270) scroll up/down/left/right nnn implemented
+* gw  94-05-13 s(999999) add parms to callnat 'RPRTRP-N'
+* gw  94-07-13 s(999999) pf-key texts from syserr
+* mrs 94-07-14 s(999999) get-layout-line without layout
+* gw  94-07-26 p(130588) F :C implemented
+* gw  95-11-09 s(235700) correct editor scroll right for model 5
+* gw  95-11-10 s(235700) 2nd correction editor scroll right for model 5
+* jwo 97-08-05 p(164321) avoid NAT1305 with #PLINES
+* jwo 97-11-13 p(167263) add active reports exit
+* jvd 98-05-04 p(168326)  Increase display size to show lines > 10m
+* jvd 98-09-10 p(164220)  NOM141ÖNAT23
+*                         p(168326) is now in p(164220) so I have remove
+*                         all refferance to P(168326) to make easier
+*                         reading
+* gw  98-10-13 p(175078) wrap around line number display at 999999
+*                        and 7-digit from/to info
+* gw  98-10-13 p(175110) to-line info always 99999999
+* jvd 99-04-21 p(181377) NAT1305 when processing > 10m lines
+* sju 00-03-24 p(191368) use N-HEADER instead of C-HEADER
+* wcd 00-04-01 CE 7267   recat for new version of RPRTRP-N
+*                        New PFkey for additional printers in RPFK---L
+* fhi 00-07-25 P(198799) Compress message line and delete '-'
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* fhi 02-06-13 s(225125) Add email notificaton, NOMEX010
+* fhi 02-10-30 fhi101    switch on optimizer compiler
+* sju 02-11-13 p(231843) mail wrong if run number wraps round
+* fhi 03-09-01 p(244091) Use PROF-LANGUAGE=1
+* HH 040825 CHANGE FORMAT T                      /* HH 040825
+* sju     2004-12-14 TYPE=AL   NOM31 support TYPE=AL
+* sju     2005-03-01 NOM31     PROF-LANGUAGE X'01' not C'1'
+* LP      2005-03-02 ADAPT TO UNIX ENVIRONMENTS        /* LP 050225
+* fhi     2005-04-21 NOM3107  Support 7-byte job numbers
+* fhi     2005-05-12 S264877  Control on/off does not work
+* xsetggr 2005-10-26 p(270950) ISN Fields must be P10, not P8
+* fhi     2007-04-25 FHI223   Report size limited to 10000 lines
+* xsetggr 2007-05-04 NOM3201  Support 11 byte run numbers
+* fhi 07-08-31 P297219  Find command not executed,only 'parameter miss.'
+* fhi 07-08-31 NRT2763  Go to end of last block with 'BOT', 'TOP' simil.
+* fhi 08-06-09 P302721  Called program does not exist.
+* xsetggr 2008-05-05 p(304350) restow due to changes in RMSPL--L
+* splingl 2009-05-13 p(307659) Variable not initialized
+* xsetggr 2009-11-16 P303510   honoured CONTROL ON/CONTROL OFF for unix
+* xsetggr 2009-12-04 P308338   layout does not work under unix
+* XSETGGR 2010-01-15 P308338   DELETE TEST PRINT
+* fhi     2010-02-01 P320584   NOM7205, reports corrupted
+* xsetggr 2010-02-24 P322145   restore message line location
+* raya     2012-11-29 NOMALL-1214 check cat date of nomex*
+* raya     2013-05-09 NOMALL-1214 backout check cat date of nomex*
+* raya    2013-09-08 NOMALL-1278 get report creation date for mails
+* fhi     2013-09-24 NOMALL-932 Change NOMEX08L to NOMEXP08
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* CF1     2015-07-08 NOMALL-1669 Set unique log types
+* SU2     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-02-08 NOMALL-1822 Fill MA-CURRENT-LOCATION field
+* SU3     2016-07-29 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* fhi     2017-03-30 NOMALL-1916 Do not use the SAG Physical Editor
+* SU4     2017-09-26 NOMALL-1823 NOM 3.5: remove CONNECT
+* BLI     2020-06-09 NOMALL-2418 NOM 3.5: remove CONNECT
+* SU5     2021-05-31 NOMALL-2454 recat for EXIT-CB
+* SU6     2023-10-30 NOMALL-2489 HEX on MF
+* SU7     2024-09-05 NOMALL-2489 unix:let BOT work (<10000
+* ----------------------------------------------------------------------
+* Undokumented commands: see HEDITOR6: HEX and PROFILE
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  NRM-GL
+* *****
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE           (L/1:20)
+* *****
+LOCAL USING NOMEXP08
+LOCAL USING NOMEX08E
+LOCAL USING EDIT-CB
+LOCAL USING VMAILR-L
+LOCAL USING SUPER-L
+LOCAL USING RLOG-L
+LOCAL USING CONST-L
+LOCAL USING RTXT---L
+LOCAL USING RPFK---L
+LOCAL USING RMSPL--L
+LOCAL USING RMSR---E
+LOCAL USING EXIT-CB
+LOCAL USING RCCTYP-E
+*
+LOCAL
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-CC-TYPE
+  2 AR-NUMBER-OF-LINES
+  2 AR-SPOOL-ATTRIBUTES
+  2 AR-RECORD-LENGTH
+  2 AR-PROCESS-TIME
+  2 AR-PROCESS-TIME-INV
+  2 AR-CURRENT-LOCATION
+*
+1 PF-KEYS                     (A8/24) INIT
+  (01)<'Help'> (03)<'End'>  (04)<'Layout'> (05)<'Rfind'> (06)<'F :C'>
+  (07)<'Up'>   (08)<'Down'> (10)<'Left'>   (11)<'Right'> (12)<'Menu'>
+  (14)<'End'>  (15)<'Layout'> (16)<'Rfind'>
+  (19)<'Up'>   (20)<'Down'> (22)<'Left'>   (23)<'Right'>
+1 #P2                         (B64)
+1 #P3                         (A64)
+1 #OPENED                     (L)
+1 FIRST-TIME                  (L) INIT <TRUE>
+1 #LAYOUT-LINE                (A251)
+1 #LAYOUT-TAB                 (A251)
+1 REDEFINE    #LAYOUT-TAB
+  2 #LAYOUT-TAB-V             (A1/251)
+1 #LAYOUT
+  2 #LAYOUT-F                 (P3/10)
+  2 #LAYOUT-T                 (P3/10)
+  2 #LAYOUT-S                 (P3/10)
+  2 #LAYOUT-N                 (P3)
+  2 CV-LAYOUT                 (C/10)
+1 #HEADER-LINES               (N3)
+1 CV-SEQ                      (C/10)
+1 L-COMMAND                   (A50)
+1 L-COMMAND2                  (A50) /*SU7
+1 #ED-SCRMAX                  (I2) CONST <24>
+1 #ED-SCRNUM                  (I2)
+1 L-PREFIXES
+  2 L-PREFIX                  (A6/1:#ED-SCRMAX)
+  2 REDEFINE L-PREFIX
+    3 L-PREFIX-N6             (N6/1:#ED-SCRMAX)
+1 L-DATA-LINES
+  2 L-DATA1                   (A133/1:#ED-SCRMAX)
+  2 REDEFINE L-DATA1
+    3 L-DATA2                 (1:#ED-SCRMAX)
+      4 L-DATA                (A80)
+      4 REDEFINE L-DATA
+        5 L-DATA-1            (A1)
+        5 L-DATA-2            (A1)
+        5 L-DATA-REST         (A78)
+      4 L-REST                (A53)
+  2 REDEFINE L-DATA1
+    3 L-DATA3                 (1:#ED-SCRMAX)
+      4 L-DATA126             (A126)
+      4 L-REST126             (A7)
+  2 REDEFINE L-DATA1
+    3 L-DATA4                 (1:#ED-SCRMAX)
+      4 L-DATA132             (A132)
+      4 L-REST132             (A1)
+*
+1 L-MESSAGE                   (A79)
+1 REDEFINE    L-MESSAGE
+  2 MY-MESSAGE                (A34)
+  2 #ED-MSG                   (A45)
+  2 REDEFINE #ED-MSG
+    3 #ED-MSG-FROM-TO         (A22)
+    3 REDEFINE #ED-MSG-FROM-TO
+      4 #ED-MSG-F             (A2)
+      4 #ED-MSG-FROM          (N8)
+      4 #ED-MSG-T             (A3)
+      4 #ED-MSG-TO            (N8)
+1 REDEFINE L-MESSAGE /* To Get Editor's message text
+  2 FILLER 48X /*SU6 52X
+  2 UNCOMPR-ED-MSG            (A31) /*SU6 A27
+1 REDEFINE    L-MESSAGE /* To Put compressed message.
+  2 FILLER 56X
+  2 COMPR-ED-MSG              (A23)
+1 #MSG-TEMP                   (A45)
+1 #MSG-LEN                    (P3)
+1 L-SCROLL                    (A4)
+1 AT-PREF                     (C/#ED-SCRMAX)
+1 AT-DATA                     (C/#ED-SCRMAX)
+1 CB-ALIN                     (A32)
+1 REDEFINE    CB-ALIN
+  2 CB-ALIN-V                 (N1/32)
+1 CB-ADAT                     (A32)
+1 REDEFINE    CB-ADAT
+  2 CB-ADAT-V                 (N1/32)
+*
+1 R-ATR                       (C/6) INIT <(AD=I),
+  (AD=IP), (AD=D), (AD=DP), (AD=N), (AD=NP)>
+1 #PF                         (A4)
+1 REDEFINE    #PF
+  2 FILLER1                   (A2)
+  2 #PA1                      (A1)
+  2 #PA2                      (A1)
+1 REDEFINE    #PF
+  2 FILLER3                   (A2)
+  2 #PFN                      (N2)
+1 I                           (N2)
+1 J                           (N2)
+1 #L                          (P7)
+*
+1 #K                          (I4)
+1 CURSOR-AREA                 (N1)
+1 CURSOR-ROW                  (N2)
+1 CURSOR-COLUMN               (N3)
+1 #ED-SESNUM                  (N2)
+1 #ED-DSTYPE                  (A3)
+1 #ED-RECTOP                  (P7)
+1 #ED-RECNUM                  (P7)
+1 L-HEADER                    (A78)
+1 #TOLINE                     (P8)
+1 #FROMLINE                   (P8)
+1 O-RECORD                    (A251)
+1 #FROM-LINE                  (N7)
+1 USER-IN                     (L)
+1 USER-LAYOUT                 (L)
+1 K                           (P3)
+1 #REPID                      (A34)
+1 #PLINES                     (P8)
+*
+1 #LINE-NUMBERS               (L) INIT <TRUE>
+1 #CONTROL-CHARACTERS         (L)
+1 #ASA-OR-MACHINE-CODE        (L)
+1 #LINE-LENGTH                (N3)
+1 #OPCODE                     (A4)
+1 CV-HEADER-LINES             (C)
+1 UPDATE-RECORD               (L)
+1 #TIMX                       (T)
+1 #TIMP                       (P13)
+*
+1 #MA-RNB-USER                (A14)
+1 REDEFINE    #MA-RNB-USER
+  2 #MA-RNB                   (P11)
+  2 #MA-USER                  (A8)
+1 #LAN-TAB                    (1:2)
+  2 #LAN-IDENT                (I2)
+  2 #LAN-TEXT                 (A70)
+1 #ARRAY                      (A50/1:3)
+1 #LANGUAGE                   (I1)
+1 #LAYOUT-COL-SAVE            (P3)
+1 #CURS-LINE                  (P3)
+1 #SAVE-LINE                  (N9)
+1 #SAVE-LINE-A                (A10)
+1 #I                          (P9)
+1 #J                          (P9)
+1 #MA-REP-RNB                 (A31)
+1 REDEFINE #MA-REP-RNB
+  2 #MA-REP                   (A25)
+  2 #MA-REPRNB                (P11)
+1 #JES-SPOOL-FILE-TYPE        (A2)
+1 #EX-RTOP                    (F4)
+1 #EX-RNUM                    (F4)
+1 #BLOCK-NUMBER               (A50)
+1 #FACTOR                     (P11)
+1 #ESCAPE-TOP                 (L)
+1 #MF              (L) /*SU6 ->
+1 #LINE            (I4)
+1 #I2A             (I2)
+1 #I2B             (I2)
+1 #A60             (A60)
+1 #BYTE            (A15)  /*15 bytes=120 bites (cmds)
+1 #NR-LINES        (I4) /*unix block
+1 #EXP             (L)
+1 #EXP-RECTOP      (P7)
+1 #RECTOP          (P7/0:1)
+1 #RECTOP-I        (I1) /*SU6 <-
+1 #NR-LINES-BLOCK  (I2) CONST <10000> /*unix:nr.linesInBlock SU7
+1 #TOP-BOT         (L) /*SU7
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=80 /* NECESSARY FOR INPUT EX-FILE LINE 1665
+DEFINE WINDOW #ERR SIZE 7*70 BASE 12/2 /*SU6
+  TITLE '- Editor Error occurred -' CONTROL SCREEN
+DEFINE WINDOW #MSG SIZE 7*70 BASE 12/2 TITLE L-COMMAND /*SU6
+  CONTROL WINDOW
+*
+INCLUDE #SU-C-DE /*activate coding below
+/*IF *MACHINE-CLASS = 'MAINFRAME'
+/*  #MF := TRUE
+/*  #NR-LINES := 99999999 /*MF: all
+/*ELSE
+#NR-LINES := #NR-LINES-BLOCK /*unix: max. lines in editor (block)
+/*END-IF
+ED-NEWCB  := ED-NEWNUM := 'Y'
+PERFORM INIT-TEXT
+#AR-REPNAME := EX-NRM-REPNAME := G-C-REPORT
+#AR-REPRNB  := EX-NRM-REPRNB  := G-C-REPRNB
+*
+FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REPORT-RNB
+  IF #MF
+    IF ACTIVE-REPORT.AR-CC-TYPE = NO-CC
+      EX-NRM-ASA-CODE-ON := 'F'
+    ELSE
+      EX-NRM-ASA-CODE-ON := 'A'
+    END-IF
+  END-IF
+END-FIND
+*
+* From RDISRP ED-FILE (EDIT-CB) is given and here its EX-FILE (EXIT-CB):
+IF *DATA = 4 /*see below: EXPORT /*SU6 ->
+  INPUT (LS=250) #ED-SESNUM #ED-DSTYPE EX-FILE #EXP-RECTOP
+  #ESCAPE-TOP := #EXP := TRUE /*stay on page
+ELSE /*SU6 <-
+  INPUT (LS=250) #ED-SESNUM #ED-DSTYPE EX-FILE
+END-IF
+*
+PERFORM WRITE-LOG-RECORD
+PERFORM OPEN-EDIT-SESSION
+*
+IF #ED-DSTYPE NE 'NSM'
+  CALLNAT 'RGETLAYN' G-C-REPORT G-C-REPRNB G-USERID USER-IN USER-LAYOUT
+    #LAYOUT-TAB #LAYOUT CV-SEQ (*) #HEADER-LINES
+ELSE
+  RESET #LAYOUT
+END-IF
+*
+EX-SCOL  := 1
+EX-STYPE := 'A'
+RESET EX-REQ
+EX-TYPE  := 'B' /* Do browsing
+EX-SES   := #ED-SESNUM
+EX-RTOP  := 1
+EX-BNUM  := #NR-LINES /*SU6 was 10000
+RESET EX-RLEN EX-ECODE /*avoid NOM7205
+PERFORM FILL-EXIT-CB
+*
+INCLUDE NOPECPFK    /* SET KEY STATEMENTS
+*
+*CURS-COL := 1
+*CURS-LINE := 1
+*
+EX-REQ   := 'G'
+PRINT (AD=L) *PROGRAM *LINE '=' EX-NRM-REPRNB(EM=H(8)) '=' #ED-DSTYPE
+IF #ED-DSTYPE = 'SYS'
+  CALLNAT 'REXBRSYS' EXIT-CB #P2 #P3
+ELSE
+  CALLNAT 'REXBRNDB' EXIT-CB #P2 #P3
+END-IF
+#REP. REPEAT
+  UNTIL ED-ERRNUM = 530 OR= 531 /* CANCEL / QUIT
+  RESET ED-SCMND
+  IF #ESCAPE-TOP /*stay on page SU6 ->
+*   Reposition - did not work after export Ü
+    IF #EXP /*sorry, did not work..  SU6
+      ED-RECTOP := #EXP-RECTOP
+    ELSE
+      IF #RECTOP-I = 0
+        ED-RECTOP := #RECTOP (1)
+      ELSE
+        ED-RECTOP := #RECTOP (0)
+      END-IF
+    END-IF
+    RESET ED-BLKNUM ED-BLKLEN #ED-RECTOP #ESCAPE-TOP #EXP
+    ED-REQUEST := 'CTOP'
+    #LINE := *LINE
+    PERFORM #EDITOR /*EXPORT: after call ED-RECTOP=0 (why ???)
+    ED-REQUEST := 'CTOP'
+    #LINE := *LINE
+    PERFORM #EDITOR /*EXPORT: after call ED-RECTOP=0 (why ???)
+  END-IF /*SU6 <-
+  ED-REQUEST := 'GETS'
+  PERFORM COMPUTE-NUMBER-OF-LINES
+  ED-SCRNUM := #ED-SCRNUM
+  ED-SCRMAX := #ED-SCRMAX
+  #LINE := *LINE
+  PERFORM #EDITOR
+  L-COMMAND := ED-MCMND
+  L-SCROLL  := ED-SCROLL
+  IF G-NATRP-ERC = 0
+    L-MESSAGE := ED-FLINE
+  END-IF
+  IF ED-FLINE = SCAN 'NPR5724'
+    G-NATRP-ERC := 5
+    G-NATRP-ERT := 'NPR5724 Requested job not found.'
+    ESCAPE BOTTOM
+  END-IF
+  FOR I 1 TO #ED-SCRNUM
+    J := CB-ALIN-V (I)
+    IF J < 1 OR J > 6
+      J := 1
+    END-IF
+    AT-PREF (I) := R-ATR (J)
+    J := CB-ADAT-V (I)
+    IF J < 1 OR J > 6
+      J := 1
+    END-IF
+    IF L-DATA-2 (I) = H'01'
+      AT-DATA (I) := (AD=I)
+      RESET L-DATA-2 (I)
+      EXAMINE L-DATA-REST (I) H'02' REPLACE ' '
+    END-IF
+    O-RECORD := L-DATA (I)
+    L-DATA (I) := O-RECORD
+  END-FOR
+*
+  SET CONTROL 'WB'
+  PERFORM ABSOLUTE-CURSOR
+  IF #ED-DSTYPE = 'NSM'
+    CALLNAT 'S-HEADER' L-HEADER G-DATE-FORMAT '        '
+  ELSE
+    CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT '        '
+  END-IF
+  EXAMINE L-HEADER FOR '<' REPLACE ' '
+  EXAMINE L-HEADER FOR '>' REPLACE ' '
+  COMPRESS G-C-REPORT '(' G-C-REPRNB ')' TO #REPID LEAVING NO
+*
+  IF NOT #LINE-NUMBERS
+    FOR I 1 TO #ED-SCRMAX
+      IF L-PREFIX (I) = MASK (NN)
+        RESET L-PREFIX (I)
+      END-IF
+    END-FOR
+  END-IF
+*
+  IF G-EDT-KEYS-ARE-ON
+    SET CONTROL 'YB'
+    IF #LANGUAGE NE *LANGUAGE
+      #LANGUAGE := *LANGUAGE
+      PERFORM INIT-PFKEYS
+      PERFORM SET-PFKEYS
+    END-IF
+  ELSE
+    SET CONTROL 'Y41'
+  END-IF
+*
+  #MSG-TEMP := UNCOMPR-ED-MSG
+  REPEAT /*remove leading '-'
+    EXAMINE #MSG-TEMP FOR ' ' GIVING LENGTH #MSG-LEN
+    IF #MSG-LEN LE 23 OR SUBSTR(#MSG-TEMP,1,1) NE '-'
+      ESCAPE BOTTOM
+    END-IF
+    EXAMINE #MSG-TEMP FOR '-' DELETE FIRST
+  END-REPEAT
+  RESET UNCOMPR-ED-MSG
+  COMPR-ED-MSG := #MSG-TEMP
+  RESET #ED-MSG-FROM-TO
+  #ED-MSG-F    := 'L'
+  #ED-MSG-FROM := ED-RECTOP
+  IF NOT #MF
+    #ED-MSG-FROM := #ED-MSG-FROM + #FACTOR
+  END-IF
+  #ED-MSG-T    := ' T'
+  #ED-MSG-TO   := ACTIVE-REPORT.AR-NUMBER-OF-LINES
+*
+  IF L-PREFIX (*) = '999999'
+    #I := ED-RECTOP
+    DIVIDE 1000000 INTO #I REMAINDER #J
+    FOR #I 1 24
+      IF L-PREFIX (#I) = '999999'
+        #K := #J + #I - 1
+        IF #K > 999999
+          DIVIDE 1000000 INTO #K REMAINDER #K
+        END-IF
+        L-PREFIX-N6 (#I) := #K
+      END-IF
+    END-FOR
+  END-IF
+  SET CONTROL 'MT'
+  DECIDE FOR FIRST CONDITION
+    WHEN *LINESIZE = 80  AND G-EDT-PREFIX-IS-ON
+      INPUT WITH TEXT L-HEADER USING MAP 'RBRWRPM1'
+    WHEN *LINESIZE = 80  AND NOT G-EDT-PREFIX-IS-ON
+      INPUT WITH TEXT L-HEADER USING MAP 'RBRWRP21'
+    WHEN *LINESIZE = 132 AND G-EDT-PREFIX-IS-ON
+      INPUT WITH TEXT L-HEADER USING MAP 'RBRWRP51'
+    WHEN *LINESIZE = 132 AND NOT G-EDT-PREFIX-IS-ON
+      INPUT WITH TEXT L-HEADER USING MAP 'RBRWRP61'
+    WHEN NONE
+      INPUT WITH TEXT L-HEADER USING MAP 'RBRWRPM1'
+  END-DECIDE
+*
+  RESET G-NATRP-ERC G-NATRP-ERT
+*
+  #PF := *PF-KEY
+  DECIDE ON FIRST VALUE OF #PF
+    VALUE 'ENTR'
+      MOVE LEFT JUSTIFIED L-COMMAND TO L-COMMAND
+      IF L-COMMAND = MASK('F ') OR=MASK('FI ') OR =MASK('FIN ')
+      OR L-COMMAND = MASK ('FIND ')                                   /*
+        SET CONTROL 'K5'
+      ELSE
+        ED-SCMND := 'NOP'
+      END-IF
+    VALUE 'PF1'
+      REINPUT USING HELP
+    VALUE 'PF2'
+      IF +G-NOMEXIT-ACTIVE (8)
+        PERFORM USER-EXIT-8
+      END-IF
+    VALUE 'PF4' /*save
+      IF NOT USER-IN
+        IF FIRST-TIME OR NOT USER-LAYOUT
+          #L := *CURS-LINE - 2
+          IF #L < 1
+            REINPUT *1200
+          END-IF
+          PERFORM GET-LAYOUT-LINE-UNIX
+          RESET FIRST-TIME
+        END-IF
+        #LINE-LENGTH := ED-LINENTL
+        CALLNAT 'RLAYPO-N' #OPCODE #LINE-LENGTH #LAYOUT-LINE #LAYOUT-TAB
+        IF #OPCODE = 'EXIT'
+          PERFORM FILL-EXIT-CB
+          ESCAPE TOP
+        END-IF
+        IF #OPCODE = 'DEL'
+          RESET USER-LAYOUT #LAYOUT #LAYOUT-TAB
+          PERFORM SAVE-LAYOUT
+          PERFORM FILL-EXIT-CB
+          ESCAPE TOP
+        END-IF
+        IF #OPCODE = 'RLAY' AND #ED-DSTYPE NE 'NRM'
+          CALLNAT 'RGETLAYN' G-C-REPORT G-C-REPRNB G-USERID USER-IN
+            USER-LAYOUT #LAYOUT-TAB #LAYOUT CV-SEQ (*) #HEADER-LINES
+          PERFORM FILL-EXIT-CB
+          ESCAPE TOP
+        END-IF
+        IF #OPCODE = 'DEF'
+          PERFORM DEF-LAY1
+        END-IF
+      END-IF
+      RESET ED-SCMND
+      PERFORM DEFINE-LAYOUT
+      PERFORM FILL-EXIT-CB
+      ESCAPE TOP
+    VALUE 'PF6'
+      PERFORM RELATIVE-CURSOR
+      IF ED-CAREA = 5
+        #LAYOUT-TAB := L-DATA (CURSOR-ROW)
+        EXAMINE #LAYOUT-TAB FOR H'03' REPLACE ' '
+        EXAMINE #LAYOUT-TAB FOR H'04' REPLACE ' '
+        RESET #LAYOUT-TAB-V (1 : CURSOR-COLUMN - 1)
+        SEPARATE #LAYOUT-TAB LEFT JUSTIFIED INTO L-COMMAND IGNORE
+          WITH DELIMITER ' :)'
+        COMPRESS 'T;F ''' L-COMMAND TO L-COMMAND LEAVING NO
+        COMPRESS L-COMMAND '''' TO L-COMMAND LEAVING NO
+        SET CONTROL 'K5'
+      END-IF
+    NONE VALUE
+      IF #PA2 = ' '
+        #PA2 := #PA1
+        #PA1 := 0
+      END-IF
+      I := #PFN
+      ED-SCMND := PF-KEYS (I)
+      IF I =7 OR=8 OR=10 OR=11 OR=19 OR=20 OR=22 OR=23
+      AND L-COMMAND NE ' '                                            /*
+        COMPRESS PF-KEYS (I) L-COMMAND TO L-COMMAND
+        RESET ED-SCMND
+      END-IF
+*
+  END-DECIDE
+*
+  PERFORM SPECIAL-COMMANDS
+  IF #ESCAPE-TOP
+    RESET ED-MCMND L-COMMAND /*SU6
+    ED-REQUEST := 'UPDT' /*avoid:inv. cmd before spec. show again
+    ED-NEWCB   := ED-NEWNUM  := 'Y'
+    #LINE := *LINE
+    PERFORM #EDITOR
+    ESCAPE TOP
+  END-IF
+*
+  ED-MCMND := L-COMMAND
+  ED-SCROLL := L-SCROLL
+  ED-DATE := *DATE
+  ED-TIME := *TIME
+  ED-USER := *USER
+*
+  PERFORM RELATIVE-CURSOR
+*
+  ED-REQUEST := 'UPDT'
+  ED-NEWCB   := ED-NEWNUM  := 'Y'
+  #LINE := *LINE
+  PERFORM #EDITOR
+  DECIDE ON FIRST VALUE OF ED-ERRNUM
+    VALUE 539 PERFORM PRINT-REPORT  /*print is pending
+    VALUE 547 PERFORM EXPORT-REPORT /*export is pending
+    ANY VALUE #ESCAPE-TOP := TRUE /*stay on line SU6
+    NONE IGNORE
+  END-DECIDE
+END-REPEAT /*(#REP.)
+*
+ED-REQUEST := 'CLSS'
+#LINE := *LINE
+PERFORM #EDITOR-SHORT
+SET CONTROL 'U'
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE OPEN-EDIT-SESSION
+************************************************************************
+DECIDE ON FIRST VALUE OF #ED-DSTYPE
+  VALUE 'ADA','SYS','NSM'
+    ED-DSTYPE := 'USR'
+    ED-BPUSE   := 1
+    ED-DTPLACE := 3
+  VALUE 'DAT'
+    ED-DSTYPE := 'DAT'
+    ED-BPUSE := 1
+    ED-DTPLACE := 1
+  NONE VALUE
+    ESCAPE ROUTINE
+END-DECIDE
+*
+PROF-CAPS  := 'N'
+PROF-LANGUAGE := H'01'
+ED-DSTYPE  := #ED-DSTYPE
+ED-ENV     := 1
+ED-SESNUM  := #ED-SESNUM
+ED-PRFLEN  := ED-PRFENT  := 6
+ED-LINENTL := 133
+ED-PRFENT  := 6
+ED-RECLEN  := EX-NRM-LRECL /*see RDISRP SU6 251
+ED-RECMAX  := 2000
+ED-BLKNUM  := 5
+PERFORM CHECK-PREFIX-ON-OFF
+PERFORM COMPUTE-NUMBER-OF-LINES
+ED-SCRNUM  := #ED-SCRNUM
+ED-SCRMAX  := #ED-SCRMAX
+ED-SCROLL  := 'CSR'
+ED-REQUEST := 'OPEN'
+#LINE := *LINE
+PERFORM #EDITOR
+* 1. disallow all cmds
+ED-REQUEST := 'DMAL' /*disallow all main commands
+#LINE := *LINE
+PERFORM #EDITOR
+* 2. allow some cmds
+CALLNAT 'RBRWRPN' #BYTE
+ED-REQUEST := 'AMCS' /* allow main commands
+ED-MCMND := #BYTE
+#LINE := *LINE
+PERFORM #EDITOR
+* 3. disallow all line cmds
+ED-REQUEST := 'DLAL' /*disallow all line commands
+#LINE := *LINE
+PERFORM #EDITOR
+* 2. allow some line cmds
+CALLNAT 'RBRWRPN2' #BYTE
+ED-REQUEST := 'ALCS' /* allow some line commands
+ED-MCMND := #BYTE
+#LINE := *LINE
+PERFORM #EDITOR
+*
+END-SUBROUTINE /* OPEN-EDIT-SESSION
+*
+************************************************************************
+DEFINE SUBROUTINE DEFINE-LAYOUT
+************************************************************************
+REPEAT
+  SET CONTROL 'WC20L36B4/25F'
+  IF USER-IN
+    CV-HEADER-LINES := (AD=P)
+  END-IF
+  INPUT USING MAP 'RLAYOTM&'
+  IF *PF-KEY = 'PF1'
+    REINPUT USING HELP
+  END-IF
+  IF *PF-KEY = 'PF3'
+    ESCAPE BOTTOM
+  END-IF
+  RESET #LAYOUT-N
+  FOR #L 1 TO 10
+    IF NOT (#LAYOUT-S (#L) = 0 THRU 10)
+      REINPUT *1201 MARK *#LAYOUT-S (#L) ALARM
+    END-IF
+    IF #LAYOUT-F (#L) > 251
+      REINPUT *1202 MARK *#LAYOUT-F (#L) ALARM
+    END-IF
+    IF #LAYOUT-F (#L) > #LAYOUT-T (#L)
+      REINPUT *1203 MARK *#LAYOUT-T(#L) ALARM
+    END-IF
+    IF #LAYOUT-T(#L) > 251
+      REINPUT *1202 MARK *#LAYOUT-T(#L) ALARM
+    END-IF
+  END-FOR
+  CALLNAT 'RSRTLAY' #LAYOUT
+  IF #LAYOUT-N > 0
+    USER-LAYOUT := TRUE
+  ELSE
+    USER-LAYOUT := FALSE
+  END-IF
+  IF *PF-KEY = 'PF4'
+    PERFORM SAVE-LAYOUT
+  END-IF
+END-REPEAT
+*
+END-SUBROUTINE /* DEFINE-LAYOUT
+*
+************************************************************************
+DEFINE SUBROUTINE DEF-LAY1
+************************************************************************
+RESET #LAYOUT #OPENED
+FOR #K 1 TO 251
+  DECIDE ON FIRST VALUE OF #LAYOUT-TAB-V(#K)
+    VALUE 'X'
+      IF #OPENED
+        #LAYOUT-T(#LAYOUT-N) := #K
+      ELSE
+        ADD 1 TO #LAYOUT-N
+        #OPENED := TRUE
+        #LAYOUT-F (#LAYOUT-N) := #K
+        #LAYOUT-T (#LAYOUT-N) := #K
+        #LAYOUT-S (#LAYOUT-N) := #LAYOUT-N
+      END-IF
+    NONE VALUE
+      RESET #OPENED
+  END-DECIDE
+END-FOR
+*
+IF #LAYOUT-N > 0
+  USER-LAYOUT := TRUE
+ELSE
+  USER-LAYOUT := FALSE
+END-IF
+*
+END-SUBROUTINE /* DEF-LAY1
+*
+************************************************************************
+DEFINE SUBROUTINE SAVE-LAYOUT
+************************************************************************
+#AR-REPNAME := G-C-REPORT
+#AR-REPRNB := G-C-REPRNB
+UPDATE-RECORD := TRUE
+*
+#MA-RNB    := G-C-REPRNB
+#MA-USER   := G-USERID
+#MA-REP    := G-C-REPORT
+#MA-REPRNB := G-C-REPRNB
+FIND MAIL-REPORTS WITH MA-RNB-USER = #MA-RNB-USER
+AND MA-REP-RNB = #MA-REP-RNB                                          /*
+  IF NO RECORDS FOUND
+    MA-REPNAME := G-C-REPORT
+    MA-REPRNB  := G-C-REPRNB
+    MA-USERID  := G-USERID
+    #TIMX := *TIMX
+    #TIMP := #TIMX
+    MA-INV-TIME := #CONST-INV-TIME - #TIMP
+    MA-PROCESS-TIME := AR-PROCESS-TIME
+    MA-PROCESS-TIME-INV  := AR-PROCESS-TIME-INV
+    IF AR-CURRENT-LOCATION = 'A'
+      MA-CURRENT-LOCATION := 'A'
+    ELSE
+      MA-CURRENT-LOCATION := 'B'
+    END-IF
+    UPDATE-RECORD := FALSE
+    MA-FO-ID := 1
+  END-NOREC
+*
+  RESET MA-LAYOUT(*)
+  FOR K 1 TO #LAYOUT-N
+    MA-FROM(K) := #LAYOUT-F(K)
+    MA-TO(K) := #LAYOUT-T(K)
+  END-FOR
+  MA-HEADLINES := #HEADER-LINES
+  IF UPDATE-RECORD
+    UPDATE
+  ELSE
+    MA-OBJECT-TYPE := 'MA' /*SU1 SU2 moved to STORE
+    MA-OBJECT-TIME := *TIMX /*SU1 SU2 moved to STORE
+    STORE MAIL-REPORTS
+  END-IF
+*
+  END TRANSACTION
+  RESET #LAYOUT-TAB /*layout changed SU6
+  CALLNAT 'RGETLAYN' G-C-REPORT G-C-REPRNB G-USERID USER-IN USER-LAYOUT
+    #LAYOUT-TAB #LAYOUT CV-SEQ (*) #HEADER-LINES /*SU6 <-
+  ESCAPE BOTTOM
+END-FIND
+*
+END-SUBROUTINE /* SAVE-LAYOUT
+*
+/*SU6 DEFINE SUBROUTINE EDIT-UFIL
+/*SU6 DEFINE SUBROUTINE GET-LAYOUT-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE SPECIAL-COMMANDS
+************************************************************************
+IF (ED-SCMND = 'Help') OR (L-COMMAND = 'HELP' OR ='Help' OR ='help')
+  REINPUT USING HELP
+END-IF
+*
+IF (ED-SCMND = 'Menu')
+  ED-REQUEST := 'CLSS'
+  ED-SESNUM  := #ED-SESNUM
+  #LINE := *LINE
+  PERFORM #EDITOR-SHORT
+  INCLUDE C-MENU
+END-IF
+*
+MOVE LEFT L-COMMAND TO L-COMMAND
+RESET #ESCAPE-TOP
+*
+IF L-COMMAND = MASK ('F') /*FIND
+  SEPARATE L-COMMAND INTO #ARRAY (*) IGNORE WITH DELIMITER ' '
+  IF #ARRAY (3) = MASK ('PREV')
+    L-COMMAND := 'this is an invalid command'
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+DECIDE ON FIRST VALUE L-COMMAND
+  VALUE 'NUM ON'
+    #LINE-NUMBERS := TRUE
+  VALUE 'NUM OFF'
+    #LINE-NUMBERS := FALSE
+  VALUE 'CONTROL ON', 'CONTROL OFF'
+*   #CONTROL := TRUE
+    IF L-COMMAND = 'CONTROL ON'
+      #CONTROL-CHARACTERS := TRUE
+    ELSE
+      #CONTROL-CHARACTERS := FALSE
+    END-IF
+/*  RESET L-COMMAND
+    PERFORM FILL-EXIT-CB
+  VALUE 'KEYS ON'
+    G-EDT-KEYS-ARE-ON := TRUE
+  VALUE 'KEYS OFF'
+    G-EDT-KEYS-ARE-ON := FALSE
+  VALUE 'PREFIX ON'
+    G-EDT-PREFIX-IS-ON := TRUE
+    PERFORM CHECK-PREFIX-ON-OFF
+  VALUE 'PREFIX OFF'
+    G-EDT-PREFIX-IS-ON := FALSE
+    PERFORM CHECK-PREFIX-ON-OFF
+  ANY
+    #ESCAPE-TOP := TRUE
+    RESET L-COMMAND ED-MCMND /*SU6
+  NONE IGNORE
+END-DECIDE
+IF #MF /*SU7 ->
+  ESCAPE ROUTINE
+END-IF
+** Unix: **
+DECIDE ON FIRST VALUE OF L-COMMAND
+  VALUES 'BLOCK ++','BL ++','BLOCK BOT','BL BOT',
+      'BLOCK BOTTOM','BL BOTTOM'
+    L-COMMAND := 'BOT'
+  VALUES 'BLOCK --','BL --','BLOCK TOP','BL TOP'
+    L-COMMAND := 'TOP'
+  ANY
+    ESCAPE ROUTINE /*use editor cmds
+  NONE IGNORE
+END-DECIDE
+IF ACTIVE-REPORT.AR-NUMBER-OF-LINES LE #NR-LINES-BLOCK /*1 block
+AND L-COMMAND = MASK('BLOCK ') OR=MASK('BL ') /*BL +/-/nnn            /*
+  RESET L-COMMAND /*ignore, only 1 blockÜ
+  ESCAPE ROUTINE
+END-IF /*SU7 <-
+*
+IF (L-COMMAND=MASK('BL ') OR=MASK('BLOCK ') /*BL +/-/n
+OR=MASK('B ') OR=MASK('BOT ') OR=MASK('BOTTOM ') OR=MASK('++ ')       /*
+OR=MASK('TOP ') OR=MASK('T ') OR=MASK('--'))                          /*
+  #EX-RTOP := EX-RTOP
+  #EX-RNUM := EX-RNUM
+  RESET #TOP-BOT
+  DECIDE ON FIRST VALUE OF L-COMMAND
+    VALUES 'BLOCK +','BL +'
+      ADD #NR-LINES TO #EX-RTOP
+      IF #EX-RTOP > EX-RNUM
+        #EX-RTOP := (#EX-RNUM - 1) / #NR-LINES
+        #EX-RTOP := INT (#EX-RTOP) * #NR-LINES + 1
+      END-IF
+    VALUES 'BLOCK -','BL -'
+      SUBTRACT #NR-LINES FROM #EX-RTOP
+      IF #EX-RTOP < 1
+        #EX-RTOP := 1
+      END-IF
+    VALUES 'TOP','T','--' /*SU7 --
+      #TOP-BOT := TRUE
+      #EX-RTOP := 1
+    VALUES 'BOT','B','BOTTOM','++' /*SU7 ++
+      #TOP-BOT := TRUE
+      #EX-RTOP := (#EX-RNUM - 1) / #NR-LINES
+      #EX-RTOP := INT (#EX-RTOP) * #NR-LINES + 1
+/*SU7 -> see above
+/*  VALUES 'BLOCK --','BL --','BLOCK TOP','BL TOP' L-COMMAND := 'TOP'
+/*  VALUES 'BLOCK ++','BL ++','BLOCK BOT','BL BOT',
+/*      'BLOCK BOTTOM','BL BOTTOM' L-COMMAND := 'BOT' /*SU7 <-
+    ANY VALUE
+      IF NOT #TOP-BOT
+        RESET L-COMMAND
+      END-IF
+      L-COMMAND2 := L-COMMAND
+      ED-REQUEST := 'DELA' /* delete all lines of the session
+      #LINE := *LINE
+      PERFORM #EDITOR-SHORT
+      PERFORM REREAD-DATA
+    NONE VALUE /*BL +/-/n
+      SEPARATE L-COMMAND INTO L-COMMAND REMAINDER #BLOCK-NUMBER
+      IF #BLOCK-NUMBER IS (N5)
+        RESET L-COMMAND
+        ED-REQUEST := 'DELA' /* delete all lines of the session
+        #LINE := *LINE
+        PERFORM #EDITOR-SHORT
+        #EX-RTOP := VAL(#BLOCK-NUMBER)
+        #EX-RTOP := (#EX-RTOP - 1) * #NR-LINES + 1
+        IF #EX-RTOP > EX-RNUM
+          #EX-RTOP := (#EX-RNUM - 1) / #NR-LINES
+          #EX-RTOP := INT (#EX-RTOP) * #NR-LINES + 1
+        END-IF
+        IF #EX-RTOP < 1
+          #EX-RTOP := 1
+        END-IF
+        PERFORM REREAD-DATA
+      END-IF
+  END-DECIDE
+END-IF
+*
+END-SUBROUTINE /* SPECIAL-COMMANDS
+*
+************************************************************************
+DEFINE SUBROUTINE REREAD-DATA
+************************************************************************
+L-COMMAND := L-COMMAND2
+EX-RTOP  := #EX-RTOP
+#FACTOR  := #EX-RTOP - 1 /* Factor for header line
+EX-BNUM  := #NR-LINES
+RESET EX-RLEN
+PRINT (AD=L) *PROGRAM *LINE '=' EX-NRM-REPRNB(EM=H(8)) '=' #ED-DSTYPE
+IF #ED-DSTYPE = 'SYS'
+  CALLNAT 'REXBRSYS' EXIT-CB #P2 #P3
+ELSE
+  CALLNAT 'REXBRNDB' EXIT-CB #P2 #P3
+END-IF
+*
+END-SUBROUTINE /* REREAD-DATA
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-REPORT
+************************************************************************
+IF G-C-REPORT NE MASK ('#T-'NNNNNNN'-'NNNN) /*?? SU6
+  #ED-RECTOP := ED-RECTOP
+  #ED-RECNUM := ED-RECNUM
+  #ED-RECNUM := #ED-RECTOP + #ED-RECNUM - 1
+  IF G-NATRP-INDICATOR = H'0807060504030201' /*?? SU6
+    #FROMLINE := #ED-RECTOP
+    #TOLINE   := #ED-RECNUM
+    CALLNAT 'RPRTRP-N' G-USERID G-USER-TYPE G-C-REPORT G-C-REPRNB
+      G-C-PRINTER #FROMLINE #TOLINE #LAYOUT-N #LAYOUT-F (1:10)
+      #LAYOUT-T (1:10) #HEADER-LINES G-MONITOR-NODE G-USER-PROFILE
+      G-USE-OWNER G-NATRP-ERC G-NATRP-ERT
+  END-IF
+  IF NOT (G-NATRP-ERC =  0 OR = 427) /*RP queued for print successfully
+    #A60 := #LAN-TEXT (2)
+  ELSE
+    #PLINES := #ED-RECNUM - #ED-RECTOP + 1
+    COMPRESS #PLINES #LAN-TEXT (1) G-C-PRINTER TO #A60
+  END-IF
+  INPUT WINDOW='#MSG' (AD=OIL IP=OFF)
+    WITH TEXT *G-NATRP-ERC, G-NATRP-ERT / #A60
+END-IF
+*
+END-SUBROUTINE /* PRINT-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE EXPORT-REPORT
+************************************************************************
+IF NOT (ED-PM-PASSWD =' ' OR='PC') /* 'EXP' = 'EXP PC' /*SU4 ='DB'
+  REINPUT *6004 /*Invalid object for command.
+END-IF
+*
+#ED-RECTOP := ED-RECTOP
+#ED-RECNUM := ED-RECNUM
+* See input above:
+STACK TOP DATA FORMATTED #ED-SESNUM #ED-DSTYPE EX-FILE #ED-RECTOP /*SU6
+STACK TOP COMMAND 'RBRWRP' /*SU6 #ED-SESNUM #ED-DSTYPE EX-FILE
+#AR-REPNAME := G-C-REPORT
+#AR-REPRNB  := G-C-REPRNB
+*
+FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REPORT-RNB
+END-FIND
+RESET #JES-SPOOL-FILE-TYPE
+#SPOOL-ATTRIBUTES:= ACTIVE-REPORT.AR-SPOOL-ATTRIBUTES
+CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+IF #SPOOL-TYPE = JES2 OR = JES3
+  #JES-SPOOL-FILE-TYPE:= #SPOOL-JES-DSTYPE
+END-IF
+*
+FETCH 'REXPRP' #ED-SESNUM #ED-RECTOP #ED-RECNUM ED-PM-PASSWD
+**  ED-PM-MEMBER ACTIVE-REPORT.AR-CC-TYPE #JES-SPOOL-FILE-TYPE
+* BLI NOMALL-2418 remove ED-PM-MEMBER (former parm for Con-nect Cabinet)
+  ACTIVE-REPORT.AR-CC-TYPE #JES-SPOOL-FILE-TYPE
+*
+END-SUBROUTINE /* EXPORT-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE COMPUTE-NUMBER-OF-LINES
+************************************************************************
+#ED-SCRNUM := *PAGESIZE - 3
+IF #ED-SCRNUM > #ED-SCRMAX
+  #ED-SCRNUM := #ED-SCRMAX
+END-IF
+*
+IF G-EDT-KEYS-ARE-ON
+  #ED-SCRNUM := #ED-SCRNUM - 2
+END-IF
+*
+END-SUBROUTINE /* COMPUTE-NUMBER-OF-LINES
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+LG-CODE := 'AR'
+LG-USERID := G-USERID
+COMPRESS G-C-REPORT '/' G-C-REPRNB TO LG-OBJECT-NAME LEAVING NO
+COMPRESS '7001' G-C-REPORT TO LG-MSG
+COMPRESS LG-MSG '/' G-C-REPRNB TO LG-MSG LEAVING NO
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-TEXT
+************************************************************************
+#LAN-IDENT (1) := ##TXT-LINES-TO-PRINTER
+#LAN-IDENT (2) := ##TXT-NO-PRINTER-SELECTED
+*
+FOR I = 1 TO 2
+  CALLNAT 'RLTINI-N' #LAN-IDENT (I) #LAN-TEXT  (I) G-TXB
+END-FOR
+*
+END-SUBROUTINE /* INIT-TEXT
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-PREFIX-ON-OFF
+************************************************************************
+IF G-EDT-PREFIX-IS-ON
+  IF *LINESIZE = 132
+    ED-SCRLEN := 124
+  ELSE
+    ED-SCRLEN := 72
+  END-IF
+ELSE
+  IF *LINESIZE = 132
+    ED-SCRLEN := 131
+  ELSE
+    ED-SCRLEN := 78
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CHECK-PREFIX-ON-OFF
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+RESET G-PF
+*
+INCLUDE RPFEDI-C
+*
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE USER-EXIT-8
+************************************************************************
+RESET L-COMMAND #SAVE-LINE #SAVE-LINE-A NOMEX008-PARMS (1)
+  NOMEX008-ERROR-CODE NOMEX008-FROMLINE
+  NOMEX008-TOLINE NOMEX008-RECORD-LENGTH NOMEX008-NODE
+*
+NOMEX008-FUNCTION      := NOMEX008-FCT-INTEGRATION-EVENT
+NOMEX008-REPNAME       := G-C-REPORT
+NOMEX008-REPRNB        := G-C-REPRNB
+NOMEX008-MAXREC        := ED-RECNUM
+NOMEX008-NODE          := G-MONITOR-NODE
+NOMEX008-USER          := G-USERID
+NOMEX008-USER-TYPE     := G-USER-TYPE
+NOMEX008-RECORD-LENGTH := ED-RECLEN
+*
+PERFORM GET-XY-LABELS
+IF NOMEX008-FROMLINE = 0 AND *CURS-LINE > 2 /* in edit area
+  NOMEX008-FROMLINE := ED-RECTOP
+  #CURS-LINE := *CURS-LINE
+  NOMEX008-FROMLINE := NOMEX008-FROMLINE + #CURS-LINE - 3
+END-IF
+CALLNAT 'NOMEX008' NOMEX008-PARMS(*)
+*
+IF NOMEX008-ED-COMMAND NE ' '
+  L-COMMAND := NOMEX008-ED-COMMAND /* editor command from exit
+ELSE
+  IF #SAVE-LINE-A NE ' '
+    L-COMMAND := #SAVE-LINE-A /* reposition
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* USER-EXIT-8
+*
+************************************************************************
+DEFINE SUBROUTINE GET-XY-LABELS
+************************************************************************
+#SAVE-LINE := ED-RECTOP
+ED-REQUEST := 'UPDM'            /* check if x label is there
+ED-MCMND   := 'LOC .X'
+#LINE := *LINE
+PERFORM #EDITOR-SHORT
+IF ED-MSGNUM NE 0 OR ED-ERRNUM NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+#SAVE-LINE-A := #SAVE-LINE
+ED-REQUEST := 'GETS'            /* get line of x label
+RESET ED-MCMND
+#LINE := *LINE
+PERFORM #EDITOR
+IF ED-ERRNUM NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+NOMEX008-FROMLINE := ED-RECTOP
+*
+ED-REQUEST := 'UPDM'            /* check if y label is there
+ED-MCMND   := 'LOC .Y'
+#LINE := *LINE
+PERFORM #EDITOR-SHORT
+IF ED-MSGNUM NE 0
+  RESET NOMEX008-FROMLINE
+  ESCAPE ROUTINE
+END-IF
+* get line of y label
+ED-REQUEST := 'GETS'
+RESET ED-MCMND
+#LINE := *LINE
+PERFORM #EDITOR
+IF ED-ERRNUM NE 0
+  RESET NOMEX008-FROMLINE
+  ESCAPE ROUTINE
+END-IF
+NOMEX008-TOLINE := ED-RECTOP
+*  Swap from and toline if required
+IF NOMEX008-TOLINE LT NOMEX008-FROMLINE
+  #FROM-LINE := NOMEX008-TOLINE
+  NOMEX008-TOLINE := NOMEX008-FROMLINE
+  NOMEX008-FROMLINE := #FROM-LINE
+END-IF
+*  reset labels
+ED-REQUEST := 'UPDM'
+ED-MCMND   := 'RESET'
+#LINE := *LINE
+PERFORM #EDITOR-SHORT
+RESET ED-MCMND L-PREFIX  (*)
+*
+END-SUBROUTINE /* GET-XY-LABELS
+*
+************************************************************************
+DEFINE SUBROUTINE FILL-EXIT-CB
+************************************************************************
+IF #LAYOUT-N > 0
+  EX-NRM-FCOL(1:#LAYOUT-N) := #LAYOUT-F(1:#LAYOUT-N)
+  EX-NRM-TCOL(1:#LAYOUT-N) := #LAYOUT-T(1:#LAYOUT-N)
+  EX-NRM-HEAD    := #HEADER-LINES
+ELSE
+  RESET EX-NRM-FCOL(*) EX-NRM-TCOL(*) EX-NRM-HEAD
+END-IF
+IF EX-NRM-ASA-CODE-ON = 'A' OR = 'Y' OR = 'N'
+  #ASA-OR-MACHINE-CODE := TRUE
+END-IF
+IF #ASA-OR-MACHINE-CODE
+  IF NOT #CONTROL-CHARACTERS
+    EX-NRM-ASA-CODE-ON := 'N'
+  ELSE
+    EX-NRM-ASA-CODE-ON := 'Y'
+  END-IF
+ELSE
+  EX-NRM-ASA-CODE-ON := 'F'
+END-IF
+PERFORM CALL-EX-ROUTINE
+*
+END-SUBROUTINE /* FILL-EXIT-CB
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-EX-ROUTINE
+************************************************************************
+ED-REQUEST := 'DELA' /* delete all lines of the session
+RESET ED-MCMND /*SU6
+#LINE := *LINE
+PERFORM #EDITOR-SHORT
+EX-BNUM  := #NR-LINES
+RESET EX-RLEN
+PRINT (AD=L) *PROGRAM *LINE '=' EX-NRM-REPRNB(EM=H(8)) '=' #ED-DSTYPE
+IF #ED-DSTYPE = 'SYS'
+  CALLNAT 'REXBRSYS' EXIT-CB #P2 #P3
+ELSE
+  CALLNAT 'REXBRNDB' EXIT-CB #P2 #P3
+END-IF
+*
+END-SUBROUTINE /* CALL-EX-ROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-LAYOUT-LINE-UNIX
+************************************************************************
+RESET #LAYOUT-COL-SAVE
+IF #LAYOUT-N > 0
+  #LAYOUT-COL-SAVE := #LAYOUT-F(1)
+  RESET #LAYOUT-F(1) EX-NRM-FCOL(1)
+END-IF
+#EX-RTOP := EX-RTOP
+#EX-RNUM := EX-RNUM
+#L := ED-RECTOP
+#L := #L + *CURS-LINE - 3
+IF ED-RECTOP = 0
+  EX-RTOP := #L
+  EX-RNUM := 1
+  PERFORM CALL-EX-ROUTINE
+END-IF
+ED-REQUEST := 'GETL'
+ED-RECTOP := #L
+ED-SCRNUM := 1
+PROF-HEX   := 'Y'
+#LINE := *LINE
+CALL 'EDITOR' EDIT-CB CB-ALIN L-PREFIXES CB-ADAT #LAYOUT-LINE
+PERFORM #EDITOR-ERR
+IF ED-ERRNUM NE 0
+  ESCAPE ROUTINE
+END-IF
+IF #LAYOUT-COL-SAVE > 0
+  #LAYOUT-F (1) := #LAYOUT-COL-SAVE
+  #LAYOUT-F (1) := #LAYOUT-COL-SAVE
+END-IF
+EX-RTOP := #EX-RTOP
+EX-RNUM := #EX-RNUM
+#L := #L - *CURS-LINE + 3
+ED-RECTOP := #L
+ED-SCRNUM := #ED-SCRNUM
+*
+END-SUBROUTINE /* GET-LAYOUT-LINE-UNIX
+*
+************************************************************************
+DEFINE SUBROUTINE #EDITOR
+************************************************************************
+CALL 'EDITOR' EDIT-CB CB-ALIN L-PREFIXES CB-ADAT L-DATA-LINES
+PERFORM #EDITOR-ERR
+IF #RECTOP-I = 0
+  #RECTOP-I := 1
+ELSE
+  RESET #RECTOP-I
+END-IF
+#RECTOP (#RECTOP-I) := #ED-RECTOP := ED-RECTOP /*stay on line
+*
+END-SUBROUTINE /* #EDITOR
+*
+************************************************************************
+DEFINE SUBROUTINE #EDITOR-SHORT
+************************************************************************
+CALL 'EDITOR' EDIT-CB
+PERFORM #EDITOR-ERR
+*
+END-SUBROUTINE /* #EDITOR-SHORT
+*
+************************************************************************
+DEFINE SUBROUTINE #EDITOR-ERR
+************************************************************************
+**PRINT (AD=L) #LINE L-COMMAND 'MCMND:' ED-MCMND 'rectop:' ED-RECTOP
+**  'req:' ED-REQUEST 'err:' ED-ERRNUM 'msg:' ED-MSGNUM
+IF ED-MSGNUM NE 2 /*inv. cmd
+  RESET L-COMMAND
+END-IF
+IF (ED-ERRNUM =0 OR=530 OR=531 OR=539 OR=547) /*CANCEL/QUIT/print/export
+  ESCAPE ROUTINE
+END-IF
+G-NATRP-ERC := 3 /*Editor error :1:.
+#L := ED-ERRNUM
+COMPRESS #L ED-FLINE TO G-NATRP-ERT
+COMPRESS G-NATRP-ERT ' (' *PROGRAM ',' #LINE ',' ED-REQUEST ')'
+  TO G-NATRP-ERT LEAVING NO
+* Write log:
+COMPRESS G-C-REPORT '(' G-C-REPRNB ')' TO LG-OBJECT-NAME LEAVING NO
+COMPRESS '0003' G-NATRP-ERT TO LG-MSG
+LG-USERID := G-USERID
+LG-CODE   := 'MO'
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+*
+#I2A := ED-MSGNUM
+#I2B := ED-SESNUM
+INPUT WINDOW='#ERR' (AD=OIL IP=OFF) WITH TEXT *G-NATRP-ERC, G-NATRP-ERT
+  'program:' *PROGRAM 'line:' #LINE
+  / 'ses-nr:' #I2B (NL=4) 'req:' ED-REQUEST
+  'err nr:' #L 'msg nr:' #I2A / 'l-cmd:' L-COMMAND (AL=40)
+*
+END-SUBROUTINE /* #EDITOR-ERR
+************************************************************************
+INCLUDE RPFSET-C /* set pfkeys
+INCLUDE RELCURS /* relative cursor
+INCLUDE ABSCURS /* absolute cursor
+*
+END

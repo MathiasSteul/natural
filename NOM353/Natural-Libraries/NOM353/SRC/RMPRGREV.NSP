@@ -1,0 +1,208 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPRGREV      Delete report contents or cancel sysout of revived
+*               Reports
+*
+* MAINTENANCE:
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-12-13 s(999999) reset ar-source-id ar-revive-expiration
+* mrs 94-01-07 s(999999) use of vspool-l commented out
+* sju     2000-06-22 p(191638) delete from active bundle
+* xsiszha 2000-08-15 (CE7461)  Extend Report and Bundle Names
+* jwo     2001-02-19 s(206182) Invoke NOMEX008 after delete
+* fhi     2002-06-13 s(225125) Add email notificaton, NOMEX010
+* xsetggr 2007-05-07 NOM3201   Support 11 byte run numbers
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2012-10-26 ES-104    fill MA-CURRENT-LOCATION
+* fhi      2012-11-09 NOMALL-1143 Add cpu time output
+* raya     2012-11-29 NOMALL-1214 check cat date of nomex*
+* raya     2013-05-09 NOMALL-1214 backout check cat date of nomex*
+* fhi     2013-09-24 NOMALL-932 Change NOMEX08L to NOMEXP08
+* SU1     2014-07-21 NOMALL-1279 fill fields for Adabas Vista
+* SU2     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU3     2016-01-19 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-12-02 NOMALL-1961 Wrong linesize
+* fhi     2018-12-14 NOM 3.5     Improve CPU measures, no tags
+* SU4     2019-05-23 NOMALL-2278 remove NOMVI (version check)
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE           (L/1:20)
+* -----------------------------LDAs-------------------------------------
+LOCAL USING NOMEXP08 /* NOMALL-932 fhi was  NOMEX08L
+LOCAL USING NOMEX08E
+LOCAL USING SUPER-L
+/*SU4 LOCAL USING NOMVI-2A               /* xsetggr 2012-10-26 ES-104 in
+* *****
+LOCAL
+1 REPORT-TEXT VIEW OF NRM-FILED-SYSOUTS
+  2 F-REPNAME
+  2 F-REPRNB
+1 MAIL VIEW OF NRM-MAIL
+  2 MA-CURRENT-LOCATION
+1 BUNDLE-CONTENTS VIEW OF NRM-BUNDLE-CONTENTS
+*
+1 #COUNTER                   (P10)     CONST <30>
+1 #DATE                      (D)
+1 #TEXT                      (A37)
+1 #START-DATE                (A8)
+1 #END-DATE                  (A8)
+1 #BC-REPORT-RNB             (A31)
+1 REDEFINE #BC-REPORT-RNB
+  2 #BC-REPNAME              (A25)
+  2 #BC-REPRNB               (P11)
+1 #MA-REP-RNB                (A31)
+1 REDEFINE #MA-REP-RNB
+  2 #MA-REPNAME              (A25)
+  2 #MA-REPRNB               (P11)
+/*SU4 1 #NOM34                     (L)
+1 #MAIL-CNT                  (I4)
+1 RMSETTIM
+  2 FUNCTION                 (A1)
+  2 ERC                      (N4)
+  2 MSG                      (A250)
+  2 TIME                     (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=133  /* NOMALL-1961 fhi was LS=132
+*
+/*SU4 CALLNAT 'NOMVI-2N' NOMVI /* xsetggr 2012-10-26 ES-104  start
+/*SU4 IF NOMVI-N-VERSION = 3 AND NOMVI-RELEASE >= 4
+/*SU4 #NOM34 := TRUE
+/*SU4 END-IF                   /* xsetggr 2012-10-26 ES-104 end
+*
+#DATE := *DATX - 1
+#START-DATE := '00000102'
+MOVE EDITED #DATE (EM=YYYYMMDD) TO #END-DATE
+*
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'Start REVIVE cleanup - expiration date LE ' #END-DATE
+*
+AR. READ ACTIVE-REPORTS BY AR-REVIVE-EXPIRATION = #START-DATE
+    ENDING AT #END-DATE
+*
+  DECIDE ON FIRST AR-CURRENT-LOCATION
+    VALUE 'D' PERFORM DELETE-REPORT-TEXT
+    VALUE 'S' PERFORM RELEASE-SOURCE
+    NONE      IGNORE
+  END-DECIDE
+*
+  GETAR. GET ACTIVE-REPORTS *ISN (AR.)
+  RESET AR-REVIVE
+  AR-CURRENT-LOCATION := 'A'
+  RESET AR-SOURCE-ID
+  #MA-REPNAME := GETAR.AR-REPNAME
+  #MA-REPRNB  := GETAR.AR-REPRNB
+  RESET AR-REVIVE-EXPIRATION
+  UPDATE (GETAR.)
+  #BC-REPNAME := AR-REPNAME
+  #BC-REPRNB  := AR-REPRNB
+  DELBC. FIND BUNDLE-CONTENTS WITH BC-REPORT-RNB = #BC-REPORT-RNB
+    DELETE
+  END-FIND
+  END OF TRANSACTION
+/*SU4  IF #NOM34
+  PERFORM UPDATE-MAIL-RECORDS
+/*SU4  END-IF
+  IF +G-NOMEXIT-ACTIVE (8)
+    PERFORM USER-EXIT-8
+  END-IF
+END-READ
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'normal end'
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-MAIL-RECORDS
+************************************************************************
+RESET #MAIL-CNT
+FNDMA. FIND MAIL WITH MA-REP-RNB = #MA-REP-RNB
+  IF MA-CURRENT-LOCATION = ' '
+    G-NATRP-ERT := '1549'
+    PERFORM XXRLOG-WRITE-LOG 'W' G-NATRP-ERT
+  END-IF
+  ADD 1 TO #MAIL-CNT
+  MA-CURRENT-LOCATION := 'A'
+  UPDATE (FNDMA.)
+  IF #MAIL-CNT > 50
+    END TRANSACTION
+    RESET #MAIL-CNT
+  END-IF
+END-FIND
+IF #MAIL-CNT > 0
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* UPDATE-MAIL-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-REPORT-TEXT
+************************************************************************
+#F-REPNAME := ACTIVE-REPORTS.AR-REPNAME
+#F-REPRNB  := ACTIVE-REPORTS.AR-REPRNB
+RESET #F-SEQ
+RT. READ REPORT-TEXT BY F-REPNAME-RNB-SEQ = #F-REP-RNB-SEQ
+  IF F-REPNAME NE #F-REPNAME OR F-REPRNB NE #F-REPRNB
+    ESCAPE BOTTOM
+  END-IF
+  DELETE
+  IF *COUNTER (RT.) > #COUNTER
+    END TRANSACTION
+    RESET *COUNTER (RT.)
+  END-IF
+END-READ
+END TRANSACTION
+COMPRESS ACTIVE-REPORTS.AR-REPNAME '/' ACTIVE-REPORTS.AR-REPRNB
+  TO #TEXT LEAVING NO
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'Report' #TEXT 'Report Text deleted'
+*
+END-SUBROUTINE /* DELETE-REPORT-TEXT
+*
+************************************************************************
+DEFINE SUBROUTINE RELEASE-SOURCE
+************************************************************************
+RESET ACTIVE-REPORTS.AR-SOURCE-ID
+COMPRESS ACTIVE-REPORTS.AR-REPNAME '/' ACTIVE-REPORTS.AR-REPRNB
+  TO #TEXT LEAVING NO
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'Report' #TEXT 'Source released'
+*
+END-SUBROUTINE /* RELEASE-SOURCE
+*
+************************************************************************
+DEFINE SUBROUTINE USER-EXIT-8 /* User exit NOMEX008
+************************************************************************
+RESET NOMEX008-PARMS (1) NOMEX008-ERROR-CODE NOMEX008-FROMLINE
+  NOMEX008-TOLINE NOMEX008-RECORD-LENGTH NOMEX008-NODE
+NOMEX008-FUNCTION := NOMEX008-FCT-DELETE
+NOMEX008-REPNAME  := AR-REPNAME
+NOMEX008-REPRNB   := AR-REPRNB
+IF G-TRACE > 1
+  RMSETTIM.FUNCTION := 'S'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+END-IF
+CALLNAT 'NOMEX008' NOMEX008-PARMS(*)
+IF G-TRACE > 1
+  MOVE 'CPU consumed by user exit NOMEX008:' TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+END-IF
+*
+END-SUBROUTINE /* USER-EXIT-8
+*
+END

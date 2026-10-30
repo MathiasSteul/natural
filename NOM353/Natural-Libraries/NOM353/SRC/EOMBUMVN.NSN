@@ -1,0 +1,188 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMBUMVN - DB Interface EOM Object Bundle (delete, copy, rename)
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* xsisgg  2000-03-30 created
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* xsetggr 2006-10-17 p(283614) restow due to changes in EOMBUM-P
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2007-07-12 NOM3201   restow due to changes in EOMBUM-P
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-12 NOMALL-1058 log delete from NOM API
+* SU1     2014-06-04 NOMALL-1281 show last update user+date
+* fhi     2017-06-29 NOMALL-2029 Add traces for COPY function
+* SU2     2018-02-01 NOMALL-1823 NOM 3.5: remove CONNECT
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING EOM----P
+PARAMETER USING EOMBUM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL USING EOM----E
+LOCAL
+1 BUNDLE-REPORT VIEW OF NRM-BUNDLE-REPORT
+  2 BR-REPNAME
+  2 BR-BUNDLE
+1 BUNDLES VIEW OF NRM-BUNDLES
+  2 B-BUNDLE
+1 BUNDLE-ATTRIBUTES VIEW OF NRM-BUNDLES
+  2 B-BUNDLE
+  2 B-MASTER-REPNAME
+  2 B-BUNDRNB
+  2 B-USERID
+  2 B-DESC
+  2 B-COORDINATOR-ID
+  2 B-BUNDLE-STATUS
+  2 B-HOLD
+  2 B-SEPNO
+  2 B-SEPMEM
+/*SU2  2 B-CONNECT-DIST        (1:8)
+  2 B-PRINT-LIST          (1:20)
+  2 B-PRINT-JOBCARD       (1:3)
+  2 B-FLUSH-TIME
+  2 B-FLUSH-EVENTS
+    3 B-FLUSH-REPORTS (1:8)
+  2 B-LAST-MODIFIED
+  2 B-MODIFIED-BY
+  2 B-FLAG-REPSEP
+  2 B-FLAG-PAGENO
+  2 B-RETENTION-ACTION
+  2 B-RETENTION-PERIOD
+  2 B-RETENTION-PERIOD-PURGE
+  2 B-FLUSH-UNTIL
+  2 B-FLUSH-INTERVAL
+  2 B-FLUSH-LINES
+  2 B-FLUSH-DAYS      (1:30)
+  2 B-FLUSH-WEEK-DAYS    (1:7)
+  2 B-FLUSH-CALENDAR
+  2 B-FLUSH-BEFORE-AFTER
+  2 B-FLUSH-START
+  2 B-FLUSH-END
+  2 B-FLUSH-INT
+  2 B-FLUSH-TIME-SCHEDULE
+  2 B-LAST-UPDATE
+  2 B-LAST-UPDATE-USER
+1 #OBJ                (A50)
+1 #USER               (A8)
+1 #APPL               (A8)
+1 #TRACING            (L)
+1 #TRACE-MSG          (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *DEVICE NE 'BATCH'
+  PERFORM RMGTRACO-GET-SETTINGS #TRACING
+ELSE
+  PERFORM RMGTRACE-GET-SETTINGS #TRACING
+END-IF
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-DELETE  PERFORM DELETE-BUNDLE-DEFINITION
+  VALUE EOM-RENAME  PERFORM RENAME-BUNDLE
+  VALUE EOM-COPY    PERFORM COPY-BUNDLE
+  NONE VALUE        IGNORE
+END-DECIDE
+IF #TRACING
+  IF EOM-FUNCTION > 0 AND EOM-FUNCTION <= EOM-MAX
+    MOVE EOM-TEXTS(EOM-FUNCTION) TO #TRACE-MSG
+  ELSE
+    MOVE 'Unknown function' TO #TRACE-MSG
+  END-IF
+  COMPRESS #TRACE-MSG EOMBUM-I-NAME EOMBUM-I-NEWNAME
+    'got RC' EOMMSG-NR EOMMSG-TEXT TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-BUNDLE-DEFINITION
+************************************************************************
+DELBU. FIND BUNDLES WITH B-BUNDLE = EOMBUM-I-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0408
+    ESCAPE BOTTOM (DELBU.)
+  END-NOREC
+  DELBC. FIND BUNDLE-REPORT WITH BR-BUNDLE = EOMBUM-I-NAME
+    IF NO RECORDS FOUND
+      ESCAPE BOTTOM (DELBC.)
+    END-NOREC
+    DELETE
+  END-FIND
+*
+  DELETE
+  MOVE EOMBUM-I-NAME TO #OBJ
+  #USER := EOM-USER
+  #APPL := EOM-LIBRARY
+  PERFORM RMLOGDEL #OBJ 'BUNDLE' #USER #APPL
+END-FIND
+*
+END-SUBROUTINE /* DELETE-BUNDLE-DEFINITION
+*
+************************************************************************
+DEFINE SUBROUTINE RENAME-BUNDLE
+************************************************************************
+FNDNBU. FIND BUNDLES WITH B-BUNDLE = EOMBUM-I-NEWNAME
+  IF *NUMBER (FNDNBU.) > 0
+    EOMMSG-NR := 0404
+    EOMMSG-FIELD-NAME := 'EOMBUM-I-NEWNAME'
+    ESCAPE ROUTINE
+  END-IF
+END-FIND
+*
+RENBU. FIND BUNDLES WITH B-BUNDLE = EOMBUM-I-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0408
+    ESCAPE BOTTOM (RENBU.)
+  END-NOREC
+  B-BUNDLE           := EOMBUM-I-NEWNAME
+  B-LAST-UPDATE      := *TIMX
+  B-LAST-UPDATE-USER := EOM-USER
+  UPDATE
+*
+  BR. FIND BUNDLE-REPORT WITH BR-BUNDLE = EOMBUM-I-NAME
+    BR-BUNDLE := EOMBUM-I-NEWNAME
+    UPDATE
+  END-FIND
+*
+END-FIND
+*
+END-SUBROUTINE /* RENAME-BUNDLE
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-BUNDLE
+************************************************************************
+FNDNBUC. FIND NUMBER BUNDLES WITH B-BUNDLE = EOMBUM-I-NEWNAME
+IF *NUMBER (FNDNBUC.) > 0
+  EOMMSG-NR := 0404
+  EOMMSG-FIELD-NAME := 'EOMBUM-I-NEWNAME'
+  ESCAPE ROUTINE
+END-IF
+*
+COPYBU. FIND BUNDLE-ATTRIBUTES WITH B-BUNDLE = EOMBUM-I-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0408
+    ESCAPE BOTTOM (COPYBU.)
+  END-NOREC
+  B-BUNDLE           := EOMBUM-I-NEWNAME
+  B-LAST-UPDATE      := *TIMX
+  B-LAST-UPDATE-USER := EOM-USER
+  STORE BUNDLE-ATTRIBUTES
+END-FIND
+*
+END-SUBROUTINE /* COPY-BUNDLE
+* --------------------------------------- on error ---------------------
+INCLUDE C-EOMERR
+*
+END

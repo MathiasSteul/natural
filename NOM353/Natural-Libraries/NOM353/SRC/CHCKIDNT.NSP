@@ -1,0 +1,112 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* CHCKIDNT Check if report definitions contain more than one Ident
+*          type to avoid overwritten NOM structures
+* Test program for NOMALL-1737
+*
+************************************************************************
+* Maintenance
+* user      date       iTrac       Comment
+* fhi       2015-10-05 NOMALL-1737 Created.
+* fhi       2016-04-05 NOMALL-1737 Beautification done. No tags.
+* fhi       2016-04-13 NOMALL-1737 same
+* fhi       2017-02-06 NOMALL-1992 Issue message 'completed'
+* SU1     2018-08-02             NOM 3.5:show JES/POWER/BS2 if exist
+* SU2     2019-06-13 NOMALL-2286 Unix:PF9-do no change systemLinux->Unix
+* SU3     2020-04-01 NOMALL-2379 recat:VREP---L mod:Unix files A26-> A50
+* SU4     2022-01-13 NOMALL-2514 show attr.: File identification
+* SU5     2024-01-24 ES-34613    3.6 remove: Power+SAP:warning
+************************************************************************
+DEFINE DATA
+LOCAL USING VREP---L
+LOCAL
+1 #I            (I2)
+1 #I1           (I2)
+1 #J            (I2)
+1 #OLD          (A5)
+1 #C-R-IDENT    (I2)
+1 #FOUND        (A5/100)
+1 #BAD          (L)
+1 #REPS         (I4)
+1 #LINE         (A150)
+1 #LINE2        (A150)
+1 #LINE-CHECK   (A5/2)
+1 #ID-MAX       (I2) CONST <8>
+1 #GROUPS       (A5/#ID-MAX)
+  INIT < 'JES','POWER','NAT','BS2','CMA','SAP','Unix','3GL' >
+1 #ID-FROM      (I2/#ID-MAX)
+  CONST  < 1,     5,     8,   14,   17,   21,    23,  10000  >
+1 #ID-TO        (I2/#ID-MAX)
+  CONST  < 4,     7,    13,   16,   20,   22,    24,  32767  >
+1 #ID-INV       (A3/#ID-MAX) /*not longer supported SU5
+  CONST <'   ','3.6'  ,'   ','   ','   ','3.6','   ' ,'   ' >
+1 #ID-INV-SW    (L/#ID-MAX) /*SU5
+1 #SYS-MAX      (I2) CONST <3>
+1 #RP-CNT       (I4) /*SU2
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+WRITE TITLE LEFT *DAT4I 2X
+  'Reports with multiple/not supported identifications'(I)
+  2X *TIME(AL=8) /
+RP. READ REPORTS BY R-REPNAME
+  RESET #OLD #FOUND(*) #BAD
+  ADD 1 TO #RP-CNT /*SU2
+  #C-R-IDENT :=  C*R-IDENT
+  IDENTS.  FOR #I = 1 TO #C-R-IDENT
+    TYPES. FOR #J = 1 TO #ID-MAX
+      IF R-IDENT-TYPE(#I) = #ID-FROM(#J) THRU #ID-TO(#J)
+        #FOUND (#I) := #GROUPS (#J)
+        IF #OLD NE ' ' AND #OLD NE #FOUND (#I)
+          #BAD := TRUE
+        END-IF
+        IF #ID-INV (#J) NE ' '
+          #BAD := TRUE
+          #ID-INV-SW (#J) := TRUE
+        END-IF
+        #OLD := #FOUND (#I)
+        ESCAPE BOTTOM (TYPES.)
+      END-IF
+    END-FOR
+  END-FOR
+  IF #BAD
+    COMPRESS #FOUND (1:#C-R-IDENT) TO #LINE
+    PERFORM XXUNIQUE-DEL-DOUBLE #LINE 'F'
+    SEPARATE #LINE INTO #LINE-CHECK(*) IGNORE
+    IF #LINE-CHECK(1) NE #LINE-CHECK(2) AND #LINE NE ' '
+      DISPLAY (AD=OI HC=L) 'Report' R-REPNAME
+        'Contains Identifications' #LINE (AL=51)
+      FOR #I1=1 TO *OCC(#ID-INV-SW) /*SU5
+        IF #ID-INV-SW (#I1)
+          PRINT (AD=L) '   Identification' #GROUPS (#I1)
+            'not supported since NOM' #ID-INV (#I1)
+          RESET #ID-INV-SW (#I1)
+        END-IF
+      END-FOR
+      FOR #I1=1 TO C*R-IDENT-FILES
+        IF #I1=1
+          WRITE 3X 'File / Data Set Identification:'
+        END-IF
+        WRITE 3X #I1(NL=2) R-IDENT-FILES (#I1)
+      END-FOR
+      ADD 1 TO #REPS
+    END-IF
+  END-IF
+END-READ
+PRINT (AD=L) #RP-CNT 'reports exist.' /*SU2
+*
+IF #REPS > 0
+  PRINT (AD=L) #REPS 'reports detected.'
+ELSE
+  WRITE 'No bad definitions detected.'
+END-IF
+PRINT / '***** End of List *****'
+*
+END

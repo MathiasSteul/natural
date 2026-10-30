@@ -1,0 +1,197 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOSFLS-N - NOM API object list of specified library
+*   Mainframes   - allowed functions 'LS'  and ' LST'
+*   Unix systems - allowed function 'LS'
+*
+* Maintenance:
+* XSETHZ  2002-07-10 created
+* XSETHZ  2010-12-02 NOMALL-894 SYSTEM-FNAT for SYS-LIBRARY
+* XSETGGR 2011-02-21 NOMALL-894 adapt for unix systems
+* xsetggr 2011-05-23 NOMALL-894 corrections
+* xsetggr 2012-03-30 NOMALL-1122 correct handling of NAD-MSG.MSG
+* SU1     2013-10-15 NOMALL-1286 avoid direct access to NAT system file
+** --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOSFLS-A
+************************************************************************
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL
+1 V                  (I01)   CONST <102>
+1 NADA1700
+  2 OBJECT-KEY
+    3 DBID           (N05)
+    3 FNR            (N05)
+    3 PASSWORD       (A08)
+    3 CIPHERCODE     (N08)
+    3 OBJECT-CLASS   (I01)
+    3 LIBRARY        (A08)
+    3 OBJECT-FROM    (A33)
+    3 OBJECT-TO      (A33)
+    3 OBJECT-KIND    (A01)
+  2 INPUTS
+    3 OPT-ACCESS     (A01)
+    3 OPT-TYPE-OP    (A01)
+    3 OPT-TYPE       (A24)
+    3 OPT-SCROLL     (A01)
+    3 OPT-WILDCARD   (A01)
+    3 OPT-ASTERISK   (A01)
+    3 OPT-AMOUNT     (I02)
+  2 INPUT-OUTPUTS
+    3 INT-HANDLE     (I04)
+    3 NEXT-OBJ       (A32)
+  2 OUTPUTS
+    3 RETURNED       (I02)
+    3 LIST-OBJ       (A32/1:V)
+    3 LIST-TYPE-SRC  (A01/1:V)
+    3 LIST-TYPE-MOD  (A01/1:V)
+1 NATA1700
+  2 VERSION          (I01)     INIT <1>
+  2 V1-NSC-CHECK     (A01)     /* Check against NSC
+1 REDEFINE NATA1700
+  2 EXTENDED-PARMS
+    3 EXTENDED-DATA  (A01/1:2)
+1 #K                 (I2)
+1 #NEXT-PARM         (A50)
+1 REDEFINE #NEXT-PARM
+  2 #OBJECT-FROM     (A8)
+  2 #INT-HANDLE      (I4)
+  2 #EXTENDED-DATA   (A1/2)
+1 #I2                (I4)
+1 #IMAX              (I4)
+1 #SELECT            (A16)
+1 REDEFINE #SELECT
+  2 #SELECT-LIB      (A8)
+  2 #SELECT-MEM      (A8)
+1 #ES-INPUT-AREA     (A253/1:3)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-NUMBER ES-SORTKEY ES-SORTORDER ES-STARTINDEX
+  ES-OPTION-COUNT
+DECIDE ON FIRST VALUE OF ES-FUNCTION
+  VALUE 'LS'
+    #IMAX := 3162
+    ES-FIELD-COUNT := 1
+    NOSFLS-FIELD-LENGTH(1) := 8
+  VALUE 'LST'
+    ES-RC := 1
+    ES-MSG-NR := 0020
+    ESCAPE ROUTINE
+  NONE VALUE IGNORE
+END-DECIDE
+ES-EOF := 'X'
+#SELECT := ES-SELECT
+*
+IF ES-FUNCTION = 'LS' AND #SELECT-MEM = 'PRTEXIT'
+  #ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+  ES-KEY-PARM(1) := #SELECT-LIB
+  ES-KEY-PARM(3) := 'PRTEXIT'
+/* xheck steplibs and set lfile 219
+  CALLNAT 'NOSFXX1N' ES-CONTROL ES-INPUT
+  ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+  IF ES-RC NE 0
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+PERFORM INIT-VALUES
+PERFORM LIST-UNIX-LIBRARY
+*
+IF ES-FUNCTION = 'LS' AND #SELECT-MEM = 'PRTEXIT'
+  CALLNAT 'NOSFXX2N' ES-CONTROL ES-INPUT   /* reset lfile 219
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-VALUES
+************************************************************************
+IF ES-NEXT-KEY-PARM(1) > ' '
+  #NEXT-PARM       := ES-NEXT-KEY-PARM(1)
+  OBJECT-FROM      := #OBJECT-FROM
+  INT-HANDLE       := #INT-HANDLE
+  NATA1700.EXTENDED-DATA(1:2) := #EXTENDED-DATA(1:2)
+  OPT-ACCESS       := 'R'     /* Read function for further processing
+ELSE
+  LIBRARY          := #SELECT-LIB
+  IF #SELECT-MEM = 'PRTEXIT'
+    RESET OBJECT-FROM
+  ELSE
+    OBJECT-FROM      := #SELECT-MEM
+  END-IF
+  OPT-ACCESS       := 'O'                 /* Open processing
+END-IF
+*
+OBJECT-KIND      := 'A'
+OPT-TYPE         := 'N'
+OPT-SCROLL       := 'D'
+OPT-AMOUNT       := V
+V1-NSC-CHECK     := 'Y'
+IF NOT(OBJECT-FROM = SCAN '*' OR= SCAN '?' OR= SCAN '<' OR= SCAN '>')
+  COMPRESS OBJECT-FROM '*' TO OBJECT-FROM LEAVING NO
+END-IF
+*
+END-SUBROUTINE /* INIT-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE LIST-UNIX-LIBRARY
+************************************************************************
+MAIN. REPEAT
+  CALLNAT 'NATA1700' NADA1700 NATA1700.EXTENDED-PARMS NAD-MSG NAD-FLD
+  OPT-ACCESS := 'R'          /* Read function for further processing
+  IF RETURNED = 0
+    ESCAPE BOTTOM
+  END-IF
+*
+  FOR #K = 1 TO RETURNED
+    ADD 1 TO #I2
+    IF #I2 > #IMAX
+      RESET #NEXT-PARM
+      #OBJECT-FROM        := OBJECT-FROM
+      #INT-HANDLE         := INT-HANDLE
+      #EXTENDED-DATA(1:2) := EXTENDED-DATA(1:2)
+      ES-NEXT-KEY-PARM(1) := #NEXT-PARM
+      ES-NUMBER           := #IMAX
+      RESET ES-EOF
+      ESCAPE BOTTOM(MAIN.)
+    END-IF
+    NOSFLS-MEMBER(#I2) := LIST-OBJ(#K)
+    ES-NUMBER := #I2
+  END-FOR
+  IF NAD-MSG.MSG-NR NE 0
+    IF NAD-MSG.MSG-NR NE 100
+      ES-RC := 1                          /* error
+    END-IF
+    PERFORM CLOSE-MEMBER
+    ESCAPE BOTTOM (MAIN.)
+  END-IF
+  IF RETURNED = V AND NAD-MSG.MSG NE SCAN ('END')
+    OBJECT-FROM := LIST-OBJ(RETURNED)
+  END-IF
+END-REPEAT
+*
+END-SUBROUTINE /* LIST-UNIX-LIBRARY
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-MEMBER
+************************************************************************
+OPT-ACCESS := 'C'                 /* close member for Unix access
+CALLNAT 'NATA1700' NADA1700 NATA1700.EXTENDED-PARMS NAD-MSG NAD-FLD
+*
+END-SUBROUTINE /* CLOSE-MEMBER
+*
+END

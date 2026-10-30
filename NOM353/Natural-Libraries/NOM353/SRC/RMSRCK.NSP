@@ -1,0 +1,820 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMSRCK - Check sources and create cleanup orders
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  93-02-05           rewritten
+* mrs 93-10-20 s(999999) JES2 implemented
+* mrs 93-10-25 s(999999) delete nom-data-base sources and source
+*                        records even if spool and report cleanup = 'N'
+* mrs 93-10-25 s(999999) do not delete sources if they exist
+* mrs 94-02-17 s(999999) delete jes3 queue entry only if job purged
+* gw  94-08-08 s(999999) reset log msg
+* mrs 94-08-11 s(999999) related source not checked if jes3
+* gw  94-11-22 s(999999) cleanup sources passed to nom via trigger even
+*                        if class other than a NOM reserved class
+*                        -> removed coding from RMSRCK and RMSCJES2
+* gw  96-07-22 s(999999) related sources for type sequential-file-bs2
+*                        This is needed when monitor defaults specify
+*                        'Rename files = N'. In case multiple printouts
+*                        are processed for the same data set, we create
+*                        'related sources' which are not deleted until
+*                        the original source record is deleted.
+*                        These 'related sources' do not have the control
+*                        flag set.
+* gw  98-02-17 s(275206) synchronize report creation with source cleanup
+*                        -> RMONITOR, RMARCSCH, NOMCLEAN, NOMCLNSP
+* gw  98-06-22 s(999999) allow batch cleanup to run in lib other than
+*                        SYSNOM
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* sju 00-03-14 p(192484) no printing during cleanup - see NOMCLEAN
+* sju 00-03-27 p(191368) monitor multitasking
+* sju 00-04-17 p(194279) immediate archived reports deleted if no source
+* jwo 01-02-19 s(206182) Invoke NOMEX008 after delete
+* fhi 02-06-13 s(225125) Add email notificaton, NOMEX010
+* sju 02-11-04 NOM221    Optional cleanup of long records (Jes2 only)
+* fhi 02-09-25 p(218246) Monitor error recovery
+* sju 02-12-17 p(230197) Monitor hangs while system defaults are being
+*                        modified (8.1.1/8.1.2/8.1.3/8.1.4). Use a new
+*                        control record SYNCHCLN.
+* sju 03-02-07 special   TYPE=AL reports/sources
+* sju 04-03-03 p(250348) Automatic cleanup with daily cleanup if no
+*                        schedule defined for Automatic cleanup (will
+*                        only cleanup source control records and
+*                        container files).
+*                        Also, spool error causes cleanup to stop.
+* sju 04-07-15 NOM31     Extra parm for RMEVNT-N
+* sju 04-11-29 nom31     restow for changed NRM-ORDER
+* sju 04-12-06 NOM31     Add date and time (tenths of second) to trace
+* sju 05-02-08 NOM31     Long records other than JES2
+* fhi 05-04-19 NOM31107  Support 7-byte job numbers
+* sju 05-06-08 p(265616) Correct 7-byte job numbers for TYPE=AL
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* fhi 05-11-15 P272724   End Transaction for Unix Eventing
+* xsetggr 2007-05-14     NOM3201 convert node number to 5 digit format
+* xsetggr 2008-05-05 p(304350) restow due to changes in RMSPL--L
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* raya    2012-08-20 NOMALL-78 disable long records
+* xsetggr 2012-10-26 ES-104    change MA-CURRENT-LOCATION
+* raya     2012-11-29 NOMALL-1214 check cat date of nomex*
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* raya     2013-05-12 NOMALL-1214 backout check cat date of nomex*
+* fhi     2013-06-04 OPO-36    Fill field AR-ACTIVE
+* fhi     2013-09-24 NOMALL-932 Change NOMEX08L to NOMEXP08
+* fhi     2014-03-03 NOMALL-1363 Get cat cate into trace messages
+* SU2     2014-07-21 NOMALL-1279 fill fields for Adabas Vista
+* fhi     2014-10-21 NOMALL-79   Introduce long filenames
+* fhi     2014-11-05 NOMALL-1514 Add trace statements for z/OS
+* SU3     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU4     2015-08-11 NOMALL-1690 XXHASH restructure
+* SU5     2015-12-30 NOMALL-1722 support long path names
+* SU6     2016-01-19 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-08-16 NOMALL-1621 Introduce Multinode Feature
+* fhi     2016-09-15 NOMALL-1621 Use +NOD-LOCAL-NODE as monitor node
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi     2018-07-18 NOMALL-2008 Delete order sources
+* fhi     2018-08-06 NOMALL-2135 Use internal node id in orders
+* SU7     2019-05-23 NOMALL-2278 remove NOMVI (version check)
+* BLI     2019-10-10 NOMALL-2244 move unessential messages to trace
+* BLI     2020-02-25 NOMALL-2294 erornous deletion of CREATE-CLEANUP-OR.
+* BLI     2020-04-14 NOMALL-2397 handle remote MF sources
+* SU8     2020-06-22 NOMALL-2349 show full msg
+* SU9     2020-11-10 NOMALL-2440 recat for VMONIT-L
+* SU10    2022-07-07 NOMALL-2559 avoid bin in trace(itrac for uqac only)
+* BLI1    2023-04-18 NOMALL-2628 correct deletion of s. from remote MF
+* BLI2    2023-08-26 NOMALL-2636 don't touch sources in work
+* SU11    2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE        (L/1:20)
+1 +NOD-LOCAL-NODE          (N5)
+1 +NOD-CURRENT-NODE        (N5)
+1 +NOD-CURRENT-INTERNAL-ID (P11)
+1 +CMRDC                   (A1)
+* -----------------------------LDAs-------------------------------------
+LOCAL USING NOMEXP08
+LOCAL USING NOMEX08E
+LOCAL USING RLOG-L
+LOCAL USING RMODTY-E   /* equates   order types
+LOCAL USING RDELPO-A
+LOCAL USING RMOD---L
+LOCAL USING RMSR---E
+LOCAL USING RMSR---L
+/*SU9 LOCAL USING VMONIT-L
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+LOCAL USING XXHASH-P
+LOCAL USING RMSPL--L
+* *****
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR  /*SU9
+  2 M-MAX-RETRIES          (N3)
+  2 M-RETRY-INTERVAL       (N5)
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-MONITOR-ID
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-TYPE
+  2 SR-RECEIPT-STAMP   /* BLI2
+  2 SR-CONTROL-FLAG
+1 RELATED-SOURCE VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-TYPE
+  2 SR-ATTRIBUTES-IDENT
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-SOURCE-ID
+  2 OD-TYPE
+  2 OD-MONITOR-ID
+  2 OD-USER-ID
+  2 OD-TIME-CREATED
+  2 OD-TIME-SCHEDULED
+  2 OD-PARAMETER           (1)
+  2 OD-MAX-RETRIES         (N3)
+  2 OD-RETRY-INTERVAL      (N5)
+  2 OD-INTERNAL-NODE-ID    (P15)
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-CURRENT-LOCATION
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-REVIVE
+  2 AR-REVIVE-DATE
+  2 AR-REVIVE-EXPIRATION
+  2 AR-ARCHIVE
+  2 AR-ACTIVE
+  2 AR-EXPIRATION
+1 CLEANUP-DEFAULTS VIEW OF NRM-ARCHIVE-TASK
+  2 M-CLEANUP-REPORTS
+  2 M-CLEANUP-SPOOL
+  2 M-PLAN-ARC-TIME
+1 DAILY-CLEANUP VIEW OF NRM-ARCHIVE-TASK
+  2 M-ARCHIVE-PREFIX
+  2 REDEFINE M-ARCHIVE-PREFIX
+    3 CLEANUP-IDENTIFIER   (A5)
+    3 CLEANUP-RESCHEDULE   (L)
+    3 CLEANUP-ACTIVE-NOW   (L)
+    3 REPORT-PROCESSING-NOW(L)
+1 MAIL VIEW OF NRM-MAIL
+  2 MA-CURRENT-LOCATION
+1 SOURCE-AL VIEW OF NRM-SOURCE
+  2 SR-ID
+* *****
+1 #CLEAN-ISN          (P10)
+1 #ADA-RC             (N4)
+1 #WAIT-TIME          (N4) CONST <5>
+1 #EVENT-NAME         (A8) INIT <'NCLN????'>
+1 REDEFINE #EVENT-NAME
+  2 #EVENT-PREFIX     (A4)
+  2 #EVENT-DBID       (B2)
+  2 #EVENT-FNR        (B2)
+1 ERROR-OCCURED       (L)
+1 EXIST               (L)
+1 SOURCE-NEEDED       (L)
+1 #SOURCE-ISN         (P10)
+1 #DELETE-ID          (P10)
+1 #SR-ATTR            (A250)
+1 REDEFINE #SR-ATTR
+  2 #SR-ATTR-FILL1    (A92)
+1 REDEFINE #SR-ATTR
+  2 #SR-ATTR-FILL2    (A82)
+1 REDEFINE #SR-ATTR
+  2 #SR-ATTR-FILL3    (A75)
+1 REDEFINE #SR-ATTR
+  2 #SR-ATTR-FILL4    (A86)
+1 REDEFINE #SR-ATTR
+  2 #SR-ATTR-FILL5    (A63)
+1 #CONTROL1           (A65)     /* Find other Jes2 groups for this job
+1 REDEFINE #CONTROL1
+  2 #CONTROL1-TYPE    (I2)
+  2 #CONTROL1-PREFIX  (A18)
+  2 #CONTROL1-SOTYPE  (A2)
+  2 #CONTROL1-REST    (A1)
+1 #CONTROL2           (A65)
+1 REDEFINE #CONTROL2
+  2 #CONTROL2-TYPE    (I2)
+  2 #CONTROL2-PREFIX  (A18)
+  2 #CONTROL2-SOTYPE  (A2)
+  2 #CONTROL2-REST    (A1)
+1 #TIME12             (A12)
+1 #EVENT-MESSAGE      (A250)
+1 #TRACING            (L)
+1 #MA-REP-RNB         (A31)
+1 REDEFINE #MA-REP-RNB
+  2 #MA-REPNAME       (A25)
+  2 #MA-REPRNB        (P11)
+1 #MAIL-CNT           (I4)
+1 #CATDATE            (A19)
+1 #MONITOR-ID         (A20)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=133 PS=60
+*
+IF G-TRACE GE *LEVEL
+  #TRACING := TRUE
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+* BLI NOMALL-2244 substitute 7120 Cleanup analysis started
+  COMPRESS 'Start cleanup' *PROGRAM 'cataloged at'
+    #CATDATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+INCLUDE CMRDC
+*
+IF G-NATRP-DBID = 0 OR G-NATRP-FNR = 0
+  PERFORM GET-NOM-LFILE
+END-IF
+G-MONITOR-NODE := +NOD-LOCAL-NODE
+#MONITOR-ID := F#MONITOR-TASK-ID1 (<>) /*(see RMSRCP) SU9 ->
+FIND (1) NRM-MONITOR WITH M-MONITOR-ID = #MONITOR-ID
+END-FIND /*SU9 <-
+*
+PERFORM READ-CLEANUP-DEFAULTS
+IF ERROR-OCCURED
+  LG-MSG := '7122'            /* Cleanup defaults missing
+  PERFORM WRITE-LOG-RECORD
+ELSE                          /* BLI NOMALL-2294 start
+  PERFORM CREATE-CLEANUP-ORDERS
+END-IF                        /* BLI NOMALL-2294 end
+*
+IF #TRACING
+* BLI NOMALL-2244 substitute 7121
+  G-TRACE-MSG := 'Cleanup analysis ended'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-CLEANUP-ORDERS
+************************************************************************
+SRCE. READ SOURCE BY SR-CONTROL
+  RESET G-NATRP-ERC G-NATRP-ERT ERROR-OCCURED EXIST
+  IF SR-ID = 9999999999    /* BLI1
+    ESCAPE BOTTOM (SRCE.)
+  END-IF                   /* BLI1
+  PERFORM CHECK-MONITOR-WAIT-REQUEST
+  IF ERROR-OCCURED
+    ESCAPE ROUTINE
+  END-IF
+  IF SR-RECEIPT-STAMP NE ' '  /* record in work by scan/copy BLI2 start
+    ESCAPE TOP
+  END-IF                      /* BLI2 end
+  IF #TRACING
+    MOVE EDITED SR-TYPE (EM=HHHH) TO G-TRACE-MSG /*SU10 ->
+    COMPRESS 'process source' SR-ID G-TRACE-MSG SR-MONITOR-ID
+      TO G-TRACE-MSG
+/*SU10 COMPRESS 'process source' SR-ID SR-TYPE SR-MONITOR-ID
+/*SU10 SR-ATTRIBUTES-IDENT TO G-TRACE-MSG /*SU10 <-
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+*
+  #SOURCE-ISN        := *ISN (SRCE.)
+  #SOURCE-ATTRIBUTES := SR-ATTRIBUTES-IDENT
+  CALLNAT 'RMSR7--N'#SOURCE-ATTRIBUTES SR-TYPE /*conv.Jobnr N5->N7
+*
+  IF (SR-TYPE EQ SEQUENTIAL-FILE-BS2 AND   /* BLI1 start
+      #FBS2-NODE NE +NOD-CURRENT-NODE) OR
+      ((SR-TYPE EQ JES2-QUEUE-ENTRY OR SR-TYPE EQ JES3-QUEUE-ENTRY) AND
+      #JES-QUEUE-NODE NE +NOD-CURRENT-NODE) OR
+      ((SR-TYPE EQ JES2 OR SR-TYPE EQ JES3) AND
+      #JES-NODE NE +NOD-CURRENT-NODE) OR
+      (SR-TYPE EQ SEQUENTIAL-FILE-MVS AND
+      #FMVS-NODE NE +NOD-CURRENT-NODE)
+/*SU11 OR (SR-TYPE EQ SEQUENTIAL-FILE-VSE AND
+/*SU11 #FVSE-NODE NE +NOD-CURRENT-NODE) OR
+/*SU11(SR-TYPE EQ POWER AND #POWER-NODE NE +NOD-CURRENT-NODE)
+    ESCAPE TOP
+  END-IF                                   /* BLI1 end
+*
+  PERFORM CHECK-IF-SOURCE-EXIST
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN ERROR-OCCURED
+      PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        G-NATRP-ERC G-NATRP-ERT /*SU8 (AL=70)
+      ESCAPE TOP
+    WHEN EXIST
+      PERFORM CHECK-IF-SOURCE-NEEDED
+      IF NOT SOURCE-NEEDED
+        #SR-ATTR:= SOURCE.SR-ATTRIBUTES-IDENT
+        CALLNAT 'RMSR7--N' #SR-ATTR SR-TYPE /* convert node number
+        #OD-PRM-SOURCE-ID                := SOURCE.SR-ID
+        IF CLEANUP-DEFAULTS.M-CLEANUP-SPOOL = 'Y'
+            OR SOURCE.SR-TYPE = NOM-DATA-BASE
+          IF SOURCE.SR-TYPE NE JES3-QUEUE-ENTRY
+            PERFORM STORE-CLEANUP-ORDER
+            PERFORM UPDATE-SOURCE-RECORD
+          END-IF
+        END-IF
+      END-IF
+    WHEN NONE
+      #DELETE-ID := SOURCE.SR-ID
+      IF SOURCE.SR-TYPE = JES2-QUEUE-ENTRY OR = JES3-QUEUE-ENTRY
+          OR = SEQUENTIAL-FILE-BS2
+        PERFORM DELETE-RELATED-SOURCES
+      ELSE
+        PERFORM DELETE-ORDERS
+        IF CLEANUP-DEFAULTS.M-CLEANUP-REPORTS = 'Y'
+          PERFORM DELETE-ACTIVE-REPORTS
+        END-IF
+      END-IF
+      PERFORM DELETE-SOURCE-RECORD
+  END-DECIDE
+END-READ
+*
+END-SUBROUTINE /* CREATE-CLEANUP-ORDERS
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-SOURCE-RECORD
+************************************************************************
+IF #TRACING
+  COMPRESS 'update source' SOURCE.SR-ID TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+UPDSR. GET SOURCE #SOURCE-ISN
+RESET SR-CONTROL-FLAG
+UPDATE (UPDSR.)
+END OF TRANSACTION
+*
+END-SUBROUTINE /* UPDATE-SOURCE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-SOURCE-RECORD
+************************************************************************
+IF #TRACING
+  COMPRESS 'delete source' SOURCE.SR-ID TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+DELSR. GET SOURCE #SOURCE-ISN
+DELETE (DELSR.)
+END OF TRANSACTION
+*
+END-SUBROUTINE /* DELETE-SOURCE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+IF #TRACING
+  G-TRACE-MSG := 'Write-log-record'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+LG-USERID := G-LG-USERID
+LG-CODE   := 'MO'
+CALLNAT 'RLOG' PL-PARMS
+END OF TRANSACTION
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE READ-CLEANUP-DEFAULTS
+************************************************************************
+FNDDF. FIND CLEANUP-DEFAULTS WITH M-MONITOR-ID = 'CLEANUP'
+  IF NO RECORDS FOUND
+    ERROR-OCCURED := TRUE
+    ESCAPE BOTTOM (FNDDF.)
+  END-NOREC
+  MOVE EDITED M-PLAN-ARC-TIME (EM=YYYYMMDDHHII) TO #TIME12
+  IF #TIME12 = '000001020000' AND G-FATHER-PROG NE 'NOMCLEAN'
+    M-CLEANUP-SPOOL := M-CLEANUP-REPORTS := 'N'
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-CLEANUP-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE STORE-CLEANUP-ORDER
+************************************************************************
+IF #TRACING
+  G-TRACE-MSG := 'write cleanup order'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+CALLNAT 'RMODID-N' ORDER.OD-ID G-NATRP-ERC G-NATRP-ERT /*get order-id
+ORDER.OD-PARAMETER (1)    := #OD-PARAMETER
+ORDER.OD-SOURCE-ID        := SOURCE.SR-ID
+ORDER.OD-TYPE             := OD-DELETE-SOURCE
+ORDER.OD-MONITOR-ID       := SOURCE.SR-MONITOR-ID
+ORDER.OD-USER-ID          := G-MONITOR-ID
+ORDER.OD-TIME-CREATED     := ORDER.OD-TIME-SCHEDULED := *TIMX
+ORDER.OD-MAX-RETRIES      := M-MAX-RETRIES
+ORDER.OD-RETRY-INTERVAL   := M-RETRY-INTERVAL
+ORDER.OD-INTERNAL-NODE-ID := +NOD-CURRENT-INTERNAL-ID
+STORE ORDER
+IF #TRACING
+  COMPRESS 'store order ID=' ORDER.OD-ID TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+END TRANSACTION
+*
+END-SUBROUTINE /* STORE-CLEANUP-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-ORDERS
+************************************************************************
+IF #TRACING
+  COMPRESS 'delete orders ID=' #DELETE-ID TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+FIND ORDER WITH OD-SOURCE-ID = #DELETE-ID
+  DELETE
+  CALLNAT 'RMPRGOS' OD-ID
+  IF *COUNTER = 50
+    RESET *COUNTER
+    END TRANSACTION
+  END-IF
+END-FIND
+END TRANSACTION
+*
+END-SUBROUTINE /* DELETE-ORDERS
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-ACTIVE-REPORTS
+************************************************************************
+IF #TRACING
+  COMPRESS 'delete active reports ID=' #DELETE-ID TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+AR1. FIND ACTIVE-REPORT WITH AR-SOURCE-ID = #DELETE-ID
+  IF AR-REVIVE = '*' AND AR-CURRENT-LOCATION = 'S'
+    RESET AR-REVIVE-EXPIRATION AR-REVIVE AR-REVIVE-DATE
+    AR-CURRENT-LOCATION := 'A'
+    RESET AR-SOURCE-ID
+    UPDATE (AR1.)
+    END OF TRANSACTION
+    ESCAPE TOP
+  END-IF
+  IF AR-ARCHIVE = 'R' OR AR-ARCHIVE = 'P'    /* ALREADY ARCHIVED
+    AR-ARCHIVE:= '*'
+    RESET AR-ACTIVE
+    AR-CURRENT-LOCATION := 'A'
+    RESET AR-SOURCE-ID AR-EXPIRATION
+    UPDATE (AR1.)
+    END OF TRANSACTION
+    #MA-REPNAME := AR-REPNAME
+    #MA-REPRNB  := AR-REPRNB
+    PERFORM UPDATE-MAIL-RECORDS
+    ESCAPE TOP
+  END-IF
+*
+  IF AR-CURRENT-LOCATION = 'S'
+    CALLNAT 'RDELRC-N' ACTIVE-REPORT.AR-REPNAME ACTIVE-REPORT.AR-REPRNB
+    CALLNAT 'RDELSO-N' ACTIVE-REPORT.AR-REPNAME ACTIVE-REPORT.AR-REPRNB
+    CALLNAT 'RDELMA-N' ACTIVE-REPORT.AR-REPNAME ACTIVE-REPORT.AR-REPRNB
+    #DELPO.P-REPORT    := ACTIVE-REPORT.AR-REPNAME
+    #DELPO.P-REPRNB    := ACTIVE-REPORT.AR-REPRNB
+    #DELPO.P-USER-TYPE := 'A'
+    #DELPO.P-OWNER     := TRUE
+    #DELPO.P-USERID    := G-USERID
+    CALLNAT 'RDELPO-N' #DELPO
+    AR2. GET ACTIVE-REPORT *ISN (AR1.)
+    DELETE (AR2.)
+    COMPRESS ACTIVE-REPORT.AR-REPNAME '/' ACTIVE-REPORT.AR-REPRNB
+      TO  LG-MSG LEAVING NO
+    COMPRESS '7119' LG-MSG TO LG-MSG
+    PERFORM WRITE-LOG-RECORD
+    #SPOOL-ATTRIBUTES := AR-SPOOL-ATTRIBUTES
+    CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+    DECIDE ON FIRST VALUE OF #SPOOL-TYPE
+      VALUE SEQUENTIAL-FILE-UNIX
+        XXHASH-PARMS.P-SHORT-NAME := #SPOOL-UNIX-FILE-NAME
+      VALUE DIRECT-INPUT
+        XXHASH-PARMS.P-SHORT-NAME := #SPOOL-DI-PATH
+        XXHASH-PARMS.P-FUNCTION   := 'D' /*delete entry
+        PERFORM XXHASH XXHASH-PARMS
+        XXHASH-PARMS.P-SHORT-NAME := #SPOOL-DI-FILENAME
+      ANY
+        XXHASH-PARMS.P-FUNCTION   := 'D' /*delete entry
+        PERFORM XXHASH XXHASH-PARMS
+      NONE IGNORE
+    END-DECIDE
+    END OF TRANSACTION
+    IF +G-NOMEXIT-ACTIVE (8)
+      PERFORM USER-EXIT-8
+    END-IF
+    RESET LG-MSG
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* DELETE-ACTIVE-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-MAIL-RECORDS
+************************************************************************
+RESET #MAIL-CNT
+FNDMA. FIND MAIL MA-REP-RNB = #MA-REP-RNB
+  IF NO RECORDS FOUND
+    ESCAPE BOTTOM (FNDMA.)
+  END-NOREC
+  IF MA-CURRENT-LOCATION = ' '
+    G-NATRP-ERT := '1549'
+    PERFORM XXRLOG-WRITE-LOG 'W' G-NATRP-ERT
+  END-IF
+  #MAIL-CNT := #MAIL-CNT + 1
+  MA-CURRENT-LOCATION := 'A'
+  UPDATE
+  IF #MAIL-CNT > 50
+    END TRANSACTION
+    RESET #MAIL-CNT
+  END-IF
+END-FIND
+IF #MAIL-CNT > 0
+  END TRANSACTION
+  RESET #MAIL-CNT
+END-IF
+*
+END-SUBROUTINE /* UPDATE-MAIL-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-IF-SOURCE-EXIST
+************************************************************************
+CALLNAT 'RMSRCK-N' G-NATRP-ERC G-NATRP-ERT SOURCE.SR-ID EXIST #TRACING
+IF G-NATRP-ERC NE 0
+  ERROR-OCCURED := TRUE
+END-IF
+IF #TRACING
+  DECIDE FOR FIRST CONDITION
+    WHEN ERROR-OCCURED AND EXIST
+      COMPRESS 'source' SOURCE.SR-ID 'exists'
+        'and error =' G-NATRP-ERC-A  G-NATRP-ERT TO G-TRACE-MSG
+    WHEN ERROR-OCCURED AND NOT EXIST
+      COMPRESS 'source' SOURCE.SR-ID 'does not exist'
+        'and error =' G-NATRP-ERC-A  G-NATRP-ERT TO G-TRACE-MSG
+    WHEN EXIST
+      COMPRESS 'source' SOURCE.SR-ID 'exists' TO G-TRACE-MSG
+    WHEN NONE
+      COMPRESS 'source' SOURCE.SR-ID 'unknown condition' TO G-TRACE-MSG
+  END-DECIDE
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* CHECK-IF-SOURCE-EXIST
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-IF-SOURCE-NEEDED
+************************************************************************
+SOURCE-NEEDED := TRUE
+*
+ACTIVE. FIND NUMBER ACTIVE-REPORTS WITH AR-SOURCE-ID = SOURCE.SR-ID
+IF *NUMBER (ACTIVE.) NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+ORDERS. FIND NUMBER ORDER WITH OD-SOURCE-ID = SOURCE.SR-ID
+IF *NUMBER (ORDERS.) NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+IF SOURCE.SR-TYPE = JES2 OR = JES3 OR = JES2-QUEUE-ENTRY
+    OR = JES3-QUEUE-ENTRY
+* A) Type = AL sources are needed as long as there are any other source
+*    records for the same job
+  IF #JES-TYPE = 'AL'
+    #CONTROL1-TYPE:= #CONTROL2-TYPE:= SOURCE.SR-TYPE /* JES2 OR JES3
+    #CONTROL1-PREFIX := #CONTROL2-PREFIX:= SOURCE.SR-ATTRIBUTES-IDENT
+    #CONTROL1-SOTYPE := H'0000'
+    #CONTROL2-SOTYPE := H'FFFF'
+    CHECKSRC1.
+    FIND NUMBER SOURCE-AL WITH SR-CONTROL = #CONTROL1 THRU #CONTROL2
+    IF *NUMBER(CHECKSRC1.) GT 1         /* other sources as well as this
+      IF #TRACING
+        COMPRESS 'TYPE=AL source' SOURCE.SR-ID 'needed'
+          '- other sources exist for same job' TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+      ESCAPE ROUTINE
+    END-IF
+    #CONTROL1-TYPE:= #CONTROL1-TYPE + 11             /* JESx-QUEUE-ENTRY
+    #CONTROL2-TYPE:= #CONTROL1-TYPE
+    CHECKSRC2.
+    FIND NUMBER SOURCE-AL WITH SR-CONTROL = #CONTROL1 THRU #CONTROL2
+    IF *NUMBER(CHECKSRC2.) GT 0
+      IF #TRACING
+        COMPRESS 'TYPE=AL source' SOURCE.SR-ID 'needed'
+          '- other sources exist for same job' TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+      ESCAPE ROUTINE
+    END-IF
+  ELSE
+* B) Other source records are needed if there are any Type = AL sources
+*    which are still needed
+    #CONTROL1-TYPE:= SOURCE.SR-TYPE                  /* JES2 OR JES3
+    IF #CONTROL1-TYPE GT 2
+      #CONTROL1-TYPE:= #CONTROL1-TYPE - 11
+    END-IF
+    #CONTROL2-TYPE:= #CONTROL1-TYPE
+    #CONTROL1-PREFIX:= #CONTROL2-PREFIX:= SOURCE.SR-ATTRIBUTES-IDENT
+    #CONTROL1-SOTYPE:= #CONTROL2-SOTYPE:= 'AL'
+    #CONTROL1-REST  := H'00'
+    #CONTROL2-REST  := H'FF'
+*   PRINT #CONTROL1 (EM=H(65)) / #CONTROL2 (EM=H(65))      /* debug
+    FIND SOURCE-AL WITH SR-CONTROL = #CONTROL1 THRU #CONTROL2
+*   WRITE SOURCE-AL.SR-ID                                  /* debug
+      ALAREP.
+      FIND NUMBER ACTIVE-REPORTS WITH AR-SOURCE-ID = SOURCE-AL.SR-ID
+      IF *NUMBER (ALAREP.) NE 0
+        IF #TRACING
+          COMPRESS 'TYPE=AL source needed -' SOURCE.SR-ID 'needed'
+            TO G-TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END-IF
+        ESCAPE ROUTINE
+      END-IF
+      ALAORD.
+      FIND NUMBER ORDER WITH OD-SOURCE-ID = SOURCE-AL.SR-ID
+      IF *NUMBER (ALAORD.) NE 0
+        IF #TRACING
+          COMPRESS 'TYPE=AL source needed -' SOURCE.SR-ID 'needed'
+            TO G-TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END-IF
+        ESCAPE ROUTINE
+      END-IF
+    END-FIND
+  END-IF
+END-IF
+SOURCE-NEEDED := FALSE
+IF SOURCE.SR-TYPE = JES2-QUEUE-ENTRY OR = JES3-QUEUE-ENTRY
+    OR = SEQUENTIAL-FILE-BS2
+  PERFORM CHECK-RELATED-SOURCES
+END-IF
+*
+IF #TRACING
+  IF SOURCE-NEEDED = TRUE
+    COMPRESS 'source' SOURCE.SR-ID 'needed' TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  ELSE
+    COMPRESS 'source' SOURCE.SR-ID 'not needed' TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CHECK-IF-SOURCE-NEEDED
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-RELATED-SOURCES
+************************************************************************
+IF #TRACING
+  COMPRESS 'Check Related Sources' SOURCE.SR-ID TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+FNDRS. FIND RELATED-SOURCE WITH SR-RELATED-ID = SOURCE.SR-ID
+  #SR-ATTR:= RELATED-SOURCE.SR-ATTRIBUTES-IDENT
+  CALLNAT 'RMSR7--N' #SR-ATTR RELATED-SOURCE.SR-TYPE
+  FNDRSR. FIND NUMBER ACTIVE-REPORTS WITH AR-SOURCE-ID = SR-ID (FNDRS.)
+  IF #TRACING
+    COMPRESS 'Number of Active Reports' *NUMBER (FNDRSR.) TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  IF *NUMBER (FNDRSR.) > 0
+    SOURCE-NEEDED := TRUE
+    ESCAPE BOTTOM (FNDRS.)
+  END-IF
+*
+  FNDRSO. FIND NUMBER ORDER WITH OD-SOURCE-ID = SR-ID (FNDRS.)
+  IF #TRACING
+    COMPRESS 'Number of Orders' *NUMBER (FNDRSO.) TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  IF *NUMBER (FNDRSO.) > 0
+    SOURCE-NEEDED := TRUE
+    ESCAPE BOTTOM (FNDRS.)
+  END-IF
+*
+  GETRS. GET RELATED-SOURCE *ISN (FNDRS.)
+  DELETE (GETRS.)
+  END OF TRANSACTION
+*
+END-FIND
+*
+END-SUBROUTINE /* CHECK-RELATED-SOURCES
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-RELATED-SOURCES
+************************************************************************
+IF #TRACING
+  COMPRESS 'Delete Related Sources' SOURCE.SR-ID TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+FNDDRS. FIND RELATED-SOURCE WITH SR-RELATED-ID = SOURCE.SR-ID
+  #DELETE-ID := SR-ID (FNDDRS.)
+  PERFORM DELETE-ORDERS
+  IF CLEANUP-DEFAULTS.M-CLEANUP-REPORTS = 'Y'
+    PERFORM DELETE-ACTIVE-REPORTS
+  END-IF
+*
+  IF #TRACING
+    COMPRESS 'Related Source deleted' SR-ID (FNDDRS.) TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  GETDRS. GET RELATED-SOURCE *ISN (FNDDRS.)
+  DELETE (GETDRS.)
+  END OF TRANSACTION
+*
+END-FIND
+*
+END-SUBROUTINE /* DELETE-RELATED-SOURCES
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-MONITOR-WAIT-REQUEST
+************************************************************************
+REP-LOOP. REPEAT
+  CLEAN. FIND DAILY-CLEANUP WITH M-MONITOR-ID = 'SYNCHCLN'
+    IF NO RECORDS FOUND
+      ERROR-OCCURED:= TRUE
+      WRITE *PROGRAM *TIMX(EM=YYYY-MM-DD' 'HH:II:SS)
+        'Cleanup synchronization record missing'
+      LG-MSG:= 7122
+      ESCAPE BOTTOM(REP-LOOP.)
+    END-NOREC
+    #CLEAN-ISN := *ISN
+    CALLNAT 'GETHOLD' G-NATRP-DBID G-NATRP-FNR #CLEAN-ISN 'BS' #ADA-RC
+    IF #ADA-RC = 145
+      BACKOUT TRANSACTION
+      PERFORM WAIT-AWHILE
+      ESCAPE BOTTOM (CLEAN.)
+    END-IF
+    BACKOUT TRANSACTION
+    IF REPORT-PROCESSING-NOW
+      PERFORM WAIT-AWHILE
+      ESCAPE BOTTOM (CLEAN.)
+    END-IF
+    ESCAPE BOTTOM (REP-LOOP.)
+  END-FIND
+END-REPEAT
+*
+END-SUBROUTINE /* CHECK-MONITOR-WAIT-REQUEST
+*
+************************************************************************
+DEFINE SUBROUTINE WAIT-AWHILE
+************************************************************************
+IF #TRACING
+  G-TRACE-MSG := 'Waiting some time'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+#EVENT-PREFIX := 'NCLN'
+#EVENT-DBID   := G-NATRP-DBID
+#EVENT-FNR    := G-NATRP-FNR
+CALLNAT 'RMEVNT-N' +NOD-LOCAL-NODE #EVENT-NAME 'WAIT    ' #WAIT-TIME
+  G-NATRP-ERC G-NATRP-ERT #EVENT-MESSAGE
+END TRANSACTION
+*
+IF G-NATRP-ERC = 999
+  PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    G-NATRP-ERT /*SU8 (AL=70)
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Cleanup is terminating.'
+  TERMINATE
+END-IF
+*
+END-SUBROUTINE /* WAIT-AWHILE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NOM-LFILE
+************************************************************************
+SATLF-FUNCTION := 'GET'
+SATLF-LFILE    := 206
+SATLF-SATVERS  := 21
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+IF SATLF-ERROR-CODE NE 0
+  G-NATRP-ERC := SATLF-ERROR-CODE
+  G-NATRP-ERT := SATLF-ERROR-TEXT
+ELSE
+  G-NATRP-DBID := SATLF-DBID-N5
+  G-NATRP-FNR  := SATLF-FNR-N5
+END-IF
+*
+END-SUBROUTINE /* GET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE USER-EXIT-8
+************************************************************************
+RESET NOMEX008-PARMS (1) NOMEX008-ERROR-CODE NOMEX008-FROMLINE
+  NOMEX008-TOLINE NOMEX008-RECORD-LENGTH NOMEX008-NODE
+NOMEX008-FUNCTION := NOMEX008-FCT-DELETE
+NOMEX008-REPNAME  := ACTIVE-REPORT.AR-REPNAME
+NOMEX008-REPRNB   := ACTIVE-REPORT.AR-REPRNB
+CALLNAT 'NOMEX008' NOMEX008-PARMS(*)
+*
+END-SUBROUTINE /* USER-EXIT-8
+*
+END

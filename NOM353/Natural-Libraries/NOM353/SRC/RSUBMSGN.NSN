@@ -1,0 +1,85 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RSUBMSGN  Substitute message text for error number in log message
+*
+* MAINTENANCE:
+* mrs 92-01-08 s(142523) not enough receiving fields
+* sju 00-11-14 s(999999) SAT log server
+* fhi     2009-03-27   P315387   Message truncated
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-10-06 NOMALL-97 Rewritten
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* fhi     2014-09-04 NOMALL-1454 Correct messages
+************************************************************************
+DEFINE DATA
+PARAMETER
+1 #P-MSG (A250) BY VALUE RESULT
+************************************************************************
+LOCAL USING XXGMSG-A
+LOCAL
+1 #TEXT-ARRAY  (A250/10)
+1 P-ERN        (N4)     /* INPUT
+1 #ERN         (N4)
+1 #ERC         (A250)
+1 #STRING      (A250)
+1 #TABLE-SRC   (A2/7) INIT < '( ',' )',' .',' ,',' ;','< ',' >' >
+1 #TABLE-REP   (A2/7) INIT < '(' ,')' ,'.' ,' ,',';' ,'<' ,'>' >
+1 #LASTPROG    (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG
+RESET #ERN
+SEPARATE #P-MSG INTO #ERC REMAINDER #STRING WITH DELIMITER ' '
+DECIDE FOR FIRST CONDITION
+  WHEN #ERC IS (N4)
+    #ERN := VAL(#ERC)
+    MOVE EDITED #ERN (EM=9999) TO #ERC
+    IF #ERN = 5
+      COMPRESS 'NOM0005?' #STRING TO #P-MSG
+    END-IF
+  WHEN #P-MSG =  MASK ('ESY'NNNN' ')
+    COMPRESS SUBSTR(#P-MSG,1,7) '??' SUBSTR (#P-MSG,9)
+      TO #P-MSG LEAVING NO
+  WHEN #P-MSG = MASK ('NOM'NNNN' ')
+    #ERC := SUBSTR(#P-MSG,4,4)
+    #ERN := VAL(#ERC)
+    IF #ERN NE 5
+      #P-MSG := SUBSTR(#P-MSG,4)
+    END-IF
+  WHEN #P-MSG = MASK ('NOM'NNNNA' ') /* such like NOM0021E
+    #ERC := SUBSTR(#P-MSG,4,4)
+    #ERN := VAL(#ERC)
+    IF #ERN NE 5
+      COMPRESS SUBSTR(#P-MSG,4,4) SUBSTR(#P-MSG,10) TO #P-MSG
+    END-IF
+  WHEN ANY
+    EXAMINE #P-MSG FOR '?' REPLACE WITH ' '
+    IF #LASTPROG NE SCAN ('RLISLM')
+      EXAMINE #P-MSG FOR FULL '  ' REPLACE WITH FULL ' '
+    END-IF
+  WHEN NONE
+    IGNORE
+END-DECIDE
+IF #ERN NE 0 AND #ERN NE 5
+  SEPARATE #P-MSG INTO #TEXT-ARRAY (1:9) REMAINDER #TEXT-ARRAY (10)
+    WITH DELIMITER ' '
+  #XX-ERROR-TYPE     := 'U'
+  #XX-ERROR-CODE     := #ERN
+  #XX-MSG-DYNA (1:9) := #TEXT-ARRAY (2:10)
+  CALLNAT 'XXGMSG-N'  #XX-GMSG-PARMS
+  #P-MSG := #XX-SHORT-TEXT
+  IF #LASTPROG = 'RLISPO' OR = 'EOMPOSTN'
+    EXAMINE #P-MSG FOR FULL '  ' REPLACE WITH FULL ' '
+  END-IF
+END-IF
+EXAMINE #P-MSG FOR #TABLE-SRC(*) REPLACE WITH #TABLE-REP(*)
+*
+END

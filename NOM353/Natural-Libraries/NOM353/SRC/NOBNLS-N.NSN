@@ -1,0 +1,277 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOBNLS-N - NOM API Bundle List
+*
+* Maintenance:
+* XSETGGR 2002-05-03 created
+* XSETGGR 2002-07-05 developed
+* XSETGGR 2002-10-28 change numberic fields in list
+* XSETGGR 2002-11-14 new fiels ES-APP-SERVER-LIBRARY
+* XSETGGR 2002-11-20 add number of options
+* XSETGGR 2002-11-22 check grant options for non-administrator users
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* xsetggr 2010-04-06 P323994 add field bundle-status
+* XSETHZ  2010-04-15 P323994 only for new client version
+* XSETHZ  2010-10-21 NOMALL-897
+* xsetggr 2012-04-23 NOMALL-1136 corrections of using grants
+* xsetggr 2012-09-28 NOMALL-89 implement copycode to check grants
+* CF1     2015-12-14 NOMALL-1794 Suppress sending header texts
+* CF2     2018-11-27 NOMALL-2178 Correct authorisation filter results
+* SU1     2024-04-24 NOM36 remove unused
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOBNLS-A
+************************************************************************
+LOCAL USING NOBNSL-A
+LOCAL USING ESMCONSL
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL
+1 BUNDLE VIEW OF NRM-BUNDLES
+  2 B-BUNDLE
+/*SU1  2 B-USERID
+  2 B-DESC
+  2 B-MASTER-REPNAME
+  2 B-COORDINATOR-ID
+  2 B-BUNDLE-STATUS
+/*SU1 1 ACTIVE-BUNDLES VIEW OF NRM-ACTIVE-BUNDLES
+1 BUNDLE-REPORT VIEW OF NRM-BUNDLE-REPORT
+/*SU1  2 BR-BUNDLE 2 BR-REPNAME
+1 #I2              (I4)
+1 #IMAX            (I4)
+1 #BUNDLE-S        (A25)
+1 #BUNDLE-E        (A25)
+1 #REPORT-S        (A25)
+1 #REPORT-E        (A25)
+1 #MASTER-S        (A25)
+1 #MASTER-E        (A25)
+1 #OPTIONS         (A2/1:10)
+1 #MSG-NR          (N4) CONST <6107>
+1 #SELECT          (L)
+1 #NEW-OPTIONS     (A2/1:8)
+1 #GRANTS          (A1/6)
+1 #LS-USERID       (A8)
+1 #TYPE-ACT        (A1)
+1 I                (I2)
+1 P-ERC            (N4)      /* CF1
+1 P-VERSION-A10    (A10)     /* CF1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-NUMBER ES-STARTINDEX ES-SORTKEY ES-SORTORDER
+ES-EOF := 'X'
+ES-OPTION-COUNT := 10
+#NOBNSL := ES-SELECT
+IF ES-EXTEND-FUNCTION = 'LS5'
+  #TYPE-ACT := 'Y'
+END-IF
+IF ES-EXPAND NE ' '
+  #IMAX := 562
+  ES-FIELD-COUNT := 1
+  NOBNEX-FIELD-LENGTH := 25
+ELSE
+  #IMAX := 221
+  IF #TYPE-ACT = 'Y'
+    ES-FIELD-COUNT := 5
+    NOBNLS5-FIELD-LENGTH(1) := 25
+    NOBNLS5-FIELD-LENGTH(2) := 8
+    NOBNLS5-FIELD-LENGTH(3) := 1
+    NOBNLS5-FIELD-LENGTH(4) := 50
+    NOBNLS5-FIELD-LENGTH(5) := 910
+  ELSE
+    ES-FIELD-COUNT := 4
+    NOBNLS4-FIELD-LENGTH(1) := 25
+    NOBNLS4-FIELD-LENGTH(2) := 8
+    NOBNLS4-FIELD-LENGTH(3) := 50
+    NOBNLS4-FIELD-LENGTH(4) := 910
+  END-IF
+END-IF
+EXAMINE #NOBNSL.#NAME FOR '*' DELETE
+COMPRESS #NOBNSL.#NAME H'FF' TO #BUNDLE-E LEAVING NO
+EXAMINE #NOBNSL.#AUTH FOR '*' DELETE
+EXAMINE #NOBNSL.#REPORT FOR '*' DELETE
+EXAMINE #NOBNSL.#MASTER FOR '*' DELETE
+EXAMINE #NOBNSL.#COORD FOR '*' DELETE
+EXAMINE #NOBNSL.#TYPE FOR '*' DELETE
+#REPORT-S := #NOBNSL.#REPORT
+COMPRESS #NOBNSL.#REPORT H'FF' TO #REPORT-E LEAVING
+#MASTER-S := #NOBNSL.#MASTER
+COMPRESS #NOBNSL.#MASTER H'FF' TO #MASTER-E LEAVING
+IF ES-NEXT-KEY-PARM(1) > #NOBNSL.#NAME
+  #BUNDLE-S := ES-NEXT-KEY-PARM(1)
+ELSE
+  #BUNDLE-S := #NOBNSL.#NAME
+  IF ES-EXPAND NE 'E'
+/* Suppress sending list header texts, to enable the  /* CF1 +
+/* client side using its own texts with German Umlaute
+/* Client versions GT 3.4.3.4 support this feature.
+ CALLNAT 'ESMAVC-N' 'N' P-VERSION-A10 P-ERC ES-CONTROL /*1 char->2 digit
+    IF P-VERSION-A10 LE '0304030004' OR #TYPE-ACT NE 'Y'  /* CF1 -
+      ES-STARTINDEX := 2
+      #I2 := 1
+      RESET SHORT-MSG LONG-MSG(*) NOBNLS-HEADER
+      VERSION := 0
+      NADA2000.OBJECT-KIND := 'U'
+      NADA2000.ERROR-NUMBER := #MSG-NR
+      NADA2000.OPT-INSERT-DYN := FALSE
+      NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+      NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+      CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+      RESET ES-RC
+      IF #TYPE-ACT = 'Y'
+        COMPRESS LONG-MSG(1) C-HEADER-DELIMITER LONG-MSG(2)
+          C-HEADER-DELIMITER LONG-MSG(3) C-HEADER-DELIMITER LONG-MSG(4)
+          C-HEADER-DELIMITER LONG-MSG(5) TO NOBNLS-HEADER LEAVING NO
+      ELSE
+        COMPRESS LONG-MSG(1) C-HEADER-DELIMITER LONG-MSG(2)
+          C-HEADER-DELIMITER LONG-MSG(4) C-HEADER-DELIMITER
+          LONG-MSG(5) TO NOBNLS-HEADER LEAVING NO
+      END-IF
+    END-IF                                                /* CF1
+  END-IF
+END-IF
+IF ES-USER-TYPE NE 'A'
+  #NOBNSL.#AUTH := ES-USER
+ELSE
+  #GRANTS(*)    := 'Y'
+END-IF
+IF #NOBNSL.#AUTH = ' ' OR = '*' OR = 'ADMIN'
+  PERFORM READ-ALL-BUNDLES
+ELSE
+  PERFORM READ-GRANTED-BUNDLES
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ALL-BUNDLES
+************************************************************************
+READ BUNDLE WITH B-BUNDLE STARTING FROM #BUNDLE-S ENDING AT #BUNDLE-E
+  PERFORM SELECT-RECORD
+  ACCEPT IF #SELECT
+  #LS-USERID := 'ADMIN'
+  PERFORM DATA-TO-PDA
+END-READ
+*
+END-SUBROUTINE /* READ-ALL-BUNDLES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-GRANTED-BUNDLES
+************************************************************************
+READ BUNDLE WITH B-BUNDLE STARTING FROM #BUNDLE-S ENDING AT #BUNDLE-E
+  PERFORM SELECT-RECORD
+  ACCEPT IF #SELECT
+  CALLNAT 'NOGROU-N'
+    'B' B-BUNDLE #NOBNSL.#AUTH #LS-USERID #GRANTS(*)
+  /* Note:
+  /* For a Non-Admin user show all bundles with
+  /* any authorisation
+  /* (no selection for different authorisations available)
+  /* For an Admin user show only the bundles with
+  /* the selected authorisation.
+  IF #LS-USERID NE ' ' AND ES-USER-TYPE NE 'A' OR
+      #LS-USERID = #NOBNSL.#AUTH AND ES-USER-TYPE = 'A' /* CF2 <-
+    IF ES-USER-TYPE = 'A'
+      #LS-USERID := 'ADMIN'
+    END-IF
+    PERFORM DATA-TO-PDA
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* READ-GRANTED-BUNDLES
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-TO-PDA
+************************************************************************
+RESET #NEW-OPTIONS(*) #OPTIONS(*) I
+ADD 1 TO #I2
+IF #I2 > #IMAX
+  ES-NEXT-KEY-PARM(1) := B-BUNDLE
+  ES-NUMBER := #IMAX
+  RESET ES-EOF
+  ESCAPE BOTTOM
+END-IF
+RESET #OPTIONS(*)
+FBR. FIND NUMBER BUNDLE-REPORT WITH BR-BUNDLE = B-BUNDLE
+IF *NUMBER (FBR.) = 0
+  #OPTIONS(1) := 'LR'
+  #OPTIONS(2) := 'SS'
+END-IF
+INCLUDE NOOPT--C
+*
+IF ES-EXPAND = 'E'
+  NOBNEX-NAME(#I2) := BUNDLE.B-BUNDLE
+  NOBNEX-OPTIONS(#I2,*):= #OPTIONS(*)
+ELSE
+  IF #TYPE-ACT = 'Y'
+    NOBNLS5-NAME(#I2) := BUNDLE.B-BUNDLE
+    NOBNLS5-AUTH(#I2) := #LS-USERID
+    NOBNLS5-DESC(#I2) := BUNDLE.B-DESC
+    NOBNLS5-REP-NUMBER (#I2) := *NUMBER(FBR.)
+    MOVE RIGHT JUSTIFIED NOBNLS5-REP-NUMBER(#I2) TO
+      NOBNLS5-REP-NUMBER(#I2)
+    IF BUNDLE.B-BUNDLE-STATUS NE ' '
+      NOBNLS5-TYPE (#I2) := BUNDLE.B-BUNDLE-STATUS
+    ELSE
+      NOBNLS5-TYPE(#I2)  := 'M'
+    END-IF
+    NOBNLS5-OPTIONS(#I2,*) := #OPTIONS(*)
+  ELSE
+    NOBNLS4-NAME(#I2) := BUNDLE.B-BUNDLE
+    NOBNLS4-AUTH(#I2) := #LS-USERID
+    NOBNLS4-DESC(#I2) := BUNDLE.B-DESC
+    NOBNLS4-REP-NUMBER (#I2) := *NUMBER(FBR.)
+    MOVE RIGHT JUSTIFIED NOBNLS4-REP-NUMBER(#I2) TO
+      NOBNLS4-REP-NUMBER(#I2)
+    NOBNLS5-OPTIONS(#I2,*) := #OPTIONS(*)
+  END-IF
+END-IF
+ES-NUMBER := #I2
+*
+END-SUBROUTINE /* DATA-TO-PDA
+*
+************************************************************************
+DEFINE SUBROUTINE SELECT-RECORD
+************************************************************************
+#SELECT := TRUE
+DECIDE FOR EVERY CONDITION
+  WHEN #NOBNSL.#TYPE > ' '
+    IF BUNDLE.B-BUNDLE-STATUS NE ' '
+    AND BUNDLE.B-BUNDLE-STATUS NE #NOBNSL.#TYPE                       /*
+      RESET #SELECT
+    END-IF
+    IF BUNDLE.B-BUNDLE-STATUS = ' '
+    AND #TYPE-ACT = 'Y' AND #NOBNSL.#TYPE NE 'M'                      /*
+      #SELECT := FALSE
+    END-IF
+  WHEN NOT(#NOBNSL.#REPORT = ' ' OR = '*')
+    FNDNUM. FIND NUMBER BUNDLE-REPORT WITH BR-BUNDLE = BUNDLE.B-BUNDLE
+    AND BR-REPNAME = #REPORT-S THRU #REPORT-E                         /*
+    IF *NUMBER(FNDNUM.) = 0
+      #SELECT := FALSE
+    END-IF
+  WHEN NOT (BUNDLE.B-MASTER-REPNAME = #MASTER-S THRU #MASTER-E)
+    #SELECT := FALSE
+  WHEN #NOBNSL.#COORD NE ' '
+    IF BUNDLE.B-COORDINATOR-ID NE #NOBNSL.#COORD
+      #SELECT := FALSE
+    END-IF
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* SELECT-RECORD
+*
+END

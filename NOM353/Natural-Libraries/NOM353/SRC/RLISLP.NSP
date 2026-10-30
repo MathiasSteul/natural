@@ -1,0 +1,291 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RLISLP - LIST LOG FOR PRINTOUTS
+*
+* MRS 91-05-22 F(145) objekt-name empty
+* gw  92-02-21 show messages and not only substitution strings
+* gw  96-10-15 s(231722) TOP doesn't go top
+* jvd 97-10-09 p(163166) Replace Callnat 'OUTDATE' with 'IODATE-N'
+*                        Y2C and use only one date routine for NOM
+* xsisgg 00-08-23 CE7461 Extend Report and Bundle names
+* sju 00-11-14 s(999999) SAT log server
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* xsetggr 2008-05-03 p(303852) use SATLGR2P/N
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2012-02-02 NOMALL-1100 make language switch works
+* raya    2013-06-19 NOMALL-1259 use SATLGR3P/N
+* SU1     2015-01-26 NOMALL-1388 avoid S0C7/(SAT-288:SATLGR3P changed)
+* fhi     2017-01-04 NOMALL-1913 Use microseconds for logging
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  NRM-GL
+LOCAL USING RPFK---L
+LOCAL USING SATLGR4P
+LOCAL USING SATLG01E
+LOCAL
+1 #PANNEL-NO              (I1) INIT <1>
+1 #OBJECT-TYPE            (A10)
+1 #FATHER-PROG            (A8) INIT <'RLISPO'>
+1 #NOFLINES               (P2) INIT <015 >
+1 #NOFPAGES               (P2) INIT <010 >
+1 #END-OF-DATA            (L)
+1 #CP                     (P3)
+1 #MAXP                   (P3)
+1 #MAXAP                  (P3)
+1 #NEWVAL                 (L)
+1 #BACKWARD               (L)
+1 #FORWARD                (L)
+1 #TOP                    (L)
+1 #BOT                    (L)
+1 GET-SCREEN              (L)
+1 #LAST-KEY               (A15)
+1 REDEFINE    #LAST-KEY
+  2 #LK-TYPE              (A2)
+  2 #LK-TIMEINV           (P13)
+  2 #LK-ISN               (P10)
+1 #PAGES                  (A15/10)
+1 REDEFINE    #PAGES
+  2 #PAGES1               (10)
+    3 #PK-TYPE            (A2)
+    3 #PK-TIMEINV         (P13)
+    3 #PK-ISN             (P10)
+1 L-HEADER                (A78)
+1 L-SCREEN                (15)
+  2 #L-LINE               (A58)
+  2 REDEFINE #L-LINE
+    3 #L-OBJ-1            (A25)
+    3 #L-FIL-1            (A1)
+    3 #L-MSG-1            (A32)
+  2 REDEFINE    #L-LINE
+    3 #L-OBJ-2            (A17)
+    3 #L-FIL-2            (A1)
+    3 #L-MSG-2            (A40)
+  2 #L-MSG                (A60)
+  2 #L-USERID             (A8)
+  2 #L-DATE               (A8)
+  2 #L-TIME               (A8)
+  2 L-ISN                 (P10)
+1 #BOTLINE                (A78)
+1 REDEFINE    #BOTLINE
+  2 #BOT-1                (A26)
+  2 #BOT-2                (A23)
+  2 #BOT-3                (A29)
+1 REDEFINE    #BOTLINE
+  2 #MORE-1               (A28)
+  2 #TOP-2                (A21)
+  2 #MORE-3               (A29)
+*
+1 L-LCMD                  (15)
+  2 L-MARK                (A2)
+  2 CV-MARK               (C)
+1 I                       (N5)
+1 #FORMATED-DATE          (A10)
+1 REDEFINE #FORMATED-DATE
+  2 #S-FORMATED-DATE      (A8)
+1 #ERROR-CODE             (N4)
+1 #ERROR-TEXT             (A250)
+1 #EXT                    (L)
+1 #LANGUAGE               (I1)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SATLGR-START-TYPE5      := 'PR'
+SATLGR-END-TYPE5        := 'PR'
+SATLGR-PRODUCT          := 'NOM'
+SATLGR-LANGUAGE         := *LANGUAGE
+SATLGR-SEARCH-KEY       := SATLG-ENV-TYPE-TIMEINV
+SATLGR-ACCESS-TYPE      := SATLG-READ
+SATLGR-NUMBER-OF-RECORDS:= #NOFLINES
+#OBJECT-TYPE :=   'MONITOR'
+*
+RESET G-LINECOM(*) G-FLIPLINES(*)
+*
+#NEWVAL := TRUE
+MAIN-LOOP. REPEAT
+  RESET L-MARK(*)
+* xsetggr 2012-02-02 NOMALL-1100 insert lines from below
+  IF #LANGUAGE NE *LANGUAGE
+    #LANGUAGE       := *LANGUAGE
+    SATLGR-LANGUAGE := #LANGUAGE
+    GET-SCREEN      := TRUE
+    PERFORM INIT-PFKEYS
+  END-IF
+  PERFORM SET-PFKEYS         /* xsetggr 2012-02-02 NOMALL-1100 end
+*
+  PERFORM GET-SCREEN
+*
+  DECIDE FOR EVERY CONDITION
+    WHEN #CP = 1
+      MOVE ALL '*' TO #BOTLINE
+      #TOP-2 := '**** TOP OF DATA ****'
+    WHEN #END-OF-DATA
+      MOVE ALL '*' TO #BOTLINE
+      #BOT-2 := '**** BOTTOM OF DATA ****'
+    WHEN NONE
+      MOVE ALL '*' TO #BOTLINE
+      COMPRESS 'PAGE:' #CP 'OF' #MAXAP  INTO #BOT-2
+  END-DECIDE
+*
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RLISLPM&'
+  INCLUDE C-TOPBOT
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'WB'
+  IF #PANNEL-NO = 1
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RLISLPM&'
+  ELSE
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RLISLP2&'
+  END-IF
+  INCLUDE RPFKVA-C
+  RESET G-NATRP-ERC G-NATRP-ERT
+  RESET #FORWARD #BACKWARD #NEWVAL G-NATRP-ERT G-NATRP-ERC
+  INCLUDE C-DIRECT
+*
+  DECIDE ON FIRST VALUE OF G-PF-FUNC
+    VALUE 'HELP'        REINPUT USING HELP
+    VALUE 'EXIT'
+      INCLUDE C-ESCAPE
+    VALUE 'FLIP'
+      PERFORM FLIP-HANDLE
+    VALUE 'UP'          #BACKWARD := TRUE
+    VALUE 'DOWN'         #FORWARD := TRUE
+    VALUE 'RIGHT'
+      IF  #PANNEL-NO = 1
+        #PANNEL-NO := 2
+      END-IF
+    VALUE 'LEFT'
+      IF  #PANNEL-NO = 2
+        #PANNEL-NO := 1
+      END-IF
+    VALUE 'EXT'
+      IF G-SUPPORT-LONG-NAMES
+        #EXT := TRUE
+        IF G-DISPLAY-LONG-NAMES
+          G-DISPLAY-LONG-NAMES := FALSE
+        ELSE
+          G-DISPLAY-LONG-NAMES := TRUE
+        END-IF
+      END-IF
+    VALUE 'MENU'
+      INCLUDE C-MENU
+    NONE VALUE IGNORE
+  END-DECIDE
+*
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SCREEN
+************************************************************************
+IF G-DIRECT-COMMAND = 'TOP'
+  #TOP := TRUE
+ELSE
+  RESET #TOP
+END-IF
+RESET G-NATRP-ERT
+DECIDE FOR EVERY  CONDITION
+  WHEN #NEWVAL OR #TOP
+    RESET #PAGES(*) #MAXP #MAXAP
+    #PK-TYPE(1):= 'PR'
+    RESET #PK-TIMEINV(1) #PK-ISN(1)
+    #CP := #MAXAP := 1
+  WHEN #BOT
+    #CP := #MAXAP
+  WHEN #FORWARD
+    IF #END-OF-DATA
+      ESCAPE ROUTINE
+    END-IF
+    IF #CP = #NOFPAGES
+      #PAGES(1 : #NOFPAGES - 1) := #PAGES(2 : #NOFPAGES)
+      RESET #PAGES(#CP)
+      #PAGES(#CP) := #LAST-KEY
+    ELSE
+      ADD 1 TO #CP
+      IF #CP > #MAXAP
+        #PAGES(#CP) := #LAST-KEY
+      END-IF
+    END-IF
+  WHEN #BACKWARD
+    IF #CP < 2
+      IGNORE
+    ELSE
+      SUBTRACT 1 FROM #CP
+    END-IF
+  WHEN GET-SCREEN IGNORE
+  WHEN #EXT IGNORE
+  WHEN NONE ESCAPE ROUTINE
+END-DECIDE
+*
+IF #CP >= #MAXAP
+  #MAXAP := #CP
+END-IF
+*
+SATLGR-START-TYPE5   := #PK-TYPE(#CP)
+SATLGR-START-TIMEINV5:= #PK-TIMEINV(#CP)
+SATLGR-START-ISN     := #PK-ISN(#CP)
+*
+CV-MARK(*) := (AD=P)
+RESET I L-SCREEN(*) #END-OF-DATA
+*
+CALLNAT 'SATLGR4N' SATLGR-PARMS
+FOR I = 1 TO #NOFLINES
+  IF I GT SATLGR-RECORDS-FOUND
+    #END-OF-DATA:= TRUE
+    ESCAPE BOTTOM
+  END-IF
+  #L-USERID(I):= SATLGR-EXEC-USERID(I)
+  CALLNAT 'RSUBMSGN' SATLGR-MESSAGE(I)
+  #L-MSG(I):= SATLGR-MESSAGE(I)
+  IF G-DISPLAY-LONG-NAMES
+    #L-MSG-1(I):= SATLGR-MESSAGE(I)
+    #L-FIL-1(I) := ' '
+    #L-OBJ-1(I):= SATLGR-NOM-OBJECT-NAME(I)
+  ELSE
+    #L-MSG-2(I):= SATLGR-MESSAGE(I)
+    #L-FIL-2(I) := ' '
+    #L-OBJ-2(I):= SATLGR-NOM-OBJECT-NAME(I)
+  END-IF
+  MOVE EDITED SATLGR-TIME(I) (EM=HH':'II':'SS) TO #L-TIME(I)
+  MOVE EDITED SATLGR-TIME(I) (EM=YYYYMMDD) TO #L-DATE(I)
+  CALLNAT 'IODATE-N' 'M' 'S' #L-DATE(I) #FORMATED-DATE
+    G-DATE-FORMAT #ERROR-CODE #ERROR-TEXT
+  IF #ERROR-CODE = 0
+    #L-DATE(I) := #S-FORMATED-DATE
+  END-IF
+  RESET CV-MARK(I)
+*
+END-FOR
+IF NOT #END-OF-DATA
+  #LK-TYPE   := SATLGR-NOM-TYPE(#NOFLINES)
+  #LK-TIMEINV:= SATLGR-TIME-INV(#NOFLINES)
+  #LK-ISN    := SATLGR-ISN(#NOFLINES)
+ELSE
+  #MAXP := #CP
+END-IF
+*
+END-SUBROUTINE /* GET-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFBRW-C
+INCLUDE RPFLR--C
+INCLUDE RPFEXT-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSET-C
+*
+END

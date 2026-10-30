@@ -1,0 +1,320 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMCTNAT - Catalog Natural sources by the monitor (Template:RMBPPG)
+*
+* Maintenance
+* uuuuuuuu yyyy-mm-dd iTrac       Description
+* ---------------------------------------------------------------------
+* fhi      2017-03-15 NOMALL-2008 Created.
+* fhi      2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi      2017-07-28 NOMALL-1478 Avoid CMUB calls
+* fhi      2018-04-18 NOMALL-1918 Program rewritten, no tags.
+* CF       2018-08-02             Accept code in mixed mode
+* fhi      2018-12-14 NOM 3.5     Add CPU measure
+* ---------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+*
+INDEPENDENT
+1 +CMRDC (A1)
+1 +NOD-LOCAL-NODE (N5)
+************************************************************************
+LOCAL  USING RMODTY-E
+LOCAL  USING XXNATD-L
+LOCAL  USING RMSETSTE
+LOCAL
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-MONITOR-ID
+  2 OD-TYPE
+  2 OD-PARAMETER                   (1)
+  2 OD-SOURCE-ID
+  2 OD-TIME-PROCESSED
+  2 OD-TIME-SCHEDULED
+  2 OD-ERROR-CODE
+  2 OD-ERROR-TEXT
+*
+1 #RESTART                         (L)
+*
+1 #ERR-NR                          (N5)
+1 #ERR-LINE                        (N4)
+1 #ERR-TYPE                        (A1)
+1 #ERR-PROGRAM                     (A8)
+1 #ERR-LEVEL                       (N2)
+*
+1 #OD-PARAMETER                    (A250)
+1 REDEFINE #OD-PARAMETER
+  2 #OD-COMMAND                    (A50)
+  2 #OD-LIBRARY                    (A8)
+  2 #OD-PROGRAM                    (A8)
+  2 #OD-PRODLIB                    (A8)
+  2 #OD-PROGRAM-TYPE               (A1)
+  2 #OD-SOURCE-LINES               (I4)
+  2 #OD-SHORTMSG                   (L)
+*
+1 ORDER-FOUND                      (L)
+**1 #FOUND                           (P3)
+*
+1 #OD-TYPE-TIME                    (A9)
+1 REDEFINE #OD-TYPE-TIME
+  2 #OD-TYPE                       (B2)
+  2 #OD-TIME                       (T)
+1 #OD-TYPE-A                       (A4)
+*
+1 #TRACING                         (L)
+1 #CATDATE                         (A19)
+1 RMSETTIM
+  2 FUNCTION                 (A1)
+  2 ERC                      (N4)
+  2 MSG                      (A250)
+1 #CMUB-PARM1                (B1)
+1 #CMUB-PARM2                (A2)
+1 #CMUB-RESPONSE             (N4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=100
+*
+CALLNAT 'NOMGSTEP' '*' G-NATRP-ERC
+PERFORM RMGTRACE-GET-SETTINGS #TRACING
+INCLUDE CMRDC
+DECIDE FOR EVERY CONDITION
+  WHEN *ERROR-TA = *PROGRAM                             /* back from CAT
+    *ERROR-TA := 'RM-ERRTA'
+    #RESTART := TRUE
+  WHEN #RESTART AND *DATA > 0                           /* Got an error
+    INPUT #ERR-NR #ERR-LINE #ERR-TYPE #ERR-PROGRAM #ERR-LEVEL
+  WHEN #TRACING
+    RMSETTIM.FUNCTION := 'S'
+    PERFORM RMSETTIM-SETTIME RMSETTIM
+    IF #RESTART
+      G-TRACE-MSG := 'Restarted.'
+    ELSE
+      G-TRACE-MSG := 'Initial Start.'
+    END-IF
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    PERFORM XXCATAL-GET-CATDATE #CATDATE
+    COMPRESS *PROGRAM 'cataloged at'  #CATDATE TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    FETCH RETURN 'SHOWSTCK'
+    END TRANSACTION
+  WHEN #RESTART
+    PERFORM UPDATE-ORDER
+    FETCH RETURN  'RMPUTGL'           /* Save GDA
+    RELEASE STACK
+    IF #OD-LIBRARY NE ' '
+      STACK COMMAND 'LOGON' #OD-PRODLIB /* Go back to NOM library
+    END-IF
+    STACK COMMAND 'RMGETGL'           /* Get GDA back
+    STACK COMMAND 'RMONITOR'          /* Begin next cycle
+  WHEN #RESTART AND #TRACING
+    FETCH RETURN 'SHOWSTCK'
+    RMSETTIM.FUNCTION := 'G'
+    PERFORM RMSETTIM-SETTIME RMSETTIM
+    PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+    COMPRESS *PROGRAM 'Ended. Fetching RMONITOR to start next cycle.'
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  WHEN #RESTART
+    STOP                              /* Execute stack
+  WHEN NOT #RESTART
+    RESET G-NATRP-ERC G-NATRP-ERT G-ORDER-ID G-ORDER-ISN
+    PERFORM GET-NEXT-ORDER
+  WHEN NOT #RESTART AND ORDER-FOUND
+    CALLNAT 'RMSETSTN' #EQU-CAT
+      +NOD-LOCAL-NODE G-NATRP-DBID
+      G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+    PERFORM PROCESS-ORDER
+  WHEN #TRACING
+    COMPRESS *PROGRAM 'ended.' TO  G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NEXT-ORDER
+************************************************************************
+RESET ORDER-FOUND
+#OD-TYPE := OD-CAT-NATURAL-SOURCE
+RESET #OD-TIME
+*
+FNDOD. READ ORDER BY OD-TYPE-TIME = #OD-TYPE-TIME
+  IF  OD-TYPE NE #OD-TYPE OR OD-TIME-SCHEDULED > *TIMX
+    BACKOUT TRANSACTION
+    ESCAPE BOTTOM
+  END-IF
+  #OD-PARAMETER := ORDER.OD-PARAMETER (1)
+*
+  IF #TRACING
+    #OD-TYPE-A := OD-TYPE
+    IF #OD-SOURCE-LINES > 0
+      COMPRESS 'Found OD-ID:' OD-ID '- OD-type:' #OD-TYPE-A
+        '- Scheduled:' OD-TIME-SCHEDULED
+        '- for object:' #OD-LIBRARY #OD-PROGRAM
+        '- of internal type ' #OD-PROGRAM-TYPE
+        '- to be processed from editor session' TO G-TRACE-MSG
+    ELSE
+      COMPRESS 'Found OD-ID:' OD-ID '- OD-type:' #OD-TYPE-A
+        '- Scheduled:' OD-TIME-SCHEDULED
+        '- for object:' #OD-LIBRARY #OD-PROGRAM
+        '- of internal type ' #OD-PROGRAM-TYPE
+        '- to be processed from system file' TO G-TRACE-MSG
+    END-IF
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+*
+  GETOD. GET ORDER *ISN(FNDOD.)
+*
+  RESET XXNATDIR
+  XXNATDIR.P-LIBRARY := #OD-LIBRARY
+  XXNATDIR.P-MODULE  := #OD-PROGRAM
+  PERFORM XXNATDIR-GETDIR XXNATDIR
+  DECIDE FOR EVERY CONDITION
+    WHEN #OD-COMMAND NE 'CHECK' AND (#OD-COMMAND = ' '
+    OR  #OD-LIBRARY  = ' ' OR  #OD-PROGRAM  = ' ')                    /*
+      OD-ERROR-CODE := 1606
+      PERFORM GET-MESSAGE
+      ORDER-FOUND := FALSE
+    WHEN    XXNATDIR.P-ERC NE 0 AND #OD-SOURCE-LINES = 0
+      OD-TYPE := OD-CAT-NATURAL-SOURCE-FAILED
+      OD-ERROR-CODE := 1607
+      PERFORM GET-MESSAGE
+      ORDER-FOUND := FALSE
+    WHEN    NONE
+      OD-TYPE := OD-CAT-NATURAL-SOURCE-IN-PROCESS
+      G-ORDER-ID  := OD-ID
+      G-ORDER-ISN := *ISN (FNDOD.)
+      ORDER-FOUND := TRUE
+      G-CYCLE-WAS-IDLE  := FALSE
+  END-DECIDE
+  UPDATE (GETOD.)
+  END OF TRANSACTION
+  ESCAPE BOTTOM (FNDOD.)
+END-READ
+*
+END-SUBROUTINE /* GET-NEXT-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-ORDER
+************************************************************************
+IF #TRACING
+  COMPRESS 'Searching order:' G-ORDER-ID 'in line:' *LINE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+UPDOD. FIND ORDER WITH OD-ID = G-ORDER-ID
+  #OD-PARAMETER := OD-PARAMETER (1)
+  IF #ERR-NR = 0
+    OD-TYPE := OD-CAT-NATURAL-SOURCE-OK
+    OD-ERROR-CODE := 1601
+    PERFORM GET-MESSAGE
+  ELSE
+    OD-TYPE := OD-CAT-NATURAL-SOURCE-FAILED
+    OD-ERROR-CODE := 1602
+    PERFORM GET-MESSAGE
+  END-IF
+  OD-TIME-PROCESSED := *TIMX
+  OD-MONITOR-ID     := G-MONITOR-ID
+*
+  UPDATE (UPDOD.)
+*
+  IF #TRACING
+    #OD-TYPE-A := OD-TYPE
+    COMPRESS 'Order processed:' OD-ID 'OD-TYPE:' #OD-TYPE-A
+      'At:' OD-TIME-PROCESSED 'Msg:' OD-ERROR-CODE OD-ERROR-TEXT
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  END OF TRANSACTION
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-ORDER
+************************************************************************
+#CMUB-PARM1 := 65
+#CMUB-PARM2 := 'S '   /* set NAT parameter 'SYNERR=ON'
+CALLNAT 'NAT00039' #CMUB-PARM1 #CMUB-PARM2 #CMUB-RESPONSE
+/* Ignore response code. If impossible, accept SYNERR setting.
+*
+FETCH RETURN  'RMPUTGL'               /* Save  GDA in Editor session 49
+RELEASE STACK
+IF #OD-LIBRARY NE ' '
+  STACK COMMAND 'LOGON' #OD-LIBRARY   /* Go to catalog library
+END-IF
+STACK COMMAND 'RMCTERR'               /* Set error transaction 'RMCTNAT'
+STACK COMMAND 'RMGETGL'               /* Get GDA back
+IF #OD-SOURCE-LINES > 0
+  STACK COMMAND 'RMCTSRC' ORDER.OD-ID /* Get the source from order
+    #TRACING
+  STACK COMMAND 'RENUM'               /* Get ascending source line no
+ELSE
+  STACK COMMAND 'READ' #OD-PROGRAM    /* Get the source from member
+END-IF
+IF *MACHINE-CLASS = 'MAINFRAME'
+  STACK COMMAND 'COMPOPT LOWSRCE=ON'  /* Accept code in mixed mode /* CF
+END-IF
+IF #OD-COMMAND = ' '
+  IF P-TYPE = 'T' OR = 'C'            /* Nat obj type text or copy-code
+    STACK COMMAND 'SAVE'              /* Save only, i.e. update catdates
+  ELSE
+    STACK COMMAND 'CAT'               /* Catalog the object
+  END-IF
+ELSE
+  STACK COMMAND #OD-COMMAND
+END-IF
+* STACK COMMAND 'SAVE #TST1606'         /* ÜÜÜ For Test only ÜÜÜ /* CF
+STACK COMMAND 'CLEAR'                 /* Clear source area
+STACK COMMAND *PROGRAM                /* Continue with this program
+IF #TRACING
+  FETCH RETURN 'SHOWSTCK'
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+  COMPRESS *PROGRAM 'stopped to execute Natural stack.' TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+STOP
+*
+END-SUBROUTINE /* PROCESS-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MESSAGE
+************************************************************************
+DECIDE ON EVERY VALUE OF OD-ERROR-CODE
+  VALUES 1601, 1606, 1607
+    COMPRESS OD-ERROR-CODE #OD-COMMAND
+      #OD-PROGRAM #OD-LIBRARY XXNATDIR.P-ERC TO  OD-ERROR-TEXT
+  VALUES 1602
+    COMPRESS OD-ERROR-CODE #OD-COMMAND #ERR-NR #ERR-LINE #ERR-PROGRAM
+      TO OD-ERROR-TEXT
+  VALUES 1602, 1606, 1607
+    PERFORM XXRLOG-WRITE-LOG 'W'  OD-ERROR-TEXT
+  NONE
+    IGNORE
+END-DECIDE
+IF #TRACING
+  COMPRESS 'Got message' OD-ERROR-CODE
+    '- with object ' #OD-LIBRARY #OD-PROGRAM '- and text' OD-ERROR-TEXT
+    TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* GET-MESSAGE
+*
+END

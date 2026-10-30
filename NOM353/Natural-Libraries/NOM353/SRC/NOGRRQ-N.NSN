@@ -1,0 +1,141 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* -------------------------------------------------------------------
+* Subprogram  NOGRRQ-N
+* Version    3.4.3
+* Function   NOM API Authorization Maintenance - Granting Request
+*            Checks if a function is granted
+*            for a given UserID, Object type and Object name
+*
+* Following granting types of NRM-GRANT are possible:
+*    B - Bundle
+*    F - Folder
+*   (H - Physical Printer -> old)
+*    L - Distribution List
+*    P - Logical Printer
+*    R - Active Report
+*
+*
+* Maintenance:
+* CF      2017-01-31  NOMALL-1990 created
+*
+** ------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+LOCAL     USING NOMODE-A
+LOCAL
+/* Parameters for RGRANT-N
+1 P-USERID         (A8)
+1 P-TYPE           (A1)
+1 P-NAME           (A25)
+1 P-GRANTED        (L)
+/*
+1 #GRANTS          (A1/1:6)
+1 #NEW-OPTIONS     (A2/8)
+1 #OPTIONS         (A2/10)
+1 I                (I4)
+1 #ES-OBJECT       (A2)
+/*
+1 #FO-NUMBER       (N5)
+1 REDEFINE #FO-NUMBER
+  2 #FO-NUMBER-A   (A5)
+1 #USERNAME-S      (A24)
+1 REDEFINE #USERNAME-S
+  2 #USER-S        (A8)
+  2 #NAME-S        (A16)
+1 FO VIEW OF NRM-FOLDER
+  2 FO-NAME
+  2 FO-USER-ID
+  2 FO-ID
+  2 FO-DESC
+  2 FO-LINKED-FO-ID
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER-ID  (A8)
+    3 FO-LINKED-ID       (B2)
+/*
+END-DEFINE
+/*
+/* ------------------------------------------------------------------
+/*
+ES-RC := 0
+RESET ES-MSG-NR ES-MSG-FIELD ES-MSG-TXT
+NOMOD-PARMS := ES-SELECT
+/*
+ES-MSG-NR := 0
+ES-MSG-FIELD := '-- NOT VALIDATED --'  /* No granting check performed
+/*
+/* Set parameters for granting check
+P-USERID  := ES-USER
+P-NAME    := ES-KEY-PARM(1)
+DECIDE ON FIRST VALUE OF ES-ORIG-OBJECT
+  VALUE 'RP'             /* Reports
+        P-TYPE := 'R'
+  VALUE 'BN', 'AB', 'BR' /* Bundles, Active Bundles, Reports in Bundle
+        P-TYPE := 'B'
+  VALUE 'FO'             /* Folder
+        P-TYPE := 'F'
+        /*
+        /* Get authorization from target folder, using internal name
+        #USER-S := ES-USER
+        #NAME-S := ES-KEY-PARM(1)
+        FIND FO WITH FO-USER-NAME = #USERNAME-S
+          IF FO.FO-LINKED-USER-ID > ' '
+            #FO-NUMBER := FO.FO-LINKED-ID
+            COMPRESS FO.FO-LINKED-USER-ID #FO-NUMBER-A
+                INTO P-NAME LEAVING NO
+          ELSE
+            #FO-NUMBER := FO.FO-ID
+            COMPRESS FO.FO-USER-ID #FO-NUMBER-A
+                INTO P-NAME LEAVING NO
+          END-IF
+        END-FIND
+  VALUE 'PR'             /* Logical Printer
+        P-TYPE := 'P'
+  VALUE 'DL', 'MB'       /* Distribution Lists, Members
+        P-TYPE := 'L'
+  NONE  /* Objects without granting relevance
+        ESCAPE ROUTINE
+END-DECIDE
+/*
+CALLNAT 'RGRANT-N' P-USERID P-TYPE P-NAME P-GRANTED #GRANTS(*)
+/*
+IF P-GRANTED
+  /*
+  /* Granting record found, so check if function is allowed
+  /*
+  PERFORM CHECK-FUNCTION
+  /*
+  IF ES-ORIG-FUNCTION = #OPTIONS(*)
+    ES-MSG-NR := 99
+    COMPRESS 'REJECTED :' #GRANTS(*) INTO ES-MSG-FIELD LEAVING NO
+  ELSE
+    ES-MSG-NR := 0
+    COMPRESS 'GRANTED :' #GRANTS(*) INTO ES-MSG-FIELD LEAVING NO
+  END-IF
+ELSE
+  /* No granting record found: no function granted
+  ES-MSG-NR := 99
+  ES-MSG-FIELD := 'NO RECORD FOUND'
+END-IF
+/*
+/* ------------------------------------------------------------------
+/*
+DEFINE SUBROUTINE CHECK-FUNCTION
+/*
+/* Check the requested function against the result of the
+/* granting check.
+/*
+  #ES-OBJECT := ES-OBJECT
+  ES-OBJECT  := ES-ORIG-OBJECT
+  INCLUDE NOOPT--C
+  ES-OBJECT := #ES-OBJECT
+  /*
+END-SUBROUTINE
+/*
+/* ------------------------------------------------------------------
+/*
+END

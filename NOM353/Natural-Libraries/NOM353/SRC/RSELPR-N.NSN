@@ -1,0 +1,345 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RSELPR-N - Select a Printer from a List
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  96-06-14           rewritten
+* gw  96-09-25 s(254762) screen corrupted
+* gw  96-11-05 s(255944) don't queue printout when PF3
+* wcd 00-04-01 CE 7267   Increase to 20 printers
+* xsiszha 2000-08-02 (CE7461) Extend Report and Bundle Names
+* sju 03-05-22 p(240729) Restrict usage
+* LP      2005-02-10 p(272732)STOWED WITH CHANGED LDA VPRINT-L
+*                             P-LABEL (ADABAS SHORT NAME TP) is multiple
+* xsetggr 2007-10-25 NRT2185 not list default values for UNIXLP printers
+* xsetggr 2008-02-07 p(301862) do not use DEFAULTx printers in selection
+* xsetggr 2008-11-28 P311915 default printers DEFAULTA - DEFAULTZ
+* xsetggr 2009-09-01 P314431 allow UNIXLP printers only for mainframe
+*                and only NATUNIX and DISKUNIX printers for unix systems
+* xsetggr 2010-11-03 NOMALL-865 restow due to changes in EOMPHTYE
+* SU1     2019-11-14 NOMALL-2253 +G-USE-AS-START-VALUE -> param
+* SU2     2022-09-30 NOMALL-2549 (AHA ESM-I-12)/new cmd:MOve
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #PRINTER             (A8)
+1 #CLASS               (A1) /*not used
+1 #FORM                (A4) /*not used
+1 #DESTINATION         (A8) /*not used
+1 #COPIES              (N3)
+1 #PHYSICAL            (A8) /*not used
+1 #PRIORITY            (N1) /*not used
+1 #HOLD                (A1)
+1 #USER-ID             (A8)
+1 #USER-TYPE           (A1)
+1 #PRINTERS            (A8/1:20)
+1 #NOP                 (P2)
+1 #PR-NAME             (A8) OPTIONAL /*move from PR (RLISPO SU2 ->
+1 #PR-TYPE             (A8) OPTIONAL
+1 #PR-MOVE-NR          (I2) OPTIONAL /*in:nr / out:-1=move all SU2 <-
+************************************************************************
+/*SU1 INDEPENDENT 1 +G-USE-AS-START-VALUE (L)
+* *****
+LOCAL USING VGRANT-L
+LOCAL USING VPRINT-L
+LOCAL USING EOMPHTYE
+LOCAL
+1 #I                   (P2)
+1 #J                   (P2)
+1 #NOFLINES            (I2)   CONST <10>
+1 #SCREEN              (1:#NOFLINES)
+  2 L-NAME             (A30)
+  2 L-ID               (A8)
+  2 L-PH               (A8)
+  2 L-PRTY             (N1)
+  2 L-DEST             (A8)
+  2 L-FORM             (A4)
+  2 L-COPIES           (N3)
+  2 L-CLASS            (A1)
+1 CV-MARK              (C/1:#NOFLINES)
+1 L-MARK               (A1/1:#NOFLINES)
+1 END-OF-PROCESSING    (L)
+1 END-OF-DISPLAY       (L)
+1 END-OF-DATA          (L)
+1 NEW-SEARCH           (L)
+1 #ERC                 (N4)
+1 #PAGE                (P3)  INIT <1>
+1 #NOFPAGES            (I2)  CONST <20>
+1 #PID                 (A26/1:#NOFPAGES)
+1 CV-LINE              (C/1:#NOFLINES)
+1 GRANTED              (L)
+1 HIGHLIGHT            (L)
+1 J                    (P2)
+1 #OBJECT-NAME         (A25)
+1 AT-LEAST-ONE-GRANT   (L)
+1 #S-PRINTER           (A25)
+1 #PRINTER-F           (A25)
+1 #PRINTER-T           (A25)
+1 #LEN                 (N3)
+1 #OLD-PRINTER         (A25)
+1 #COUNTER             (P10)
+1 #P-ID-E              (A8)
+1 #P-ID                (A8)   INIT <'DEFAULT'>
+1 REDEFINE #P-ID
+  2 #P-ID-1            (A7)
+  2 #SUFFIX            (A1)
+1 PHYSICAL VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-PRINTER-TYPE
+1 #DISPLAY-IT          (L)
+1 #NAME-FROM           (A8) /*SU2 ->
+1 #TYPE-FROM           (A8)
+1 #ALL                 (A1) INIT <'N'>
+1 #MOVE                (L)
+1 #POS                 (I4) /*SU2 <-
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM PF-KEYS
+IF SUBSTR(#PRINTER,1,7) = 'DEFAULT'
+  RESET #S-PRINTER
+ELSE
+  #S-PRINTER := #PRINTER
+END-IF
+RESET #PRINTER
+IF #PR-NAME SPECIFIED AND #PR-TYPE SPECIFIED /*SU2
+  #MOVE := TRUE
+  #NAME-FROM := #PR-NAME
+  #TYPE-FROM := #PR-TYPE
+END-IF
+*
+PERFORM INIT-SELECTION-KEYS
+*
+MAIN. REPEAT UNTIL END-OF-PROCESSING
+  RESET #I #COUNTER
+  RESET INITIAL END-OF-DATA NEW-SEARCH
+  REA. READ PRINTERS BY P-ID = #PRINTER-F THRU #PRINTER-T
+    IF P-ID = #P-ID THRU #P-ID-E
+      ESCAPE TOP
+    END-IF
+    PERFORM GET-PRINTER-TYPE
+    IF #MOVE AND (NOT (#TYPE-FROM = ' ' OR= PH-PRINTER-TYPE)/*SU2
+    OR #PR-NAME = PRINTERS.P-ID)                                      /*
+      ESCAPE TOP
+    END-IF
+    IF #I = #NOFLINES
+      PERFORM SCREEN-IO
+      IF END-OF-PROCESSING OR NEW-SEARCH
+        ESCAPE BOTTOM (REA.)
+      END-IF
+    END-IF
+*
+    RESET HIGHLIGHT GRANTED
+    IF #USER-TYPE = 'A'
+      GRANTED := TRUE
+      IF #NOP > 0
+        EXAMINE FULL VALUE OF #PRINTERS (1:#NOP)
+          FOR FULL VALUE OF P-ID GIVING INDEX IN J
+        IF J > 0
+          HIGHLIGHT := TRUE
+        END-IF
+      END-IF
+    ELSE
+      DECIDE FOR EVERY CONDITION
+        WHEN #NOP > 0 AND P-DISP NE 'Y'
+          EXAMINE FULL VALUE OF #PRINTERS (1:#NOP)
+            FOR FULL VALUE OF P-ID GIVING INDEX IN J
+          IF J > 0
+            GRANTED := HIGHLIGHT := TRUE
+          END-IF
+        WHEN NOT GRANTED
+          GRANTS.GR-USERID := #USER-ID
+          #OBJECT-NAME     := P-ID
+          CALLNAT 'RGRANT-N' GRANTS.GR-USERID 'P' #OBJECT-NAME GRANTED
+            GRANTS.GR-OPTION(*)
+          IF GRANTED AND P-DISP = 'Y' AND NOT GRANTS.GR-OPTION(*) = 'Y'
+            RESET GRANTED /* restricted usage
+          END-IF
+        WHEN NONE
+          IGNORE
+      END-DECIDE
+    END-IF
+    IF NOT #DISPLAY-IT
+      ESCAPE TOP
+    END-IF
+*
+    IF NOT GRANTED
+      ESCAPE TOP
+    END-IF
+    AT-LEAST-ONE-GRANT := TRUE
+    ADD 1 TO #I
+    ADD 1 TO #COUNTER
+    PERFORM PRINTER-TO-SCREEN
+  END-READ
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN #I > 0 OR #COUNTER = 0
+      END-OF-DATA := TRUE
+    WHEN NOT AT-LEAST-ONE-GRANT
+      ESCAPE BOTTOM (MAIN.)
+    WHEN ANY
+      PERFORM SCREEN-IO
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+IF #I < #NOFLINES
+  CV-MARK (#I+1:#NOFLINES) := (AD=NP) /*SU2 was (AD=DP)
+END-IF
+*
+RESET END-OF-DISPLAY
+*
+REPEAT
+  DECIDE FOR FIRST CONDITION
+    WHEN #ERC NE 0
+      IGNORE
+    WHEN END-OF-DATA AND #PAGE > 1
+      #ERC := 12                   /* bottom of data
+    WHEN END-OF-DATA AND #PAGE = 1
+      #ERC := 14                   /* all
+    WHEN NOT END-OF-DATA AND #PAGE = 1
+      #ERC := 11                   /* top of data
+    WHEN NONE
+      #ERC := 13                   /* more
+  END-DECIDE
+  SET CONTROL 'Y41'
+  SET CONTROL 'WC23L51B1/25F'
+  IF #MOVE /*SU2
+    INPUT WITH TEXT *#ERC MARK #POS USING MAP 'RSELPRN&'
+    RESET #POS
+  ELSE
+    INPUT WITH TEXT *#ERC USING MAP 'RSELPRM&'
+  END-IF
+  SET CONTROL 'WB'
+  RESET #ERC
+  PERFORM COMMAND-PF-KEY
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+RESET #I #SCREEN (*)
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE PRINTER-TO-SCREEN
+************************************************************************
+L-NAME   (#I) := PRINTERS.P-NAME
+L-ID     (#I) := PRINTERS.P-ID
+L-PH     (#I) := PRINTERS.P-PHYSICAL-NAME
+L-COPIES (#I) := PRINTERS.P-COPIES
+L-DEST   (#I) := PRINTERS.P-DESTINATION
+L-FORM   (#I) := PRINTERS.P-FORM
+L-CLASS  (#I) := PRINTERS.P-CLASS
+CV-MARK  (#I) := (AD=I)
+IF HIGHLIGHT
+  CV-LINE (#I) := (AD=I)
+ELSE
+  CV-LINE (#I) := (AD=D)
+END-IF
+*
+END-SUBROUTINE /* PRINTER-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+IF #MOVE AND NOT (#ALL ='Y' OR='N') /*SU2
+  #ERC := 618 /* Y/N
+  #POS := POS(#ALL)
+  ESCAPE ROUTINE
+END-IF
+FOR #J = 1 TO #I
+  IF L-MARK (#J) NE ' ' AND *PF-KEY NE 'PF3'
+    #PRINTER := L-ID (#J)
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+    IF #MOVE AND #ALL ='Y' /*SU2
+      #PR-MOVE-NR := -1 /* indicator for RLISPO
+    END-IF
+    ESCAPE ROUTINE
+  END-IF
+END-FOR
+*
+DECIDE ON FIRST *PF-KEY
+  VALUE 'PF3'
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+  VALUE 'PF7'
+    IF #PAGE > 1
+      #PAGE := #PAGE - 1
+      END-OF-DATA := FALSE
+      END-OF-DISPLAY := NEW-SEARCH := TRUE
+    END-IF
+  VALUE 'PF8'
+    IF NOT END-OF-DATA
+      ADD 1 TO #PAGE
+      IF #PAGE > #NOFPAGES
+        #PAGE := #NOFPAGES
+        #PID (1:19) := #PID (2:20)
+      END-IF
+      #PID (#PAGE) := PRINTERS.P-ID
+      END-OF-DISPLAY := TRUE
+    END-IF
+  NONE IGNORE
+END-DECIDE
+*
+IF #S-PRINTER NE #OLD-PRINTER
+  RESET INITIAL #PAGE
+  RESET #PID (*)
+  PERFORM INIT-SELECTION-KEYS
+  NEW-SEARCH := TRUE
+  END-OF-DISPLAY := TRUE
+END-IF
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-SELECTION-KEYS
+************************************************************************
+/*SU1 +G-USE-AS-START-VALUE := TRUE
+CALLNAT 'SELALPHA' #S-PRINTER #PRINTER-F #PRINTER-T #LEN TRUE /*SU1
+/*SU1 +G-USE-AS-START-VALUE := FALSE
+#OLD-PRINTER := #S-PRINTER
+#SUFFIX := 'Z'
+#P-ID-E := #P-ID
+#SUFFIX := 'A'
+*
+END-SUBROUTINE /* INIT-SELECTION-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-PRINTER-TYPE
+************************************************************************
+#DISPLAY-IT := TRUE
+FIND PHYSICAL WITH PH-VTAMID = PRINTERS.P-PHYSICAL-NAME
+  IF *MACHINE-CLASS = 'MAINFRAME'
+    IF PH-PRINTER-TYPE = ##PHYS-NATUNIX
+      RESET #DISPLAY-IT
+    END-IF
+  ELSE
+    IF NOT(PH-PRINTER-TYPE = ##PHYS-DISKUNIX OR = ##PHYS-NATUNIX)
+      RESET #DISPLAY-IT
+    END-IF
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* GET-PRINTER-TYPE
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+*
+END-SUBROUTINE /* PF-KEYS
+*
+END

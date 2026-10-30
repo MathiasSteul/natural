@@ -1,0 +1,351 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMGSTEP - 1. clear steplib table 2. Add all needed steplibs
+* ----------------------------------------------------------------------
+* Functions:
+*   ' '/'*' - Clear steplib table and add all necessary steplibs
+*             if NSC is not active.
+*   'F' - same as '*', but don't care about NSC. for working NOM API
+/*SU1 old:   'N' - Do not clear steplib table, add SYSNOM and SYSLIBS
+*   'N' - Do not clear steplib table, add SYSNOM /*SU1 new
+*         only. Don't care about NSC.
+*   'C' - Clear steplib table, don't care about NSC
+*   'I' - Initialize steplib table, don't care about NSC
+*         Take all steplibs as defined in NATPARM
+*   'R' - Restore user steplibs that were saved with '*'/' '/'*'/'F'/'N'
+*
+* Maintenance
+* -----------
+* uuuuuu yyyy-mm-dd P999999 Remark
+* fhi    2007-05-30 P297047 Created because on Unix NSC NOM1078 occurred
+* fhi    2007-11-02 FHI240  Allow NOM to be started from foreign lib on
+*                           Unix platforms
+* fhi    2007-11-12 P299414 CMSSLI returns hex'00' in string, compare
+*                           fails!
+* fhi    2007-11-19 FHI245  Changing Steplib chain because SYSEOR too
+*                           early.
+* fhi    2008-06-19 P300323 Add function 'F' Force: Don't care about NSC
+* xsetggr 2008-08-11 P300323 Add NOM library as steplib if function='F'
+* fhi     2008-11-17 P309557 Avoid PRODINFO module
+* fhi     2008-11-25 FHI256  Set Steplibs in Unix correctly
+* fhi     2009-01-15 P313328 Set Steplibs for RPC server correctly
+* fhi     2009-02-02 P300323 Correct FHI256, backout FHI240, Spec-P300323.doc
+* fhi     2009-02-03 P300323 Rewritten, comments deleted, outtake of FUSER libs
+* fhi     2009-02-11 P300323 Added support to remember name,dbid, and fnr
+* fhi     2009-02-16 P300323 Changed perform GET-FNAT to avoid NAT0082
+* 2009-02-16 P300323 ...ÖProjectsÖNom32ÖSpecificationsÖSpec-P300323.doc
+* fhi     2009-02-23 P300323 Do not run on Unix
+* fhi     2009-02-27 P300323 Rename RGETSTEP to NOMGSTEP delivered in SYSTEM
+* fhi     2009-03-06 P300323 Avoid function 20 of NAT00009, it's faulty
+*                            Routine rewritten, comments deleted.
+* fhi     2010-08-03 FHI270  Use SAT steplib setting additionally
+* fhi     2010-08-31 NOMALL-93 Introduce tracing with optional parameter
+*                              No tags.
+* fhi     2010-09-03 NOMALL-97 Extend message line, new RLOG. No tags.
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2011-02-21 NOMALL-948 Steplib setting by SAT only in server
+* fhi     2011-02-23 NOMALL-948 If called from ON ERROR -> only SYSLIBS
+* fhi     2011-03-14 NOMALL-922 Improved Trace message
+* fhi     2016-12-02 NOMALL-1961 Wrong linesize
+* SU1     2018-07-24 NOMALL-1643 NOM3.5:remove stp SYSLIB,SYSLIBS,SYSEOR
+* fhi     2018-08-08 FHI1       Make it independent from SYSNOM, no tags
+* SU2     2018-11-27 NOMALL-2147 set steplibs correct
+* SU3     2022-04-14 NOMALL-2544 call DOC* from FUSER: avoid NAT0082
+* SU4     2023-08-25 NOMALL-2647 avoid Steplib table full
+************************************************************************
+DEFINE DATA
+PARAMETER
+1 P-FUNCTION           (A1) /*see above
+1 P-RC                 (N4) /* 0   it worked, <> 0 see subroutine
+1 #TRACE               (I2) OPTIONAL /* Trace-Level
+************************************************************************
+INDEPENDENT
+1 +STEPLIB-TABLE       (A8/8) /*SU4 more than 8 possible Ü
+************************************************************************
+LOCAL USING RLOG-L
+LOCAL
+1 NAT00009-PARMS
+  2 N-FUNCTION         (B1)
+  2 N-RESPONSE         (N4)
+  2 N-NUMBER-ACTIVE    (I2)
+  2 N-CURRENT-INDEX    (I2)
+  2 N-APPLIC           (A8)
+  2 N-LIBRARY          (A8)
+  2 REDEFINE N-LIBRARY
+    3 N-LIBRARY-PREFIX (A3)
+    3 N-LIBRARY-PRODUCT(A5)
+  2 N-DBID             (B2)
+  2 N-FNR              (B2)
+  2 N-PASSWORD         (A8)
+  2 N-CIPHER           (N8)
+  2 N-DIS-EN           (A1)
+  2 N-SYSIND           (A1)
+  2 N-POSITION         (I2)
+  2 N-NUMBER-MODULES   (I2)
+  2 N-RESERVE          (B32)
+  2 REDEFINE N-RESERVE
+    3 N-LDBID          (B2)
+    3 N-LFNR           (B2)
+  2 N-MODULES          (A80)
+  2 REDEFINE N-MODULES
+    3 N-MODULE         (A8/1:10)
+*
+1 #ERRTXT              (A250)
+1 #SECURITY-ACTIVE     (L)
+1 #LIBRARY-ID          (A8)
+1 #I                   (I2)
+1 #J                   (I2)
+1 #K                   (I2)
+/*SU1 1 #RET                 (I4)
+1 CMUB-CODE            (B1) INIT <0>
+1 CMUB-INFO            (A32)
+1 REDEFINE CMUB-INFO
+  2 UB-1               (N1)
+1 CMUB-RETCODE         (N4)
+*
+1 #STEPLIB-TABLE-USER  (A8/8)  /*SU4 more than 8 possible Ü
+1 #STEPLIB-TABLE       (A8/8)
+  INIT <'SYSNOM','SYSSAT','SYSNOMU','SYSNOMS'> /*SU4 why SYSNOM ??
+1 #STEPLIB-INDEX       (P3) INIT <4> /*Nr of steplibs above
+1 #STEPLIBS-OK         (L)
+1 #TRACING             (L)
+1 #N-DBID-A            (A5)
+1 #N-FNR-A             (A5)
+1 #P-ERC               (N4)
+1 #LAST-PROGRAM        (A8)
+1 #N-FUNCTION          (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=133
+*
+IF *LIBRARY-ID NE MASK ('SYS') /*V34 handlingÜ SU3
+  ESCAPE ROUTINE /*calling API(DOCFB012)from FUSER:CU must set steplipsÜ
+END-IF /* Don't change steplibs in development environment
+PERFORM GET-STEPLIB-TABLE
+/*SU4 IF NOT(#STEPLIB-TABLE-USER(*) = 'SYSNOM')
+/*SU4 RESET N-RESPONSE N-LIBRARY  := 'SYSNOM' N-FUNCTION := 8 /*add
+/*SU4 RESET N-DBID N-FNR PERFORM STEPLIB-FUNCTION IF P-RC NE 0
+* Add SYSNOM if not defined as steplib or *LIB:
+#ERRTXT := F#XFSTEP(<'SYSNOM'>) /* why SYSNOM ??
+IF #ERRTXT NE ' ' /*msg already shown /*SU4
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'RGETLIB' #LIBRARY-ID
+IF #TRACE SPECIFIED AND #TRACE GE *LEVEL /* trace only n levels deep
+  #TRACING := TRUE
+  COMPRESS 'Tracing program level:' *LEVEL 'due to trace level' #TRACE
+    TO LG-MSG
+  PERFORM WRITE-LOG
+ELSE
+  RESET #TRACING
+END-IF
+/*SU4 -> see above
+/* IF #LIBRARY-ID NE SCAN ('SYS') IF #TRACING
+/*  COMPRESS 'Terminating, running in:' #LIBRARY-ID TO LG-MSG
+/*  PERFORM WRITE-LOG END-IF
+/*  ESCAPE ROUTINE /* Don't change steplibs in development environment
+/*SU4 <- END-IF
+RESET N-RESPONSE
+PERFORM XXLSLEVL-GET-LAST-LEVEL #LAST-PROGRAM
+IF #LAST-PROGRAM = 'C-NATERN' /* call from central error routine
+  ESCAPE ROUTINE              /* We will only need SYSLIBS
+END-IF
+PERFORM NSC-ACTIVE
+IF +STEPLIB-TABLE(1) = ' ' AND P-FUNCTION = 'R'
+  P-FUNCTION := 'I'
+END-IF
+MAIN. FOR #K = 1 TO 1
+  DECIDE ON EVERY VALUE OF P-FUNCTION
+    VALUES ' ','*'
+      IF #SECURITY-ACTIVE OR *MACHINE-CLASS NE 'MAINFRAME'
+        IF #TRACING
+          COMPRESS 'Terminating due to:' 'SECURITY-ACTIVE or'
+            *MACHINE-CLASS TO LG-MSG
+          PERFORM WRITE-LOG
+        END-IF
+        ESCAPE BOTTOM (MAIN.)
+      END-IF
+      #STEPLIBS-OK := TRUE
+      FOR2. FOR #I = 1 TO #STEPLIB-INDEX
+        IF NOT (#STEPLIB-TABLE-USER(*) = #STEPLIB-TABLE(#I))
+          RESET #STEPLIBS-OK
+          ESCAPE BOTTOM (FOR2.)
+        END-IF
+      END-FOR
+      IF #STEPLIBS-OK /* then all steplibs were found
+        IF #TRACING
+          COMPRESS 'Terminating due to ''STEPLIBS OK''' TO LG-MSG
+          PERFORM WRITE-LOG
+        END-IF
+        ESCAPE BOTTOM (MAIN.)
+      END-IF
+    VALUES ' ','*','F','N'
+      +STEPLIB-TABLE(*) := #STEPLIB-TABLE-USER(*) /* remember steplibs
+    VALUES ' ','*','C','I','F','R'
+      N-FUNCTION := 4            /* Clear steplib table
+      RESET N-DBID N-FNR
+      PERFORM STEPLIB-FUNCTION
+      IF #TRACING
+        LG-MSG := 'Steplibs cleared.'
+        PERFORM WRITE-LOG
+      END-IF
+    VALUE 'I'
+      N-FUNCTION := 0   /* Initialize steplib table with NATPARM
+      RESET N-DBID N-FNR
+      PERFORM STEPLIB-FUNCTION
+      IF #TRACING
+        LG-MSG := 'Steplibs initialized.'
+        PERFORM WRITE-LOG
+      END-IF
+    VALUE 'N'
+      #STEPLIB-INDEX := 2 /*only SYSNOM+SYSSAT - see INIT
+    VALUES ' ','*','F','N'
+      FOR3. FOR #I = 1 TO #STEPLIB-INDEX /* set desired steplibs
+        N-LIBRARY  := #STEPLIB-TABLE(#I)
+        N-FUNCTION := 8 /*add
+        RESET N-DBID N-FNR
+        PERFORM STEPLIB-FUNCTION
+        IF N-RESPONSE NE 0
+          ESCAPE BOTTOM (FOR3.)
+        END-IF
+      END-FOR
+    VALUE  'R'
+      FOR4. FOR #I = 1 TO 8  /*SU4 more than 8 possible Ü
+        PERFORM GET-STEPLIB-TABLE
+        IF +STEPLIB-TABLE(#I) = ' '
+          ESCAPE BOTTOM (FOR4.)
+        END-IF
+        N-LIBRARY  := +STEPLIB-TABLE(#I)
+        N-FUNCTION := 8 /*add
+        RESET N-DBID N-FNR
+        PERFORM STEPLIB-FUNCTION
+        IF N-RESPONSE NE 0
+          ESCAPE BOTTOM (FOR4.)
+        END-IF
+      END-FOR
+    NONE
+      N-RESPONSE := P-RC := 1077
+      COMPRESS 'Invalid function for' *PROGRAM TO #ERRTXT
+      COMPRESS '1077' N-LIBRARY #ERRTXT TO LG-MSG
+      PERFORM WRITE-LOG
+  END-DECIDE
+END-FOR
+IF (P-FUNCTION = ' ' OR = '*' OR = 'F')
+AND *SERVER-TYPE NE 'RPC' /* RPC servers need SATSLS-P as STACK=..    /*
+AND *SERVER-TYPE NE ' '   /*                                          /*
+  FETCH RETURN 'SATSLS-P'
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE STEPLIB-FUNCTION
+************************************************************************
+RESET P-RC #ERRTXT
+CALLNAT 'NAT00009' NAT00009-PARMS
+DECIDE FOR FIRST CONDITION
+  WHEN N-RESPONSE = -4106 OR = 4
+    #ERRTXT := 'Entry does not exist'
+    RESET N-CURRENT-INDEX
+  WHEN N-RESPONSE = -4108
+    #ERRTXT := 'Invalid parameters'
+  WHEN N-RESPONSE = -4109
+    #ERRTXT := 'Invalid function code'
+  WHEN N-RESPONSE < 0
+    #ERRTXT := '- No error message -'
+  WHEN N-RESPONSE > 0
+    COMPRESS 'NAT' N-RESPONSE TO #ERRTXT LEAVING NO
+  WHEN ANY
+    IF N-RESPONSE NE -4106 AND N-RESPONSE NE 4
+      P-RC := N-RESPONSE
+      LG-MSG := #ERRTXT
+      PERFORM WRITE-LOG
+    END-IF
+  WHEN NONE IGNORE
+END-DECIDE
+IF #TRACING
+  #N-DBID-A   := N-DBID
+  #N-FNR-A    := N-FNR
+  #N-FUNCTION := N-FUNCTION
+  COMPRESS 'Steplib function executed:' #N-FUNCTION
+    '- DB'  #N-DBID-A '- FNR' #N-FNR-A '- LIB' N-LIBRARY
+    '- RC' N-RESPONSE '- MSG' #ERRTXT TO LG-MSG
+  PERFORM WRITE-LOG
+END-IF
+*
+END-SUBROUTINE /* STEPLIB-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG
+************************************************************************
+LG-USERID   := *USER
+LG-CODE     := 'MO'
+LG-FUNCTION := 'T'
+COMPRESS *PROGRAM LG-MSG TO LG-MSG
+PERFORM NOMCHCKP-CHECK-PROG 'RLOG' #P-ERC
+IF #P-ERC = 0
+  CALLNAT 'RLOG' PL-PARMS
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE GET-STEPLIB-TABLE
+************************************************************************
+N-FUNCTION := 12 /*Retrieve /*SU4 NOT "Remember user steplibs" ÜÜÜ
+RESET N-DBID N-FNR
+FOR #J = 1 TO 8  /*SU4 more than 8 possible Ü
+  N-CURRENT-INDEX := #J
+  PERFORM STEPLIB-FUNCTION
+  #STEPLIB-TABLE-USER (#J) := N-LIBRARY
+  IF #J GE N-NUMBER-ACTIVE
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+IF #TRACING
+  COMPRESS 'Steplib table read:' #STEPLIB-TABLE (1:8) TO LG-MSG
+  PERFORM WRITE-LOG
+END-IF
+*
+END-SUBROUTINE /* GET-STEPLIB-TABLE
+*
+************************************************************************
+DEFINE SUBROUTINE NSC-ACTIVE
+************************************************************************
+CALLNAT 'NAT00040' CMUB-CODE CMUB-INFO CMUB-RETCODE
+IF UB-1 = 0
+  #SECURITY-ACTIVE := FALSE
+ELSE
+  #SECURITY-ACTIVE := TRUE
+END-IF
+*
+END-SUBROUTINE /* NSC-ACTIVE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF *ERROR-NR = 82
+    LG-MSG := 'Missing steplib utility. '-
+      'Please copy all modules NOMGST* from your NOM library '-
+      'to library SYSTEM.'
+  ELSE
+    LG-MSG := *ERROR-NR
+    N-RESPONSE := 1077
+    CALLNAT 'C-NATERN' LG-MSG
+  END-IF
+  PERFORM WRITE-LOG
+*
+END-ERROR
+*
+END

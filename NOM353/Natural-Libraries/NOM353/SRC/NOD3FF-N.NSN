@@ -1,0 +1,128 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOD3FF-N - NOM API Maintenance of NOM User interfaces -Function delete
+*            Input keys :
+*            ES-KEY-PARM(1)     interface number
+*
+* Maintenance:
+* XSETGGR  2004-08-30  created
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-20 NOMALL-901 correct writing delete operations in log
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* -------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RLOG-L
+LOCAL
+1 USER-INTERFACE VIEW OF NRM-MONITOR
+1 #ES-CONTROL              (A253)
+1 #ES-INPUT-AREA           (A253/1:3)
+1 #ES-MSG-PREF             (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM            (A3)
+  2 #ES-MSG-NR             (N4)
+1 #ES-MSG-TXT              (A250)
+1 #LIBRARY-ID              (A8)
+1 #MONITOR-ID              (A10) INIT <'NOMUSR'>
+1 REDEFINE #MONITOR-ID
+  2 #MONITOR-TYPE          (A6)
+  2 #INTERFACE             (N3)
+1 #USER-LIB                (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-MSG-NR ES-MSG-FIELD ES-MSG-TXT
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA (*) := ES-INPUT-AREA(*)
+#LIBRARY-ID  := ES-APP-SERVER-LIBRARY
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+IF ES-KEY-PARM(1) > ' '
+  #INTERFACE := VAL(ES-KEY-PARM(1))
+END-IF
+DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+  VALUE 'DL'
+    PERFORM DELETE-NOMUSR
+    IF ES-RC = 0
+      PERFORM WRITE-LOG
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-NOMUSR
+************************************************************************
+FNDDEL. FIND USER-INTERFACE WITH M-MONITOR-ID = #MONITOR-ID
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0001          /* not defined
+    #ES-MSG-TXT := #MONITOR-ID
+    ESCAPE BOTTOM(FNDDEL.)
+  END-NOREC
+  DELETE(FNDDEL.)
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* DELETE-NOMUSR
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG
+************************************************************************
+IF ES-ORIG-FUNCTION = 'DL'
+  COMPRESS '0075' #MONITOR-ID 'NOM-USER' TO LG-MSG
+  LG-USERID   := ES-USER
+  LG-CODE     := 'MO'
+  LG-FUNCTION := 'W'
+  CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

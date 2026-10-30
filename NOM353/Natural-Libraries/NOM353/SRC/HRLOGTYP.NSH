@@ -1,0 +1,22 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* HRLOGTYP
+* HELP ROUTINE FOR LOG TYPE SELECTION
+* Adapted for NOMALL-1702 by fhi
+DEFINE DATA
+GLOBAL USING NRM-GL
+PARAMETER
+1 #CODE(A1)
+LOCAL
+1 CV-CODE(C)
+END-DEFINE
+INPUT USING MAP 'HLOGTYP&'
+IF NOT (#CODE=' ' OR ='R' OR ='B' OR ='P' OR = 'D' OR = 'L'
+    OR = 'W')          /* NOMALL-1702 fhi in, ')' above out
+  REINPUT *0007 ALARM
+  IF CV-CODE MODIFIED MOVE TRUE TO G-MAP-MODIFIED END-IF
+END-IF
+.

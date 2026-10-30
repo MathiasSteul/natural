@@ -1,0 +1,430 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMMOVE - Move a NOM environment to a different location
+*   Templates NOMNODE, NOMCONT
+*   Combines the functions of NOMNODE and NOMCONT and changes
+*   the online definitions accordingly in addition.
+*
+* Note: Mandatory input parms are:
+*           NOM Definition File   (olddb, oldfnr, newdb, newfnr)
+*           NOM Active Data File  (olddb, oldfnr, newdb, newfnr)
+*           NOM Trigger Container (olddb, oldfnr, newdb, newfnr)
+*           NOM Node              (oldnode, newnode)
+*       Field #DISPLAY: enter X for no execution but display only
+*
+* Maintenance:
+* uuu     yyyy-mm-dd iTrac       ....
+* fhi     2015-07-01 NOMALL-1549 created.
+* fhi     2016-01-18 NOMALL-1549 some places missing
+* fhi     2016-02-04 NOMALL-1549 some varables not properly used
+* fhi     2016-03-21 NOMALL-1549 Add handling of NAF Container File
+*                                Tags for NOMALL-1549 deleted
+* fhi     2016-03-29 NOMALL-1549 Avoid 0C7
+* fhi     2016-04-05 NOMALL-1549 some beautification
+* fhi     2016-04-12 NOMALL-1549 same
+* fhi     2016-04-13 NOMALL-1549 same, no tags
+* fhi     2016-04-18 NOMALL-1666 Some beautification in map. No tags
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* SU1     2024-05-21 NOM 3.6     update DBID+FNR in monitor records
+* ----------------------------------------------------------------------
+DEFINE DATA
+INDEPENDENT
+1 +RMTASK-DBID (N5) /*SU1
+1 +RMTASK-FNR  (N5) /*SU1
+************************************************************************
+LOCAL USING RMTASK-P
+LOCAL USING NRM-028L /*SU1
+LOCAL
+1 MO VIEW OF NRM-MONITOR
+  2 M-MONITOR-ID
+  2 M-NATRPT-DBID-N5
+  2 M-NATRPT-FNR-N5
+  2 M-COPY-FILES-V141 (A26/1:20)  /* COPY FILES FOR NOM141
+  2 REDEFINE M-COPY-FILES-V141
+    3 M-CP-TAB (1:20)
+      4 M-CP-DBID (N5)
+      4 M-CP-FNR (N5)
+      4 M-ARRAY-FILLER (A16)
+  2 M-LAST-UPDATE
+  2 M-LAST-UPDATE-USER
+*
+1 UX VIEW OF NRM-UX-NODES
+  2 UX-NODE-NAME
+  2 UX-NODE-ACCESS (10)
+    3 UX-NODE-PATH
+    3 UX-NODE-CONTAINER-DB
+    3 UX-NODE-CONTAINER-FNR
+  2 UX-LAST-UPDATE
+  2 UX-LAST-UPDATE-USER
+*
+/* Input parameters: DDF = Data Definition File
+/*                   ADF = Active Data File
+/*                   TCF = Trigger Container File
+1 DDF-DBID-OLD (N5)
+1 DDF-FNR-OLD  (N5)
+1 DDF-DBID-NEW (N5)
+1 DDF-FNR-NEW  (N5)
+1 ADF-DBID-OLD (N5)
+1 ADF-FNR-OLD  (N5)
+1 ADF-DBID-NEW (N5)
+1 ADF-FNR-NEW  (N5)
+1 TCF-DBID-OLD (N5)
+1 TCF-FNR-OLD  (N5)
+1 TCF-DBID-NEW (N5)
+1 TCF-FNR-NEW  (N5)
+1 NODE-OLD     (N5)
+1 NODE-NEW     (N5)
+1 #DISPLAY     (L)
+*
+1 #MSG         (A78)
+1 #CV          (C)
+1 #CVMSG       (C)
+1 #I           (I4)
+1 #J           (I4)
+1 #FROM        (A80)
+1 #TO          (A80)
+1 #DB          (N5)
+1 #FNR         (N5)
+1 #DB-OLD      (N5)
+1 #FNR-OLD     (N5)
+1 #UPD         (L)
+1 #LINE        (A101)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PARM-NAT00028.LFILE := 206 /*NOM Active Data SU1
+CALLNAT 'NAT00028' PARM-NAT00028
+IF PARM-NAT00028.RESPONSE NE 0
+  PRINT (AD=L) *PROGRAM *TIMX(EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+    'NAT00028 erc:' PARM-NAT00028.RESPONSE
+END-IF
+*
+IF *DEVICE NE 'BATCH'
+  #CV    := (AD=P)
+  #CVMSG := (AD=I)
+  IF *LANGUAGE = 2
+    #MSG:='Geben Sie alle Parameter zeilenweise in einem Batch-Job ein.'
+  ELSE
+    #MSG:='Enter all parameters line by line in a batch job.'
+  END-IF
+ELSE
+  FORMAT LS = 131
+  #CV      := (AD=I)
+  #CVMSG   := (AD=N)
+END-IF
+INPUT USING MAP 'NOMMOVM&'
+IF *DEVICE NE 'BATCH'
+  ESCAPE ROUTINE
+END-IF
+*
+FORMAT LS=131
+WRITE / '*'(78)
+  / 'Start of Program' *PROGRAM 'at'
+  *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS) / 30T
+  'Legend:' / 30T
+  'DDF = Data Definition File' / 30T
+  'ADF = Active Data File'     / 30T
+  'TCF = Trigger Container File'
+  / '*'(78) /
+IF DDF-DBID-OLD =0 OR DDF-FNR-OLD  =0 OR DDF-DBID-NEW=0 OR DDF-FNR-NEW=0
+OR ADF-DBID-OLD =0 OR ADF-FNR-OLD  =0 OR ADF-DBID-NEW=0 OR ADF-FNR-NEW=0
+OR TCF-DBID-OLD =0 OR TCF-FNR-OLD  =0 OR TCF-DBID-NEW=0 OR TCF-FNR-NEW=0
+OR NODE-OLD     =0 OR NODE-NEW     =0                                 /*
+  WRITE 30T 'All parameters must be filled. Now exiting.' /
+  TERMINATE 50
+END-IF
+IF #DISPLAY
+  WRITE 30T 'U p d a t e s    D I S A B L E D.' /
+END-IF
+IF PHYSICAL-DBID = DDF-DBID-OLD AND PHYSICAL-FNR = DDF-FNR-OLD /*SU1
+  WRITE 30T 'NOM Definition File (DDF) old must be different to LFILE'
+    '206 (NOM Active Data).'
+  TERMINATE 50
+END-IF
+IF NODE-OLD NE NODE-NEW
+  WRITE / '*'(78)
+    / *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+    'Now running NOMNODE with params:'
+    / 30T '=' NODE-NEW '=' DDF-DBID-NEW '=' DDF-FNR-NEW
+    / '*'(78) /
+  FETCH RETURN 'NOMNODE' NODE-NEW DDF-DBID-NEW DDF-FNR-NEW #DISPLAY
+END-IF
+IF NODE-OLD NE NODE-NEW AND (DDF-DBID-NEW NE ADF-DBID-NEW
+OR   DDF-FNR-NEW NE ADF-FNR-NEW)                                      /*
+  WRITE / '*'(78)
+    / *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+    'Now running NOMNODE with params:'
+    / 30T '=' NODE-NEW '=' ADF-DBID-NEW '=' ADF-FNR-NEW
+    / '*'(78) /
+  FETCH RETURN 'NOMNODE' NODE-NEW ADF-DBID-NEW ADF-FNR-NEW #DISPLAY
+END-IF
+IF TCF-DBID-OLD NE TCF-DBID-NEW OR TCF-FNR-OLD  NE TCF-FNR-NEW
+  FETCH RETURN 'SETNRMLF' ADF-DBID-NEW ADF-FNR-NEW 91
+  WRITE / '*'(78)
+    / *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+    'Now running NOMCONT with params:'
+    / 30T '=' TCF-DBID-OLD '=' TCF-DBID-NEW '=' TCF-FNR-OLD
+    '=' TCF-FNR-NEW
+    / '*'(78) /
+  FETCH RETURN 'NOMCONT' TCF-DBID-OLD TCF-DBID-NEW TCF-FNR-OLD
+    TCF-FNR-NEW #DISPLAY
+END-IF
+WRITE / '*'(78)
+  / *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+  'Now adapting NOM system defaults in system file:'
+  / 30T '=' DDF-DBID-NEW '=' DDF-FNR-NEW
+  / '*'(78)
+* Get monitor ID of old DBID/FNR: SU1
++RMTASK-DBID := DDF-DBID-OLD /*do not use LFILE setting - use these
++RMTASK-FNR  := DDF-FNR-OLD
+#FROM   := #TO := F#MONITOR-TASK-ID1 (<>) /*8.1.1 RDEFSY
+#DB     := DDF-DBID-NEW
+#FNR    := DDF-FNR-NEW
+#DB-OLD := DDF-DBID-OLD
+#FNR-OLD:= DDF-FNR-OLD
+PERFORM CHANGE-DEFAULT
+*
+#FROM   := 'NOMUSR0' /*8.1.12
+#TO     := 'NOMUSR9'
+#DB     := TCF-DBID-NEW
+#FNR    := TCF-FNR-NEW
+#DB-OLD := TCF-DBID-OLD
+#FNR-OLD:= TCF-FNR-OLD
+PERFORM CHANGE-DEFAULT
+*
+#FROM   := #TO := 'API-DEFS' /*8.1.10
+PERFORM CHANGE-DEFAULT
+*
+#FROM   := #TO := 'FILE91' /*MIGEND
+#DB     := ADF-DBID-NEW
+#FNR    := ADF-FNR-NEW
+#DB-OLD := ADF-DBID-OLD
+#FNR-OLD:= ADF-FNR-OLD
+PERFORM CHANGE-DEFAULT
+*
+#FROM   := #TO := 'CMASPOOL' /*8.1.8
+#DB     := TCF-DBID-NEW
+#FNR    := TCF-FNR-NEW
+#DB-OLD := TCF-DBID-OLD
+#FNR-OLD:= TCF-FNR-OLD
+PERFORM CHANGE-DEFAULT
+************************************************************************
+WRITE / '*'(78)
+  / *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+  'Now adapting NAF and Monitor defaults (PF7):'
+  / 30T '=' TCF-DBID-NEW '=' TCF-FNR-NEW
+  / '*'(78)
+************************************************************************
+#FROM := #TO := 'NAF' /*8.1.9
+PERFORM CHANGE-CP
+*
+#FROM := #TO := F#MONITOR-TASK-ID1 (<>)
+PERFORM CHANGE-CP /*8.1.2 PF7 (Copy to DB Files)
+************************************************************************
+READ. READ UX BY UX-NODE-NAME /*8.1.13 unix nodes
+  RESET #UPD
+  FOR #I = 1 TO 10
+    IF  UX-NODE-CONTAINER-DB  (#I) = TCF-DBID-OLD
+    AND UX-NODE-CONTAINER-FNR (#I) = TCF-FNR-OLD                      /*
+    AND (TCF-FNR-OLD NE TCF-FNR-NEW OR  TCF-DBID-OLD NE TCF-DBID-NEW) /*
+      #UPD := TRUE
+      COMPRESS UX-NODE-NAME 'Entry' #I 'from DB'
+        UX-NODE-CONTAINER-DB (#I) 'FNR'
+        UX-NODE-CONTAINER-FNR(#I)
+        '--> DB' TCF-DBID-NEW 'FNR' TCF-FNR-NEW TO #LINE
+      IF #DISPLAY AND #UPD
+        COMPRESS #LINE '(only display)' TO #LINE
+      END-IF
+      WRITE 30T #LINE
+      UX-NODE-CONTAINER-DB(#I)  := TCF-DBID-NEW
+      UX-NODE-CONTAINER-FNR(#I) := TCF-FNR-NEW
+    ELSE
+      IF UX-NODE-CONTAINER-DB (#I) NE 0
+      AND UX-NODE-CONTAINER-FNR(#I) NE 0                              /*
+        COMPRESS 'Entry' #I 'on Unix node' UX-NODE-NAME 'not changed.'
+          TO #LINE
+        WRITE 30T #LINE
+        COMPRESS 'Contains DB' UX-NODE-CONTAINER-DB (#I)
+          'FNR' UX-NODE-CONTAINER-FNR(#I) TO #LINE
+        WRITE 30T #LINE /
+      END-IF
+    END-IF
+  END-FOR
+  IF #UPD AND NOT #DISPLAY
+    UX-LAST-UPDATE      := *TIMX
+    UX-LAST-UPDATE-USER := *PROGRAM
+    UPDATE
+    IF #J > 50
+      END TRANSACTION
+      RESET #J
+    ELSE
+      ADD 1 TO #J
+    END-IF
+  END-IF
+END-READ
+END TRANSACTION
+************************************************************************
+PERFORM CHANGE-DEFAULT-MON /*must be last action: key is changed SU1
+RESET +RMTASK-DBID +RMTASK-FNR
+************************************************************************
+WRITE / '*'(78)
+  / *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+  'Now executing MIGEND to confirm the new NOM System Files:' /
+  / '*'(78) /
+FETCH RETURN 'MIGEND'
+*
+WRITE / '*'(78) /*SU1
+  / *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+  'Check NOMMOVLG to update links to NOM Definition File(DDF)'
+  'in log file.' /
+  'Check for additional container files and run again.'
+  / '*'(78) /
+*
+WRITE / '*'(78)
+  / 'Finished Program' *PROGRAM 'at'
+  *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+  / '*'(78) /
+*
+************************************************************************
+* Subroutines
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHANGE-DEFAULT
+************************************************************************
+READMO. READ MO BY M-MONITOR-ID = #FROM ENDING   AT   #TO
+  ACCEPT IF M-NATRPT-DBID-N5 NE 0 AND M-NATRPT-FNR-N5 NE 0
+  IF  (   M-NATRPT-DBID-N5 NE #DB OR  M-NATRPT-FNR-N5  NE #FNR)
+  AND M-NATRPT-DBID-N5 =  #DB-OLD AND M-NATRPT-FNR-N5  =  #FNR-OLD    /*
+    COMPRESS 'Monitor parameters of' M-MONITOR-ID 'from'
+      M-NATRPT-DBID-N5 M-NATRPT-FNR-N5 '--> DB' #DB 'FNR' #FNR TO #LINE
+    WRITE 30T #LINE
+    M-NATRPT-DBID-N5   := #DB
+    M-NATRPT-FNR-N5    := #FNR
+    M-LAST-UPDATE      := *TIMX
+    M-LAST-UPDATE-USER := *PROGRAM
+    IF NOT #DISPLAY
+      UPDATE (READMO.)
+      IF #J > 50
+        END TRANSACTION
+        RESET #J
+      ELSE
+        ADD 1 TO #J
+      END-IF
+    END-IF
+  ELSE
+    COMPRESS 'Monitor parameter' M-MONITOR-ID 'not changed.' TO #LINE
+    WRITE 30T #LINE
+    COMPRESS 'Contains DB' M-NATRPT-DBID-N5 'FNR' M-NATRPT-FNR-N5
+      TO #LINE
+    WRITE 30T #LINE /
+  END-IF
+END-READ
+IF #DISPLAY /*SU1
+  BACKOUT TRANSACTION
+ELSE
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* CHANGE-DEFAULT
+*
+************************************************************************
+DEFINE SUBROUTINE CHANGE-DEFAULT-MON /*SU1
+************************************************************************
+RMTASK-P.FUNCTION       := 'S' /*get ID via CALLNAT - use redefinition
+RMTASK-P.SUBTASK-NUMBER := 1
+CALLNAT 'RMTASKID' RMTASK-P
+* IF RMTASK-P.ERC ne 0 ??
+#FROM := RMTASK-P.TASK-ID
+*
+RMTASK-P.SUBTASK-NUMBER := 99
+CALLNAT 'RMTASKID' RMTASK-P
+* IF RMTASK-P.ERC ne 0 ??
+#TO := RMTASK-P.TASK-ID
+READMO2. READ MO BY M-MONITOR-ID = #FROM ENDING   AT   #TO
+  RMTASK-P.TASK-ID := M-MONITOR-ID /*use the redefinition
+  COMPRESS 'Monitor ID changed:' M-MONITOR-ID
+    '--> DB:' DDF-DBID-NEW 'FNR:' DDF-FNR-NEW TO #LINE
+  WRITE 30T #LINE
+  IF NOT #DISPLAY
+    #COMMON-DBID := DDF-DBID-NEW
+    #COMMON-FNR  := DDF-FNR-NEW
+    M-MONITOR-ID := RMTASK-P.TASK-ID
+    UPDATE (READMO2.)
+  END-IF
+END-READ
+IF *COUNTER (READMO2.) = 0
+  PRINT 30T 'No monitor records found with old DBID/FNR. From:'
+    #FROM 'thru:' #TO
+END-IF
+IF #DISPLAY /*SU1
+  BACKOUT TRANSACTION
+ELSE
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* CHANGE-DEFAULT-MON
+*
+************************************************************************
+DEFINE SUBROUTINE CHANGE-CP
+************************************************************************
+FINDCP. FIND MO WITH M-MONITOR-ID = #FROM
+  RESET #UPD
+  FOR. FOR #I = 1 TO 20
+    IF NOT SUBSTR(M-COPY-FILES-V141(#I),1,10) IS (N10)
+    OR SUBSTR(M-COPY-FILES-V141(#I),1,10) = '0000000000'              /*
+      ESCAPE TOP /* (FOR.)
+    END-IF
+    IF  (M-CP-DBID(#I)  NE #DB OR  M-CP-FNR(#I)  NE #FNR)
+    AND M-CP-DBID(#I) =  #DB-OLD AND M-CP-FNR(#I)  =  #FNR-OLD        /*
+      COMPRESS #FROM 'entry' #I '- from DB' M-CP-DBID(#I) M-CP-FNR(#I)
+        '--> DB' #DB 'FNR' #FNR TO #LINE
+      IF #DISPLAY
+        COMPRESS #LINE '(only display)' TO #LINE
+      END-IF
+      WRITE 30T #LINE
+      M-CP-DBID(#I)      := #DB
+      M-CP-FNR(#I)       := #FNR
+      M-LAST-UPDATE      := *TIMX
+      M-LAST-UPDATE-USER := *PROGRAM
+      #UPD               := TRUE
+    ELSE
+      COMPRESS #FROM 'entry' #I '- not changed.' TO #LINE
+      WRITE 30T #LINE
+      IF SUBSTR(M-COPY-FILES-V141(#I),1,10) IS (N10)
+        COMPRESS 'Contains DB' M-CP-DBID(#I) 'FNR' M-CP-FNR(#I) TO #LINE
+      ELSE
+        #LINE := 'Contains no DB/FNR information'
+      END-IF
+      WRITE 30T #LINE /
+    END-IF
+  END-FOR
+  IF NOT #DISPLAY AND #UPD
+    UPDATE
+    END TRANSACTION
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* CHANGE-CP
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  WRITE 'Error Program' *PROGRAM *TIMX(EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+    'line:' *LINE
+  CALLNAT 'C-NATERN' #MSG
+  PRINT 'Error Message' *PROGRAM *TIMX(EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+    / #MSG
+  TERMINATE 50
+*
+END-ERROR
+*
+END

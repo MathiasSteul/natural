@@ -1,0 +1,221 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NORPLS-N - NOM API Report List
+*
+* Maintenance:
+* XSETHZ  2001-06-12 created
+* XSETGGR 2001-06-28 developed
+* XSETHZ  2001-07-19 developed
+* XSETHZ  2001-10-03 developed
+* XSETGGR 2002-02-26 reading header texts from SYSERR
+* XSETGGR 2002-06-07 change compressing the headers texts
+* XSETHZ  2002-07-13 short list for help
+* XSETGGR 2002-11-14 use new parameter ES-APP-SERVER-LIBRARY
+* XSETGGR 2002-11-20 add number of options
+* XSETGGR 2002-11-22 check grants for non administrator users
+* XSETGGR 2002-12-18 check mailed reports to list active reports
+* xsetggr 2007-07-04 NOM3201  Support P11 format run numbers
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* ------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NORPLS-A
+************************************************************************
+LOCAL USING NORPSL-A
+LOCAL USING ESMCONSL
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-TYPE
+  2 R-DESC
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+1 MA VIEW OF NRM-MAIL
+  2 MA-USERID
+1 #I2             (I4)
+1 #IMAX           (I4)
+1 #REPNAME-S      (A25)
+1 #REPNAME-E      (A25)
+1 #AR-REPNAME-RNB (A31)
+1 REDEFINE #AR-REPNAME-RNB
+  2 #AR-REPNAME   (A25)
+  2 #AR-REPRNB    (P11)
+1 #AR-REPNAME-R-E (A31)
+1 #OPTIONS        (A2/10)
+1 #MSG-NR         (N4)  CONST <6100>
+1 #NEW-OPTIONS    (A2/8)
+1 #I              (I2)
+1 #GRANTS         (A1/6)
+1 #LS-USERID      (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-NUMBER ES-SORTKEY ES-SORTORDER ES-STARTINDEX
+ES-OPTION-COUNT := 10
+IF ES-EXPAND NE ' '
+  #IMAX := 562
+  ES-FIELD-COUNT := 1
+  NORPEX-FIELD-LENGTH(1) := 25
+ELSE
+  IF ES-FUNCTION = 'LS1' OR = 'LS2'
+    #IMAX := 1011
+    ES-FIELD-COUNT := 1
+    NORPLI-FIELD-LENGTH(1) := 25
+  ELSE
+    #IMAX := 243
+    ES-FIELD-COUNT := 4
+    NORPLS-FIELD-LENGTH(1) := 25
+    NORPLS-FIELD-LENGTH(2) := 8
+    NORPLS-FIELD-LENGTH(3) := 1
+    NORPLS-FIELD-LENGTH(4) := 50
+  END-IF
+END-IF
+#NORPSL := ES-SELECT
+EXAMINE #NORPSL.#AUTH FOR '*' DELETE
+EXAMINE #NORPSL.#TYPE FOR '*' DELETE
+EXAMINE #NORPSL.#NAME FOR '*' DELETE
+COMPRESS #NORPSL.#NAME H'FF' TO #REPNAME-E LEAVING NO
+ES-EOF := 'X'
+RESET ES-NUMBER
+IF ES-NEXT-KEY-PARM(1) > #NORPSL.#NAME
+  #REPNAME-S := ES-NEXT-KEY-PARM(1)
+ELSE
+  #REPNAME-S := #NORPSL.#NAME
+  IF ES-EXPAND NE 'E' AND ES-FUNCTION = 'LS'
+    ES-STARTINDEX := 2
+    #I2 := 1
+    RESET SHORT-MSG
+      LONG-MSG(*)
+      NORPLS-HEADER(1)
+    VERSION := 0
+    NADA2000.OBJECT-KIND := 'U'
+    NADA2000.ERROR-NUMBER := #MSG-NR
+    NADA2000.OPT-INSERT-DYN := FALSE
+    NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+    NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+    CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+    NORPLS-HEADER(1) := LONG-MSG(1)
+    FOR #I = 2 TO ES-FIELD-COUNT
+      COMPRESS NORPLS-HEADER(1) C-HEADER-DELIMITER LONG-MSG(#I)
+        TO NORPLS-HEADER(1) LEAVING NO
+    END-FOR
+  END-IF
+END-IF
+IF ES-USER-TYPE NE 'A' AND ES-FUNCTION NE 'LS2'
+  #NORPSL.#AUTH := ES-USER
+END-IF
+IF (#NORPSL.#AUTH = ' ' OR = '*' OR = 'ADMIN')
+  PERFORM READ-ALL-REPORTS
+ELSE
+  PERFORM READ-GRANTED-REPORTS
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+*********************************************************************
+DEFINE SUBROUTINE READ-ALL-REPORTS
+************************************************************************
+READ REPORTS WITH R-REPNAME = #REPNAME-S ENDING AT #REPNAME-E
+  ACCEPT IF R-REPNAME NE 'NOM-CONTROL-REC' AND
+    (#NORPSL.#TYPE = ' ' OR R-TYPE = #NORPSL.#TYPE OR
+    (ES-FUNCTION = 'LS1' OR = 'LS2'))
+  #LS-USERID := 'ADMIN'
+  PERFORM DATA-TO-PDA
+END-READ
+*
+END-SUBROUTINE /* READ-ALL-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-GRANTED-REPORTS
+************************************************************************
+READ REPORTS WITH R-REPNAME = #REPNAME-S ENDING AT #REPNAME-E
+  ACCEPT IF R-REPNAME NE 'NOM-CONTROL-REC' AND
+    (#NORPSL.#TYPE =' ' OR R-TYPE =#NORPSL.#TYPE OR ES-FUNCTION ='LS1')
+  CALLNAT 'NOGROU-N' 'R' R-REPNAME #NORPSL.#AUTH #LS-USERID #GRANTS(*)
+  IF #GRANTS(1:4) = 'Y'
+    IF ES-USER-TYPE = 'A'
+      #LS-USERID := 'ADMIN'
+    END-IF
+    PERFORM DATA-TO-PDA
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* READ-GRANTED-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-TO-PDA
+************************************************************************
+RESET #OPTIONS(*) #NEW-OPTIONS(*)
+ADD 1 TO #I2
+IF #I2 > #IMAX
+  ES-NEXT-KEY-PARM(1) := REPORTS.R-REPNAME
+  ES-NUMBER := #IMAX
+  RESET ES-EOF
+  ESCAPE BOTTOM
+END-IF
+#AR-REPNAME := R-REPNAME
+#AR-REPRNB := 99999999999
+#AR-REPNAME-R-E := #AR-REPNAME-RNB
+#AR-REPRNB := 0
+RESET #OPTIONS(*)
+IF ES-FUNCTION = 'LS'
+  FAR. FIND NUMBER ACTIVE-REPORT
+    WITH AR-REPORT-RNB = #AR-REPNAME-RNB THRU #AR-REPNAME-R-E
+  IF *NUMBER(FAR.) = 0
+    #OPTIONS(1) := 'LA'
+    #OPTIONS(2) := 'SS'
+  END-IF
+  IF ES-USER-TYPE NE 'A'
+    FNDMA. FIND MA WITH MA-REP-RNB = #AR-REPNAME-RNB
+        THRU #AR-REPNAME-R-E WHERE MA-USERID = ES-USER
+      IF NO RECORDS FOUND
+        #OPTIONS(1) := 'LA'
+        #OPTIONS(2) := 'SS'
+        ESCAPE BOTTOM(FNDMA.)
+      END-NOREC
+    END-FIND
+    DECIDE FOR EVERY CONDITION
+      WHEN #GRANTS(1) NE 'Y' AND #GRANTS(3) NE 'Y'
+        #NEW-OPTIONS(1) := 'DL'
+      WHEN NOT (#GRANTS(1:3) = 'Y')
+        #NEW-OPTIONS(2) := 'OP'
+        #NEW-OPTIONS(3) := 'CP'
+        #NEW-OPTIONS(4) := 'RN'
+      WHEN ANY
+        CALLNAT 'NOOPT--N' #NEW-OPTIONS(*) #OPTIONS(*)
+      WHEN NONE IGNORE
+    END-DECIDE
+  END-IF
+END-IF
+IF ES-EXPAND NE ' '
+  NORPEX-NAME(#I2) := REPORTS.R-REPNAME
+  NORPEX-OPTIONS(#I2,*) := #OPTIONS(*)
+ELSE
+  IF ES-FUNCTION = 'LS1' OR = 'LS2'
+    NORPLI-NAME(#I2) := REPORTS.R-REPNAME
+  ELSE
+    NORPLS-NAME(#I2) := REPORTS.R-REPNAME
+    NORPLS-AUTH(#I2) := #LS-USERID
+    NORPLS-TYPE(#I2) := REPORTS.R-TYPE
+    NORPLS-DESC(#I2) := REPORTS.R-DESC
+    NORPLS-OPTIONS(#I2,*) := #OPTIONS(*)
+  END-IF
+END-IF
+ES-NUMBER := #I2
+*
+END-SUBROUTINE /* DATA-TO-PDA
+**-------------------------------------------------------------------
+END

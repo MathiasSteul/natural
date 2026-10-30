@@ -1,0 +1,507 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDEFAV - Define Archiving Defaults
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-06-16 s(999999) rewritten
+* mrs 93-09-15 s(999999) translate weekdays
+* mrs 93-11-25 s(175786) devices used for archiving
+* mrs 93-11-25 s(999999) different maps depending on the op-system
+* mrs 94-05-25 s(999999) BS2000
+* mrs 94-06-14 s(999999) validation wrong for BS2000
+* gw  95-12-11 s(222350) user exit to allow/disallow access to NSPF
+* gw  96-09-09 s(250901) avoid NAT1106 when invoking NSPF
+* gw  98-03-13 s(278970) save search values in independent variables
+* gw  98-07-22 p(172438) allow separate prefix for condense data set
+*                        new field M-CONDENSE-PREFIX in maps RDEFAVB&,
+*                        RDEFAVM& and RDEFAVV& and new help HARCPRF&
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsetggr 2001-03-27 p(205776) consistent error message handling
+* xsetggr 2001-04-03 p(205831) input check for schedule parameters
+* sju 2002-03-22 p(222013) EXPDT on every step of condense job
+* sju 2002-04-16 NOM221    User defined archive
+* fhi 2002-11-08 fhi102    NOM 2.2.1 C/E 5993: Automating batch functions
+* sju 2004-05-17 p(253211) Restow for changed RDEFAVV2
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* fhi     2008-05-07 P304223   Set defaults under Unix.
+* xsetggr 2009-10-09 P320995 returns to default definition menu after
+*                            editing skeleton in NOM/unix
+* xsetggr 2010-02-18 P300184  use g-language instead of *language
+* xsetggr 2010-02-18 P304569  Modify only if PF10 pressed
+* xsetggr 2012-06-20 NOMALL-1163 unify retention check all over NOM
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-03-05 (NOMALL-1281 show last update user+date) not
+*                    possible (field not in DDM). only restruct
+* SU3     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler+S-SEPEDT
+* BLI     2017-10-06 NOMALL-1477 z/OS archive w/o predefined volsers
+* SU4     2019-02-05 NOMALL-2142 remove predefined volsers(def arc)
+* SU5     2022-08-12 EF-4541     own Linux map (AHA)
+* SU6     2024-03-04 ES-34613 NOM 3.6 Remove z/VSE and BS2000
+* NKEW1   2024-07-24 EF-4541     Decide what to show on map with func
+* ----------------------------------------------------------------------
+*
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING RPFK---L
+LOCAL USING VARCIV-L
+LOCAL USING RWKDAY-P
+LOCAL USING RWKDAY-E
+LOCAL USING RLOG-L
+LOCAL USING CONST-L /* NKEW1 changed
+* *****
+LOCAL
+1 #FATHER-PROG                 (A8) INIT <'RDFMEN'>
+1 CV-MAP                       (C)  INIT <(AD=I)>
+1 #ISN                         (N10)
+1 L-HEADER                     (A78)
+1 #ALLOWED                     (L)
+*
+1 #LEN                         (N2)
+1 #RETENTION                   (A4)
+1 REDEFINE #RETENTION
+  2 #RET-V                     (A1/4)
+1 #WEEK-DAYS           (A2/7) CONST <'SU','MO','TU','WE','TH','FR','SA'>
+1 #WEEKDAYS                    (A2/1:7)
+1 #ADAY                        (A3)
+1 #NDAY                        (N3)
+1 I                            (P3)
+1 #FUNC                        (A1)
+1 P-FOUND                      (L)
+1 P-LIMIT                      (N4)
+1 P-CURRENT                    (N4)
+1 P-DEVICE-CHANGE              (L)
+/*SU4 1 P-VOLSERS                    (A6/6)
+1 #CURRENT-TIME                (T)
+1 #START-TIME                  (A4)
+1 #TIME-INT                    (A4) INIT <'0000'>
+1 #LANGUAGE                    (I1)
+*
+1 #ARCHIVE-RETENTION-NUMBER    (N4)
+1 #ARCHIVE-RETENTION-FACTOR    (A1)
+1 #ARCHIVE-SKELETON            (A10)
+1 REDEFINE #ARCHIVE-SKELETON
+  2 #ARCHIVE-SKELETON_A8       (A8)
+1 #PLAN-SCHED-TIME             (A5)
+1 #PLAN-SCHED-DATE             (A10)
+1 L                            (P2)
+1 #ARCHIVE-RETENTION           (A5)
+1 REDEFINE #ARCHIVE-RETENTION
+  2 #ARET                      (A1/1:5)
+1 #PANEL                       (N2) INIT <1>
+1 #ERC                         (N4)
+1 #ERT                         (A250)
+1 #DATE                        (A8)
+1 #EXIST                       (L)
+1 #RETENTION-PERIOD            (A1)
+1 #PROGRAM                     (A8) INIT <*PROGRAM>
+1 #LOG-FLAG                    (L)
+1 #MF                          (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+* NKEW1 <
+#JOB_ADD_FIELD := F#SETVAR(<#_JOBCARDS(1:2),#_ADDITIONALPARA(1:2)>)
+* NKEW1 >
+*
+IF *MACHINE-CLASS = 'MAINFRAME'
+  #MF := TRUE
+  #ARCHIVE-SKELETON := 'JARCSKEL'
+ELSE
+  #ARCHIVE-SKELETON := 'nomarc.bsh'
+END-IF
+*
+RESET G-COMMIT G-LINECOM(*)
+*
+IF G-C-FUNC = 'X'                  /* recursivly called
+  G-C-FUNC := #FUNC := 'M'
+ELSE
+  #FUNC := 'D'
+END-IF
+*
+MAIN-LOOP. REPEAT
+  FIND-LOOP. FIND ARCHIVE-TASK WITH M-MONITOR-ID = 'ARCHIVE'
+*
+    IF NO RECORDS FOUND
+      ARCHIVE-TASK.M-MONITOR-ID := 'ARCHIVE'
+      STOR. STORE ARCHIVE-TASK
+      END TRANSACTION
+      ESCAPE BOTTOM
+    END-NOREC
+    #ISN := *ISN (FIND-LOOP.)
+    DECIDE ON FIRST VALUE OF #FUNC
+      VALUE 'M'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'MMO' #ALLOWED
+        INCLUDE C-NALLOW
+        IF NOT #LOG-FLAG
+          LG-USERID := G-USERID
+          LG-CODE := 'MO'
+          IF G-LANGUAGE = 2
+            G-NATRP-ERT := '''Archivierung'''
+          ELSE
+            G-NATRP-ERT := '''Archiving'''
+          END-IF
+          COMPRESS '1543' G-NATRP-ERT TO LG-MSG
+          G-NATRP-ERC := 1543
+          CALLNAT 'RLOG' PL-PARMS
+          END TRANSACTION
+          #LOG-FLAG := TRUE
+        END-IF
+        GETREC. GET ARCHIVE-TASK #ISN
+      VALUE 'D'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'DMO' #ALLOWED
+        INCLUDE C-NALLOW
+        CV-MAP := (AD=IP)
+      NONE IGNORE
+    END-DECIDE
+*
+    SCREEN-LOOP. REPEAT
+*
+      IF #LANGUAGE NE *LANGUAGE
+        PERFORM INIT-PFKEYS
+        PERFORM SET-PFKEYS
+        MOVE G-LANGUAGE TO #LANGUAGE *LANGUAGE
+      END-IF
+*
+      PERFORM FLIP-DISPLAY
+      CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDEFAVM&'
+      PERFORM BEFORE-INPUT
+      RESET G-MAP-MODIFIED
+      DECIDE ON FIRST #PANEL
+        VALUE 2
+          INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+            MARK *G-DIRECT-COMMAND USING MAP 'RDEFAV2&'
+        NONE VALUE
+          DECIDE FOR FIRST CONDITION
+            WHEN NOT #MF /*unix SU5
+              INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+                MARK *G-DIRECT-COMMAND USING MAP 'RDEFAVU&'
+/*SU6       WHEN G-SYSTEM-TYPE = SCAN 'DOS' OR = SCAN 'VSE'
+/*SU6         INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+/*SU6           MARK *G-DIRECT-COMMAND USING MAP 'RDEFAVV&'
+/*SU6       WHEN G-SYSTEM-TYPE = SCAN 'BS2'
+/*SU6         INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+/*SU6           MARK *G-DIRECT-COMMAND USING MAP 'RDEFAVB&'
+            WHEN NONE /* MVS IBM
+              INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+                MARK *G-DIRECT-COMMAND USING MAP 'RDEFAVM&'
+              IF *PF-KEY='PF8' AND ARCHIVE-TASK.M-TIME-SCHEDULE = 'N'
+                REINPUT *4027 MARK *ARCHIVE-TASK.M-TIME-SCHEDULE
+              END-IF /*4027 cal. not activated
+          END-DECIDE
+      END-DECIDE
+*
+      PERFORM AFTER-INPUT
+      RESET G-NATRP-ERC G-NATRP-ERT
+*
+      INCLUDE RPFKVA-C
+      INCLUDE C-DIRECT
+      INCLUDE RPFKED-C
+      IF G-PF-FUNC = ##PFK-MODIFY AND G-C-FUNC = 'M' /*allowed in us pr
+        G-C-FUNC := 'X'
+        FETCH RETURN #PROGRAM
+        ESCAPE BOTTOM (MAIN-LOOP.)
+      END-IF
+*
+      IF (CV-MAP MODIFIED OR G-MAP-MODIFIED) AND #FUNC NE 'D'
+        PERFORM VALIDATE-INPUT
+        DECIDE ON FIRST VALUE OF ARCHIVE-TASK.M-TIME-SCHEDULE
+          VALUE 'N'
+            RESET ARCHIVE-TASK.M-PLAN-ARC-TIME
+          VALUE 'Y'
+            PERFORM GET-NEXT-PLAN-TIME
+          VALUE ' '
+            ARCHIVE-TASK.M-TIME-SCHEDULE := 'N'
+            RESET ARCHIVE-TASK.M-PLAN-ARC-TIME
+          NONE
+            REINPUT *1099 MARK *ARCHIVE-TASK.M-TIME-SCHEDULE
+        END-DECIDE
+        UPDATE(GETREC.)
+        G-NATRP-ERC := 0032
+        INCLUDE C-COMMIT
+      END-IF
+      INCLUDE REXDO--C
+*
+      DECIDE ON FIRST G-PF-FUNC
+        VALUE ##PFK-EDIT /*PF11
+          PERFORM EDIT-SKELETON
+        VALUE ##PFK-EXIT-SUBFUNC
+          #PANEL := 1
+          RESET #LANGUAGE
+        VALUE ##PFK-SCHEDULE
+          #PANEL := 2
+          RESET #LANGUAGE
+        VALUE ##PFK-USER-ARC
+          PERFORM COMMIT-WORK
+          RESET #LANGUAGE
+          FETCH RETURN 'RLISUDA'
+          ESCAPE BOTTOM(FIND-LOOP.)
+        NONE VALUE
+          IGNORE
+      END-DECIDE
+    END-REPEAT
+  END-FIND
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN #PANEL = 2
+    PERFORM VALIDATE-SCHEDULE
+* SU6  WHEN G-SYSTEM-TYPE = SCAN 'DOS' OR = SCAN 'VSE' OR = SCAN 'BS2'
+* SU6    PERFORM VALIDATE-COMMON
+  WHEN NONE
+    PERFORM VALIDATE-MVS
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-MVS
+************************************************************************
+RESET M-ARCHIVE-VOLSERS (*) /*BLI 2017-10-06 NOMALL-1477 insert
+*
+PERFORM VALIDATE-COMMON
+*
+IF M-ARCHIVE-STORAGE-CLASS = ' ' AND M-TAPE-GENERIC = ' '
+  REINPUT *957 MARK *M-TAPE-GENERIC
+END-IF
+*
+IF M-ARCHIVE-STORAGE-CLASS NE ' ' AND M-TAPE-GENERIC NE ' ' AND #MF
+* BLI 2017-10-06 NOMALL-1477 use 957 (generic name or storage class)
+**REINPUT *956 MARK *M-ARCHIVE-STORAGE-CLASS
+  REINPUT *957 MARK *M-ARCHIVE-STORAGE-CLASS
+END-IF
+IF NOT M-GDG = 'Y' OR = 'N' AND #MF
+  REINPUT *950 MARK *M-GDG ALARM
+END-IF
+*
+IF M-GDG = 'Y'
+  IF M-TAPE-GENERIC = ' '
+    REINPUT *958 MARK *M-TAPE-GENERIC
+  END-IF
+  CALLNAT 'RCHKGDGN' G-MONITOR-NODE M-TAPE-GENERIC M-ARCHIVE-PREFIX
+    P-FOUND P-DEVICE-CHANGE P-LIMIT P-CURRENT /*SU4 P-VOLSERS (*)
+    G-NATRP-ERC G-NATRP-ERT
+  IF G-NATRP-ERC NE 0
+    REINPUT *G-NATRP-ERC,G-NATRP-ERT MARK *M-TAPE-GENERIC
+  END-IF
+  IF NOT P-FOUND /* GDG BASE NOT FOUND
+    REINPUT *951 MARK *M-ARCHIVE-PREFIX
+  END-IF
+  IF P-DEVICE-CHANGE /* NOT ALLOWED TO CHANGE DEVICE CLASS
+    REINPUT *952 MARK *M-TAPE-GENERIC
+  END-IF
+  M-GDG-NUMBER-OF-GENERATIONS := P-LIMIT
+ELSE
+  RESET M-GDG-NUMBER-OF-GENERATIONS
+END-IF
+*
+* BLI 2017-10-06 NOMALL-1477 comment below
+** IF M-ARCHIVE-VOLSERS (*) NE ' ' AND *MACHINE-CLASS = 'MAINFRAME'
+**    AND M-TAPE-GENERIC = ' '
+**  REINPUT *958 MARK *M-TAPE-GENERIC
+** END-IF
+*
+END-SUBROUTINE /* VALIDATE-MVS
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-COMMON
+************************************************************************
+#RETENTION := ARCHIVE-TASK.M-ARCHIVE-RETENTION
+IF #RETENTION IS(N4) OR #RETENTION = ' '
+  IGNORE
+ELSE
+  EXAMINE #RETENTION FOR 'X' GIVING LENGTH IN #LEN
+  IF #LEN < 2 OR NOT (#RET-V(#LEN) = 'D' OR = 'W' OR = 'M' OR = 'Y')
+    REINPUT *1083 MARK *ARCHIVE-TASK.M-ARCHIVE-RETENTION ALARM
+  END-IF
+  RESET #RET-V(#LEN)
+  IF NOT #RETENTION IS (N4) OR #ARCHIVE-RETENTION-NUMBER = 0
+    REINPUT *0415 MARK *#ARCHIVE-RETENTION-NUMBER ALARM
+  END-IF
+END-IF
+IF #RETENTION-PERIOD = 'Y' OR = 'N' OR = ' '
+  M-LAST-VOLSER:= #RETENTION-PERIOD
+ELSE
+  REINPUT *1099 MARK*#RETENTION-PERIOD ALARM
+END-IF
+IF NOT ( ARCHIVE-TASK.M-ARCHIVE-DELETE = 'Y' OR = 'N' OR = ' ')
+  REINPUT *1099 MARK *ARCHIVE-TASK.M-ARCHIVE-DELETE
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-COMMON
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-SCHEDULE
+************************************************************************
+IF ARCHIVE-TASK.M-ARCHIVE-DAYS(*) NE ' '
+AND ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS(*) NE ' '                        /*
+  REINPUT *630 MARK *ARCHIVE-TASK.M-ARCHIVE-DAYS(1) ALARM
+END-IF
+*
+FOR I 1 TO 30
+  IF ARCHIVE-TASK.M-ARCHIVE-DAYS(I) = ' ' OR = 'ALL' OR = 'LD'
+    ESCAPE TOP
+  END-IF
+  #ADAY := ARCHIVE-TASK.M-ARCHIVE-DAYS(I)
+  IF NOT(#ADAY IS (N2) )
+    REINPUT USING HELP MARK *ARCHIVE-TASK.M-ARCHIVE-DAYS(I) ALARM
+  END-IF
+  #NDAY := VAL(#ADAY)
+  IF NOT #NDAY = 1 THRU 31
+    REINPUT USING HELP MARK *ARCHIVE-TASK.M-ARCHIVE-DAYS(I) ALARM
+  END-IF
+END-FOR
+*
+FOR I 1 TO 7
+  IF NOT (ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS(I) = ' '
+  OR ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS(I) = #WEEK-DAYS(1:7) )          /*
+    REINPUT USING HELP MARK *#WEEKDAYS (I) ALARM
+  END-IF
+END-FOR
+IF ARCHIVE-TASK.M-ARCHIVE-CALENDAR = SCAN '*'
+  REINPUT USING HELP MARK *ARCHIVE-TASK.M-ARCHIVE-CALENDAR
+END-IF
+*
+IF ARCHIVE-TASK.M-ARCHIVE-CALENDAR > ' '
+  CALLNAT 'RCHKCA' ARCHIVE-TASK.M-ARCHIVE-CALENDAR #EXIST
+  IF NOT #EXIST
+    REINPUT *2004  MARK *ARCHIVE-TASK.M-ARCHIVE-CALENDAR
+  END-IF
+END-IF
+*
+IF NOT ( ARCHIVE-TASK.M-ARCHIVE-BEFORE-AFTER = 'A' OR = 'B' OR = ' ' )
+  REINPUT *0061 MARK *ARCHIVE-TASK.M-ARCHIVE-BEFORE-AFTER
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-SCHEDULE
+*
+************************************************************************
+DEFINE SUBROUTINE BEFORE-INPUT
+************************************************************************
+IF ARCHIVE-TASK.M-ARCHIVE-RETENTION = ' '
+  RESET #ARCHIVE-RETENTION-NUMBER #ARCHIVE-RETENTION-FACTOR
+ELSE
+  #ARCHIVE-RETENTION := ARCHIVE-TASK.M-ARCHIVE-RETENTION
+  IF #ARCHIVE-RETENTION IS (N4)
+    #ARCHIVE-RETENTION-FACTOR := 'D'
+  ELSE
+    EXAMINE #ARCHIVE-RETENTION FOR 'X' GIVING LENGTH IN L
+    #ARCHIVE-RETENTION-FACTOR := #ARET (L)
+    RESET  #ARET (L)
+  END-IF
+  IF #ARCHIVE-RETENTION IS (N4)
+    #ARCHIVE-RETENTION-NUMBER := VAL (#ARCHIVE-RETENTION)
+  ELSE
+    RESET  #ARCHIVE-RETENTION-NUMBER
+  END-IF
+END-IF
+*
+IF ARCHIVE-TASK.M-PLAN-ARC-TIME = 0
+  RESET #PLAN-SCHED-DATE #PLAN-SCHED-TIME
+ELSE
+  MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME (EM=HH':'II)
+    TO #PLAN-SCHED-TIME
+  MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME (EM=YYYYMMDD) TO #DATE
+  CALLNAT 'IODATE-N' 'M' 'L' #DATE #PLAN-SCHED-DATE G-DATE-FORMAT
+    #ERC #ERT
+  IF #ERC NE 0
+    G-NATRP-ERC := #ERC
+    G-NATRP-ERT := #ERT
+  END-IF
+END-IF
+RWKDAY-IN-WEEKDAYS (*) := ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS (*)
+RWKDAY-FUNCTION := RWKDAY-FROM-ENGLISH-TO-CURRENT
+CALLNAT 'RWKDAY-N' RWKDAY-PARMS
+#WEEKDAYS (*) := RWKDAY-OUT-WEEKDAYS (*)
+#RETENTION-PERIOD:= M-LAST-VOLSER
+*
+END-SUBROUTINE /* BEFORE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE AFTER-INPUT
+************************************************************************
+IF #ARCHIVE-RETENTION-FACTOR = ' ' AND #ARCHIVE-RETENTION-NUMBER = 0
+  RESET ARCHIVE-TASK.M-ARCHIVE-RETENTION
+ELSE
+  COMPRESS #ARCHIVE-RETENTION-NUMBER #ARCHIVE-RETENTION-FACTOR
+    TO ARCHIVE-TASK.M-ARCHIVE-RETENTION LEAVING NO
+END-IF
+RWKDAY-IN-WEEKDAYS (*) := #WEEKDAYS (*)
+RWKDAY-FUNCTION := RWKDAY-FROM-CURRENT-TO-ENGLISH
+CALLNAT 'RWKDAY-N' RWKDAY-PARMS
+ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS (*) := RWKDAY-OUT-WEEKDAYS (*)
+*
+END-SUBROUTINE /* AFTER-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NEXT-PLAN-TIME
+************************************************************************
+#CURRENT-TIME := *TIMX
+MOVE EDITED ARCHIVE-TASK.M-ARCHIVE-TIME (EM=HHII) TO #START-TIME
+IF #START-TIME = '0000'
+  #START-TIME := '0001'
+END-IF
+CALLNAT 'RSCHED-N' #CURRENT-TIME #START-TIME #TIME-INT #START-TIME
+  ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS (1:7)
+  ARCHIVE-TASK.M-ARCHIVE-DAYS (1:30)
+  ARCHIVE-TASK.M-ARCHIVE-CALENDAR
+  ARCHIVE-TASK.M-ARCHIVE-BEFORE-AFTER
+  ARCHIVE-TASK.M-PLAN-ARC-TIME
+*
+END-SUBROUTINE /* GET-NEXT-PLAN-TIME
+*
+************************************************************************
+DEFINE SUBROUTINE EDIT-SKELETON
+************************************************************************
+PERFORM S-SEPED2 #PROGRAM #ARCHIVE-SKELETON_A8 #FUNC 2X
+IF G-NATRP-ERC NE 0
+  ESCAPE TOP
+END-IF
+*
+END-SUBROUTINE /* EDIT-SKELETON
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+RESET G-PF
+*
+INCLUDE RPFSTD-C
+INCLUDE RPFCOM-C
+IF #PANEL = 2
+  INCLUDE RPFESF-C
+ELSE
+  INCLUDE RPFSCH-C
+  INCLUDE RPFUDA-C
+END-IF
+*
+G-PF-IDENT (10) := ##PFN-MODIFY
+G-PF-CODE  (10) := ##PFK-MODIFY
+G-PF-IDENT (22) := ##PFN-MODIFY
+G-PF-CODE  (22) := ##PFK-MODIFY
+IF #MF /*script cannot be edited
+  G-PF-IDENT (11) := ##PFN-EDIT
+  G-PF-CODE  (11) := ##PFK-EDIT
+  G-PF-IDENT (23) := ##PFN-EDIT
+  G-PF-CODE  (23) := ##PFK-EDIT
+END-IF
+*
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+* --------------------------------------- set pfkeys -------------------
+INCLUDE RPFSET-C
+*
+END

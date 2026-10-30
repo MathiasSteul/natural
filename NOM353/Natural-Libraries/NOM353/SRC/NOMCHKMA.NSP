@@ -1,0 +1,103 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ----------------------------------------------------------------------
+* Member    NOMCHKMA
+* Version   3.4.
+* Template  MIGMAIL
+*
+* Function  Verify MIGMAIL run by counting Active Reports and Mail recs.
+*
+* Maintenance
+* uuuuuuu yyyy-mm-dd Issue
+* fhi     2016-01-27 NOMALL-1811 Created
+* SU1     2016-07-28 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL
+1 MAIL VIEW OF NRM-MAIL
+  2 MA-CURRENT-LOCATION
+/*SU1  2 MA-PROCESS-TIME 2 MA-PROCESS-TIME-INV
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+/*SU1  2 AR-CURRENT-LOCATION 2 AR-PROCESS-TIME 2 AR-PROCESS-TIME-INV
+/*SU1  2 AR-ARCHIVE 2 AR-ACTIVE
+1 #REPAR                  (A37)
+1 #REP-RNB                (A31)
+1 REDEFINE #REP-RNB
+  2 #REPNAME              (A25)
+  2 #REPRNB               (P11)
+1 #CNT-AR                 (I4)
+1 #CNT-MA                 (I4)
+1 #CNT-AR-MANY            (I4)
+1 #CNT-MA-NOTMIG          (I4)
+1 #LST-MA-NOTMIG          (I4)
+1 #MSG                    (A250)
+1 #LISTING                (A1)
+
+END-DEFINE
+* -------------------------------------------main-----------------------
+*
+/*SU1 OPTIONS MCG=(OVFLW=ON,INDX=ON,ZD=OFF)
+SET KEY ALL
+IF *DEVICE NE 'BATCH'
+  INPUT 10T
+    '* --- NOMCHKMA - Check MIGMAIL and NOM Mail records --- *' ///
+    'Short Summary (S) or Listing (L)?' #LISTING /
+    'End with PF3'
+  IF *PF-KEY NE 'ENTR'
+    ESCAPE MODULE
+  END-IF
+ELSE
+  IF *DATA > 0
+    INPUT #LISTING
+  END-IF
+END-IF
+RDAR. READ AR BY AR-REPORT-RNB
+  #REPNAME  := AR-REPNAME
+  #REPRNB   := AR-REPRNB
+  COMPRESS #REPNAME '/' #REPRNB TO #REPAR LEAVING NO
+  ADD 1 TO #CNT-AR
+  RESET #LST-MA-NOTMIG
+  FND. FIND MAIL WITH MA-REP-RNB = #REP-RNB
+    IF NOT (MA-CURRENT-LOCATION = 'B' OR = 'A')
+      ADD 1 TO #CNT-MA-NOTMIG
+      ADD 1 TO #LST-MA-NOTMIG
+    END-IF
+  END-FIND
+  IF #LISTING = 'L' OR #LST-MA-NOTMIG > 0
+    PRINT '*---*'
+      / 'Active Report' #REPAR 'contains:'
+      / 'Mail records:' 30T *NUMBER(FND.)
+      / 'Mail records not migrated:' 30T #LST-MA-NOTMIG
+  END-IF
+  ADD *NUMBER(FND.) TO #CNT-MA
+  IF *NUMBER(FND.) > 1
+    ADD 1 TO #CNT-AR-MANY
+  END-IF
+END-READ
+*
+PRINT
+  '*---*'
+  / #CNT-AR 'Active Reports found in this NOM system.'
+  / #CNT-MA        'Mail records total.'
+  / #CNT-AR-MANY   'Active Reports sent to multiple NOM users.'
+  / #CNT-MA-NOTMIG 'Mail records not yet migrated (should be 0Ü).'
+*
+* -----------------------------------------------------------------
+ON ERROR
+  PRINT '*---*'
+    / #CNT-AR 'records of Active Reports read until now.'
+    / #CNT-MA 'records of NRM-MAIL read until now.'
+    / 'Last Report/Runnumber:' #REPAR
+  CALLNAT 'C-NATERN' #MSG
+  PRINT #MSG
+  END TRANSACTION
+  PRINT 'Checking of mail records aborted with error.'
+  TERMINATE 16
+END-ERROR
+* -----------------------------------------------------------------
+END

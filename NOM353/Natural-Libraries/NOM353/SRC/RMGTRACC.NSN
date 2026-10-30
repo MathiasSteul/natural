@@ -1,0 +1,93 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+/*******************************************************************************
+/*  Software AG - Entire Output Management
+/*  Group:    Monitor
+/*  Module:   RMGTRACC
+/*  Template: RMGTRACE
+/*
+/*  Function:
+/** Returns error if TRACE in jobcards is not written correctly
+/*  TRACE=ON TRACE=OFF TRACE=1,99 TRACE=(1-99,...) ARE OK
+/*  Called by RDEFMO
+/*
+/** author raya
+/*
+/*******************************************************************************
+/*  Maintenance
+/*******************************************************************************
+/*  User ID   yyyy-mm-dd Issue         Remark
+/* -----------------------------------------------------------------------------
+/*  raya      2011-06-11 NOMALL-1014     Created to avoide nat1314
+/*  fhi       2012-04-23 FHI279        Allow TRACE:VALUE and TRACE=VALUE
+/************************************* data ************************************
+DEFINE DATA
+PARAMETER
+1 M-JOBCARD               (A72/1:3)     /*IN
+1 #JC-ERR                 (L)           /*OUT false=ok true=illigal trace command i.e trace=0,100
+LOCAL
+1 #G-TRACE-A              (A20)
+1 #G-TRACE                (N3)
+1 #TRACE-SET              (A250)
+1 #POS                    (I2)
+1 #SPEC-CHAR-TABLE        (A2/16)               /* FHI279 was /15
+  INIT <', ','. ','; ',': ','* ','/ ','( ',
+  'Ü ','" ','@ ','$ ','% ','& ','? ','§ ',':='> /* FHI279 ':=' added
+END-DEFINE
+/************************************* main ************************************
+
+RESET #G-TRACE #TRACE-SET #POS #JC-ERR
+
+
+COMPRESS M-JOBCARD (1:3) TO #TRACE-SET LEAVING NO
+EXAMINE #TRACE-SET TRANSLATE INTO UPPER
+EXAMINE #TRACE-SET TRANSLATE USING #SPEC-CHAR-TABLE (*)
+
+DECIDE FOR EVERY CONDITION
+  WHEN #POS = 0
+    EXAMINE #TRACE-SET FOR 'TRACE=OFF' GIVING POSITION IN #POS
+  WHEN #POS > 0
+    ESCAPE ROUTINE IMMEDIATE                                               /*OK
+
+  WHEN #POS = 0
+    EXAMINE #TRACE-SET FOR 'TRACE=ON' GIVING POSITION IN #POS
+  WHEN #POS > 0
+    ESCAPE ROUTINE IMMEDIATE                                               /*OK
+
+  WHEN #POS = 0
+    EXAMINE #TRACE-SET FOR 'TRACE=' GIVING POSITION IN #POS
+  WHEN #POS = 0
+    ESCAPE ROUTINE IMMEDIATE                                               /*OK
+
+  WHEN #POS > 0
+    #POS       := #POS + 6
+    #TRACE-SET := SUBSTR(#TRACE-SET,#POS)
+    IF SUBSTR(#TRACE-SET,1,1) = ' '
+      #TRACE-SET := SUBSTR(#TRACE-SET,2)
+    END-IF
+    EXAMINE #TRACE-SET FOR ')' GIVING POSITION IN #POS
+  WHEN #POS > 1
+    #POS := #POS - 1
+    #TRACE-SET := SUBSTR(#TRACE-SET,1,#POS)
+  WHEN #POS > -1
+    SEPARATE #TRACE-SET INTO #G-TRACE-A REMAINDER #TRACE-SET
+
+    IF #G-TRACE-A IS (N3)
+      #G-TRACE  := VAL(#G-TRACE-A)
+      IF #G-TRACE GT 0 AND #G-TRACE LT 100
+        ESCAPE ROUTINE IMMEDIATE                                           /*OK 1-99
+      END-IF
+    END-IF
+
+    #JC-ERR := TRUE                                                       /*ERROR
+    ESCAPE ROUTINE IMMEDIATE
+
+  WHEN NONE
+    IGNORE
+END-DECIDE
+/************************************* end*********************************
+END
+/***************

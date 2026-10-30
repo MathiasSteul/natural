@@ -1,0 +1,312 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOCPFF-N - NOM API Maintain Default Codepage lists
+*             ES-EXTEND-FUNCTION
+*                LST : Get default codepages with description and
+*                      last-info for maintenance
+*                UPD : Update default codepages and last-info in
+*                      data base
+*                FLS : Get fixed codepage list with description for
+*                      selection in codepage maintenance
+*                CHK : Check all codepages in the list if they are
+*                      valid for Natural
+*                CH1 : Check only the one selected codepage if it is
+*                      valid for Natural
+*
+* Maintenance:
+* --------------------------------------------------------------------
+* CF      2017-12-18 NOMALL-2058 created
+* fhi     2018-03-24 NOMALL-1918 Add CP from text member in SYSNOMU
+*                                ÜÜÜ To be checked by SU ÜÜÜ
+* SU1     2018-05-04             NAT ERR in LUW only in english
+* fhi     2018-10-29 NOMALL-2125 Don't use Unix node code pages
+* SU2     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* --------------------------------------------------------------------
+/*
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOCPFF-A
+************************************************************************
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL
+1 MF-NODES VIEW OF NRM-MF-NODES /*SU2 was NRM-MONITOR
+  2 MF-MONITOR-ID       (A20)
+  2 REDEFINE MF-MONITOR-ID
+    3 MF-TYPE-ID1       (A2)
+    3 MF-TYPE-ID2       (A16)
+  2 MF-REMOTE-CODEPAGE
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-REMOTE-CODEPAGE
+*
+1 #CP-TAB               (*)
+  2 #CP-NAME            (A) DYNAMIC
+  2 #CP-DESCRIPTION     (A) DYNAMIC
+1 #CP-LAST-UPDATE       (T)
+1 #CP-LAST-UPDATE-USER  (A16)
+1 #CP-MSG-NR            (N4)
+1 #CP-MSG-TXT           (A) DYNAMIC
+1 CP-NAME-NEW           (A/1:1) DYNAMIC
+1 CP-NAME-OLD           (A/1:1) DYNAMIC
+1 TAB-OUT               (1:*) /*contains the xref of the used code pages
+  2 #CP                 (A) DYNAMIC
+  2 #OBJ-TYPE           (A) DYNAMIC
+  2 #NAME               (A) DYNAMIC
+1 ERC                   (N4)
+1 ERT                   (A100)
+1 #CP-REMOVED           (A64/15)
+1 #USAGES               (A3)
+1 REDEFINE #USAGES
+  2 #USAGE              (A1/1:3)
+1 #CP-NODE              (A64/1:30)
+1 #CP-REPORT            (A64/1:30)
+1 #LIBRARY-ID           (A8)
+1 #OBJECT-KIND          (A1)
+1 #MSG-FIELD            (A32)
+1 REDEFINE #MSG-FIELD
+  2 #MSG-FIELD-NAME     (A28)
+  2 #MSG-FIELD-INDEX    (N4)
+  2 REDEFINE #MSG-FIELD-INDEX
+    3 #MSG-FIELD-INDEXA (A4)
+1 #I                    (I4)
+1 #I2                   (I4)
+1 #J                    (I4)
+1 #J1                   (I4)
+1 #K                    (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC
+#LIBRARY-ID := ES-APP-SERVER-LIBRARY
+*
+DECIDE ON EVERY VALUE OF ES-EXTEND-FUNCTION
+  VALUE 'LS1'
+    PERFORM GET-CODEPAGE-USAGE
+  VALUE 'LST', 'LS1'
+    PERFORM READ-CODEPAGE-LIST
+  VALUE 'FLS'
+    PERFORM READ-CODEPAGE-FIXLIST
+  VALUE 'UPD'
+    PERFORM CHECK-CODEPAGE-LIST
+    PERFORM CHECK-CODEPAGE-USAGE
+    IF ES-RC = 0
+      PERFORM UPDATE-CODEPAGE-LIST
+    END-IF
+    IF ES-RC = 0
+      END TRANSACTION
+    END-IF
+  VALUE 'CHK','CH1'
+    PERFORM CHECK-CODEPAGE-LIST
+  NONE
+    ES-RC := 1
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-CODEPAGE-LIST
+************************************************************************
+RESET ES-NUMBER
+/* Read default codepage list
+CALLNAT 'N-CP-TAB' 'D' #CP-TAB (*) #CP-LAST-UPDATE #CP-LAST-UPDATE-USER
+/*
+DECIDE FOR FIRST CONDITION
+  WHEN *OCC(#CP-NAME) LT 1
+    ES-RC := 2
+  WHEN *OCC(#CP-NAME) GT 30
+    ES-RC := 3
+  WHEN ANY
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+/*
+FOR #I = 1 TO *OCC(#CP-NAME)
+  IF ES-EXTEND-FUNCTION = 'LS1'
+    RESET #USAGES
+    IF #CP-NAME(#I) = #CP-REPORT(*)
+      MOVE 'R' TO #USAGE(1)
+    END-IF
+    IF #CP-NAME(#I) = #CP-NODE(*)
+      MOVE 'N' TO #USAGE(2)
+    END-IF
+  END-IF
+  ADD 1 TO #I2
+  NOCP-NAME(#I2)        := #CP-NAME(#I)
+  NOCP-DESCRIPTION(#I2) := #CP-DESCRIPTION(#I)
+  NOCP-USAGE(#I2)       := #USAGES
+END-FOR
+ES-NUMBER := #I2
+/*
+NOCP-LAST-UPDATE-USER := #CP-LAST-UPDATE-USER
+IF #CP-LAST-UPDATE NE 0
+  MOVE EDITED #CP-LAST-UPDATE (EM=YYYYMMDDHHIISST) TO NOCP-LAST-UPDATE
+END-IF
+*
+END-SUBROUTINE /*READ-CODEPAGE-LIST
+*
+************************************************************************
+DEFINE SUBROUTINE READ-CODEPAGE-FIXLIST
+************************************************************************
+RESET ES-NUMBER
+/* Read default codepage list
+CALLNAT 'N-CP-TAB' 'F' #CP-TAB (*) #CP-LAST-UPDATE #CP-LAST-UPDATE-USER
+/*
+DECIDE FOR FIRST CONDITION
+  WHEN *OCC(#CP-NAME) LT 1
+    ES-RC := 2
+  WHEN *OCC(#CP-NAME) GT 30
+    ES-RC := 3
+  WHEN ANY
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+/*
+FOR #I = 1 TO *OCC(#CP-NAME)
+  /* Check codepage via MOVE ENCODED
+  CALLNAT 'N-CP-CHK' #CP-NAME(#I) #CP-MSG-NR #CP-MSG-TXT
+  IF #CP-MSG-NR = 0 OR = 4
+    ADD 1 TO #I2
+    NOCP-NAME(#I2)        := #CP-NAME(#I)
+    NOCP-DESCRIPTION(#I2) := #CP-DESCRIPTION(#I)
+    RESET #CP-MSG-NR
+  END-IF
+END-FOR
+ES-NUMBER := #I2
+*
+END-SUBROUTINE /*READ-CODEPAGE-FIXLIST
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-CODEPAGE-LIST
+************************************************************************
+IF ES-NUMBER GT 15        /* 15 = currently max value
+  ES-NUMBER := 15
+END-IF
+RESIZE AND RESET ARRAY #CP-TAB TO (1 : 15)
+#CP-NAME(1 : ES-NUMBER) := NOCP-NAME(1 : ES-NUMBER)
+#CP-LAST-UPDATE      := *TIMX
+#CP-LAST-UPDATE-USER := ES-USER
+/* Update default codepage list
+CALLNAT 'N-CP-TAB' 'U' #CP-TAB (*) #CP-LAST-UPDATE #CP-LAST-UPDATE-USER
+*
+END-SUBROUTINE /*UPDATE-CODEPAGE-LIST
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-CODEPAGE-USAGE
+************************************************************************
+/* Read (old) default codepage list
+CALLNAT 'N-CP-TAB' 'D' #CP-TAB (*) #CP-LAST-UPDATE #CP-LAST-UPDATE-USER
+/* Compare with current codepage list
+RESET #J1
+FOR #J = 1 TO *OCC(#CP-NAME)
+  IF #CP-NAME(#J) NE ' ' AND
+      NOT(#CP-NAME(#J) = NOCP-NAME(*))
+    ADD 1 TO #J1
+    #CP-REMOVED(#J1) := #CP-NAME(#J)
+  END-IF
+END-FOR
+/*
+FOR #J = 1 TO #J1
+  /* Check usage of removed codepages
+  CP-NAME-OLD(1) := #CP-REMOVED(#J)
+  CALLNAT 'N-CP-XRF' 'C' CP-NAME-NEW(*) CP-NAME-OLD(*)
+    TAB-OUT(*) ERC ERT
+  IF *OCC(#CP) GT 0
+    ES-RC := 6
+    ES-MSG-NR := 7002
+    #OBJECT-KIND := 'U'
+    PERFORM GET-MSG-TXT
+    EXAMINE  ES-MSG-TXT FOR ':1:' REPLACE #CP-REMOVED(#J)
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /*CHECK-CODEPAGE-USAGE
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-CODEPAGE-LIST
+************************************************************************
+FOR #I = 1 TO ES-NUMBER
+  /* Check codepage via MOVE ENCODED
+  CALLNAT 'N-CP-CHK' NOCP-NAME(#I) #CP-MSG-NR #CP-MSG-TXT
+  IF #CP-MSG-NR NE 0 AND #CP-MSG-NR NE 4
+    ES-RC := 5
+    ES-MSG-NR := ABS(#CP-MSG-NR)
+    #OBJECT-KIND := 'N'
+    PERFORM GET-MSG-TXT
+    IF ES-EXTEND-FUNCTION = 'CH1'
+      #MSG-FIELD     := 'CODEPAGE-FIELD'
+    ELSE
+      #MSG-FIELD     := 'CODEPAGE-LIST'
+    END-IF
+    #MSG-FIELD-INDEX := #I
+    ES-MSG-FIELD     := #MSG-FIELD
+    ESCAPE BOTTOM
+  ELSE
+    RESET #CP-MSG-NR
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /*CHECK-CODEPAGE-LIST
+*
+************************************************************************
+DEFINE SUBROUTINE GET-CODEPAGE-USAGE
+************************************************************************
+R-MF. READ MF-NODES BY MF-MONITOR-ID = 'R-'-H'00' THRU 'R-'-H'FF'
+  IF MF-REMOTE-CODEPAGE NE ' ' AND NOT(MF-REMOTE-CODEPAGE = #CP-NODE(*))
+    ADD 1 TO #K
+    #CP-NODE (#K) := MF-REMOTE-CODEPAGE
+  END-IF
+END-READ
+RESET #K
+READ REPORTS BY R-REPNAME
+  IF R-REMOTE-CODEPAGE NE ' ' AND NOT(R-REMOTE-CODEPAGE = #CP-REPORT(*))
+    ADD 1 TO #K
+    #CP-REPORT (#K) := R-REMOTE-CODEPAGE
+  END-IF
+END-READ
+*
+END-SUBROUTINE /*GET-CODEPAGE-USAGE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND    := #OBJECT-KIND /* N =Natural, U =User defined
+NADA2000.ERROR-NUMBER   := ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+IF #OBJECT-KIND = 'N'             /* N : empty, U: #LIBRARY-ID
+  NADA2000.LIBRARY        := ' '
+  IF *MACHINE-CLASS NE 'MAINFRAME' /*SU1
+    NADA2000.OPT-LANGUAGE := 1 /*NAT LUW only english
+  END-IF
+ELSE
+  NADA2000.LIBRARY        := #LIBRARY-ID
+END-IF
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-TXT   := SHORT-MSG
+*
+END-SUBROUTINE /*GET-MSG-TXT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

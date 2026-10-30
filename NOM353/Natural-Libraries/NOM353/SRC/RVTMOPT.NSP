@@ -1,0 +1,582 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RVTMOPT - Called from Main-menu.8.11
+****          2. Display/Modify the NOMVPRNT parameter file
+****             This file is defined to SAT using the DATASET keyword
+* Version   3.3
+*
+* Maintenance:
+* splildav   2010-11-04 NOMALL-31 Created
+* bli        2012-09-14 NOMALL-94 Introduce 2 digit versions
+* fhi        2016-09-15 NOMALL-1621 Use +NOD-LOCAL-NODE as monitor node
+* fhi        2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-01-27 NOMALL-1961 Show node name in errors
+* SU1     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU2     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+*
+DEFINE DATA GLOBAL USING NRM-GL
+INDEPENDENT
+1 +PARM-DSN              (A54)
+1 +PARM-DSNAME           (A44)
+1 +PARM-MEM              (A8)
+1 +PARM-VOL              (A6)
+1 +PARM-SAT              (L)
+1 +NOD-LOCAL-ID          (A20)
+1 +NOD-LOCAL-NODE        (N5)
+1 +NOD-CURRENT-NAME      (A16)
+* *****
+LOCAL USING RPFK---L
+LOCAL USING SATLF02P
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR
+  2 M-XCOM-JOBNAME (A8)
+1 MF-NODE VIEW OF NRM-MF-NODES
+  2 MF-SPOOL-TYPE
+1 SUBTASK VIEW OF NATURAL-SUB-TASK
+  2 NAT-STATUS
+  2 DDNAME
+  2 ERROR-TEXT
+  2 ERROR-CODE
+1 CONSOLE VIEW OF CONSOLE
+1 QUEUE   VIEW OF SPOOL-QUEUE
+  2 JOB-NUMBER
+1 SPOOL   VIEW OF READ-SPOOL
+  2 RECORD
+1 CNTL  VIEW OF RESOURCE-CONTROL
+  2 ERROR-TEXT
+1 COMMON VIEW OF COMMON-DATA
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 DATA
+  2 CURRENT-ENTRIES
+1 READ-FILE VIEW OF READ-FILE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD
+1 SPOOLING-PRINT VIEW OF SPOOLING-PRINT
+  2 ERROR-CODE
+* *****
+1 #NODE           (N5)
+1 #NPRINFO        (A15)
+1 #STATUS         (A50)
+1 #NSPFCOM        (A60)
+1 #WORK           (A60)
+1 #FATHER-PROG    (A8) INIT <'RADMIN'>
+1 #COM-DATA       (A80)
+1 REDEFINE #COM-DATA
+  2 #COM-PREFIX   (A5)
+  2 #COM-DSN      (A44)
+  2 #COM-MEM      (A8)
+  2 #COM-VOL      (A6)
+  2 #COM-DDN      (A8)
+1 #SYSF-A10       (A10)
+1 REDEFINE #SYSF-A10
+  2 #SYSF-DBID    (N5)
+  2 #SYSF-FNR     (N5)
+1 #JOB            (A8)    /* Name of NOM/NPR Job
+1 #SPOOL          (A8)    /* 'JES2' / 'JES3' / 'POWR'
+/*SU2 1 #VSESCAN        (A1)
+1 #STACK          (L)
+/*SU2 1 #VSE            (L)
+1 #SAT            (L)
+1 CV-MAP          (C)  INIT <(AD=I CD=NE)>
+1 L-HEADER        (A78)
+1 #ERROR-TEXT     (A58)
+1 #TEXT           (A60)
+1 #DSNAME         (A44)
+1 #DSN            (A54)
+1 #MEM            (A8)
+1 #VOL            (A10)   /* For VSE : 'VOL=' !! volser
+1 #NSPF-ACCESS    (A1)    /*'E'-Edit;'B'-Browse
+1 #NSPF-TYPE      (A3)    /*'P'-Pds;'D'-Dataset;'FIL'-VSE file
+1 #P              (N5)
+1 #JOB-NUMBER     (N7)
+1 #COM-ID         (A12)
+1 #NUM            (N5)
+1 #SUBT-USER      (A16)
+1 #NAT-PARM       (A40)
+1 #NAT-PARM-NOSAT (A40) INIT<'DBID=0,FNR=0'>   /* In case no SAT
+1 #NAT-DDNAME     (A8)
+****  careful ... The following text has upper case and lower case ...
+1 #SHUT-REC       (A50)
+1 #SHUT-REC11     (A31) INIT <'ÜThIs Is A ReQuEsT To ShUtDoWnÜ'>
+1 #SHUT-REC12     (A8)  /* Will contains user-id
+1 #SHUT-REC13     (A3)  INIT<'--'>
+1 #PRINTER        (A8)
+1 #SOFTCLOS       (L)
+1 #LIBRARY-ID     (A8)
+1 #MONITOR-ID     (A20)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+*** Get the dbid/fnr of the NOM system file (Lfile=206)
+*** This is a unique identifier
+SATLF-LFILE           := 206
+SATLF-FUNCTION := 'GET'
+CALLNAT 'SATLF02N' SATLF-SATVERS SATLF-PARMS (*)
+IF SATLF-ERROR-CODE NE 0 OR SATLF-DBID-N5 = 0 OR SATLF-FNR-N5 = 0
+  WRITE NOHDR *PROGRAM 'NOM Container File (LFILE 206) cannot be set:' /
+    'NOM system File DB-ID:  ' SATLF-DBID-N5 /
+    'NOM system File File-No:' SATLF-FNR-N5 /
+    'Error Code:            ' SATLF-ERROR-CODE /
+    *PROGRAM 'Execution terminates'
+  STOP
+END-IF
+#SYSF-DBID :=  SATLF-DBID-N5
+#SYSF-FNR :=  SATLF-FNR-N5
+*** If the subtask was already started during startup of NPR, a DDname
+*** for the print file is already allocated.
+*** If not, we get the ddname from the DATASET record
+COMPRESS 'NV' #SYSF-A10 TO #COM-ID LEAVING NO
+COMPRESS 'NOMVPR' #SYSF-A10 TO #SUBT-USER LEAVING NO
+COMPRESS 'DBID=' SUBSTR(#SYSF-A10,1,5) ',FNR=' SUBSTR(#SYSF-A10,6,5)
+  ',ADANAME=' *USER TO #NAT-PARM LEAVING NO
+*** If we re-invoke ourselves after 'Display' / 'Modify' ,
+*** set the dataset name
+#STACK := FALSE
+#DSN := +PARM-DSN
+#DSNAME := +PARM-DSNAME
+#MEM := +PARM-MEM
+#VOL := +PARM-VOL
+#SAT := +PARM-SAT
+*** Get the NPR node number, Job name, Spooling system
+#MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+FIND (1) NRM-MONITOR WITH M-MONITOR-ID = #MONITOR-ID
+  #JOB := M-XCOM-JOBNAME
+END-FIND
+#NODE := +NOD-LOCAL-NODE
+COMPRESS #JOB '(' #NODE ')' TO #NPRINFO LEAVING NO
+FIND MF-NODE WITH MF-MONITOR-ID = +NOD-LOCAL-ID
+  #SPOOL := MF-SPOOL-TYPE
+END-FIND
+/*SU2 -> *** For VSE :
+/* #VSE                    /* For debugging
+/*  #JOB := 'X3555536' #NODE := 55536 #SPOOL := 'POWR' END-IF
+/* End debugging /*SU2 <-
+*
+PERFORM GO-STATUS
+*
+REPEAT
+  PERFORM INIT-PFKEYS
+  PERFORM SET-PFKEYS
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDEFVTM&'
+  G-USERID := *USER
+  PERFORM GO-FIND-DSN         /* Try to find dsname of parm file
+  INPUT WITH TEXT *G-NATRP-ERC,#STATUS,#ERROR-TEXT,#DSN
+    MARK *G-DIRECT-COMMAND USING MAP 'RDEFVTM&'
+  INCLUDE RPFKVA-C
+  DECIDE ON FIRST VALUE OF G-PF-FUNC
+    VALUE ##PFK-HELP
+      REINPUT USING HELP
+    NONE IGNORE
+  END-DECIDE
+  IF *PF-KEY = 'PF3' OR = 'PF15'
+*** If we invoked SPF during this session, we return to the Systems
+*** Administration screen. If not, we call the program which called us
+    #STACK := TRUE
+    IF NOT #STACK
+      FETCH #FATHER-PROG
+    END-IF
+    STACK TOP COMMAND 'MENU ADMIN '
+    STOP
+  END-IF
+*
+  IF *PF-KEY = 'PF12' OR = 'PF24'
+    STACK TOP COMMAND 'MENU '
+    STOP
+  END-IF
+*
+  DECIDE ON FIRST VALUE OF G-DIRECT-COMMAND
+*
+    VALUE 'S', 'START'         /* START
+*** Before we start a sub-task, make sure that :
+**  a. It's not already active
+**  b. A batch server which writes to container file is not active
+**  c. A batch server which writes to spool is not active
+      IF #STATUS EQ 'ACTIVE'
+        REINPUT FULL WITH TEXT 'Server is already active' , #DSN
+          MARK *G-DIRECT-COMMAND
+        PERFORM CHECK-BATCH
+*** Start server now
+        PERFORM GO-START
+        PERFORM GO-STATUS
+*** If server was started, notify operator
+        IF #STATUS EQ 'ACTIVE'
+          COMPRESS  'NOMVUS1I NOMVPRNT SERVER STARTED BY USER' G-USERID
+            TO #TEXT
+          PERFORM GO-WTO
+        END-IF
+      END-IF
+      REINPUT FULL WITH TEXT  #STATUS,#DSN MARK *G-DIRECT-COMMAND
+*
+    VALUE 'C','CLOSE'          /* CLOSE
+      IF #STATUS NE 'ACTIVE'
+        REINPUT FULL WITH TEXT 'Server is not active' , #DSN
+          MARK *G-DIRECT-COMMAND
+      ELSE
+        PERFORM GO-CLOSE
+        PERFORM GO-STATUS
+        COMPRESS  'NOMVUS2I NOMVPRNT SERVER CLOSED BY USER' G-USERID
+          TO #TEXT
+        PERFORM GO-WTO
+      END-IF
+      REINPUT FULL WITH TEXT #STATUS,#DSN MARK *G-DIRECT-COMMAND
+*
+    VALUE 'D','DISPLAY'        /* Display parameter file
+      #NSPF-ACCESS := 'B'  /* Browse
+      PERFORM GO-FIND-DSN         /* Try to find dsname of parm file
+      PERFORM GO-NSPF
+*
+    VALUE 'M','MODIFY'         /* Update parameter file
+      #NSPF-ACCESS := 'E'  /* Edit
+      PERFORM GO-FIND-DSN         /* Try to find dsname of parm file
+      PERFORM GO-NSPF
+*
+    VALUE ' '                  /* Enter
+      PERFORM GO-STATUS
+      REINPUT FULL WITH TEXT 'Enter Function' ,#DSN
+        MARK *G-DIRECT-COMMAND
+*
+    NONE VALUE
+      INCLUDE C-DIRECT   /* Invoke command processor
+*     REINPUT FULL WITH TEXT 'Invalid Function' ,#DSN
+*                MARK *G-DIRECT-COMMAND *#DSN (AD:=P)
+  END-DECIDE
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+INCLUDE RPFSET-C /* SET-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE GO-START /* Start server sub-task
+************************************************************************
+IF #SAT          /* DATASET defined in SAT
+*** First delete old parameters from common-data,
+*** But leave the first record which describes the DATASET
+  #NUM := 1000
+  RPTG.    REPEAT UNTIL #NUM EQ 1
+    FIND (1) COMMON WITH NODE=#NODE AND FUNCTION = 'MODIFY'
+    AND DATA-ID = #COM-ID AND ENTRY-NUMBER = 2 AND DELETE-ENTRY =  'YES'
+      #NUM := CURRENT-ENTRIES
+      IF ERROR-CODE NE 0
+        ESCAPE BOTTOM (RPTG.)
+      END-IF
+    END-FIND
+  END-REPEAT
+*** Now read start-up parms from dataset and store in common-data
+  #NUM := 1
+  FIND READ-FILE WITH NODE = #NODE AND DSNAME = #DSNAME
+  AND MEMBER = #MEM AND VOLSER = #VOL                                 /*
+    IF ERROR-CODE NE 0
+      COMPRESS ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE
+        TO #ERROR-TEXT
+      ESCAPE ROUTINE
+    END-IF
+    IF SUBSTR(RECORD,1,1) NE '*'
+      ADD 1 TO #NUM /* Start with entry-number = 2
+      FIND (1) COMMON WITH NODE=#NODE AND FUNCTION = 'MODIFY'
+      AND DATA-ID = #COM-ID AND ENTRY-NUMBER = #NUM AND DATA = RECORD /*
+        IF ERROR-CODE NE 0
+          COMPRESS ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM
+            '/' *LINE TO #ERROR-TEXT
+          ESCAPE ROUTINE
+        END-IF
+      END-FIND
+    END-IF
+  END-FIND
+ELSE
+*** If not defined in SAT, tell sub-task to use predefined parms
+*** from DDcard NOMPSPRM (MVS) or SYS040 (VSE)
+  #NAT-PARM := #NAT-PARM-NOSAT
+END-IF
+*  start server sub-task
+FIND SUBTASK WITH NODE=#NODE AND NAT-MODULE = 'NOMVMAIN'
+AND FUNCTION = 'START' AND NAT-USER = #SUBT-USER                      /*
+AND NAT-PARMS = #NAT-PARM AND DDNAME    = #NAT-DDNAME                 /*
+  IF ERROR-CODE NE 0
+    COMPRESS ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE
+      TO #ERROR-TEXT
+    ESCAPE ROUTINE
+  END-IF
+  #STATUS :=  NAT-STATUS
+END-FIND
+*
+END-SUBROUTINE /* GO-START
+*
+************************************************************************
+DEFINE SUBROUTINE GO-CLOSE /* Close/stop server sub-task
+************************************************************************
+*** There are 2 ways to stop the server :
+** 1. Soft - We send a special text to an active printer, which will
+**           cause the server to shut down normally.
+**           Using this method, a shutdown message will appear in the
+**           sysout file for this task.
+** 2. Hard - We close the subtask by detaching it.
+*
+** In order to do a 'Soft' shutdown :
+**  a. Find name of a printer
+RESET #SOFTCLOS
+FIND (1) COMMON WITH NODE=#NODE AND FUNCTION ='GET' AND DATA-ID =#COM-ID
+AND DATA='*PRINTER=*'                                                 /*
+  IF ERROR-CODE = 0
+/*STRUCT OFF
+    EXAMINE DATA FOR 'PRINTER=' GIVING POSITION #P
+    ADD 8 TO #P
+    #PRINTER := SUBSTR(DATA,#P,8)  /* Get name of printer
+    #SOFTCLOS := TRUE /* So far so good ..
+/*STRUCT ON
+  END-IF
+END-FIND
+IF #SOFTCLOS
+**  b. Send special text to printer
+  #SHUT-REC :=  #SHUT-REC11
+  #SHUT-REC12 :=  *USER
+  MOVE #SHUT-REC12 TO SUBSTR(#SHUT-REC,32,8) /* User-id follows
+  MOVE #SHUT-REC13 TO SUBSTR(#SHUT-REC,40,3) /* '--' follows
+  FIND (1) SPOOLING-PRINT WITH  NODE = #NODE AND PRINTER = #PRINTER
+      AND FUNCTION = 'PING' AND FLUSH    = 'YES '
+    IF ERROR-CODE NE 0
+      #SOFTCLOS := FALSE
+    END-IF
+  END-FIND
+  FIND (1) SPOOLING-PRINT WITH  NODE = #NODE AND PRINTER = #PRINTER
+      AND FUNCTION = 'PRINT' AND FLUSH = 'YES' AND RECORD =#SHUT-REC
+    IF ERROR-CODE NE 0
+      #SOFTCLOS := FALSE
+    END-IF
+  END-FIND
+END-IF
+*
+IF NOT #SOFTCLOS
+*** If soft close failed, do a hard close ...
+  RESET #ERROR-TEXT
+  FIND SUBTASK WITH NODE=#NODE AND FUNCTION='CLOSE'
+      AND NAT-USER=#SUBT-USER
+    IF ERROR-CODE NE 0
+      COMPRESS ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE
+        TO #ERROR-TEXT
+    END-IF
+    #STATUS :=  NAT-STATUS
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* GO-CLOSE
+*
+************************************************************************
+DEFINE SUBROUTINE GO-STATUS
+************************************************************************
+FIND SUBTASK WITH NODE=#NODE AND FUNCTION='STATUS'
+AND NAT-USER= #SUBT-USER                                              /*
+  IF ERROR-CODE NE 0
+    IF ERROR-CODE = 663
+      #STATUS := 'NOT ACTIVE'
+    ELSE
+      COMPRESS ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE
+        TO #ERROR-TEXT
+    END-IF
+  ELSE
+    #STATUS :=  NAT-STATUS
+    IF DDNAME NE ' ' AND SUBSTR(#NAT-DDNAME,1,3) NE 'NMV'
+      #NAT-DDNAME :=  DDNAME
+    END-IF
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* GO-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-BATCH
+************************************************************************
+*** check if a batch server which writes to container file is running
+*** NPR view RESOURCE-CONTROL does not exist in VSE ...
+/*SU2 IF *OPSYS NE MASK('MVS') ESCAPE ROUTINE END-IF
+FIND (1) CNTL WITH NODE = #NODE AND FUNCTION = 'ENQ-TEST'
+AND QNAME = 'NOMVPRNT' AND RNAME-LENGTH = 2                           /*
+AND RNAME = 'DB'                     /* Server which writes to container
+  IF ERROR-TEXT = MASK('ESY5614')     /* RESOURCE IN USE
+    REINPUT FULL WITH TEXT 'Batch Server is already active'
+  END-IF
+END-FIND
+*** check if a batch server which writes to spool is running
+FIND (1) CNTL WITH NODE = #NODE AND FUNCTION = 'ENQ-TEST'
+AND QNAME = 'NOMVPRNT' AND RNAME-LENGTH = 2                           /*
+AND RNAME = 'SP'                         /* Server which writes to spool
+  IF ERROR-TEXT = MASK('ESY5614')     /* RESOURCE IN USE
+    REINPUT FULL WITH TEXT 'Batch Server is already active'
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* CHECK-BATCH
+*
+************* Send message to console Subroutine ************
+DEFINE SUBROUTINE GO-WTO /* Send message to console
+************************************************************************
+FIND (1) CONSOLE WITH FUNCTION ='WTO' AND NODE =#NODE AND TEXT =#TEXT
+END-FIND
+*
+END-SUBROUTINE /* GO-WTO
+*
+************************************************************************
+DEFINE SUBROUTINE GO-NSPF /* Start SPF session
+************************************************************************
++PARM-DSN := #DSN
++PARM-DSNAME := #DSNAME
++PARM-MEM := #MEM
++PARM-VOL := #VOL
++PARM-SAT := #SAT
+*** We must generate a direct command for NSPF to browse/edit the file:
+***  1. MVS : E/B P/D dataset
+***  2. VSE : E/B FIL dataset VOL=volser
+/*SU2 IF #SPOOL = 'POWR'            /* VSE
+/*SU2  #NSPF-TYPE := 'FIL' ELSE
+*** For MVS, check if the format is 'dsname(member)'
+EXAMINE #DSN FOR '(' GIVING POSITION #P
+IF #P > 0
+  #NSPF-TYPE := 'P'  /* It's a PDS
+ELSE
+  #NSPF-TYPE := 'D'  /* It's a dataset
+END-IF
+/*SU2 END-IF
+FETCH RETURN 'NRMPUTAI'        /* SAVE AIV IN STACK
+STACK TOP COMMAND 'NRMGETAI'       /* Restore AIV from stack
+CALLNAT 'RGETLIB' #LIBRARY-ID
+STACK TOP COMMAND 'LOGON' #LIBRARY-ID /* Logon back to our library
+COMPRESS #NSPF-ACCESS #NSPF-TYPE #DSN  TO #NSPFCOM
+STACK TOP COMMAND 'SPF' #NSPFCOM
+** After returning from NSPF, return to this program)
+* STACK COMMAND *PROGRAM  /* #DSN #DSNAME #MEM #VOL #SAT
+STACK COMMAND 'MENU VTAM '
+STOP
+*
+END-SUBROUTINE /* GO-NSPF
+*
+************************************************************************
+DEFINE SUBROUTINE GO-FIND-DSN /* Find dsname of parameter file
+************************************************************************
+IF #ERROR-TEXT NE ' '  /* If previous error detected, return
+  ESCAPE ROUTINE
+END-IF
+#SAT := TRUE /* Assume SAT definition is active
+IF #DSN = ' '
+*** The name of the file is in the first record of the common-data
+  FIND (1) COMMON WITH NODE=#NODE AND FUNCTION = 'GET' AND
+      DATA-ID = #COM-ID
+    #COM-DATA := DATA
+*** Error 621 means that the common-area does not exist. This probably
+*** is due to fact that SAT is not active.
+    IF ERROR-CODE NE 0 AND ERROR-CODE NE 621
+      COMPRESS ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE
+        TO #ERROR-TEXT
+      #SAT := FALSE
+      ESCAPE ROUTINE
+    END-IF
+*** If the DATASET record is not found in the common-area, we assume
+*** that SAT is not used - So we locate the parameter file from the
+*** JCL.
+    IF #COM-PREFIX NE '*DS*='
+      RESET #SAT
+      PERFORM NOSAT-GO-FIND-DSN
+      ESCAPE ROUTINE
+    END-IF
+    #SAT := TRUE
+    #DSNAME := #COM-DSN
+    #MEM := #COM-MEM
+    #VOL := #COM-VOL
+    #NAT-DDNAME := #COM-DDN
+*** Now build dataset name in format : dsn(mem),vol
+    #DSN := #DSNAME
+    IF #MEM NE ' '
+      COMPRESS #DSN '(' #MEM ')' TO #DSN LEAVING NO
+    END-IF
+    IF #VOL NE ' '
+      COMPRESS #DSN ',' #VOL TO #DSN LEAVING NO
+    END-IF
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* GO-FIND-DSN
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE NOSAT-GO-FIND-DSN
+************************************************************************
+*** If the dataset name is left blank, we try to determine it as follows
+IF #DSN = ' '
+  DECIDE ON FIRST VALUE OF #SPOOL
+    VALUE 'JES2' , 'JES3'
+      PERFORM NOSAT-GO-FIND-DSN-JES2
+/*SU2   VALUE 'POWR' PERFORM NOSAT-GO-FIND-DSN-POWR
+    NONE VALUE
+      ESCAPE BOTTOM
+  END-DECIDE
+END-IF
+*
+END-SUBROUTINE /* NOSAT-GO-FIND-DSN
+*
+************************************************************************
+DEFINE SUBROUTINE NOSAT-GO-FIND-DSN-JES2
+************************************************************************
+*** For JES2 :
+*** We scan the SM=2 sysout file of the NOM/NPR server for the
+*** DDNAME 'NOMPSPRM', and if found, we extract it's dsname
+FIND (1) QUEUE WITH JOB-NAME = #JOB AND NODE = #NODE AND QUEUE = 'XEQ'
+  #JOB-NUMBER := JOB-NUMBER
+END-FIND
+IF #JOB-NUMBER > 0
+  FIND SPOOL WITH JOB-NUMBER = #JOB-NUMBER AND NODE = #NODE
+      AND TYPE = 'SM' AND DATA-SET = 2
+    EXAMINE RECORD FOR 'NOMPSPRM' GIVING POSITION #P
+    IF #P > 0
+**** Look for 'DSN=' or 'DSNAME='
+      EXAMINE RECORD FOR PATTERN 'DSN*=' GIVING POSITION #P
+      IF #P > 0
+* WRITE RECORD(AL=70)
+        IF SUBSTR(RECORD,#P,4) = 'DSN='
+          ADD 4 TO #P /* Go past DSN=
+        ELSE
+          ADD 7 TO #P /* Go past DSNAME=
+        END-IF
+        #WORK := SUBSTR(RECORD,#P,54) /* Move starting from dataset name
+        COMPRESS #WORK ',' TO #WORK
+        /* Find end of dsname : ',' or ' '
+        EXAMINE #WORK FOR ','  GIVING POSITION #P
+        IF #P = 0
+          EXAMINE #WORK FOR ' '  GIVING POSITION #P
+        END-IF
+        SUBTRACT 1 FROM #P /* Move 1 position less
+        #DSN := SUBSTR(#WORK,1,#P) /* Move dsname until delimeter
+      END-IF
+    END-IF
+  END-FIND
+** If dataset name was not set,this means that the DDcard does not exist
+  IF #DSN = ' '
+    COMPRESS 'DDcard NOMPSPRM is not defined in JCL for' #JOB
+      TO #ERROR-TEXT
+  END-IF
+ELSE   /* NOM server not found
+  COMPRESS 'NOM server' #JOB 'is not active' TO #ERROR-TEXT
+END-IF
+*
+END-SUBROUTINE /* NOSAT-GO-FIND-DSN-JES2
+*
+/*SU2 DEFINE SUBROUTINE NOSAT-GO-FIND-DSN-POWR
+*
+END

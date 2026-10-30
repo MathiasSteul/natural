@@ -1,0 +1,146 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPDOCTN - Dieses Programm erzeugt den To-Printer Teil eines
+*           PRINT-DOCUMENT Kommandos
+*
+* Assuming  - Printer-name '*CENTRAL' must be replaced by blank
+*           - Cluster-name is not available in view SPOOL-ATTRIBUTES
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* gw      1995-11-08 s(999999) created
+* gw      1996-06-24 s(999999) reset destination if '*CENTRAL'
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* xsetggr 2007-05-14 NOM3201  Convert node number to 5 digit format
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-05-05 p(304350) restow due to changes in RMSPL--L
+* fhi     2009-06-24 N3463     Extend metadata for OPO
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-10-08 NOMALL-97 Use dynamic memory handling
+* ---------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 RMPDOCTN-SPOOL-ATTRIBUTES         (A250)
+1 RMPDOCTN-SPOOL-ATTRIBUTES-ADD     (A750)
+1 RMPDOCTN-CMD                      (16)
+  2 RMPDOCTN-CMD-LINE               (A72)
+  2 REDEFINE RMPDOCTN-CMD-LINE
+    3 RMPDOCTN-FILLER               (A71)
+    3 RMPDOCTN-CONTINUATION         (A1)
+  2 REDEFINE RMPDOCTN-CMD-LINE
+    3 RMPDOCTN-C                    (A1/1:72)
+1 RMPDOCTN-CMD-OCC                  (I4)
+1 RMPDOCTN-ERROR-CODE               (N4)
+1 RMPDOCTN-ERROR-TEXT               (A250)
+************************************************************************
+LOCAL USING RMSPL--L
+LOCAL USING RMSPLA-L
+*
+LOCAL
+1 #LENGTH                           (I2)
+1 #LINE-LENGTH                      (I2)
+1 #TLEN                             (I2)
+1 #TOKEN                            (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=81
+*
+RESET RMPDOCTN-ERROR-CODE RMPDOCTN-ERROR-TEXT
+*
+IF RMPDOCTN-CMD-OCC = 0
+  RMPDOCTN-CMD-OCC := 1
+END-IF
+*
+EXAMINE RMPDOCTN-CMD-LINE (RMPDOCTN-CMD-OCC)
+  FOR 'x' GIVING LENGTH #LINE-LENGTH
+*
+#SPOOL-ATTRIBUTES := RMPDOCTN-SPOOL-ATTRIBUTES
+CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+#SPOOL-ATTRIBUTES-EXT := RMPDOCTN-SPOOL-ATTRIBUTES-ADD
+*
+#TOKEN := ',TO-PRINTER=*PARAMETERS('
+PERFORM TOKEN-TO-COMMAND
+*
+DECIDE FOR EVERY CONDITION
+*
+  WHEN #SPOOL-BS2-PRINTER-TYPE NE ' '
+    PERFORM TO-PRINTER-PRINTER-TYPE
+  WHEN #SPOOL-BS2-DESTINATION NE ' '
+    PERFORM TO-PRINTER-PRINTER-NAME
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+#TOKEN := ',VIRTUAL-PRINTER=*NOT-ALLOWED)'
+PERFORM TOKEN-TO-COMMAND
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE TO-PRINTER-PRINTER-TYPE
+************************************************************************
+COMPRESS #TOKEN ',PRINTER-TYPE=' #SPOOL-BS2-PRINTER-TYPE
+  TO #TOKEN LEAVING NO
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE TO-PRINTER-PRINTER-NAME
+************************************************************************
+IF #SPOOL-BS2-DESTINATION = '*CENTRAL'
+  RESET #SPOOL-BS2-DESTINATION
+END-IF
+COMPRESS #TOKEN ',PRINTER-NAME=' #SPOOL-BS2-DESTINATION
+  TO #TOKEN LEAVING NO
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE TOKEN-TO-COMMAND
+************************************************************************
+IF #TOKEN = ' '
+  ESCAPE ROUTINE
+END-IF
+*
+EXAMINE #TOKEN FOR 'x' GIVING LENGTH IN #TLEN
+#LENGTH := #LINE-LENGTH + #TLEN
+IF #LENGTH > 71
+  RMPDOCTN-CONTINUATION (RMPDOCTN-CMD-OCC) := '-'
+  ADD 1 TO RMPDOCTN-CMD-OCC
+  #LINE-LENGTH := 2
+END-IF
+*
+IF #LINE-LENGTH > 2
+  COMPRESS RMPDOCTN-CMD-LINE(RMPDOCTN-CMD-OCC) #TOKEN
+    TO RMPDOCTN-CMD-LINE(RMPDOCTN-CMD-OCC) LEAVING NO
+ELSE
+  COMPRESS '/' #TOKEN TO RMPDOCTN-CMD-LINE(RMPDOCTN-CMD-OCC)
+END-IF
+*
+ADD #TLEN TO #LINE-LENGTH
+*
+RESET #TOKEN
+*
+END-SUBROUTINE /* TOKEN-TO-COMMAND
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  CALLNAT 'C-NATERN' RMPDOCTN-ERROR-TEXT
+  RMPDOCTN-ERROR-CODE := 21
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

@@ -1,0 +1,136 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMSATSLN - ESY special logon including ASCII systems /Replaces CALLNAT
+*
+* Creation and Maintenance History
+* uuu    yy-mm-dd s(999999) ...
+* fhi    05-09-02 s(266530) created
+* fhi     2006-01-19 s(273633) Enable special logon if Unix system only.
+* xsetggr 2007-05-07 NOM3201   support 5 byte node numbers
+* SU1     2015-02-27 NOMALL-1569 USR0620N (SYSEXT) => RMASCEBN (SYSNOM)
+* SU2     2018-03-16 NOM 3.5   avoid NOM7128/ESY5509 logon failed
+*                    see EOR551(SCR-01-N)
+* fhi     2018-03-16 NOMALL-1918 Get it on Unix / Correct NPR Logons
+* fhi     2018-07-18 NOMALL-1621 Suspend MF node if necessary
+* fhi     2018-07-23 NOMALL-1606 Avoid too many calls
+* fhi     2018-07-24 NOMALL-1606 TEST STATEMENTS INSERTED ÜÜÜ REMOVE ÜÜÜ
+* fhi     2018-10-02 NOMALL-1621 Suspend MF node on error 5999, too
+* fhi     2018-10-10 NOMALL-2157 Use field SECURITY-MESSAGE of NPR
+* SU3     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* ----------------------------------------------------------------------
+*
+DEFINE DATA PARAMETER USING SATSL04P
+PARAMETER
+1 TRACING                   (L)         OPTIONAL
+************************************************************************
+INDEPENDENT
+1 +NOD-LOCAL-NODE          (N5)  /* node number of the local node
+1 +NOD-CURRENT-NODE        (N5)  /* Current node number active
+1 +NOD-CURRENT-ID          (A20) /* MONITOR-ID of current node
+************************************************************************
+LOCAL USING SATSL--E
+/*SU3 LOCAL USING VMONITUL  /* NOMALL-1621 fhi in
+LOCAL
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU3
+  2 MF-TYPE                (A1)
+  2 MF-MONITOR-ID          (A20)
+1 #USER                    (A250)
+1 REDEFINE    #USER
+  2 #GARB1                 (B4)
+  2 #GARB2                 (B4)
+1 #GARBN1                  (N15)
+1 #GARBN2                  (N15)
+1 #GARBA                   (N15)
+1 REDEFINE    #GARBA
+  2 #STAM                  (A7)
+  2 #PRODPAS               (A8)
+*
+1 #TRACING                 (L)
+1 #TRACE-MSG               (A250)
+1 #LASTPROG                (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF TRACING SPECIFIED
+  #TRACING := TRACING
+END-IF
+*
+IF #TRACING
+  PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG
+  COMPRESS 'Before execution: Special logon to node ' SATSL-NODE-N5
+    'with user' SATSL-USER 'required.'
+    'WhoAmI function returns ESY-User:' F#WHOAMI(<SATSL-NODE-N5>)
+    *PROGRAM 'was called from:' #LASTPROG
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+IF SATSL-NODE-N5 = 0 /* Unix without mainframe
+  IF #TRACING
+    MOVE 'SATSL-NODE-N5 is zero, exiting'
+      TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+  ESCAPE ROUTINE
+END-IF
+IF SATSL-FUNCTION = SATSL-SPECIAL-LOGON /*build special pwd from user
+  IF F#WHOAMI(<SATSL-NODE-N5>) = SATSL-USER
+    IF #TRACING
+      COMPRESS 'User' SATSL-USER 'already logged on. Exiting'
+        TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+    ESCAPE ROUTINE
+  END-IF
+  #USER := SATSL-USER
+  IF *MACHINE-CLASS NE 'MAINFRAME'
+    CALLNAT 'RMASCEBN' 'A' #USER /* ASCII -> EBCDIC /*SU1
+  END-IF
+  #GARBN1 := #GARB1
+  #GARBN2 := #GARB2
+  #GARBA := #GARBN1 - #GARBN2 + (#GARBN1 + #GARBN2) / 2
+/*SU2  IF *MACHINE-CLASS NE 'MAINFRAME' AND #GARBA < 0
+/*SU2    SUBTRACT 1 FROM #GARBA /* UNIX: AVOID NEGATIVE ZONE BITS
+/*SU2  END-IF
+  #GARBA := ABS(#GARBA) /*SU2
+  SATSL-PASSWORD := #PRODPAS
+  SATSL-FUNCTION := SATSL-LOGON
+  SATSL-SATVERS := 21
+END-IF
+IF #TRACING
+  COMPRESS 'Calling SATSL04N, line' *LINE TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+CALLNAT 'SATSL04N' SATSL-SATVERS SATSL-PARMS-04 (*) /*NOMALL-2157 was 03
+IF #TRACING
+  COMPRESS 'Returned from SATSL04N with logon to' SATSL-NODE-N5
+    'with user' SATSL-USER '- SATSL-ERROR-CODE:' SATSL-ERROR-CODE
+    '- SATSL-SECURITY-MESSAGE:' SATSL-SECURITY-MESSAGE /* NOMALL-2157
+    'see line' *LINE TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+IF SATSL-ERROR-CODE NE 0 AND SATSL-NODE-N5 = +NOD-CURRENT-NODE
+AND +NOD-CURRENT-NODE NE +NOD-LOCAL-NODE /*remote node                /*
+  FNDNODE. FIND MF-NODE WITH MF-MONITOR-ID = +NOD-CURRENT-ID
+    MF-TYPE := F#SUSP (<MF-MONITOR-ID,MF-TYPE,
+      SATSL-ERROR-CODE,SATSL-ERROR-TEXT>)
+    UPDATE (FNDNODE.)
+  END-FIND
+END-IF
+IF #TRACING
+  COMPRESS 'After special logon to node ' SATSL-NODE-N5
+    'with user' SATSL-USER
+    'WhoAmI returns ESY-User:' F#WHOAMI(<SATSL-NODE-N5>)
+    'and SATSL-ERROR-CODE is' SATSL-ERROR-CODE TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+*
+* Rem: Error handling in caller routine.
+*
+END

@@ -1,0 +1,600 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+/*
+/*
+/* Program ........ REH-DELX
+/*
+/* Function ....... Deletes one or more NOM archives including the
+/*                  reports from a NOM environment
+/*
+/* Plattform ...... Linux, Unix
+/*
+/***********************************************************************
+/*
+/* Program Description:
+/* ------------------------------
+/* In the way REH-LODX loads archives and reports into a NOM environment,
+/* REH-DELX can delete them.
+/*
+/* Accessed DDMs: NRM-ARCHIVE-DATASET, NRM-ACTIVE-REPORTS,
+/*                NRM-DATASET-REPORT, NRM-MAIL, NRM-FILED-SYSOUTS,
+/*                NRM-REPORT-CONTENS
+/*
+/* Needed Natural modules:
+/*                NAT00083(SYSLIBS), NAT23001(SYSLIBS),
+/*                NAT00081(SYSLIBS)
+/*
+/* Input Parameter (input once, at the start):
+/*                Portable Archive Path, default = $HOME
+/*                Portable Archive Name (assigned to Work File 1)
+/*                Log level:  0 (least output), 1 (medium, output),
+/*                  2 (most output, for every single report)
+/* Input Parameters (for every archive):
+/*                NOM Archive File Name located in $EOM_ARC,
+/*                  default = <archive name from the source system>
+/*                Confirmation flag to load archive and reports,
+/*                  default = N
+/*
+/***********************************************************************
+/* ----------------------------------------------------------------------
+* Maintenance:
+* 2024-08-29 BLI    NOMALL-2694 adapt FHI changes: I4, ET count
+* ----------------------------------------------------------------------
+DEFINE DATA LOCAL
+*
+1 AD1 VIEW OF NRM-ARCHIVE-DATASET
+  2 AD-ARCHIVE-DSNAME        (A44)
+  2 AD-CREATED               (T)
+  2 AD-ORIGINAL-REPORT-COUNT (P7.0)
+  2 AD-ARCHIVE-TYPE          (N1.0)
+*
+1 ADO                        (A240)
+1 REDEFINE ADO
+  2 ADO-RECORD-TYPE          (A1)    /* A for NRM-ARCHIVE-DATASET
+  2 ADO-ARCHIVE-DSNAME       (A44)
+*
+1 AR1 VIEW OF NRM-ACTIVE-REPORTS
+*   2 AR-REPORT-RNB            (A31) /* SP
+*   -------- SOURCE FIELD(S) -------
+*   AR-REPNAME(1-25)
+*   AR-REPRNB(1-6)
+  2 AR-REPNAME               (A25)     /* #REPNAME
+  2 AR-REPRNB                (P11)     /* #REPRNB
+  2 AR-USERID                (A8)      /* #K-USERID
+*
+1 DR1 VIEW OF NRM-DATASET-REPORT
+  2 DR-ARCHIVE-DSNAME        (A44)
+  2 DR-REPNAME               (A25)
+  2 DR-REPRNB                (P11.0)
+  2 DR-STATUS                (A1) /* report status in bun
+  2 DR-EXPIRATION-DATE       (A8)
+*
+1 MA1 VIEW OF NRM-MAIL
+* 2 MA-REP-RNB               (A31) /* SP
+*   -------- SOURCE FIELD(S) -------
+*   MA-REPNAME(1-25)
+*   MA-REPRNB(1-6)
+  2 MA-USERID                (A8)      /* When report is distr
+  2 MA-FO-ID                 (B2)
+  2 MA-REPNAME               (A25)     /* mailed report name
+  2 MA-REPRNB                (P11)     /* mailed report intern
+  2 MA-STATUS                (A1)      /* mail status(not in u
+  2 MA-CURRENT-LOCATION      (A1)
+*
+1 S-REPNAME-RNB-SEQ          (A35)
+1 REDEFINE S-REPNAME-RNB-SEQ
+  2 S-REPNAME                (A25)
+  2 S-REPRNB                 (P11)
+  2 S-SEQ                    (B4)
+1 E-REPNAME-RNB-SEQ          (A35)
+1 REDEFINE E-REPNAME-RNB-SEQ
+  2 E-REPNAME                (A25)
+  2 E-REPRNB                 (P11)
+  2 E-SEQ                    (B4)
+*
+1 FS1 VIEW OF NRM-FILED-SYSOUTS
+  2 F-REPNAME-RNB-SEQ        (A35) /* SP
+*   -------- SOURCE FIELD(S) -------
+*   F-REPNAME(1-25)
+*   F-REPRNB(1-6)
+*   F-SEQ(1-4)
+  2 F-REPNAME                (A25)
+  2 F-REPRNB                 (P11.0)
+  2 F-SEQ                    (B4)
+  2 F-TEXT                   (A251/1:66)
+*
+1 RC1 VIEW OF NRM-REPORT-CONTENTS
+  2 AC-REP-RNB-SEQ           (A35) /* SP
+*   -------- SOURCE FIELD(S) -------
+*   AC-REPNAME(1-25)
+*   AC-REPRNB(1-6)
+*   AC-SEQNO(1-4)
+*   -------- SOURCE FIELD(S) -------
+*   AC-REPNAME(1-25)
+*   AC-REPRNB(1-4)
+*   AC-SEQNO(1-4)
+  2 AC-REPNAME               (A25)
+  2 AC-REPRNB                (P11.0)
+  2 AC-SEQNO                 (B4)
+  2 AC-INSERTED-LINE         (A253/1:10) /* MU-FIELD
+* For returning LFILE 91 and 206
+* CALLNAT 'NAT23001' PARAMETER_BLOCK P_RESP
+*
+1 PARAMETER_BLOCK            (B52)
+1 REDEFINE PARAMETER_BLOCK
+  2 FUNCTION_CODE            (I4)
+  2 ACTIVE_NUMBER            (I4) /* TOTAL NUMBER OF ENTRYS */
+  2 ENTRY                    (I4) /* INDEX OF AN ENTRY IN TABLE */
+  2 SRC_L_FILE               (I4) /* COPY: LOGICAL SOURCE FILENUMBER */
+  2 L_FILE                   (I4) /* LOGICAL FILE NUMBER */
+  2 DBID                     (I4) /* DATABASE ID */
+  2 FNR                      (I4) /* FILE NUMBER */
+  2 PASSWORD                 (A8) /* PASSWORD */
+  2 CIPHER                   (N8) /* CIPHER */
+  2 BLOCKSIZE                (I4) /* MAX. BLOCKSIZE OF DATABASE */
+    /* IF 0 THEN 4K IS ASSUMED */
+  2 DBTYPE                   (I1) /* DATABASE TYPE (SEE 2M/NAMDBTEQ) */
+  2 DBOPTIONS                (B1) /* OPTIONS (SEE 2M/NAMDBT) */
+  2 FREE                     (A2) /* FREE SPACE */
+*
+1 P_RESP                     (I4) /* RESPONSE CODE */
+1 #NOM-AD                    (A10)
+*
+LOCAL
+1 #ARCHIVE-DSNAME            (A44)
+1 REDEFINE #ARCHIVE-DSNAME
+  2 #ARCHIVE-DSNAME-1ST      (A1)
+1 #PORTABLE-DSNAME           (A44)
+1 #RECORD-LENGTH             (I4)
+1 #TEXT-RECORD               (A2275)
+1 REDEFINE #TEXT-RECORD
+  2 #T-RECORD-TYPE           (A1)
+  2 #T-TEXT                  (A256)
+1 #WF-1                      (A78)
+1 #LOG                       (N1)
+1 #ET                        (I2)   /* BLI
+1 #CNT                       (I4)   /*BLI was I2
+* 1 #ARCS                      (I2) /* BLI
+1 #CNT-TOTAL                 (I4)
+*
+1 NAD00081
+  2 INPUTS
+    3 ENV-VARIABLE           (A80)
+  2 OUTPUTS
+    3 CHAR-STRING            (A253)
+    3 RESPONSE               (I04)
+1 #ARCS-TOTAL                (I2)
+* Get archives from a Linux directory
+1 #OS-CMD                    (A) DYNAMIC
+1 #PATH-FILE                 (A) DYNAMIC
+1 #PATH-FILE-22              (A) DYNAMIC
+1 #PATH                      (A) DYNAMIC
+1 #FILE                      (A) DYNAMIC
+1 #ENTRIES-LINE              (A253)
+1 #RC                        (I4)
+1 #OUT-STRING                (A79)
+*
+1 #PORTABLE-DSNAME-A         (A44/1:*)
+1 #XDIM                      (I2)
+/* NAT00083
+LOCAL
+1 FIELD                      (A253)
+1 MASK                       (A253)
+1 WILDCARD                   (A1)
+1 ASTERISK                   (A1)
+1 LENGTH                     (I2)
+1 MATCHED                    (A1)
+/*
+1 #DELETE                    (A1)
+1 #ARC-FOUND                 (L)
+1 #AR-REPORT-RNB             (A31)
+1 REDEFINE #AR-REPORT-RNB
+  2 #AR-REPNAME              (A25)
+  2 #AR-REPRNB               (P11)
+* NOM Check for Admin rights, enter a Log
+LOCAL USING NOMFNC-E            /* NOM API's
+LOCAL USING NOMUS--P
+LOCAL USING NOMUS--E
+LOCAL USING RLOG-L
+LOCAL
+01 #ACCESS-CODE          (A8)
+END-DEFINE
+*
+*
+*
+*
+*
+***********************************************************************
+DEFINE SUBROUTINE ADD-ARC-TO-ARRAY
+***********************************************************************
+ADD 1 TO #XDIM
+EXPAND ARRAY #PORTABLE-DSNAME-A TO (1:#XDIM)
+#PORTABLE-DSNAME-A(#XDIM) := #PORTABLE-DSNAME
+END-SUBROUTINE
+*
+*
+*
+***********************************************************************
+DEFINE SUBROUTINE BACKOUT
+***********************************************************************
+NOMUS-FUNCTION := NOMUS-FCT-BACKOUT
+CALLNAT NOM-USER-MAINTENANCE
+  NOMUS-NOMVERS NOMUS-PARMS (*)
+*
+IF NOMUS-ERROR-CODE NE 0
+  PRINT '=' NOMUS-ERROR-CODE
+  PRINT '=' NOMUS-ERROR-TEXT
+END-IF
+END-SUBROUTINE
+*
+*
+*
+*
+*
+IF *MACHINE-CLASS = 'MAINFRAME'
+  COMPRESS 'Machine-Class' *MACHINE-CLASS 'not supported.'
+    INTO #OUT-STRING
+  WRITE #OUT-STRING
+  ESCAPE ROUTINE
+END-IF
+*
+*
+INPUT (AD=MIT'_' IP=OFF) 'Enter access code ..' #ACCESS-CODE
+IF #ACCESS-CODE NE *PROGRAM
+  WRITE 'Wrong access code. Stopping..'
+  ESCAPE ROUTINE
+END-IF
+*
+*
+NOMUS-NOMVERS  := NOM-CURRENT-VERSION
+NOMUS-USER     := *USER
+NOMUS-LANGUAGE := *LANGUAGE
+NOMUS-LOG-TYP  := 'U'
+NOMUS-USER-ID  := *USER
+RESET NOMUS-ERROR-CODE
+  NOMUS-ERROR-TEXT
+* read record from users file
+RESET NOMUS-ATTR(*)
+NOMUS-FUNCTION := NOMUS-FCT-READ
+CALLNAT NOM-USER-MAINTENANCE
+  NOMUS-NOMVERS NOMUS-PARMS (*)
+IF NOMUS-ERROR-CODE NE 0
+  PRINT '=' NOMUS-ERROR-CODE
+  PRINT '=' NOMUS-ERROR-TEXT
+  ESCAPE ROUTINE
+END-IF
+PERFORM BACKOUT
+IF NOMUS-PROF-TYPE NE 'A'
+  WRITE 'User' NOMUS-USER-ID 'is not an administrator. The type is'
+    NOMUS-PROF-TYPE
+    / 'Stopping ...'
+  ESCAPE ROUTINE
+END-IF
+*
+* Enter entry in Monitor log
+*
+PL-PARMS.LG-USERID := *USER
+PL-PARMS.LG-CODE   :=  'MO'
+COMPRESS 'Program' *PROGRAM 'started' INTO PL-PARMS.LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+*
+*
+*
+*
+*
+*
+*
+#PORTABLE-DSNAME := '*.P'
+#PATH := '$HOME'
+#LOG := 1
+#DELETE := 'N'
+*
+INPUT (AD=MIW'_' IP=OFF CD=NE)
+  /// 'Delete Archive/Report(s) imported from a portable archive'
+  / '-' (57) (YEI) /
+  / 'Portable Dataset Path .......' (TU) #PATH (AL=44)
+  / 'Portable Dataset Name .......' (TU) #PORTABLE-DSNAME
+  / 'Log output ..................' (TU) #LOG '(0-2)'
+  /// 'Press enter to continue.     ' (TU)
+*
+IF *PF-KEY = 'PF3' OR #PATH = MASK('.')
+  ESCAPE BOTTOM
+END-IF
+*
+IF #LOG GT 0
+  WRITE 'Portable Dataset Path:' #PATH (AL=44)
+END-IF
+*
+IF #PORTABLE-DSNAME = SCAN('*') OR = SCAN('?')
+  #FILE := 'lsout.txt'
+  COMPRESS #PATH '/' #FILE INTO #PATH-FILE LEAVING NO
+  COMPRESS H'22' #PATH '/' #FILE H'22' INTO #PATH-FILE-22 LEAVING NO
+  COMPRESS 'ls' #PATH '>' #PATH-FILE-22 INTO #OS-CMD
+  CALL 'SHCMD' #OS-CMD 'SCREENIO'
+  #RC := RET('SHCMD')
+  IF #RC = 0 THEN
+    DEFINE WORK FILE 8 #PATH-FILE
+    MASK := #PORTABLE-DSNAME
+    READ WORK FILE 8 #ENTRIES-LINE
+      /* WILDCARD default is '?', ASTERISK default is '*'
+      /* MATCHED return value 'Y' or 'N'
+      FIELD := #ENTRIES-LINE
+      RESET LENGTH
+      CALLNAT 'NAT00083' FIELD MASK WILDCARD ASTERISK LENGTH MATCHED
+      IF MATCHED = 'Y'
+        #PORTABLE-DSNAME := #ENTRIES-LINE
+        PERFORM ADD-ARC-TO-ARRAY
+      END-IF
+    END-WORK
+  ELSE
+    IF #LOG GT 1
+      WRITE '''ls > lsout.txt'' error, RC=' #RC
+    END-IF
+  END-IF
+*
+  COMPRESS 'rm' #PATH-FILE INTO #OS-CMD
+  CALL 'SHCMD' #OS-CMD 'SCREENIO'
+  #RC := RET('SHCMD')
+  IF #RC = 0 THEN
+    IGNORE
+  ELSE
+    IF #LOG GT 1
+      WRITE '''rm lsout.txt'' error, RC=' #RC
+    END-IF
+  END-IF
+*
+ELSE
+  PERFORM ADD-ARC-TO-ARRAY
+END-IF
+*
+IF #LOG GT 0
+  WRITE 'Portable files found'
+    / '--------------------'
+  FOR #XDIM = 1 TO *OCC(#PORTABLE-DSNAME-A)
+    WRITE #XDIM #PORTABLE-DSNAME-A(#XDIM) (AL=50)
+  END-FOR
+END-IF
+*
+*
+*
+*
+FOR #XDIM = 1 TO *OCC(#PORTABLE-DSNAME-A)
+*
+  COMPRESS #PATH '/' #PORTABLE-DSNAME-A(#XDIM) INTO #WF-1 LEAVING NO
+  DEFINE WORK FILE 1 #WF-1 TYPE 'ASCII'
+*
+  READ WORK FILE 1 #TEXT-RECORD GIVING LENGTH #RECORD-LENGTH
+    DECIDE ON FIRST VALUE OF #T-RECORD-TYPE
+      VALUE 'A'     /* NRM-ARCHIVE-DATASET
+        ADO := #TEXT-RECORD
+        #ARCHIVE-DSNAME := ADO-ARCHIVE-DSNAME
+        IF #ARCHIVE-DSNAME-1ST = '$'
+          RESET #ARCHIVE-DSNAME-1ST
+          MOVE LEFT #ARCHIVE-DSNAME TO #ARCHIVE-DSNAME
+        END-IF
+        ESCAPE BOTTOM
+      NONE IGNORE
+    END-DECIDE
+  END-WORK
+  CLOSE WORK 1
+*
+*
+  FUNCTION_CODE := 5
+  L_FILE := 91
+  CALLNAT 'NAT23001' PARAMETER_BLOCK P_RESP
+  COMPRESS '(' DBID ',' FNR ')' INTO #NOM-AD LEAVING NO
+*
+  ENV-VARIABLE := 'EOM_ARC'
+  CALLNAT 'NAT00081'  NAD00081
+*
+  INPUT (AD=MIW'_' IP=OFF CD=NE)
+    /// 'Delete Archive/Reports from $EOM_ARC (Work File 2) and '-
+    'LFILE 91:' (YEI)
+    / '-' (64) (YEI) /
+    / 'NOM Active Data (LFILE 91) ..' (TU) #NOM-AD (AD=ODL CD=TU)
+    / 'Portable File Name ..........' (TU) #PORTABLE-DSNAME-A(#XDIM)
+    (AD=ODL AL=40 CD=TU)
+    / '$EOM_ARC ....................' (TU) CHAR-STRING
+    (AD=ODL AL=40 CD=TU)
+    / 'Archive File Name ...........' (TU) #ARCHIVE-DSNAME
+    / 'Delete Archive and Reports ..' (TU) #DELETE '(Y/N)'
+*
+  IF *PF-KEY = 'PF3' OR #ARCHIVE-DSNAME = MASK('.')
+    ESCAPE BOTTOM
+  END-IF
+*
+  /* Add entry to user log
+  PL-PARMS.LG-USERID      := *USER
+  PL-PARMS.LG-CODE        := 'UI'   /* User information
+  PL-PARMS.LG-OBJECT-NAME := *PROGRAM
+  IF #DELETE = 'Y'
+    COMPRESS #ARCHIVE-DSNAME 'deleting.'
+      INTO PL-PARMS.LG-MSG
+  ELSE
+    COMPRESS #ARCHIVE-DSNAME 'processing.'
+      INTO PL-PARMS.LG-MSG
+  END-IF
+  CALLNAT 'RLOG' PL-PARMS
+  END TRANSACTION
+*
+  RESET #CNT /* #ARCS BLI
+*
+  IF #LOG GT 1
+    WRITE #ARCHIVE-DSNAME
+      / '  Processing NRM-ARCHIVE-DATASET and archive file'
+  END-IF
+  RESET #ARC-FOUND
+  L-AD1.
+  FIND AD1 WITH AD-ARCHIVE-DSNAME = #ARCHIVE-DSNAME
+    IF NO
+      IF #LOG GT 0
+        WRITE '  Not found:' #ARCHIVE-DSNAME
+      END-IF
+      ESCAPE BOTTOM
+    END-NOREC
+    #ARC-FOUND := TRUE
+    IF #LOG GT 1
+      WRITE AD-ARCHIVE-DSNAME (AL=20) AD-CREATED
+        AD-ORIGINAL-REPORT-COUNT AD-ARCHIVE-TYPE
+    END-IF
+    IF #DELETE = 'Y'
+      ADD 1 TO #ARCS-TOTAL
+      /*
+      DELETE(L-AD1.)
+      ADD 1 TO #ET      /* BLI >>
+      IF #ET > 500
+        END TRANSACTION
+        RESET #ET
+      END-IF            /* << BLI
+      /*
+      COMPRESS '$EOM_ARC/' AD-ARCHIVE-DSNAME INTO #PATH-FILE LEAVING NO
+      COMPRESS 'rm' #PATH-FILE INTO #OS-CMD
+      CALL 'SHCMD' #OS-CMD 'SCREENIO'
+      #RC := RET('SHCMD')
+      IF #RC = 0 THEN
+        IGNORE
+      ELSE
+        IF #LOG GT 0
+          WRITE '''rm archive'' error, RC=' #RC
+        END-IF
+      END-IF
+    END-IF
+  END-FIND
+  END TRANSACTION
+  RESET #ET  /* BLI
+*
+*
+*
+*
+  IF #LOG GT 1
+    WRITE '  Processing NRM-DATASET-REPORT'
+  END-IF
+  L-DR1.
+  READ DR1 BY DR-ARCHIVE-DSNAME FROM #ARCHIVE-DSNAME TO #ARCHIVE-DSNAME
+    IF #LOG GT 1
+      WRITE DR-ARCHIVE-DSNAME (AL=20) DR-REPNAME DR-REPRNB
+        DR-STATUS DR-EXPIRATION-DATE
+    END-IF
+*
+    #AR-REPNAME := DR-REPNAME
+    #AR-REPRNB := DR-REPRNB
+    IF #LOG GT 1
+      WRITE '    Processing NRM-ACTIVE-REPORTS'
+    END-IF
+    L-AR1.
+    READ AR1 BY AR-REPORT-RNB FROM #AR-REPORT-RNB TO #AR-REPORT-RNB
+      IF #LOG GT 1
+        WRITE AR1.AR-REPNAME AR1.AR-REPRNB AR-USERID
+      END-IF
+      IF #DELETE = 'Y'
+        ADD 1 TO #CNT
+        DELETE(L-AR1.)
+        ADD 1 TO #ET      /* BLI >>
+        IF #ET > 500
+          END TRANSACTION
+          RESET #ET
+        END-IF            /* << BLI
+      END-IF
+    END-READ
+*   END TRANSACTION
+*
+    IF #LOG GT 1
+      WRITE '    Processing NRM-MAIL'
+    END-IF
+    L-MA1.
+    READ MA1 BY MA-REP-RNB FROM #AR-REPORT-RNB TO #AR-REPORT-RNB
+      IF #LOG GT 1
+        WRITE MA-REPNAME MA-REPRNB MA-USERID MA-FO-ID
+          MA-STATUS MA-CURRENT-LOCATION
+      END-IF
+      IF #DELETE = 'Y' DELETE(L-MA1.) END-IF
+      ADD 1 TO #ET      /* BLI >>
+      IF #ET > 500
+        END TRANSACTION
+        RESET #ET
+      END-IF            /* << BLI
+    END-READ
+*   END TRANSACTION
+*
+    S-REPNAME := DR-REPNAME
+    S-REPRNB := DR-REPRNB
+    S-SEQ := H'00000000'
+    E-REPNAME-RNB-SEQ := S-REPNAME-RNB-SEQ
+    E-SEQ := H'FFFFFFFF'
+    IF #LOG GT 1
+      WRITE '    Processing NRM-REPORT-CONTENS'
+    END-IF
+    L-RC1.
+    READ RC1 BY AC-REP-RNB-SEQ FROM S-REPNAME-RNB-SEQ
+        THRU E-REPNAME-RNB-SEQ
+      IF #LOG GT 1
+        WRITE AC-REPNAME AC-REPRNB AC-SEQNO AC-INSERTED-LINE(1) (AL=35)
+      END-IF
+      IF #DELETE = 'Y' DELETE(L-RC1.) END-IF
+      ADD 1 TO #ET      /* BLI >>
+      IF #ET > 500
+        END TRANSACTION
+        RESET #ET
+      END-IF            /* << BLI
+    END-READ
+*   END TRANSACTION
+*
+    IF #LOG GT 1
+      WRITE '    Processing NRM-FILED-SYSOUTS'
+    END-IF
+    L-FS1.
+    READ FS1 BY FS1.F-REPNAME-RNB-SEQ FROM S-REPNAME-RNB-SEQ
+        THRU E-REPNAME-RNB-SEQ
+      IF #LOG GT 1
+        WRITE F-REPNAME F-REPRNB F-SEQ F-TEXT(1) (AL=35)
+      END-IF
+      IF #DELETE = 'Y' DELETE(L-FS1.) END-IF
+      ADD 1 TO #ET      /* BLI >>
+      IF #ET > 500
+        END TRANSACTION
+        RESET #ET
+      END-IF            /* << BLI
+    END-READ
+*   END TRANSACTION
+*
+    IF #DELETE = 'Y' DELETE(L-DR1.) END-IF
+    ADD 1 TO #ET      /* BLI >>
+    IF #ET > 500
+      END TRANSACTION
+      RESET #ET
+    END-IF            /* << BLI
+  END-READ
+  END TRANSACTION
+  RESET #ET   /* BLI
+*
+  IF #LOG GT 0 AND #ARC-FOUND
+    IF #DELETE = 'Y'
+      COMPRESS 'Archive' #ARCHIVE-DSNAME 'with' #CNT 'reports deleted'
+        INTO #OUT-STRING
+    ELSE
+      COMPRESS 'Archive' #ARCHIVE-DSNAME
+        'not deleted, no reports deleted.' INTO #OUT-STRING
+    END-IF
+    WRITE #OUT-STRING
+  END-IF
+
+*
+  ADD #CNT TO #CNT-TOTAL
+*
+END-FOR
+*
+WRITE '-' (7) / 'Summary' / '-' (7)
+COMPRESS #ARCS-TOTAL 'archive(s) with total' #CNT-TOTAL
+  'reports deleted.' INTO #OUT-STRING
+WRITE #OUT-STRING
+  / '-' (15)
+  / 'End processing.'
+  / '-' (15)
+*
+REDUCE ARRAY #PORTABLE-DSNAME-A TO 0
+*
+END

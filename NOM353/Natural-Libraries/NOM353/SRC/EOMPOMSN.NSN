@@ -1,0 +1,135 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    EOMPOMSN
+* Version   3.1
+* Function  DB Interface EOM Object Printout  (Special attributes)
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* xsetggr 2007-05-30 p(294790) created
+* xsetggr 2007-06-27 NOM3201   support 5 byte node numbers and 11 byte
+*                              run numbers - restow due changes eompom-p
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2010-11-15 NOMALL-865 restow due to changes in EOMPHTYE
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2016-01-19 NOMALL-1802 do not update Adabas Vista fields
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 EOM-FUNCTION                       (I2)
+PARAMETER  USING  EOMPOM-P
+PARAMETER  USING  EOMMSG-P
+* -----------------------------LDAs-------------------------------------
+LOCAL  USING  EOM----E
+LOCAL  USING  EOMPHTYE
+* -----------------------------Views------------------------------------
+LOCAL
+1 PRINTER   VIEW  OF  NRM-PRINTERS
+  2 P-NAME
+1 PRINTOUT  VIEW  OF  NRM-PRINTOUTS
+  2 PO-ID
+  2 PO-LOGICAL
+  2 PO-ATTRIBUTES (25)
+  2 C*PO-ATTRIBUTES
+/*SU2 2 PO-OBJECT-TYPE /*SU1
+/*SU2 2 PO-OBJECT-TIME /*SU1
+1 PHYSICAL-PRINTER VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-VTAMID
+  2 PH-PRINTER-TYPE
+1 #I                                 (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-READ, EOM-READ-NEXT
+    PERFORM READ-SPECIAL-ATTRIBUTES
+  VALUE EOM-READHOLD, EOM-READHOLD-NEXT
+    PERFORM READ-SPECIAL-ATTRIBUTES
+  VALUE EOM-MODIFY
+    PERFORM MODIFY-SPECIAL-ATTRIBUTES
+  NONE  IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SPECIAL-ATTRIBUTES
+************************************************************************
+RESET EOMPOM-ATTR-SPECIAL
+FNDPO. FIND PRINTOUT WITH PO-ID = EOMPOM-I-ID
+*
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0108
+    ESCAPE BOTTOM (FNDPO.)
+  END-NOREC
+*
+  EOMPOM-LOGICAL-PRINTER := PO-LOGICAL
+  PERFORM ASSIGN-EOMPOM-LOGICAL-DESC
+*
+  EOMPOM-ATTRIBUTES-OCC := C*PO-ATTRIBUTES
+  EOMPOM-ATTRIBUTES (*) := PO-ATTRIBUTES(*)
+*
+  IF EOM-FUNCTION = EOM-READHOLD OR = EOM-READHOLD-NEXT
+    UPD. GET PRINTOUT *ISN (FNDPO.)
+    IF PO-ID NE PO-ID
+      UPDATE (UPD.)
+    END-IF
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* READ-SPECIAL-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-SPECIAL-ATTRIBUTES
+************************************************************************
+FNDMOD. FIND PRINTOUT WITH PO-ID = EOMPOM-I-ID
+*
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0108
+    ESCAPE BOTTOM (FNDMOD.)
+  END-NOREC
+*
+  PERFORM TRANSLATE-ATTRIBUTES-TO-UPPER
+  PO-ATTRIBUTES(*) := EOMPOM-ATTRIBUTES(*)
+/*SU2  PO-OBJECT-TYPE   := 'PO' /*SU1
+/*SU2  PO-OBJECT-TIME   := *TIMX /*SU1
+*
+  UPDATE (FNDMOD.)
+*
+END-FIND
+*
+END-SUBROUTINE /* MODIFY-SPECIAL-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-EOMPOM-LOGICAL-DESC
+************************************************************************
+FIND (1) PRINTER WITH P-ID = EOMPOM-LOGICAL
+  EOMPOM-PRINTER-DESCRIPTION := P-NAME
+END-FIND
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE TRANSLATE-ATTRIBUTES-TO-UPPER
+************************************************************************
+FIND (1) PHYSICAL-PRINTER WITH PH-VTAMID = EOMPOM-PHYSICAL-NAME
+  EXAMINE ##PHYS-TYPES (*) FOR PH-PRINTER-TYPE GIVING INDEX #I
+  IF NOT ##PHYS-TYPE-LOWER (#I)
+    EXAMINE EOMPOM-ATTRIBUTES (*) TRANSLATE INTO UPPER
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* TRANSLATE-ATTRIBUTES-TO-UPPER
+* --------------------------------------- on error ---------------------
+INCLUDE C-EOMERR
+*
+END

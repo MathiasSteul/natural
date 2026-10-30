@@ -1,0 +1,389 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPRWKF - Print Object with WRITE WORK FILE
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  93-03-30 s(999999) created
+* mrs 93-11-01 s(999999) flush segments implemented
+* mrs 93-11-24 s(999999) replace write work variable index with decide
+* mrs 94-01-07 s(999999) remove decide block and reactivate wwvi
+*                        (with NAT226 Zap NA26168 wwvi works fin)
+* mrs 94-02-18 s(999999) index not within array
+* gw  94-03-04 s(999999) first line is lost when record is inserted
+* gw  94-05-06 s(999999) asa-to-ebcdic
+* mrs 95-06-09 s(226652) first line is lost when record is inserted
+* sju 95-10-09 s(228453) new return code (98) to stop printing
+* gw  96-08-08 s(999999) BS2000 cc
+* gw  98-08-03 p(172630) every 100th line blanked out on asa -> ebcdic
+* sju 99-06-28 p(183721) new printer exit return code 97 (means don't
+*                        call again until next report separator)
+* sju 99-07-02 p(183948) first column lost if report has no cc but
+*                        printer does
+* fhi 00-08-24 QA03      Use NAT23006 for error values
+* sju 01-01-04 p(204718) p(183948) has undesirable side-effects for BS2
+* sju 02-10-09 nom221    XML printers
+* fhi 2003-07-29 P(227985) Clear unused modules
+* xsetggr 04-03-10 p(250355) correct record length for work files
+* sju     2004-04-22 p(250355) correct handling of recfm/lrecl
+* NOTE: for performance reasons (WRITE WORK much faster than VARIABLE)
+*       RECFM=F is always written with LRECL 251
+* HH      2004-08-10 HH UMSTELLUNG VON HEX-CODE H'40'
+* xsetggr 2004-11-23 p(258871) recat due to changes in rmfl---p
+* sju     2004-12-14 TYPE=AL   NOM31 support TYPE=AL
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2007-07-17 NRT2422   print binary documents
+* xsetggr 2007-09-04 NRT2184   Support P11 format run numbers
+* xsetggr 2007-11-05 NRT2768   Show size of binary documnets in bytes
+* fhi     2008-03-04 P302167   binary documents not printed
+* xsetggr 2008-06-10 p(292935) fill po-printed only after sucessful end
+*                               of printing
+* fhi     2008-06-20 P306371   Redefintion misused, WKF-NUMBER destroyed
+* fhi     2009-03-18 p315479   perform close processing under unix
+* xsetggr 2010-03-31 P307403   delete test print
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-12-20 NOMALL-97 Save File Handle for NPR Unix
+* xsetggr 2010-12-21 NOMALL-865 restow due to changes in RMFL---P
+* fhi     2011-04-26 NOMALL-966 Do not suppress last line with Pr-Exit
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* fhi     2012-11-14 NOMALL-1143 Add occurrence for Base64
+* fhi     2014-02-24 NOMALL-1357 Correct length of line
+* fhi     2014-04-03 NOMALL-1357 same
+* fhi     2014-04-05 NOMALL-1357 same
+* fhi     2014-04-06 NOMALL-1357 same
+* fhi     2014-08-29 NOMALL-1454 Restowed due to changes in XXUX---P
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* fhi     2015-05-18 NOMALL-1552 Show real size, not base64 size
+* SU2     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* SU3     2016-03-08 NOMALL-1847 PDA RMPRAPIP -> PDA P-PEXIT
+* SU4     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* SU5     2017-09-26 NOMALL-1823 NOM 3.5: remove CONNECT
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU6     2024-07-25 NOM 353     Recataloged due to changes of RMPR-C
+************************************************************************
+DEFINE DATA
+PARAMETER USING RMFL---P
+PARAMETER
+1 LINE-PARMS
+  2 LINE-CURRENT              (P3)
+  2 LINE-TAB                  (1:100)
+    3 LINE                    (A251)
+    3 REDEFINE LINE
+      4 LINE-L                (A1/1:251)
+    3 LINE-NUMBER             (P10)
+PARAMETER USING XXUX---P
+PARAMETER
+1 P-ERROR-CODE                (N4)
+1 P-ERROR-TEXT                (A250)
+************************************************************************
+INDEPENDENT
+1 +WKF-NUMBER                 (N2)
+************************************************************************
+LOCAL USING P-PEXIT
+LOCAL USING RCCTYP-E
+LOCAL USING RMASAMCP
+LOCAL USING RMMCASAP
+LOCAL USING RMBAS64P   /* parameter for BASE64 conversion
+LOCAL USING RMASAEBP
+LOCAL USING EOMPHTYE
+LOCAL USING RMASAC-E
+LOCAL
+1 ORDER-STATUS VIEW OF NRM-PRINTOUTS
+  2 PO-STATUS
+  2 PO-LAST-PRINTED-RECNO
+*
+1 L                           (P3)
+1 I                           (P3)
+1 #STATUS                     (A1)
+1 #UPD-COUNTER                (N8)  INIT <10>
+1 #SAVE-LINE                  (A251)
+1 LAST-BUFFER                 (L)
+1 #TEMP-LINE                  (A252)
+1 REDEFINE #TEMP-LINE
+  2 #TEMP-LINE-COL1           (A1)
+  2 #TEMP-LINE-REST           (A251)
+1 #SCAN-PREFIX                (A6)   CONST <'//EOM/'>
+1 #SCAN-LIB                   (A8)
+1 #SCAN-STRING                (A21)
+**********************************
+1 #FLUSH-LINE                 (A251)
+1 REDEFINE #FLUSH-LINE
+  2 #FLUSH-CC                 (A1)
+  2 #FLUSH-TEXT               (A250)
+1 #IND                        (I4)
+1 #BYTES                      (P11)
+1 #LINE                       (A)   DYNAMIC /* NOMALL-1357 in
+1 #BIN-ALLOWED                (L) CONST <TRUE>
+1 #BS2-ALLOWED                (L) CONST <TRUE>
+1 #TRACING                    (L) CONST <FALSE>
+1 #TRACE-MSG                  (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+ADD 1 TO FLUSH-BUFFERS
+ADD 1 TO FLUSH-COUNTER
+CALLNAT 'RGETLIB' #SCAN-LIB
+COMPRESS #SCAN-LIB 'U' TO #SCAN-LIB LEAVING NO
+IF FLUSH-SEGMENT = 'L' OR = 'A' AND FLUSH-SEG-BRACKET = 'L' OR = 'A'
+  LAST-BUFFER := TRUE
+END-IF
+*
+FOR I = 1 TO LINE-CURRENT
+  IF LAST-BUFFER AND I = LINE-CURRENT
+    FLUSH-BRACKET := 'L'
+  END-IF
+  PERFORM CALL-PRINTER-EXIT
+  IF P-ERROR-CODE NE 0
+    ESCAPE BOTTOM
+  END-IF
+  FLUSH-BRACKET := 'M'
+END-FOR
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-STATUS
+************************************************************************
+IF FLUSH-POID = 0
+  ESCAPE ROUTINE
+END-IF
+*
+FNDOS. FIND ORDER-STATUS WITH PO-ID = FLUSH-POID
+  PO-STATUS         := #STATUS
+  IF FLUSH-CC-TYPE = BINARY
+    PO-LAST-PRINTED-RECNO := FLUSH-LINES / 1024 + 1
+  ELSE
+    PO-LAST-PRINTED-RECNO := FLUSH-LINES
+  END-IF
+  UPDATE (FNDOS.)
+  END OF TRANSACTION
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-IT
+************************************************************************
+*** Handle carriage control for TYPE=AL. (TYPE=AL reports may contain
+*** a micture of ASA, Machine, and no carriage control).
+*** 1. If first character is a valid ASA carriage control, do nothing
+*** 2. If first character is printable (but not X'89' or X'8B' which
+***    are machine skip to channel 1), assume the record has no
+***    carriage control - shift the record right 1 position and put a
+***    space in column 1.
+*** 3. Otherwise, first character must be machine carriage control so
+***    translate it to ASA.
+*
+IF FLUSH-TYPE-AL = 'Y'
+  #FLUSH-LINE  := LINE(I)
+  EXAMINE FULL RMASAC-ASA-CODES(*) FOR #FLUSH-CC
+    GIVING INDEX #IND
+  IF #IND = 0                            /* not ASA
+    IF #FLUSH-CC = MASK(P) AND #FLUSH-CC NE H'89' AND #FLUSH-CC NE H'8B'
+      RESET #FLUSH-CC
+      #FLUSH-TEXT:= LINE(I)
+      LINE(I):= #FLUSH-LINE
+      RESET FLUSH-SAVE-CC
+    ELSE
+      RMMCASA-PARMS.P-RECORD := LINE (I)
+      RMMCASA-PARMS.P-PREV-CC := FLUSH-SAVE-CC
+      CALLNAT 'RMMCASAN' RMMCASA-PARMS
+      FLUSH-SAVE-CC := RMMCASA-PARMS.P-PREV-CC
+      IF RMMCASA-PARMS.P-PRINT-NUMBER > 0
+        LINE (I) := RMMCASA-PARMS.P-RECORD
+      ELSE
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+  ELSE
+    RESET FLUSH-SAVE-CC
+  END-IF
+END-IF
+IF FLUSH-CC-TYPE = BINARY
+  PERFORM BASE64-TO-BIN
+  IF P-ERROR-CODE NE 0
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+IF FLUSH-CC-TYPE NE WKF-CC-TYPE
+  DECIDE FOR FIRST CONDITION
+    WHEN FLUSH-CC-TYPE = ASA-CODE AND WKF-CC-TYPE = BS2000-CC
+      PERFORM ASA-TO-EBCDIC
+    WHEN FLUSH-CC-TYPE = ASA-CODE AND WKF-CC-TYPE = MACHINE-CODE
+      PERFORM ASA-TO-MACHINE
+    WHEN FLUSH-CC-TYPE = ASA-CODE AND WKF-CC-TYPE = NO-CC
+      MOVE ' ' TO SUBSTR(LINE(I),1,1) /* NOMALL-1357: RESET LINE-L (I,1)
+      PERFORM PRINT-LINE
+    WHEN FLUSH-CC-TYPE = MACHINE-CODE AND WKF-CC-TYPE = ASA-CODE
+      PERFORM MACHINE-TO-ASA
+    WHEN FLUSH-CC-TYPE = MACHINE-CODE AND WKF-CC-TYPE = NO-CC
+      MOVE ' ' TO SUBSTR(LINE(I),1,1) /* NOMALL-1357: RESET LINE-L (I,1)
+      PERFORM PRINT-LINE
+    WHEN FLUSH-CC-TYPE = BS2000-CC AND WKF-CC-TYPE = NO-CC
+      MOVE ' ' TO SUBSTR(LINE(I),1,1) /* NOMALL-1357: RESET LINE-L (I,1)
+      PERFORM PRINT-LINE
+    WHEN FLUSH-CC-TYPE = NO-CC AND WKF-CC-TYPE NE BS2000-CC
+      #TEMP-LINE-REST:= LINE(I)
+      DECIDE FOR FIRST CONDITION
+        WHEN WKF-CC-TYPE = MACHINE-CODE
+          #TEMP-LINE-COL1:= H'09'
+        WHEN WKF-CC-TYPE = BS2000-CC
+          #TEMP-LINE-COL1:= H'01'
+        WHEN NONE
+          #TEMP-LINE-COL1:=  ' '
+      END-DECIDE
+      LINE(I):= #TEMP-LINE
+      PERFORM PRINT-LINE
+    WHEN NONE
+      PERFORM PRINT-LINE
+  END-DECIDE
+ELSE
+  COMPRESS #SCAN-PREFIX #SCAN-LIB '/' TO #SCAN-STRING LEAVING NO
+  PERFORM PRINT-LINE
+END-IF
+*
+END-SUBROUTINE /* PRINT-IT
+*
+************************************************************************
+DEFINE SUBROUTINE ASA-TO-EBCDIC
+************************************************************************
+RMASAEB-PARMS.P-RECORD := LINE (I)
+*
+DECIDE FOR FIRST CONDITION
+  WHEN I = 1 AND FLUSH-SEG-BRACKET = 'F' OR = 'A'
+    RMASAEB-PARMS.P-BRACKET := 'F'
+  WHEN I = LINE-CURRENT AND FLUSH-SEG-BRACKET = 'L' OR = 'A'
+    RMASAEB-PARMS.P-BRACKET := 'L'
+  WHEN NONE
+    RMASAEB-PARMS.P-BRACKET := 'M'
+END-DECIDE
+RMASAEB-PARMS.P-PREV-RECORD := WKF-CC-SAVE-LINE
+CALLNAT 'RMASAEBN' RMASAEB-PARMS
+*
+FOR L = 1 TO RMASAEB-PARMS.P-PRINT-NUMBER
+  LINE (I) := RMASAEB-PARMS.P-PRINT-RECORD (L)
+  PERFORM PRINT-LINE
+END-FOR
+*
+WKF-CC-SAVE-LINE := RMASAEB-PARMS.P-PREV-RECORD
+*
+END-SUBROUTINE /* ASA-TO-EBCDIC
+*
+************************************************************************
+DEFINE SUBROUTINE ASA-TO-MACHINE
+************************************************************************
+RMASAMC-PARMS.P-RECORD := LINE (I)
+DECIDE FOR FIRST CONDITION
+  WHEN I = 1 AND FLUSH-SEG-BRACKET = 'F' OR = 'A'
+    RMASAMC-PARMS.P-BRACKET := 'F'
+  WHEN I = LINE-CURRENT AND FLUSH-SEG-BRACKET = 'L' OR = 'A'
+    RMASAMC-PARMS.P-BRACKET := 'L'
+  WHEN NONE
+    RMASAMC-PARMS.P-BRACKET := 'M'
+END-DECIDE
+RMASAMC-PARMS.P-PREV-RECORD := WKF-CC-SAVE-LINE
+*
+CALLNAT 'RMASAMCN' RMASAMC-PARMS
+*
+FOR L = 1 TO RMASAMC-PARMS.P-PRINT-NUMBER
+  LINE (I) := RMASAMC-PARMS.P-PRINT-RECORD (L)
+  PERFORM PRINT-LINE
+END-FOR
+*
+WKF-CC-SAVE-LINE := RMASAMC-PARMS.P-PREV-RECORD
+*
+END-SUBROUTINE /* ASA-TO-MACHINE
+*
+************************************************************************
+DEFINE SUBROUTINE MACHINE-TO-ASA
+************************************************************************
+RMMCASA-PARMS.P-RECORD := LINE (I)
+RMMCASA-PARMS.P-PREV-CC := WKF-CC-SAVE
+*
+CALLNAT 'RMMCASAN' RMMCASA-PARMS
+*
+WKF-CC-SAVE := RMMCASA-PARMS.P-PREV-CC
+*
+IF RMMCASA-PARMS.P-PRINT-NUMBER > 0
+  LINE (I) := RMMCASA-PARMS.P-RECORD
+  PERFORM PRINT-LINE
+END-IF
+*
+END-SUBROUTINE /* MACHINE-TO-ASA
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-LINE
+************************************************************************
+IF FLUSH-CC-TYPE = BINARY
+  EXAMINE LINE (I) FOR ' ' GIVING LENGTH IN #BYTES
+  FLUSH-LINES := FLUSH-LINES + #BYTES
+ELSE
+  ADD 1 TO FLUSH-LINES
+END-IF
+IF FLUSH-COUNTER > #UPD-COUNTER OR FLUSH-BRACKET = 'L'
+  #STATUS := 'P'
+  PERFORM UPDATE-STATUS
+  RESET FLUSH-COUNTER
+END-IF
+*
+IF +WKF-NUMBER = 1
+  IF WKF-CC-TYPE NE BINARY
+    REDUCE DYNAMIC #LINE TO 0
+    #LINE := LINE (I)
+    WRITE WORK 1 VARIABLE #LINE
+  ELSE
+    WRITE WORK FILE 1 VARIABLE B64-B
+  END-IF
+ELSE
+  WRITE WORK 2 LINE (I)
+* sju 04-04-22 p(250355) notes:
+* In order to honour LRECL on printer definitions, we need to allow
+* for the fact that printer skeletons may have no lrecl, so we need
+* to write fixed length records. If they have an lrecl and it's not
+* 251 or greater, we need to write variable length records. But you
+* can't do both in one program, so we have to split the writes off
+* into subprograms. But an extra CALLNAT for every line adds a lot of
+* CPU, so I've disabled this.
+* Even if we could do it without a CALLNAT, WRITE WORK VARIABLE
+* itself uses a lot more CPU than WRITE WORK
+END-IF
+*
+END-SUBROUTINE /* PRINT-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE BASE64-TO-BIN
+************************************************************************
+B64-FUNCTION := 'AB'                  /* convert base64 to bin
+RESET B64-BRACKET B64-B
+REDUCE ARRAY B64-TEXT-ARRAY TO (1:1)
+B64-TEXT-ARRAY (1) := LINE (I)
+CALLNAT 'RMBAS64N' B64-PARMS
+P-ERROR-CODE := B64-RC
+P-ERROR-TEXT := B64-ERRTXT
+*
+END-SUBROUTINE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  CALLNAT 'C-NATERN' P-ERROR-TEXT
+  P-ERROR-CODE := 21
+  FLUSH-ERROR := TRUE
+  ESCAPE ROUTINE
+END-ERROR
+*
+INCLUDE RMPR-C /*V12-PRINTER-API,CALL-PRINTER-EXIT
+*
+END

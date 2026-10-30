@@ -1,0 +1,112 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMSTCSR - Reset statistics (Optimize for Infrastructure)
+*            Resets all statistics values of NRM-STATISTICS.
+*
+* Maintenance
+* User ID   yyyy-mm-dd Issue         Remark
+* --------------------------------------------------------------------  --------
+* fhi       2010-05-28 NOMALL-93     Created
+* fhi       2012-08-29 NOMALL-1195   Avoid too many Adabas calls
+* SU1       2015-04-29 NOMALL-1450 fill fields for Adabas Vista
+* SU2       2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* fhi       2017-02-03 NOMALL-1913 Use new SAT routine SATTIMST
+* fhi       2018-12-14 NOMALL-1905 Set var +O4I for further processes
+* SU3     2024-09-02 ES-35716    deactivate O4I
+************************************* data **************************** ********
+DEFINE DATA
+/*SU3 INDEPENDENT 1 +O4I                   (L)
+************************************************************************
+LOCAL
+1 STATISTICS VIEW OF NRM-STATISTICS
+  2 SS-ITEM
+  2 SS-TIMESTAMP
+  2 SS-START
+  2 SS-VALUE             (100)
+  2 SS-OBJECT-TYPE
+  2 SS-OBJECT-TIME
+1 PRINTERS VIEW OF NRM-PRINTERS
+  2 P-ID
+1 #SS-ITEM               (A16)
+1 REDEFINE #SS-ITEM
+  2 #PRINTER-PREFIX      (A8)
+  2 #PRINTER-NAME        (A8)
+1 #I                     (I4)
+1 #FOUND                 (L) /*SU3
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM RMGMONPA-GET-MONPARS 'STATISTICS=ON' #FOUND /*SU3 ->
+IF #FOUND
+  PRINT '*' (72)
+    / 'NOM 353: Product O4I (Optimize for Infrastructure no longer'
+    'supported.'
+    / 'Monitor Parameter ''STATISTICS=ON'' ignored. (' *PROGRAM ')'
+    / '*' (72)
+END-IF
+ESCAPE MODULE /*SU4 <-
+/*SU4 PERFORM RMGMONPA-GET-MONPARS 'STATISTICS=ON' +O4I IF NOT +O4I
+/*SU4  ESCAPE MODULE END-IF
+READ STATISTICS BY SS-ITEM
+  RESET SS-VALUE (*)
+  DECIDE ON FIRST VALUE OF SS-ITEM
+    VALUES 'MON-TIME','MON-ORDERS','ACTIVE-PRT-TASKS',
+        'WAITING-PRTOUTS','PRINTOUT-ERRORS'
+      SS-VALUE (1)    := '0'
+    VALUES 'MON-WAITTIME'
+      SS-VALUE (1:5)  := '0'
+    VALUES 'TOTALS-GENERAL'
+      SS-VALUE (1:8)  := '0'
+      SS-VALUE (9:10) := '*null*' /* null-value, return lines but blank
+    NONE
+      IGNORE
+  END-DECIDE
+  IF SS-ITEM = MASK ('PRINTER-')
+    SS-VALUE (1:5)  := '0'
+    SS-VALUE (6)    := 'N'        /* Status 'New'
+    SS-VALUE (7)    := 'Unused'
+  END-IF
+  PERFORM SATTIMST-GET-TIME 'L' STATISTICS.SS-START
+  SS-START := SS-TIMESTAMP
+  UPDATE
+  ADD 1 TO #I
+  IF #I > 50
+    RESET #I
+    END TRANSACTION
+  END-IF
+END-READ
+END TRANSACTION
+*
+RESET SS-VALUE (*) #I
+#PRINTER-PREFIX := 'PRINTER-'
+READ PRINTERS BY P-ID
+  #PRINTER-NAME := P-ID
+  FIND STATISTICS WITH SS-ITEM = #SS-ITEM
+    IF NO RECORDS FOUND
+      SS-VALUE (1:5)  := '0'
+      SS-VALUE (6)    := 'N'
+      SS-VALUE (7)    := 'Unused'
+      PERFORM SATTIMST-GET-TIME 'L' STATISTICS.SS-START
+      SS-ITEM  := #SS-ITEM
+      SS-START := SS-TIMESTAMP
+      SS-OBJECT-TYPE := 'SS'
+      SS-OBJECT-TIME := *TIMX
+      STORE STATISTICS
+      ADD 1 TO #I
+      IF #I > 50
+        RESET #I
+        END TRANSACTION
+      END-IF
+    END-NOREC
+  END-FIND
+END-READ
+END TRANSACTION
+*
+END

@@ -1,0 +1,137 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPDOCLN - Create Layout-control part of the PRINT-DOCUMENT command
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* gw      1996-06-11 s(999999) created
+* mwi     1997-05-21 p(162605) text for HEADER-PAGE-TEXT must be embedded  in
+*                        quotes
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* xsetggr 2007-05-14 NOM3201  convert node number to 5 digit format
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-05-05 p(304350) restow due to changes in RMSPL--L
+* fhi     2009-06-24 N3463     Extend metadata for OPO
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-10-08 NOMALL-97 Use dynamic memory handling
+* ---------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 RMPDOCLN-SPOOL-ATTRIBUTES         (A250)
+1 RMPDOCLN-SPOOL-ATTRIBUTES-ADD     (A750)
+1 RMPDOCLN-CMD                      (16)
+  2 RMPDOCLN-CMD-LINE               (A72)
+  2 REDEFINE RMPDOCLN-CMD-LINE
+    3 RMPDOCLN-FILLER               (A71)
+    3 RMPDOCLN-CONTINUATION         (A1)
+  2 REDEFINE RMPDOCLN-CMD-LINE
+    3 RMPDOCLN-C                    (A1/1:72)
+1 RMPDOCLN-CMD-OCC                  (I4)
+1 RMPDOCLN-ERROR-CODE               (N4)
+1 RMPDOCLN-ERROR-TEXT               (A250)
+************************************************************************
+LOCAL USING RMSPL--L
+LOCAL USING RMSPLA-L
+*
+LOCAL
+1 #PERFORM-IN-ANY-CASE              (L) CONST <TRUE>
+1 #LENGTH                           (I2)
+1 #LINE-LENGTH                      (I2)
+1 #TLEN                             (I2)
+1 #TOKEN                            (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=81
+*
+RESET RMPDOCLN-ERROR-CODE RMPDOCLN-ERROR-TEXT
+*
+IF RMPDOCLN-CMD-OCC = 0
+  RMPDOCLN-CMD-OCC := 1
+END-IF
+*
+EXAMINE RMPDOCLN-CMD-LINE (RMPDOCLN-CMD-OCC)
+  FOR 'x' GIVING LENGTH #LINE-LENGTH
+*
+#SPOOL-ATTRIBUTES                := RMPDOCLN-SPOOL-ATTRIBUTES
+CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+#SPOOL-ATTRIBUTES-EXT := RMPDOCLN-SPOOL-ATTRIBUTES-ADD
+*
+#TOKEN := ',LAYOUT-CONTROL=*PARAMETERS('
+PERFORM TOKEN-TO-COMMAND
+*
+IF #SPOOL-BS2-LEFT-MARGIN NE ' '
+  COMPRESS ',LEFT-MARGIN=' #SPOOL-BS2-LEFT-MARGIN TO #TOKEN LEAVING NO
+  PERFORM TOKEN-TO-COMMAND
+END-IF
+*
+IF #SPOOL-BS2-ROTATION NE ' '
+  COMPRESS ',ROTATION=' #SPOOL-BS2-ROTATION TO #TOKEN LEAVING NO
+  PERFORM TOKEN-TO-COMMAND
+END-IF
+*
+IF #SPOOL-BS2-INPUT-TRAY NE ' '
+  COMPRESS ',INPUT-TRAY-NUMBER=' #SPOOL-BS2-INPUT-TRAY
+    TO #TOKEN LEAVING NO
+  PERFORM TOKEN-TO-COMMAND
+END-IF
+*
+IF #SPOOL-BS2-HEADER-PAGE-TEXT NE ' '
+  #TOKEN := ',COVER-PAGES=*PARAMETERS(HEADER-PAGE-TEXT='
+  PERFORM TOKEN-TO-COMMAND
+  COMPRESS '''' #SPOOL-BS2-HEADER-PAGE-TEXT ''')' TO #TOKEN LEAVING NO
+  PERFORM TOKEN-TO-COMMAND
+END-IF
+*
+COMPRESS #TOKEN ')' TO #TOKEN LEAVING NO
+PERFORM TOKEN-TO-COMMAND
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE TOKEN-TO-COMMAND
+************************************************************************
+IF #TOKEN = ' '
+  ESCAPE ROUTINE
+END-IF
+*
+EXAMINE #TOKEN FOR 'x' GIVING LENGTH IN #TLEN
+#LENGTH := #LINE-LENGTH + #TLEN
+IF #LENGTH > 71
+  RMPDOCLN-CONTINUATION (RMPDOCLN-CMD-OCC) := '-'
+  ADD 1 TO RMPDOCLN-CMD-OCC
+  #LINE-LENGTH := 2
+END-IF
+*
+IF #LINE-LENGTH > 2
+  COMPRESS RMPDOCLN-CMD-LINE(RMPDOCLN-CMD-OCC) #TOKEN
+    TO RMPDOCLN-CMD-LINE(RMPDOCLN-CMD-OCC) LEAVING NO
+ELSE
+  COMPRESS '/' #TOKEN
+    TO RMPDOCLN-CMD-LINE(RMPDOCLN-CMD-OCC)
+END-IF
+*
+ADD #TLEN TO #LINE-LENGTH
+*
+RESET #TOKEN
+*
+END-SUBROUTINE /* TOKEN-TO-COMMAND
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  CALLNAT 'C-NATERN' RMPDOCLN-ERROR-TEXT
+  RMPDOCLN-ERROR-CODE := 21
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

@@ -1,0 +1,95 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* N-ESYLG  - similar to RESYLG-S, but subpgm without GDA
+*            Logon to/Logoff from ESY
+*
+* MAINTENANCE:
+* User ID yyyy-mm-dd itrac       Comment
+* ------- ---------- ----------- ---------------------------------------
+* SU      2020-05-18 NOMALL-2349 Created from local rout. LOGON-TO-ESY
+* fhi     2018-10-10 NOMALL-2157 Use field SECURITY-MESSAGE if avail.
+************************************************************************
+*
+DEFINE DATA
+PARAMETER
+1 #FUNCTION     (I2) OPTIONAL /*see SATSL--E: std: SATSL-SPECIAL-LOGON
+1 #NODE-NR      (N5)
+1 #NPR-USER     (A8)
+1 #CALLER       (A8) OPTIONAL
+1 #G-NATRP-ERC  (N4)
+1 #G-NATRP-ERT  (A250)
+1 #G-SEC-ERT    (A80) OPTIONAL
+1 #TERMINATE    (A1)  OPTIONAL /*TERMINATE 50
+1 TRACING       (L)   OPTIONAL
+************************************************************************
+LOCAL USING SATFNC4E
+LOCAL USING SATSL04P
+LOCAL USING SATSL--E /*SATSL-SPECIAL-LOGON
+LOCAL
+1 #TRACING      (L)
+1 #CALLER1      (A8)
+1 #TRACE-MSG    (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF TRACING SPECIFIED
+  #TRACING := TRACING
+END-IF
+RESET #G-NATRP-ERC #G-NATRP-ERT SATSL-PARMS-04 (*)
+IF #NODE-NR = 0 /**MACHINE-CLASS NE 'MAINFRAME'
+  ESCAPE ROUTINE /*SAT routine checks it, but we stop here.
+END-IF
+IF #CALLER SPECIFIED
+  #CALLER1 := #CALLER
+END-IF
+IF #FUNCTION SPECIFIED
+  SATSL-FUNCTION := #FUNCTION
+ELSE
+  SATSL-FUNCTION := SATSL-SPECIAL-LOGON
+END-IF
+SATSL-NODE-N5  := #NODE-NR
+SATSL-USER     := #NPR-USER
+SATSL-SATVERS  := 21
+IF SATSL-FUNCTION = SATSL-LOGOFF
+  IF #TRACING
+    COMPRESS 'Before logoff from node ' SATSL-NODE-N5 'in' #CALLER1
+      'WhoAmI ESY-User:' F#WHOAMI(<SATSL-NODE-N5>) TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+  /*SATSL04N:
+  CALLNAT SAT-ESY-LOGON-LOGOFF SATSL-SATVERS SATSL-PARMS-04 (*)
+  IF #TRACING
+    COMPRESS 'After logoff WhoAmI ESY-User:' F#WHOAMI(<SATSL-NODE-N5>)
+      TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+
+ELSE /*LOGON/LOGOFF/..
+  CALLNAT 'RMSATSLN' SATSL-SATVERS SATSL-PARMS-04 (*) #TRACING
+END-IF
+IF SATSL-ERROR-CODE NE 0
+  /*Maybe a log entry Ü?
+  #G-NATRP-ERC := SATSL-ERROR-CODE
+  #G-NATRP-ERT := SATSL-ERROR-TEXT
+  IF #G-SEC-ERT SPECIFIED
+    #G-SEC-ERT   := SATSL-SECURITY-MESSAGE
+  END-IF
+/*WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+/*  'Error logging on to ESY ' SATSL-USER #G-NATRP-ERC
+  IF #TERMINATE SPECIFIED AND #TERMINATE NE ' '
+    PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Error logging on to ESY. User:' SATSL-USER 'caller:' #CALLER1
+      / #G-NATRP-ERC #G-NATRP-ERT
+    TERMINATE 50 /*===>>> STOP ÜÜ
+  END-IF
+  RESET #NPR-USER
+END-IF
+*
+END

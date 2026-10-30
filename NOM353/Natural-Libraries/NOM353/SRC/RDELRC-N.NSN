@@ -1,0 +1,61 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDELRC-N - Delete Contents-Pointer of a given active Report
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) Description
+* xsiszha 2000-08-01 (CE7461)  Extend Report and Bundle Names
+* sju     2004-12-10 NOM31     Adacalls exceeded under Complete
+* xsetggr 2007-05-02 NOM3201   change rnb to P11
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* fhi     2016-04-15 NOMALL-1837 Introduce +DEVICE for testing
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1  P-REPNAME                 (A25)
+1  P-REPRNB                  (P11)
+************************************************************************
+INDEPENDENT
+1 +DEVICE              (A8)
+************************************************************************
+LOCAL USING SUPER-L
+LOCAL
+1 REPORT-CONTENTS VIEW OF NRM-REPORT-CONTENTS
+  2 AC-REPNAME
+  2 AC-REPRNB
+*
+1 #COUNTER       (P3) INIT <50>
+1 #SCREEN-COUNT  (I2)
+1 #SCREEN-LIMIT  (I2)   CONST <500>
+1 #OBJ           (A50)
+*
+END-DEFINE
+*
+MOVE P-REPNAME TO #AC-REPNAME
+MOVE P-REPRNB  TO #AC-REPRNB
+RESET #AC-SEQ
+*
+REARC. READ REPORT-CONTENTS BY AC-REP-RNB-SEQ = #AC-REP-RNB-SEQ
+  IF AC-REPNAME NE #AC-REPNAME OR AC-REPRNB  NE #AC-REPRNB
+    ESCAPE BOTTOM (REARC.)
+  END-IF
+  IF +DEVICE NE 'BATCH'
+    ADD 1 TO #SCREEN-COUNT
+    IF #SCREEN-COUNT GE #SCREEN-LIMIT
+      RESET #SCREEN-COUNT
+      CALLNAT 'SHWORK-N'
+    END-IF
+  END-IF
+  DELETE (REARC.)
+  COMPRESS #AC-REPNAME '/' #AC-REPRNB TO #OBJ LEAVING NO
+  PERFORM RMLOGDEL #OBJ 'RP-CONTENTS'
+  IF *COUNTER > #COUNTER
+    RESET *COUNTER
+    END OF TRANSACTION
+  END-IF
+END-READ
+END TRANSACTION
+*
+END

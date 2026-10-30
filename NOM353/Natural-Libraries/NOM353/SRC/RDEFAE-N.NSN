@@ -1,0 +1,118 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* MEMBER    RDEFAE-N
+* Version   3.2
+* Function  Display meta data of extended attributes
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* fhi     2007-11-06 NRT2422   created to support direct input
+* xsetggr 2008-02-26 p(302368) set PF3 as exit key
+* fhi     2008-02-26 p(302315) Beautify: tabulator 10 instead of 8
+* fhi     2008-04-22 P304184   NAT1305 in 460
+* fhi     2008-04-22 P302562   Improve Meta data display for P302562
+*                              Tabs set to 20 instead of 10, no tags
+* fhi     2009-05-28 N3461     Rewritten to support large blocks
+* fhi     2010-02-23 none      Tabs set to 40 instead of 20, no tags
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING RDEFAE-A
+* -----------------------------local Variables--------------------------
+LOCAL
+1 #LINE                    (A132/43)
+1 #PS                      (P3)
+1 #LS                      (P3)
+1 #IX                      (I2)
+1 #IY                      (I2)
+1 #POS                     (I2)
+1 #POS2                    (I2)
+1 #LEN                     (I2)
+1 #SUM                     (I2)
+1 #STRING                  (A251)
+1 #PF-KEY                  (A4)
+1 #METADATA                (A) DYNAMIC
+1 #CONTINUE                (L)
+END-DEFINE
+* --------------------------------------- main -------------------------
+#PS := *PAGESIZE - 6
+#LS := *LINESIZE - 2
+SET KEY ON
+IF *LANGUAGE NE 2
+  SET KEY PF3 = PGM NAMED 'End'
+  SET KEY PF7 = PGM NAMED 'Top'
+  SET KEY PF8 = PGM NAMED 'Forw'
+ELSE
+  SET KEY PF3 = PGM NAMED 'Ende'
+  SET KEY PF7 = PGM NAMED 'Oben'
+  SET KEY PF8 = PGM NAMED 'Vorw'
+END-IF
+REP1.
+REPEAT
+  IF NOT #CONTINUE
+    COMPRESS #SPOOL-ATTRIBUTES-EXTENDED (*)
+      TO #METADATA LEAVING NO
+  END-IF
+  RESET #CONTINUE #IX #LINE(*)
+  REP2.
+  REPEAT
+    UNTIL #METADATA = ' '
+      OR #IX > #PS
+    #POS := 1
+    #IX  := #IX + 1
+    #IY  := #IX
+    REP3.
+    REPEAT
+      UNTIL #METADATA = ' '
+        OR #POS > #LS
+      #POS2 := #POS + 20
+      IF #IY > 0 AND #POS2 <= #LS
+          AND SUBSTR(#LINE (#IY),#POS2,1) = ' '
+        SEPARATE #METADATA INTO #STRING
+          REMAINDER #METADATA
+          WITH DELIMITER ';'
+        EXAMINE #STRING FOR ' ' GIVING LENGTH IN #LEN
+        IF #LEN > #LS
+          #LEN := #LS - 3
+          COMPRESS SUBSTR(#STRING,1,#LEN) '...' INTO #STRING
+            LEAVING NO
+          #LEN := #LS
+        END-IF
+        #SUM := #POS + #LEN - 1
+        IF #SUM > 0 AND #SUM <= #LS
+          MOVE #STRING TO SUBSTR(#LINE (#IX),#POS,#LEN)
+        ELSE
+          COMPRESS #METADATA ';' #STRING INTO #METADATA LEAVING NO
+          ESCAPE BOTTOM (REP3.)
+        END-IF
+      END-IF                                               /* P302562 in
+     #POS := ( #POS + #LEN + 1) / 40 + 1 /* P302315 was 8,P302562 was 10
+     #POS := #POS * 40                   /* P302315 was 8,P302562 was 10
+    END-REPEAT
+  END-REPEAT
+  DECIDE ON FIRST VALUE OF #PS
+    VALUE 26                     /* model 3: 32x80
+      INPUT USING MAP 'RDEFAE3&'
+    VALUE 37                     /* model 4: 43x80
+      INPUT USING MAP 'RDEFAE4&'
+    VALUE 21                     /* model 5: 27x132
+      INPUT USING MAP 'RDEFAE5&'
+    NONE                         /* model 2: 24x80
+      INPUT USING MAP 'RDEFAEM&'
+  END-DECIDE
+  #PF-KEY := *PF-KEY
+  DECIDE ON FIRST VALUE OF  #PF-KEY
+    VALUE 'PF3'
+      ESCAPE BOTTOM
+    VALUE 'PF7'
+      IGNORE
+    VALUE 'PF8'
+      MOVE TRUE TO #CONTINUE
+    NONE
+      REINPUT *2600 /* Invalid function
+  END-DECIDE
+END-REPEAT
+* ----------------------------------------------------------------------
+END

@@ -1,0 +1,570 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RM-ERRTA - Monitor Error Transaction
+*
+* Maintenance
+* uuu    yy-mm-dd s(999999) ...
+* mrs    93-09-13 s(999999) clean up
+* mrs    93-10-25 s(999999) escape from error loop
+* mrs    93-11-04 s(182359) monitor won't close
+* mrs    93-12-10 s(999999) use common data to reduce data base calls
+* jwo    97-07-23 s(164005) get subcode of 3009 retrun code
+* jvd    98-09-10 p(164229) NOM141ÖNAT23
+* jvd    99-06-30 p(183302) NOM142 Changes
+* xsisaa 99-07-05 r(259992) CE7187 / remove comments pre 1996
+* fhi    00-01-27 p(191368) version taken from NOM142 and stowed for NOM211
+* sju    00-03-13 s(191368) monitor multitasking
+* fhi    00-08-22 QA01      Use Natural RDC utility, if statistics available
+* sju    00-11-21 s(999999) Delete event after 3148 error
+* fhi    02-10-18 r(259992) Improve console handling of CE7187
+* sju    04-07-15 NOM31     Get subcode for any Adabas response code
+* sju 05-02-01 p(261275) Don't issue WTOR if shutdown requested
+* fhi 05-06-23 p(266530) Monitor must be NPR Mainframe independent
+* sju 05-10-17 p(270707) Issue WTOR for VSE also
+* fhi 05-11-15 P272724   End Transaction for Unix Eventing necessary
+* xsetggr 2005-10-26 p(270950) Field G-ACTIVE-ISN must be P10, not P8
+* fhi 06-03-20 P276743   Report creation fails: Treat 3148 as normal err
+* xsetggr 2006-12-28 p(272564) set status in the case of NAT3148       r
+* sju 07-12-10 NRT2766   More info for NAT0082
+* fhi    2010-09-03 NOMALL-97 Call RMRDCDSP with correct trace variable
+* fhi    2010-10-06 NOMALL-97 Add logging to SAT log file
+*                             Modernize error reading, use new RLOG
+*                             Old tags deleted.
+* fhi    2010-10-29 NOMALL-97 Correct binary fields
+* fhi    2011-02-07 NOMALL-929 Avoid 3009 in Unix monitor
+* fhi    2011-02-22 NOMALL-926 Clear *ERROR-TA in error routine (loop)
+* splildav 2012-03-11 NOMALL-1108 Get FNAT and NOM DBID via USR3013N
+* fhi    2011-08-03 NOMALL-1067 Use C-NATERN as central information
+* splildav 2012-09-09 NOMALL-94  Change Version structure
+* fhi/bli  2012-09-18 NOMALL-94 Introduce 2 digit versions
+* SU1     2014-07-21 NOMALL-1279 fill fields for Adabas Vista
+* SU2     2015-02-27 NOMALL-1569 USR3013N (SYSEXT) => NAT00028(SYSLIBS)
+* SU3     2016-01-19 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-09-12 NOMALL-1621 Handle Network error 224
+* fhi     2016-09-15 NOMALL-1621 Use +NOD-LOCAL-NODE as monitor node
+* fhi     2016-10-21 NOMALL-1934 Send emergency emails
+* fhi     2016-10-27 NOMALL-1934 same
+* fhi     2016-11-02 NOMALL-1621 Use +NOD-LOCAL-NODE as monitor node
+* fhi     2016-11-15 NOMALL-1961 Use new task-IDs
+* fhi     2017-01-06 NOMALL-1621 Call RDCDISIO, too.
+* fhi     2017-05-05 NOMALL-1934 Handle error 311, test emergency emails
+* fhi     2017-11-10 NOMALL-2048 Handle ADA RSP 148 better
+* fhi     2017-11-22 NOMALL-1961 set monitor status 'wait for console'
+* SU4     2018-01-03 NOM35: avoid strange xref-data for *ERROR-TA
+* fhi     2018-10-02 NOMALL-1621 Suspend node if ERR=5999 (node is down)
+* fhi     2018-11-26 NOMALL-1621 Handle space errors like 3148
+* fhi     2019-07-08 NOMALL-2275 Add information to DB errors
+* SU5     2019-08-23 NOMALL-2322 remove fields+use local monitor instead
+* fhi     2019-09-16 NOMALL-2294 Call RMLEVEL with desired log-type
+* SU6     2020-03-27 NOMALL-2400 emerg.Email ADA:avoid Additions: 16448+
+*                                change 0038 to NOM0038
+* SU7     2020-04-27 NOMALL-2349 error handling (NPR)
+* SU8     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU9     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* SU10    2022-05-31 NOMALL-2561 Adabas err.: better console msg
+* SU11    2023-07-31 ES-33831    show ADA-add. alpha (itrac for uqac)
+* SU12    2024-03-07 ES-34613    NOM 3.6 Remove power / BS2
+* SU13    2024-07-02 NOMALL-2675 NAT3148: send CONSOLE msg verfy first
+* -----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  MONIT-GL
+INDEPENDENT
+1 +SYSTEM-DB-ERROR         (L)
+1 +SHUTDOWN-BY-NPR         (A1)
+1 +G-ACTIVE-ISN-P10        (P10)
+1 +NOD-CURRENT-ID          (A20) /* Current node key
+1 +NOD-LOCAL-ID            (A20) /* local   node key
+1 +NOD-LOCAL-NODE          (N5)  /* local node number
+/*SU8 1 +NOD-LOCAL-NAME          (A16) /* Name of local node
+1 +NOD-CURRENT-NODE        (N5)  /* current node number
+1 +NOD-CURRENT-NAME        (A16) /* Name of current node
+* *****
+LOCAL USING RLOG-L
+LOCAL USING RMSETSTE
+LOCAL USING NOMVI-2A
+/*SU8 LOCAL USING VMONITUL
+LOCAL USING XXEMAILP
+/*SU8 LOCAL USING VUXDEF-L
+LOCAL USING RMTASK-P
+LOCAL
+1 CONSOLE VIEW OF CONSOLE
+  2 REPLY                  (A80) /*doc: default length=80 SU13
+  2 ERROR-CODE
+  2 ERROR-TEXT
+/*SU12 1 SEND-MESSAGE VIEW OF SEND-MESSAGE 2 ERROR-CODE 2 ERROR-TEXT
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU8
+  2 MF-MONITOR-ID
+  2 MF-TYPE
+1 NRM-MONITOR VIEW OF NRM-MONITOR /*SU8
+  2 M-EMAIL-RECIPIENTS     (A250/1:2)
+* *****
+1 #ERR-NR                  (N5)
+1 #ERR-LINE                (N4)
+1 #ERR-TYPE                (A1)
+1 #ERR-PROGRAM             (A8)
+1 #ERR-LEVEL               (N2)
+1 DB_ERR_STR-23            (A16)
+1 REDEFINE DB_ERR_STR-23
+  2 DB_STATUS-23           (B1)
+  2 DB_TYPE-23             (A1)
+  2 DB_DBID-23             (B2)
+  2 DB_FNR-23              (B2)
+  2 DB_COMMAND-23          (A2)
+  2 DB_RESP-23             (B2)
+  2 DB_SUBCODE-23          (B2)
+  2 DB_ADD1F2B-23          (B2)
+  2 REDEFINE DB_ADD1F2B-23
+    3 DB_ADD1F2B-23-A2     (A2)
+1 #MSG                     (A80) /*see REPLY above SU13 was (A72)
+1 #EVENT-NAME              (A8)  INIT <'NOM'>
+1 REDEFINE #EVENT-NAME
+  2 #EVENT-PREFIX          (A3)
+  2 #EVENT-TASK            (I1)
+  2 #EVENT-DBID            (B2)
+  2 #EVENT-FNR             (B2)
+1 EVENTING VIEW OF EVENTING
+  2 ERROR-CODE
+  2 ERROR-TEXT /*SU6 2 FUNCTION
+1 STATUS VIEW OF COMMON-DATA
+  2 ERROR-CODE
+  2 ERROR-TEXT /*SU6 2 DATA
+1 #DATA                    (A8)
+1 REDEFINE #DATA
+  2 #DATA-STATUS           (A1)
+  2 #DATA-TIME             (T)
+*
+1 #VERSION                 (A2)
+1 #RELEASE                 (A2)
+1 #SP                      (A2)
+1 #CF                      (A4)
+1 #DB_DBID-23-A            (A5)
+1 #DB_FNR-23-A             (A5)
+1 #DB_RESP-23-A            (A5)
+1 #DB_STATUS-23-A          (A5)
+1 #DB_SUBCODE-23-A         (A5)
+1 #DB_ADD1F2B-23-A         (A5)
+1 #DB_ADD1F2B-23-A2        (A2) /*SU11
+*
+1 PARM-NAT00028
+  2 LFILE                  (N5)
+  2 PHYSICAL-DBID          (N5)
+  2 PHYSICAL-FNR           (N5)
+  2 DB-TYPE                (A1)
+  2 RESPONSE               (N4)
+1 FNAT-DBID                (N5)
+1 #DB_DBID-23-N            (N5)
+1 #EMAIL-LINES             (I1) CONST <13>
+1 #EMAIL-BODY              (A/#EMAIL-LINES,1:2) DYNAMIC
+  CONST (V,1) <
+  'Dear administrator,',
+  ' ',
+  'the NOM monitor of System File &ENV has returned a severe error:',
+  ' ',
+  '&MESSAGES',
+  ' ',
+  'Time occurred: &TIME',
+  'Current node: &NODE - message from task &TASK',
+  ' ',
+  'Intervention is required.',
+  ' ',
+  'Kind regards,',
+  'Your friendly NOM monitor'
+  >
+  (V,2) <
+  'Sehr geehrter Administrator,',
+  ' ',
+  'der NOM Monitor der Systemdatei &ENV meldet einen schweren Fehler:',
+  ' ',
+  '&MESSAGES',
+  ' ',
+  'Zeit des Fehlers: &TIME',
+  'Aktueller Knoten: &NODE - Meldung kommt von Task &TASK',
+  ' ',
+  'Es ist ein Eingriff erforderlich.',
+  ' ',
+  'Mit freundlichem Gruss,',
+  'Ihr NOM Monitor'
+  >
+1 #EMAIL-SUBJECT           (A/1:2) DYNAMIC
+  CONST <
+  'NOM reports a severe error on node &NODE',
+  'NOM meldet einen schweren Fehler auf Knoten &NODE'
+  >
+1 #I                       (I4)
+1 #LANG                    (I1)
+1 #TASK-ID                 (A12)
+1 #ENV                     (A)   DYNAMIC
+1 #TRACING                 (L)             /* only dummy
+1 #PGM                     (A8)
+1 #TIME                    (A21)
+1 #A250                    (A250) /*SU6
+1 #MONITOR-ID              (A20) /*SU8
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=133
+RESET *ERROR-TA
+IF *DATA > 0
+  INPUT #ERR-NR #ERR-LINE #ERR-TYPE #ERR-PROGRAM #ERR-LEVEL
+  DECIDE ON FIRST VALUE OF #ERR-NR
+    VALUE -1
+      #PGM := *PROGRAM
+      *ERROR-TA := #PGM
+      ESCAPE ROUTINE        /* Return if dummy call
+    VALUE 0
+      ESCAPE ROUTINE        /* No error occurred
+    NONE
+      IGNORE
+  END-DECIDE
+ELSE
+  ESCAPE ROUTINE        /* No error occurred
+END-IF
+*
+PRINT NOTITLE (AD=L) *PROGRAM
+  *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+  'Natural Error:' #ERR-NR 'line:'  #ERR-LINE 'pgm:' #ERR-PROGRAM
+  'pgmtype'  #ERR-TYPE 'pgmlevel' #ERR-LEVEL
+*
+IF #ERR-PROGRAM = G-ERR-PROGRAM AND #ERR-LINE = G-ERR-LINE
+AND #ERR-NR = G-ERR-NUMBER                                            /*
+  IF G-ERR-COUNT LT 99
+  AND NOT (#ERR-PROGRAM ='RLOG' OR='C-NATERN' OR='NAT00028'           /*
+  OR='NAT23019' OR='NOMVI-2N' OR='RMSETSTN'                           /*
+  OR='XXCONTRM' OR='XXLASTMS' OR='XXEMAIL')                           /*
+/*    (This means that a routine called by RM-ERRTA has failed)
+    ADD 1 TO G-ERR-COUNT
+  ELSE
+    WRITE NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'NOM9969 Error loop detected for program' #ERR-PROGRAM
+    IF #ERR-PROGRAM NE 'C-NATERN' AND #ERR-PROGRAM NE 'RLOG'
+      CALLNAT 'C-NATERN' LG-MSG
+      PRINT NOTITLE
+        *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T) LG-MSG
+      COMPRESS '9969' LG-MSG TO LG-MSG
+      LG-FUNCTION := ' '
+      PERFORM WRITE-LOG
+      PERFORM SEND-EMAIL
+      PERFORM XXLASTMS LG-MSG
+      PRINT NOTITLE
+        *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T) LG-MSG
+      LG-FUNCTION := ' '
+      PERFORM WRITE-LOG
+      CALLNAT 'XXCONTRM' 'T' /* Terminate session with RC 50
+        G-TASK-NUMBER 9969 LG-MSG #TRACING
+    END-IF
+  END-IF
+ELSE
+  RESET G-ERR-GROUP
+  G-ERR-PROGRAM := #ERR-PROGRAM
+  G-ERR-LINE    := #ERR-LINE
+  G-ERR-NUMBER  := #ERR-NR
+  G-ERR-COUNT   := 1
+END-IF
+*
+IF #ERR-NR =3148 OR=3074 OR=3077 OR=3102 OR=3107 OR=3162  /*Adabas space
+AND NOT +SYSTEM-DB-ERROR /* avoid repeated 3148 errors                /*
+  +SYSTEM-DB-ERROR := TRUE
+*
+  LFILE := 255 /* FNAT
+  PERFORM #NAT00028
+  FNAT-DBID := PHYSICAL-DBID
+*
+  CALLNAT 'NAT00028' PARM-NAT00028
+  LFILE := 206 /* NOM
+  PERFORM #NAT00028
+  NOM-DBID := PHYSICAL-DBID
+*
+  CALLNAT 'NAT23019' DB_ERR_STR-23 /* Get the failing DBID
+  #DB_DBID-23-N    := DB_DBID-23  /* Convert to Numeric
+  WRITE NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+    'Failing DBID is :' #DB_DBID-23-N ',FNAT DBID is :' FNAT-DBID
+    ',NOM DBID is :' NOM-DBID
+  IF DB_DBID-23 EQ FNAT-DBID        /* Is FNAT in the failing DB ?
+    +SYSTEM-DB-ERROR := FALSE      /* Yes, don't try to restart
+  END-IF
+END-IF
+IF (#ERR-NR=3148 OR=3074 OR=3077 OR=3102 OR=3107 OR=3162) /*Adabas space
+AND +SYSTEM-DB-ERROR =TRUE AND +SHUTDOWN-BY-NPR NE 'Y'                /*
+  REPLY := 'N'
+/*COMPRESS 'NOM Monitor DBID' #DB_DBID-23-N 'is not availableÜ' TO #MSG
+  DECIDE FOR FIRST CONDITION
+    WHEN SYSTEM-INFO-VIEW.SYSTEM-TYPE =  MASK('MVS') OR= MASK('MSP')
+    OR='OS/390'                                                       /*
+/*SU12 OR= MASK('DOS') OR= MASK('VSE')
+/*SU10 COMPRESS 'DB' #DB_DBID-23-N 'is inactive, continue EOM with "Y"'
+/*SU10  'when up again or stop with "N".' TO #MSG-CONS
+      COMPRESS 'EOM DB' #DB_DBID-23-N 'error' #ERR-NR TO #MSG /*SU13
+      COMPRESS #MSG '. Enter "Y"=continue, "N"=stop.' TO #MSG LEAVING NO
+      CONSOLE-MVS. FIND CONSOLE WITH NODE = +NOD-LOCAL-NODE
+      AND FUNCTION = 'WTOR' AND TEXT = #MSG /*see REPLY below         /*
+        IF CONSOLE.ERROR-CODE NE 0 /*SU6
+          PRINT NOTITLE
+            *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T) *LINE
+            CONSOLE.ERROR-CODE CONSOLE.ERROR-TEXT
+        END-IF
+      END-FIND
+      CALLNAT 'RMSETSTN' #EQU-WAIT-CONSOLE +NOD-LOCAL-NODE G-NATRP-DBID
+        G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER /*SU13 move after CONSOLE
+      END TRANSACTION
+/*SU12 ->  WHEN SYSTEM-INFO-VIEW.SYSTEM-TYPE =  MASK('BS2')
+/*    CONSOLE-BS2000. FIND SEND-MESSAGE WITH NODE = +NOD-LOCAL-NODE
+/*    AND DESTINATION = '*CONSOLE' AND MESSAGE = #MSG-CONS            /*
+/*      IF SEND-MESSAGE.ERROR-CODE NE 0 /*SU6
+/*        PRINT NOTITLE
+/*          *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T) *LINE
+/*          SEND-MESSAGE.ERROR-CODE SEND-MESSAGE.ERROR-TEXT
+/*      END-IF
+/*    END-FIND
+    WHEN NONE IGNORE
+  END-DECIDE
+  IF REPLY NE 'Y'
+    IF *MACHINE-CLASS = 'MAINFRAME'
+      FETCH RETURN 'RMRDCDSP' /* Display RDC statistics in batch
+      FETCH RETURN 'RDCDISIO'
+    END-IF
+    #EVENT-DBID:= G-NATRP-DBID
+    #EVENT-FNR := G-NATRP-FNR
+    #EVENT-TASK:= G-TASK-NUMBER
+    IF +NOD-LOCAL-NODE NE 0 /* = Mainframe
+      FIND (1) EVENTING WITH FUNCTION = 'DELETE'
+      AND EVENT-NAME = #EVENT-NAME AND NODE = +NOD-LOCAL-NODE         /*
+        IF EVENTING.ERROR-CODE NE 0 /*SU6
+          PRINT NOTITLE
+            *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T) *LINE
+            EVENTING.ERROR-CODE EVENTING.ERROR-TEXT
+        END-IF
+      END-FIND
+      #DATA-STATUS := 'D'
+      #DATA-TIME   := *TIMX
+      RMTASK-P.FUNCTION       := 'C' /* TASK ID for COMMON-DATA
+      RMTASK-P.SUBTASK-NUMBER := G-TASK-NUMBER
+      CALLNAT 'RMTASKID' RMTASK-P
+      #TASK-ID := RMTASK-P.TASK-ID
+      FIND STATUS WITH NODE = +NOD-LOCAL-NODE AND FUNCTION = 'MODIFY'
+      AND DATA-ID = #TASK-ID AND DATA = #DATA                         /*
+      AND ENTRY-NUMBER = 1 AND ENTRY-LENGTH = 28                      /*
+        IF STATUS.ERROR-CODE NE 0 /*SU6
+          PRINT NOTITLE
+            *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T) *LINE
+            STATUS.ERROR-CODE STATUS.ERROR-TEXT
+        END-IF
+      END-FIND
+    END-IF
+    STACK TOP COMMAND 'FIN'   /* There is nothing to do when DB is down
+    STACK TOP COMMAND 'LASTMSG'
+    STOP
+  END-IF
+END-IF
+CALLNAT 'NOMVI-2N' NOMVI
+#VERSION := NOMVI-VERSION
+#RELEASE := NOMVI-RELEASE
+#SP      := NOMVI-SP
+#CF      := NOMVI-CF
+DECIDE ON EVERY VALUE OF #ERR-NR
+  VALUE 3000:3255
+    CALLNAT 'NAT23019' DB_ERR_STR-23
+    COMPRESS *LIBRARY-ID '/' #ERR-PROGRAM '/' #VERSION #RELEASE #SP #CF
+      '/' #ERR-LINE '/' #ERR-NR TO LG-MSG LEAVING NO /*MSG 21 not 38 Ü?
+    #DB_DBID-23-A     := DB_DBID-23
+    #DB_FNR-23-A      := DB_FNR-23
+    #DB_STATUS-23-A   := DB_STATUS-23
+    #DB_RESP-23-A     := DB_RESP-23
+    #DB_SUBCODE-23-A  := DB_SUBCODE-23
+    #DB_ADD1F2B-23-A  := DB_ADD1F2B-23
+    #DB_ADD1F2B-23-A2 := DB_ADD1F2B-23-A2 /*SU11
+    IF *MACHINE-CLASS = 'MAINFRAME' AND DB_ADD1F2B-23 = '  ' /*SU6
+      RESET #DB_ADD1F2B-23-A /*YES: two blanks above Ü
+    END-IF
+    IF (DB_DBID-23 = +NOD-CURRENT-NODE OR= +NOD-LOCAL-NODE) /*NPR MF
+    AND DB_DBID-23 > 0                                                /*
+      COMPRESS 'On node:' #DB_DBID-23-A 'NPR FNR:' #DB_FNR-23-A TO #A250
+    ELSE
+      COMPRESS 'DBID:'    #DB_DBID-23-A 'FNR:'     #DB_FNR-23-A TO #A250
+    END-IF
+    COMPRESS '0038' LG-MSG          'DB Status:'  #DB_STATUS-23-A
+      'Type:' DB_TYPE-23 #A250 'CMD:' DB_COMMAND-23
+      'Resp:' #DB_RESP-23-A    'Subcode:'    #DB_SUBCODE-23-A
+      'Adds:' #DB_ADD1F2B-23-A '(' #DB_ADD1F2B-23-A2 ')' /*SU11
+      TO LG-MSG
+    LG-FUNCTION := 'W'
+    PERFORM WRITE-LOG
+    PERFORM SEND-EMAIL
+  VALUE 3009
+    FETCH RETURN 'RMLEVEL' 'W'
+    END TRANSACTION
+    #PGM := *PROGRAM
+    *ERROR-TA := #PGM
+    FETCH 'RMONITOR'
+  VALUES 3224,5999  /* NETWORK error or node down
+    IF +NOD-CURRENT-ID NE +NOD-LOCAL-ID
+      UPD-NOD. FIND MF-NODE WITH MF-MONITOR-ID = +NOD-CURRENT-ID /*SU8
+        MF-TYPE := F#SUSP(<MF-MONITOR-ID,MF-TYPE,#ERR-NR>)
+        UPDATE (UPD-NOD.)
+        END TRANSACTION
+      END-FIND
+      FETCH 'RMONITOR'
+    END-IF
+  VALUES 1222, 1801, 1804, 1806, 5751, 6104, 311 /* Memory allocation
+    /*311='error in user exit' Implemented for testing emergency mails
+    BACKOUT TRANSACTION
+    IF +G-ACTIVE-ISN-P10  NE 0 AND G-IN-REPORT-PROCESSING
+      GETERR-E. GET ACTIVE-REPORTS +G-ACTIVE-ISN-P10
+      ACTIVE-REPORTS.AR-STATUS := 'E'
+      UPDATE(GETERR-E.)
+      END TRANSACTION
+    END-IF
+    WRITE NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Last message check shows:'
+    CALLNAT 'C-NATERN' LG-MSG
+    PRINT NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      LG-MSG
+    COMPRESS '0021' LG-MSG TO LG-MSG
+    LG-FUNCTION := ' '
+    PERFORM WRITE-LOG
+    PERFORM SEND-EMAIL
+    PERFORM XXLASTMS LG-MSG
+    PRINT NOTITLE
+      *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T) LG-MSG
+    LG-FUNCTION := ' '
+    PERFORM WRITE-LOG
+    IF #ERR-NR NE 311      /* 311 only for QA
+      CALLNAT 'XXCONTRM' 'T' /* Terminate session with RC 50
+        G-TASK-NUMBER 0021 LG-MSG #TRACING
+    END-IF
+  VALUE 311
+    RESET G-NATRP-ERC G-NATRP-ERT
+    FETCH 'RMONITOR'
+  VALUE 1310
+    IGNORE
+  NONE  VALUE
+    BACKOUT TRANSACTION
+    IF +G-ACTIVE-ISN-P10  NE 0 AND G-IN-REPORT-PROCESSING
+      GETERR-E2. GET ACTIVE-REPORTS +G-ACTIVE-ISN-P10
+      ACTIVE-REPORTS.AR-STATUS := 'E'
+      UPDATE(GETERR-E2.)
+      END TRANSACTION
+    END-IF
+    WRITE NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Last message check shows:'
+    CALLNAT 'C-NATERN' LG-MSG
+    PRINT NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      LG-MSG
+    COMPRESS '0021' LG-MSG TO LG-MSG
+    RESET LG-FUNCTION
+    PERFORM WRITE-LOG
+END-DECIDE
+*
+BACKOUT TRANSACTION
+*
+CALLNAT 'RMSETSTN' #EQU-ERROR-RECOVERY +NOD-LOCAL-NODE G-NATRP-DBID
+  G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+*
+FETCH RETURN 'RMLEVEL' 'W'
+END TRANSACTION
+#PGM := *PROGRAM
+*ERROR-TA := #PGM
+FETCH 'RMONITOR'
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SEND-EMAIL
+************************************************************************
+EXPAND ARRAY #EM-EMAIL-BODY TO (1:#EMAIL-LINES)
+RESET #EM-PARAMS #EM-ERROR-CODE /*SU5 #EM-NODE /*SU8 NODE-SPOOL-DATA
+LFILE := 206 /* NOM
+PERFORM #NAT00028
+NOM-DBID := PHYSICAL-DBID
+NOM-FNR  := PHYSICAL-FNR
+COMPRESS 'DB_' NOM-DBID ',FNR_' NOM-FNR TO #ENV LEAVING NO
+#LANG := *LANGUAGE
+IF #LANG NE 2
+  #LANG := 1
+END-IF
+#MONITOR-ID := F#MONITOR-TASK-ID1 (<>) /*SU8 ->
+EMAIL. FIND NRM-MONITOR WITH M-MONITOR-ID = #MONITOR-ID
+  COMPRESS M-EMAIL-RECIPIENTS(*) TO #EM-RECIPIENTS LEAVING NO
+END-FIND
+/*SU8 -> IF *MACHINE-CLASS = 'MAINFRAME'
+/*  FNDNOD. FIND (1) NODE-SPOOL-DATA WITH M-MONITOR-ID = +NOD-LOCAL-ID
+/*    IF NO RECORDS FOUND
+/*      ESCAPE ROUTINE
+/*    END-NOREC
+/*SU5 #EM-NODE := M-MONITOR-NODE
+/*SU5 #EM-HOST-CODE-PAGE := M-REMOTE-CODEPAGE /* NOMALL-1918 fhi in
+/*  COMPRESS NODE-SPOOL-DATA.M-EMAIL-RECIPIENTS(*)
+/*    TO #EM-RECIPIENTS LEAVING NO
+/*  END-FIND
+/*ELSE
+/*  RDUX. FIND UX-NODES WITH UX-NODE-NAME = +NOD-LOCAL-NAME
+/*    IF NO RECORDS FOUND
+/*      ESCAPE ROUTINE
+/*    END-NOREC
+/*SU5 #EM-UX-NODE := UX-NODE-NAME
+/*SU5 #EM-HOST-CODE-PAGE := *CODEPAGE
+/*    COMPRESS UX-NODES.UX-EMAIL-RECIPIENTS(*)
+/*      TO #EM-RECIPIENTS LEAVING NO
+/*  END-FIND
+/*END-IF
+IF #EM-RECIPIENTS = ' ' /* no email possible
+  WRITE NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+    'No email sent. No recipient given.'
+  ESCAPE ROUTINE
+END-IF
+#EM-FUNCTION := 'A' /* send array
+FOR #I = 1 TO *OCC(#EMAIL-BODY)
+  #EM-EMAIL-BODY(#I) := #EMAIL-BODY(#I,#LANG)
+END-FOR
+MOVE EDITED *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T) TO #TIME
+RMTASK-P.FUNCTION       := 'L'
+RMTASK-P.SUBTASK-NUMBER := G-TASK-NUMBER
+CALLNAT 'RMTASKID' RMTASK-P
+IF LG-MSG =MASK('0038') OR=MASK('0021') /*SU6
+  COMPRESS 'NOM' LG-MSG TO #A250 LEAVING NO
+ELSE
+  #A250 := LG-MSG
+END-IF
+COMPRESS '&MESSAGES=' #A250 ';' '&NODE=' +NOD-CURRENT-NAME ';'
+  '&TASK=' RMTASK-P.TASK-ID ';&TIME=' #TIME
+  ';&ENV=' #ENV TO #EM-VARIABLES LEAVING NO
+#EM-SUBJECT := #EMAIL-SUBJECT(#LANG)
+CALLNAT 'XXEMAIL' #EM-PARAMS
+IF #EM-ERROR-CODE NE 0
+  PRINT NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD'_'HH':'II':'SS'.'T)
+    'No email sent. Email function reports error' #EM-ERROR-CODE /
+    #EM-ERROR-TEXT /*SU7 (AL=131)
+END-IF
+*
+END-SUBROUTINE /* SEND-EMAIL
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG
+************************************************************************
+LG-USERID := G-LG-USERID
+LG-CODE   := 'MO'
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+*
+END-SUBROUTINE /* WRITE-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE #NAT00028
+************************************************************************
+CALLNAT 'NAT00028' PARM-NAT00028
+IF RESPONSE NE 0
+  WRITE NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+    'Error calling NAT00028: LFILE:' LFILE RESPONSE
+  RESET PHYSICAL-DBID
+END-IF
+*
+END-SUBROUTINE /* #NAT00028
+*
+END

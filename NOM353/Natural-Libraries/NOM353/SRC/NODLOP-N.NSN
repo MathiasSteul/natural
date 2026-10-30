@@ -1,0 +1,388 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NODLOP-N - EOM API Distribution List
+*
+* Maintenance:
+* XSETHZ   2002-08-03 created
+* XSETGGR  2002-08-15 add new err msg
+* XSETGGR  2002-11-14 use new parameter ES-APP-SERVER-LIBRARY
+* XSETHZ   2003-08-11 USER-AUTODEF
+* XSETGGR  2007-03-24 use nomod-type = 'D'
+* fhi      2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* XSETHZ   2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* fhi      2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* xsetggr 2012-05-16 NOMALL-1136 do not allow to save list/member = ' '
+* SU1     2014-06-23 NOMALL-1281 show last update user
+* CF1     2018-12-04 NOMALL-2181 Reject reserved names ADMIN, PUBLIC
+* ------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NODLOP-A
+************************************************************************
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING NOMODE-A
+LOCAL USING RLOG-L
+LOCAL
+1 DL VIEW OF NRM-DISTRIBUTION-LIST
+  2 D-LIST-NAME
+  2 D-LIST-DESC
+  2 D-USER-LIST (191)
+  2 C*D-USER-LIST
+  2 D-LAST-UPDATE /*SU1
+  2 D-LAST-UPDATE-USER /*SU1
+1 US VIEW OF NRM-USERS
+1 GRANTS VIEW OF NRM-GRANTS
+  2 GR-USERID
+  2 GR-OBJECT-TYPE
+  2 GR-OBJECT-NAME
+  2 GR-OPTION (6)
+1 RP VIEW OF NRM-REPORTS-NEW
+1 #GR-SUPER                 (A34)
+1 REDEFINE #GR-SUPER
+  2 #OBJ-TYPE               (A1)
+  2 #USERID                 (A8)
+  2 #OBJ-NAME               (A25)
+1 #GR-SUPER-E               (A34)
+1 REDEFINE #GR-SUPER-E
+  2 #OBJ-TYPE-E             (A1)
+  2 #USERID-E               (A8)
+  2 #OBJ-NAME-E             (A25)
+1 #ES-CONTROL               (A250)
+1 #ES-INPUT-AREA            (A253/1:3)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1  #ES-MSG-FIELD            (A32)
+1  REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+1 #D-LIST-DESC              (A50)
+1 #D-USER-LIST              (A8/191)
+1 #C-USER-LIST              (I4)
+1 #I                        (I4)
+1 #GR-TYPES                 (A1/4) INIT <'R','B','P','L'>
+1 #GRANTS                   (A1/1:6)
+1 #USER-LIB                 (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+NOMOD-PARMS := ES-SELECT
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+DECIDE ON FIRST VALUE OF ES-FUNCTION
+  VALUE 'OP'
+    DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+      VALUE ' '
+        PERFORM READ-RECORD
+      VALUE 'NEW'
+        PERFORM NEW-RECORD
+        IF #ES-MSG-NR NE 0
+          PERFORM GET-MSG-TXT
+        END-IF
+        IF ES-RC = 0
+          PERFORM WRITE-LOG-RECORD
+          END TRANSACTION
+        END-IF
+      VALUE 'UPD'
+        PERFORM UPDATE-RECORD
+        IF ES-RC = 0
+          PERFORM WRITE-LOG-RECORD
+          END TRANSACTION
+        END-IF
+      VALUE 'CHK'
+        PERFORM VALIDATION
+        IF #ES-MSG-NR NE 0
+          PERFORM GET-MSG-TXT
+        END-IF
+      NONE VALUE IGNORE
+    END-DECIDE
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-RECORD
+************************************************************************
+RESET NODL-PARMS NODL-MEMB-CNT #ES-MSG-FIELD #ES-MSG-NR
+FRD. FIND DL WITH D-LIST-NAME = ES-KEY-PARM(1)
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 2109  /* Distribution list not defined
+    #ES-MSG-FIELD-NAME := 'LIST'
+    ESCAPE BOTTOM (FRD.)
+  END-NOREC
+  NODL-NAME             := D-LIST-NAME
+  NODL-DESC             := D-LIST-DESC
+  NODL-LAST-UPDATE-USER := D-LAST-UPDATE-USER /*SU1 ->
+  IF D-LAST-UPDATE NE 0
+    MOVE EDITED D-LAST-UPDATE (EM=YYYYMMDDHHIISST)
+      TO NODL-LAST-UPDATE
+  END-IF /*SU1 <-
+  IF C*D-USER-LIST > 0
+    NODL-MEMB-CNT := C*D-USER-LIST
+    NODL-MEMB-NAME(1:NODL-MEMB-CNT) := D-USER-LIST(1:NODL-MEMB-CNT)
+  END-IF
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* READ-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE NEW-RECORD
+************************************************************************
+IF NODL-NAME = ' '
+  #ES-MSG-NR := 0044
+  #ES-MSG-FIELD-NAME := 'LIST'
+  ESCAPE ROUTINE
+END-IF
+*
+IF NODL-NAME = 'ADMIN' OR= 'PUBLIC'                        /* CF1 ->
+  IF NODL-NAME = 'ADMIN'
+    #ES-MSG-NR := 0517       /* reserved name ADMIN is not applicable
+  ELSE
+    #ES-MSG-NR := 0518       /* reserved name PUBLIC is not applicable
+  END-IF
+  #ES-MSG-FIELD-NAME := 'LIST'
+  ESCAPE ROUTINE
+END-IF                                                     /* CF1 <-
+*
+FNW. FIND NUMBER DL WITH D-LIST-NAME = NODL-NAME
+IF *NUMBER(FNW.) NE 0
+  #ES-MSG-NR :=  0605        /* List already defined
+  #ES-MSG-FIELD-NAME := 'LIST'
+  ESCAPE ROUTINE
+END-IF
+FNWU. FIND NUMBER US WITH USER-ID = NODL-NAME
+IF *NUMBER(FNWU.) NE 0
+  #ES-MSG-NR :=  0519        /* Name is already used as a User name
+  #ES-MSG-FIELD-NAME := 'LIST'
+  ESCAPE ROUTINE
+END-IF
+D-LIST-NAME := NODL-NAME
+D-LIST-DESC := NODL-DESC
+D-LAST-UPDATE-USER := ES-USER /*SU1
+D-LAST-UPDATE      := *TIMX /*SU1
+NODL-OPTIONS(*) := ' '
+IF NODL-MEMB-CNT > 0
+  PERFORM VALIDATION
+  IF #ES-MSG-NR NE 0
+    PERFORM GET-MSG-TXT
+    ESCAPE ROUTINE
+  END-IF
+  D-USER-LIST(1:NODL-MEMB-CNT) := NODL-MEMB-NAME(1:NODL-MEMB-CNT)
+ELSE
+  NODL-OPTIONS(1) := 'LM'
+  NODL-OPTIONS(2) := 'FF'
+END-IF
+NODL-OPTIONS(3) := 'LX'
+NODL-PART-OF := 'N'
+STORE DL
+GR-USERID := ES-USER
+GR-OBJECT-TYPE := 'L'
+GR-OBJECT-NAME := NODL-NAME
+GR-OPTION(*) := 'Y'
+STORE GRANTS
+GR-USERID := 'PUBLIC'
+GR-OPTION(*) := 'N'
+GR-OPTION(4) := 'Y'
+STORE GRANTS
+IF ES-USER-TYPE = 'A'
+  NODL-AUTH := 'ADMIN'
+ELSE
+  NODL-AUTH := ES-USER
+END-IF
+*
+END-SUBROUTINE /* NEW-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+FUP. FIND DL WITH D-LIST-NAME = ES-KEY-PARM(1)
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 2109    /* Distribution list not defined
+    #ES-MSG-FIELD-NAME := 'LIST'
+    ESCAPE BOTTOM (FUP.)
+  END-NOREC
+  NODL-NAME := D-LIST-NAME
+  #D-LIST-DESC := D-LIST-DESC
+  #D-USER-LIST(*) := D-USER-LIST(*)
+  #C-USER-LIST := C*D-USER-LIST
+  IF NODL-MEMB-CNT > 0
+    PERFORM VALIDATION
+    IF #ES-MSG-NR NE 0
+      PERFORM GET-MSG-TXT
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+  GUP. GET DL *ISN(FUP.)
+  D-LIST-DESC := NODL-DESC
+  D-LAST-UPDATE-USER := ES-USER /*SU1
+  D-LAST-UPDATE      := *TIMX /*SU1
+  RESET D-USER-LIST(*) NODL-OPTIONS(*)
+  IF NODL-MEMB-CNT > 0
+    D-USER-LIST(1:NODL-MEMB-CNT) := NODL-MEMB-NAME(1:NODL-MEMB-CNT)
+  ELSE
+    NODL-OPTIONS(1) := 'LM'
+    NODL-OPTIONS(2) := 'FF'
+  END-IF
+  NODL-OPTIONS(3) := 'LX'
+  FNPO. FIND NUMBER DL WITH D-USER-LIST = NODL-NAME
+  IF *NUMBER (FNPO.) > 0
+    NODL-OPTIONS(3) := ' '
+    NODL-PART-OF := 'Y'
+  ELSE
+    NODL-PART-OF := 'N'
+  END-IF
+  UPDATE (GUP.)
+  #GR-SUPER.#USERID := D-LIST-NAME
+  #GR-SUPER-E.#USERID-E := D-LIST-NAME
+  #GR-SUPER.#OBJ-NAME := H'00'
+  #GR-SUPER-E.#OBJ-NAME-E := H'FF'
+  FOR #I = 1 TO 4
+    #GR-SUPER.#OBJ-TYPE := #GR-TYPES(#I)
+    #GR-SUPER-E.#OBJ-TYPE-E := #GR-TYPES(#I)
+    FNDNG. FIND NUMBER GRANTS WITH GR-SUPER = #GR-SUPER THRU #GR-SUPER-E
+    IF *NUMBER (FNDNG.) > 0
+      NODL-OPTIONS(3) := ' '
+      ESCAPE BOTTOM (FUP.)
+    END-IF
+  END-FOR
+  FRP. FIND NUMBER RP WITH R-NATRPT-DIST = D-LIST-NAME
+  IF *NUMBER (FRP.) > 0
+    NODL-OPTIONS(3) := ' '
+  END-IF
+  IF ES-USER-TYPE NE 'A'
+    #OBJ-NAME := NODL-NAME
+    CALLNAT 'NOGROU-N' 'L' #OBJ-NAME ES-USER NODL-AUTH #GRANTS(*)
+    IF #GRANTS(1) NE 'Y' AND #GRANTS(3) NE 'Y'
+      NODL-OPTIONS(4) := 'DL'
+    END-IF
+  ELSE
+    NODL-AUTH := 'ADMIN'
+  END-IF
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* UPDATE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+FOR #I = 1 TO NODL-MEMB-CNT
+  IF NODL-MEMB-NAME(#I) = NODL-NAME
+    #ES-MSG-NR := 0601
+    #ES-MSG-FIELD-NAME := 'MEMBER'
+    #ES-MSG-FIELD-INDEX := #I
+    ESCAPE ROUTINE
+  END-IF
+  IF NOT (NOMOD-USER-AUTODEF = 'P' OR = 'Y')
+    FVL. FIND NUMBER DL WITH D-LIST-NAME = NODL-MEMB-NAME(#I)
+    IF *NUMBER(FVL.) = 0
+      FVU. FIND NUMBER US WITH USER-ID = NODL-MEMB-NAME(#I)
+      IF *NUMBER(FVU.) = 0
+        #ES-MSG-NR := 0602
+        #ES-MSG-FIELD-NAME := 'MEMBER'
+        #ES-MSG-FIELD-INDEX := #I
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+  END-IF
+  FVR. FIND NUMBER DL WITH D-LIST-NAME = NODL-MEMB-NAME(#I)
+    AND D-USER-LIST = NODL-NAME
+  IF *NUMBER(FVR.) > 0
+    #ES-MSG-NR := 0603
+    #ES-MSG-FIELD-NAME := 'MEMBER'
+    #ES-MSG-FIELD-INDEX := #I
+    ESCAPE ROUTINE
+  END-IF
+  IF #I > 1 AND NODL-MEMB-NAME(#I) = NODL-MEMB-NAME(1 : #I - 1)
+    #ES-MSG-NR := 0604
+    #ES-MSG-FIELD-NAME := 'MEMBER'
+    #ES-MSG-FIELD-INDEX := #I
+    ESCAPE ROUTINE
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+ES-MSG-FIELD := #ES-MSG-FIELD
+ES-RC := 1
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+IF NOMOD-LOG-TYPES (*) = 'D'
+  LG-USERID := ES-USER
+  LG-CODE := 'LM'
+  LG-OBJECT-NAME := NODL-NAME
+  DECIDE ON FIRST ES-EXTEND-FUNCTION
+    VALUE 'NEW'
+      COMPRESS '2110' D-LIST-NAME TO LG-MSG
+      CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+      FOR #I = 1 TO NODL-MEMB-CNT
+        COMPRESS '2112' D-USER-LIST(#I) D-LIST-NAME TO LG-MSG
+        CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+      END-FOR
+    VALUE 'UPD'
+      IF #D-LIST-DESC NE D-LIST-DESC
+        COMPRESS '2111' D-LIST-NAME TO LG-MSG
+        CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+      END-IF
+      FOR #I = 1 TO #C-USER-LIST
+        IF NODL-MEMB-CNT = 0
+        OR  NOT(#D-USER-LIST(#I) = NODL-MEMB-NAME(1:NODL-MEMB-CNT))   /*
+          COMPRESS '2113' #D-USER-LIST(#I) D-LIST-NAME TO LG-MSG
+          CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+        END-IF
+      END-FOR
+      FOR #I = 1 TO NODL-MEMB-CNT
+        IF #C-USER-LIST = 0
+        OR NOT(D-USER-LIST(#I) = #D-USER-LIST(1:#C-USER-LIST))        /*
+          COMPRESS '2112' D-USER-LIST(#I) D-LIST-NAME TO LG-MSG
+          CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+        END-IF
+      END-FOR
+    NONE VALUE IGNORE
+  END-DECIDE
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+END

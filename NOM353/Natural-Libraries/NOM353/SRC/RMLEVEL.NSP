@@ -1,0 +1,92 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMLEVEL
+* Version   3.2
+* Function  Show program levels for trace purposes
+*
+* ----------------------------------------------------------------------
+*
+* Maintenance
+* -----------
+* uuuuuu yyyy-mm-dd P999999 Remark
+* fhi    2007-05-30 P297047 Created because on Unix NSC NOM1078 occurred
+* fhi    2010-10-06 NOMALL-97 Add logging to SAT log file. No tags.
+* SU1    2018-10-30 NOMALL-2164 remove RLOG STACK
+* fhi    2019-01-04 NOMALL-2171 Avoid 1305 if LEVEL > 99
+* SU2    2019-02-01             avoid ';' in "Program stack:; S.."
+* fhi    2019-09-16 NOMALL-2294 Choose log-type ("T"race/"W"rite log)
+* SU3     2020-06-24 NOMALL-2349 remove unused + lev -> I2 +
+*                    avoid empty 'Program stack' (without ':')
+* ----------------------------------------------------------------------
+DEFINE DATA LOCAL
+1 SUB1         (I2)
+1 SUB2         (I2)
+1 SUB3         (I2)
+1 PARM         (A240)
+1 REDEFINE PARM
+  2 ENTRY      (A12/20)
+1 ITEM         (A12)
+1 REDEFINE ITEM
+  2 PGM        (A8)
+  2 LEVEL      (B1)
+  2 TYPE       (A1)
+  2 PSW        (B2)
+1 TAB-TYPE     (A1/13) INIT /*last entry is for unknown Ü
+  <'C','L','P','F','S','N','G','H','M','T','Y','Z','?'> /*13=?=unknown
+1 OBJ-NAMES    (A6/13) INIT
+  <'Global','Local','Param','Progrm','Subrtn','Subpgm',
+  'Copycd','Help','Map','Text','XpertM','Record','None'> /*last one Ü
+1 MAP-TABLE    (20)
+  2 MAP-PGM    (A8)
+  2 MAP-LEV    (I2) /*SU3 was P2
+  2 MAP-TYP    (A6)
+1 #MSG-INIT    (A25) CONST <'Program stack:'>
+1 #MSG         (A250)
+1 #LOG-TYPE    (A1)   /* 'T'=trace, 'W' or ' ' = write log; NOMALL-2294
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#MSG := #MSG-INIT
+* fhi    2019-09-16 NOMALL-2294 start insertion
+INPUT #LOG-TYPE
+IF #LOG-TYPE NE 'W'
+  #LOG-TYPE := 'T'
+END-IF
+* fhi    2019-09-16 NOMALL-2294 end   insertion
+CALL 'CMMPP' 'CALL' PARM
+FOR SUB1 1 20
+  ITEM := ENTRY (SUB1)
+  IF  (PGM = ' ' AND TYPE = ' ') OR  PGM = *PROGRAM
+    ESCAPE TOP
+  END-IF
+  ADD 1 TO SUB3
+  EXAMINE TAB-TYPE (*) FOR TYPE GIVING INDEX SUB2
+  IF SUB2 = 0
+    SUB2 := *OCC(TAB-TYPE) /*SU3 + 1
+  END-IF
+  MAP-TYP (SUB3) := OBJ-NAMES(SUB2)
+  MAP-PGM (SUB3) := PGM
+  MAP-LEV (SUB3) := LEVEL
+  IF SUB3 > 1 /*pgm itself and caller not shown Ü
+    IF SUB3 > 2 /*SU2
+      COMPRESS #MSG ';' TO #MSG LEAVING NO
+    END-IF
+    COMPRESS #MSG MAP-TYP(SUB3) MAP-PGM(SUB3) TO #MSG
+    COMPRESS #MSG '(' MAP-LEV(SUB3) ')' TO #MSG LEAVING NO
+  END-IF
+END-FOR
+IF #MSG = #MSG-INIT /*nothing to show
+  ESCAPE MODULE
+END-IF
+* PERFORM XXRLOG-WRITE-LOG 'T' #MSG /*SU1 S -> T
+* fhi    2019-09-16 NOMALL-2294 Line above out, below in
+PERFORM XXRLOG-WRITE-LOG #LOG-TYPE #MSG
+*
+END

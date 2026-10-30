@@ -1,0 +1,230 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDELDL - delete Distribution list and all relations to
+*            - authorization report
+*            -               bundle
+*            -               printer
+*            -               distribution list
+*            - Report definitions
+*
+* Maintenance
+* mrs 92-04-28           set confirm off implemented
+* xsiszha 2000-08-07 (CE7461) Extend Report and Bundle Names
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2012-09-04 NOMALL-1198 prevent NAT1316
+* xsetggr 2012-12-18 NOMALL-89 use RDELGRT to maintain grants
+* SU1     2016-08-08 NOM 3.5: remove unused code
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL
+1 LIST VIEW OF NRM-DISTRIBUTION-LIST
+  2 D-LIST-NAME
+1 GRANTS VIEW OF NRM-GRANTS
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-NATRPT-DIST         (10)
+  2 C*R-NATRPT-DIST
+1 DISTRIBUTION-LIST VIEW OF NRM-DISTRIBUTION-LIST
+  2 D-LIST-NAME
+  2 D-USER-LIST           (1:191)
+  2 C*D-USER-LIST
+* *****
+1 #P-LIST                 (A8)
+1 #XREF                   (I2) CONST <6>
+1 #XREF-TAB               (1:#XREF)
+  2 #XREF-TYPE            (A40) INIT
+*        RT T Relation Type
+* (nn) <'-- - ----+----1----+----2----+----3----+'>
+    (01) <'DT   Report Definition (Distribute to)  '>
+    (02) <'AU R Authorization Report               '>
+    (03) <'AU B Authorization Bundle               '>
+    (04) <'AU P Authorization Printer              '>
+    (05) <'AU L Authorization Distribution List    '>
+    (06) <'LM   Member of a Distribution List      '>
+  2 REDEFINE #XREF-TYPE
+    3 #XREF-RELATION-TYPE (A2)
+    3 #XREF-FIL1          (A1)
+    3 #XREF-GRANT-TYPE    (A1)
+    3 #XREF-FIL2          (A1)
+    3 #XREF-TEXT          (A35)
+  2 #XREF-NUMBER          (P10)
+/*SU1 2 #XREF-MARK            (A1) 2 #XREF-CV              (C)
+*
+1 #GR-START               (A34)
+1 REDEFINE #GR-START
+  2 #GRS-TYPE             (A1)
+  2 #GRS-USERID           (A8)
+  2 #GRS-OBJECT           (A25)
+1 REDEFINE #GR-START
+  2 #FILLER               (A1)
+  2 #GRS-NAME             (A8)
+1 #GR-END                 (A34)
+1 REDEFINE #GR-END
+  2 #GRE-TYPE             (A1)
+  2 #GRE-USERID           (A8)
+  2 #GRE-OBJECT           (A25)
+1 REDEFINE #GR-END
+  2 #FILLER2              (A1)
+  2 #GRE-NAME             (A8)
+1 #I                      (P2)  INIT <1>
+1 #J                      (P3)  INIT <1>
+1 #K                      (P3)  INIT <1>
+1 #OBJECT                 (A10)
+1 RELATIONS-EXIST         (L)
+1 CONFIRMED               (L)
+1 #COUNT                  (P3)
+1 #MAX-HOLD               (P3) INIT <10>
+1 #OBJ                    (A50)
+1 #GR-NAME                (A25)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#P-LIST  := G-C-LIST
+#GR-NAME := G-C-LIST
+INCLUDE CPFOFF
+* --------------------------------- main -------------------------------
+FIND LIST WITH D-LIST-NAME = #P-LIST
+  FOR. FOR #I = 1 TO #XREF
+    DECIDE ON FIRST #XREF-RELATION-TYPE (#I)
+      VALUE 'AU'   PERFORM XREF-NUMBER-GRANTS
+      VALUE 'DT'   PERFORM XREF-NUMBER-REPORTS
+      VALUE 'LM'   PERFORM XREF-NUMBER-DISTRIBUTION-LIST
+      ANY
+        IF RELATIONS-EXIST
+          ESCAPE BOTTOM (FOR.)
+        END-IF
+      NONE         IGNORE
+    END-DECIDE
+  END-FOR
+  IF G-CONFIRM
+    #OBJECT := #P-LIST
+    CALLNAT 'RDELCF' #OBJECT RELATIONS-EXIST CONFIRMED
+  END-IF
+  IF CONFIRMED OR NOT G-CONFIRM
+    PERFORM DELETE-RELATIONS
+    DELETE
+    #OBJ := D-LIST-NAME
+    PERFORM RMLOGDEL #OBJ 'DISTR-LIST'
+  END-IF
+END-FIND
+END OF TRANSACTION
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE XREF-NUMBER-GRANTS
+************************************************************************
+#GRS-TYPE := #GRE-TYPE :=  #XREF-GRANT-TYPE (#I)
+#GRS-USERID := #GRE-USERID :=  #P-LIST
+MOVE ALL H'00' TO #GRS-OBJECT
+MOVE ALL H'FF' TO #GRE-OBJECT
+FNDG. FIND NUMBER GRANTS WITH GR-SUPER = #GR-START THRU #GR-END
+#XREF-NUMBER (#I) := *NUMBER (FNDG.)
+IF #XREF-NUMBER (#I) > 0
+  RELATIONS-EXIST := TRUE
+END-IF
+*
+END-SUBROUTINE /* XREF-NUMBER-GRANTS
+*
+************************************************************************
+DEFINE SUBROUTINE XREF-NUMBER-REPORTS
+************************************************************************
+FNDR. FIND NUMBER REPORTS WITH R-NATRPT-DIST = #P-LIST
+#XREF-NUMBER (#I) := *NUMBER (FNDR.)
+IF #XREF-NUMBER (#I) > 0
+  RELATIONS-EXIST := TRUE
+END-IF
+*
+END-SUBROUTINE /* XREF-NUMBER-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE XREF-NUMBER-DISTRIBUTION-LIST
+************************************************************************
+FNDD. FIND NUMBER DISTRIBUTION-LIST WITH D-USER-LIST = #P-LIST
+#XREF-NUMBER (#I) := *NUMBER (FNDD.)
+IF #XREF-NUMBER (#I) > 0
+  RELATIONS-EXIST := TRUE
+END-IF
+*
+END-SUBROUTINE /* XREF-NUMBER-DISTRIBUTION-LIST
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-RELATIONS
+************************************************************************
+CALLNAT 'RDELGRT' G-USERID 'L' #GR-NAME
+FORD. FOR #I = 1 TO #XREF
+  DECIDE ON FIRST #XREF-RELATION-TYPE (#I)
+    VALUE 'AU'   PERFORM DELETE-GRANT-RECORDS
+    VALUE 'DT'   PERFORM RESET-REPORT-DEFINITION
+    VALUE 'LM'   PERFORM RESET-DISTRIBUTION-LIST
+    NONE         IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* DELETE-RELATIONS
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-GRANT-RECORDS
+************************************************************************
+CALLNAT 'RDELGRT' G-USERID 'U' #GR-NAME
+*
+END-SUBROUTINE /* DELETE-GRANT-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE RESET-REPORT-DEFINITION
+************************************************************************
+RESET #COUNT
+FNDDR. FIND REPORTS WITH R-NATRPT-DIST = #P-LIST
+  #K := C*R-NATRPT-DIST
+  EXAMINE FULL VALUE OF R-NATRPT-DIST (1:#K) FOR FULL VALUE OF #P-LIST
+    GIVING INDEX IN #J
+  IF #J > 0
+    RESET R-NATRPT-DIST (#J)
+    UPDATE
+  END-IF
+  IF #COUNT > #MAX-HOLD
+    END OF TRANSACTION
+    RESET #COUNT
+  END-IF
+END-FIND
+IF #COUNT > 0
+  END OF TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* RESET-REPORT-DEFINITION
+*
+************************************************************************
+DEFINE SUBROUTINE RESET-DISTRIBUTION-LIST
+************************************************************************
+RESET #COUNT
+FNDDL. FIND DISTRIBUTION-LIST WITH D-USER-LIST = #P-LIST
+  #K := C*D-USER-LIST
+  EXAMINE FULL VALUE OF D-USER-LIST (1:#K) FOR FULL VALUE OF #P-LIST
+    GIVING INDEX IN #J
+  IF #J > 0
+    RESET D-USER-LIST (#J)
+    UPDATE
+  END-IF
+  IF #COUNT > #MAX-HOLD
+    END OF TRANSACTION
+    RESET #COUNT
+  END-IF
+END-FIND
+IF #COUNT > 0
+  END OF TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* RESET-DISTRIBUTION-LIST
+*
+/*SU1 DEFINE SUBROUTINE PF-KEYS
+*
+END

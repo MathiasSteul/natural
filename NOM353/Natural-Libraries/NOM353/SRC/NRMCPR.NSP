@@ -1,0 +1,1037 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 5
+* <Natural Source Header
+* Member    NRMCPR
+* Version   1.3
+* Function  Command Processor
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  93-11-30 s(999999) cleaned up, old version saved
+* mrs 93-12-02 s(999999) integration of SAT products as described in the
+*                        PDT/25.10.93 document
+* mrs 94-06-14 s(999999) call nrmputgl before logon appl
+* gw  94-07-22 s(999999) release variables before stacking 'SPF' to free esize
+* gw  95-12-11 s(222350) user exit to allow/disallow access to NSPF
+* gw  96-09-19 s(254500) avoid NAT0080 at logon appl
+* mrs 97-06-04 p(162804) new command PROFILE
+* gw  98-03-13 s(278970) pass object value for 'list abundles'
+* gw  98-03-13 s(278970) save search values in independent variables
+* jvd 99-07-13 p(183302) NOM142 changes
+* fhi 00-01-26 p(191368) Module taken from NOM142, stowed for NOM211
+* sju 00-05-31 p(179982) reset selection criteria - new command SELECT
+*                        command table increased from 50 to 60 entries
+* xsiszha 2000-08-07 (CE7461) Extend Report and Bundle Names
+* sju 00-08-21 CE 7465   On-line mass deletion - new command MASSDEL
+* sju 00-10-12 p(191368) Exit/separator xref - new command XREF
+* sju 02-02-22 nom221    Restore screen size before TECH command
+* fhi 02-10-30 fhi101    switch on optimizer compiler
+* fhi     2003-08-11 p(213773) DC solutions not shown
+* xsetggr 2003-08-22 p(240465) allow to display calendar with dir com
+* sju 04-12-10 NOM31     New IX command
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* xsetggr 2006-08-08 p(279849) new Archive & Revive profile value 'M'
+* xsetggr 2007-10-05 p(298112) prevent missing values of AIV
+* xsetggr 2007-11-20 NRT2771   start/stop command for physical printers
+* xsetggr 2008-01-25 p(302721) SET USER & NSM not more used.
+* xsetggr 2008-02-16 p(301593) add parm to call RHANPH-N
+* fhi     2008-07-17 P296314   Window definition incorrect
+* xsetggr 2010-01-25 P300184   use g-language instead of *g-language
+* splildav 2011-02-09 NOMALL-31  New command VTAM
+* fhi      2013-06-28 NOMALL-86  New command EXPORT
+* SU1     2015-12-22 NOMALL-1789 remove unused RPRCRP
+* fhi     2016-06-09 NOMALL-1884 Aline RMASSDEL with documentation
+* SU2     2016-07-29 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* fhi     2017-01-27 NOMALL-1620 Allow 3 digit menu, e.g. '8.1.2'
+* GGS01   2021-09-09 NOMALL-2491 Rework the MASSDEL command
+* -------------------------- -------------------------------------------
+/*SU2 OPTIONS MCG=(INDX=ON,OVFLW=ON,DIGTCHCK=ON)
+*
+DEFINE DATA GLOBAL USING  NRM-GL
+* fhi     2017-01-27 NOMALL-1620 start insertion
+INDEPENDENT
+1 +SUBMENU                   (A2) /* NOMALL-1620 fhi in
+* fhi     2017-01-27 NOMALL-1620 end   insertion
+LOCAL USING PROF-LOC
+LOCAL
+1 SPF-ACTIVE                 (L)
+1 #CONST-OBJTAB              (I2) CONST <86>
+1 #CALNAME                   (A8)
+1 J                          (N3)
+1 K                          (N3)
+1 #TOK                       (A60/30)
+1 #NT                        (P2) /* number of tokens
+1 #CN                        (N2) /* command number
+1 REDEFINE    #CN
+  2 #CN-A                    (A2) /* command number
+1 #ON                        (N2) /* object number
+1 REDEFINE    #ON
+  2 #ON-A                    (A2) /* object number
+1 #NOO                       (P2) /* number of matching in object list
+1 #NOC                       (P2) /* number of matching in command list
+1 #FFFF                      (A4)
+1 #LIBRARY-ID                (A8)
+*
+1 #COMMAND-TABLE             (60)
+  2 #COMMAND                 (A10) INIT
+    (01) <' ADD      '>
+    (02) <' DELETE   '>
+    (03) <' DISPLAY  '>
+    (04) <' LIST     '>
+    (05) <' MODIFY   '>
+    (06) <' SHUTDOWN '>
+    (07) <' START    '>
+    (08) <' HELP     '>
+    (09) <' QUIT     '>
+    (10) <' FLUSH    '>
+    (11) <' SPF      '>
+    (12) <' >8.9     '>
+    (13) <' FOLLOW   '>
+    (14) <' MENU     '>
+    (15) <' >0       '> /* mainmenu
+    (16) <' >1       '> /* list reports
+    (17) <' >2       '> /* list bundles
+    (18) <' >3       '> /* list printers
+    (19) <' >4       '> /* list dist-lists
+    (20) <' >5       '> /* list active reports
+    (21) <' >6       '> /* list active bundles
+    (22) <' >8.0     '> /* administrator services
+    (23) <' >8.6     '> /* monitor startup
+    (24) <' >8.1     '> /* defaults
+    (25) <' >8.2     '> /* users maintenance
+    (26) <' >8.4     '> /* calendar maintenance
+    (27) <' >7       '> /* list printouts
+    (28) <' >8.3     '> /* copy security
+    (29) <' SET      '>
+    (30) <' COPY     '>
+    (31) <' >8.7     '> /* start archiver
+    (32) <' >8.8     '> /* start reviver
+    (33) <' EXIT     '>
+    (34) <' .        '>
+    (35) <' ADMIN    '>
+    (36) <' TECH     '>
+    (37) <' >8.5     '> /* physical printers
+    (38) <' CONTENTS '>
+    (39) <' DLOG     '>
+    (40) <' >9       '> /* list archive
+    (41) <' FLIP     '>
+    (42) <' UP       '>
+    (43) <' DOWN     '>
+    (44) <' TOP      '>
+    (45) <' BOT      '>
+    (46) <' LOGON    '>
+    (47) <' TRANSFER '>
+    (48) <' TRACE    '>
+    (49) <' FIN      '>
+    (50) <' PROFILE  '>
+    (51) <' SELECT   '>
+    (52) <' MASSDEL  '>
+    (53) <' XREF     '>
+    (54) <' IXREF    '>
+    (55) <' CLOSE    '>
+    (56) <' VTAM     '>
+*   (57) <' >8.11    '> /* VTAM options
+    (58) <' EXPORT   '>
+  2 REDEFINE    #COMMAND
+    3 #BLANK-CMD             (A1)
+    3 #CMD-REST              (A9)
+  2 WITH-OBJECT              (L) INIT
+    (01) <TRUE>
+    (02) <TRUE>
+    (03) <TRUE>
+    (04) <TRUE>
+    (05) <TRUE>
+    (07) <TRUE>
+    (10) <TRUE>
+    (14) <TRUE>
+    (29) <TRUE>
+    (30) <TRUE>
+    (38) <TRUE>
+    (39) <TRUE>
+    (47) <TRUE>
+    (07) <TRUE>
+    (55) <TRUE>
+  2 WITH-VALUE               (L) INIT
+    (02) <TRUE>
+    (03) <TRUE>
+    (05) <TRUE>
+    (07) <TRUE>
+    (29) <TRUE>
+    (55) <TRUE>
+  2 #DEFAULT-OBJECT          (A10) INIT
+    (39) <'MONITOR'>
+*
+1 #OBJECTS                   (A12/32) INIT
+  (01) <' USERS '>
+  (02) <' REPORTS '>
+  (03) <' BUNDLES '>
+  (04) <' PRINTERS '>
+  (05) <' MONITOR '>
+  (06) <' PROSE '>
+  (07) <' LISTS '>
+  (08) <' AREPORTS '>
+  (09) <' ABUNDLES '>
+  (10) <' MAIN '>
+  (11) <' ADMIN '>
+  (12) <' CALENDARS'>
+  (13) <' PRINTOUTS'>
+  (14) <' MEMBER '>
+  (15) <' COMMIT '>
+  (16) <' LANGUAGE '>
+  (17) <' SECURITY '>
+  (18) <' ARCHIVE '>
+  (19) <' REVIVER '>
+  (20) <' 9999999 '>
+  (21) <' PHYSICAL '>
+  (22) <' CONFIRM '>
+  (28) <' TEST '>
+  (29) <' PROFILE '>
+  (30) <' DEFAULTS '>
+  (31) <' FOLDER '>
+  (32) <' CONDENSE '>
+*
+1 #CMD-OBJ                   (A5/#CONST-OBJTAB) INIT
+* ADD
+  (01) <' 0101'>
+  (02) <' 0102'>
+  (03) <' 0103'>
+  (04) <' 0104'>
+  (05) <' 0107'>
+  (06) <' 0112'>
+  (07) <' 0121'>
+* DELETE
+  (08) <' 0201'>
+  (09) <' 0202'>
+  (10) <' 0203'>
+  (11) <' 0204'>
+  (12) <' 0207'>
+  (13) <' 0212'>
+  (14) <' 0221'>
+* LIST
+  (15) <' 0401'>
+  (16) <' 0402'>
+  (17) <' 0403'>
+  (18) <' 0404'>
+  (19) <' 0407'>
+  (20) <' 0408'>
+  (21) <' 0409'>
+  (22) <' 0412'>
+  (23) <' 0413'>
+  (24) <' 0421'>
+* MODIFY
+  (25) <' 0501'> /* users
+  (26) <' 0502'> /* reports
+  (27) <' 0503'> /* bundles
+  (28) <' 0504'> /* printers
+  (29) <' 0505'> /* monitor
+  (30) <' 0507'> /* lists
+  (31) <' 9999'>
+  (32) <' 0512'> /* calendars
+  (33) <' 9999'>
+  (34) <' 9999'> /* process
+  (35) <' 0521'> /* physical
+  (68) <' 0529'> /* profile
+* START
+  (35) <' 0705'>
+  (36) <' 0718'>
+  (37) <' 0719'>
+  (84) <' 0732'>
+  (85) <' 0721'>
+* HELP
+  (38) <' 0800'>
+* FLUSH
+  (39) <' 1003'>
+* SPF
+  (40) <' 1100'>
+* NATOP
+  (41) <' 1200'>
+* LOGON
+  (42) <' 1300'>
+* MENU
+  (43) <' 1410'>
+  (44) <' 1411'>
+  (45) <' 9999'>
+  (46) <' 2916'>
+  (60) <' 2928'>
+* COPY
+  (47) <' 3017'>
+* CONTENTS
+  (48) <' 3803'>
+  (49) <' 9999'>
+* LOG
+  (50) <' 3901'> /* user
+  (51) <' 3905'> /* monitor
+  (52) <' 0418'> /* list archive
+  (53) <' 2922'> /* set confirm
+  (54) <' 2915'> /* set commit
+  (55) <' 4900'> /* follow
+  (56) <' 3913'> /* display printout log
+  (57) <' 0301'>
+  (58) <' 0302'>
+  (59) <' 0303'>
+  (60) <' 0304'>
+  (61) <' 0307'>
+  (62) <' 0312'>
+  (63) <' 0321'>
+  (64) <' 4701'>
+  (65) <' 4702'>
+  (66) <' 4703'>
+  (67) <' 4704'>
+  (68) <' 4707'>
+  (69) <' 4712'>
+  (70) <' 4721'>
+  (71) <' 1430'> /* menu defaults
+  (72) <' 9999'> /* display processing of rep
+  (73) <' 1408'> /* menu active reports
+  (74) <' 3003'> /* copy bundle
+  (75) <' 3021'> /* copy physical printer
+  (76) <' 3004'> /* copy logical printer
+  (77) <' 3002'> /* copy reports
+  (78) <' 3001'> /* copy users
+  (79) <' 0521'> /* physical
+  (80) <' 1405'> /* menu monitor
+  (81) <' 0529'> /* modify profile
+  (82) <' 0329'> /* display profile
+  (83) <' 0131'> /* add folder
+  (86) <' 5521'> /* stop physiacl
+1 REDEFINE    #CMD-OBJ
+  2 #CMD-OBJ1                (#CONST-OBJTAB)
+    3 #CO-FIL                (A1)
+    3 #CO-CMD                (A2)
+    3 #CO-OBJ                (A2)
+*
+1 #FUNC-TOK                  (A5)
+1 REDEFINE    #FUNC-TOK
+  2 #FT-BLANK                (A1)
+  2 #FT-CMD                  (A2)
+  2 #FT-OBJ                  (A2)
+*
+1 #FT-OBJ1                   (N2)
+1 #C-CMD                     (A10)
+1 #C-OBJ-S                   (30)
+  2 #C-OBJ                   (A12)
+  2 #C-OBJN                  (N2)
+*
+1 #OBJ-N                     (N2)
+1 #FT                        (N2)
+*
+1 #TOKEN                     (A60)
+1 REDEFINE    #TOKEN
+  2 #TOKEN-1                 (A1)
+  2 #TOKEN-2                 (A59)
+1 REDEFINE    #TOKEN
+  2 #TOKEN-V                 (A1/60)
+1 #ROUTING-TABLE             (32)
+  2 #DEF-PROG                (A8) INIT
+    (01) <'RDEFUS'>
+    (02) <'RDEFRP'>
+    (03) <'RDEFBU'>
+    (04) <'RDEFPR'>
+    (05) <'RDEFMO'>
+    (06) <'RDISPP'>
+    (07) <'RDEFDL'>
+    (08) <'RLISFO'> /* RLISAC
+    (09) <'RLISAB'>
+    (12) <'RDEFCA'>
+    (14) <'RLISDM'>
+/*SU1 (20) <'RPRCRP'>
+    (21) <'RDEFPH'>
+    (29) <'RDEFUP'>
+    (31) <'RDEFFO'>
+  2 #LIST-PROG               (A8) INIT
+    (01) <'RLISUS'>
+    (02) <'RLISRP'>
+    (03) <'RLISBU'>
+    (04) <'RLISPR'>
+    (05) <'      '>
+    (06) <'      '>
+    (07) <'RLISDL'>
+    (08) <'RLISFO'> /* RLISAC
+    (09) <'RLISAB'>
+    (12) <'RLISCA'>
+    (13) <'RLISPO'>
+    (18) <'RLISAD'>
+    (21) <'RLISPH'>
+  2 #MIGRATE-PROG            (A8) INIT
+    (01) <'RMIGUS'>
+    (02) <'RMIGRP'>
+    (03) <'RMIGBU'>
+    (04) <'RMIGPR'>
+    (07) <'RMIGDL'>
+    (12) <'RMIGCA'>
+    (21) <'RMIGPH'>
+  2 #COPY-PROG               (A8) INIT
+    (01) <'RCOPUS'>
+    (02) <'RCOPRP'>
+    (03) <'RCOPBU'>
+    (04) <'RCOPPR'>
+    (17) <'RCOPSC'>
+    (21) <'RCOPPH'>
+  2 #CODE                    (A1) INIT
+    (1) <'A'>
+    (2) <'P'>
+    (3) <'D'>
+    (4) <' '>
+    (5) <'M'>
+*
+1 #NUM                       (N3)
+1 L-MARK                     (A1/60)
+1 CV-MARK                    (C/60)
+1 I-CMD                      (N7)
+1 I-OBJ                      (N7)
+1 #CNVEC                     (P2/40)
+1 #CMDVECA                   (60)
+  2 #CMDVEC                  (A12)
+  2 #CMDVECN                 (N2)
+1 #SER                       (A4)
+1 REDEFINE    #SER
+  2 #SER-CN                  (A2)
+  2 #SER-ON                  (A2)
+1 #FOUND                     (P2)
+1 #LOGON                     (A20)
+1 #L                         (P2)
+1 #APPLIC-TOKEN              (A11)
+1 REDEFINE #APPLIC-TOKEN
+  2 #APL                     (A1/1:11)
+1 SECURITY-ACTIVE            (L)
+1 LOGON-ALLOWED              (L)
+1 NSCL-PARMS
+  2 NSCL-APPLID              (A8)
+  2 NSCL-USERID              (A8)
+  2 NSCL-ERC                 (N4)
+  2 NSCL-PPARM1              (A250)
+1 #PHYSICAL                  (A8)
+1 #PARAM1                    (A80)   /* NOMALL-1884 fhi in
+1 #PARAM2                    (A80)   /* NOMALL-1884 fhi in
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+/*SU2 OPTIONS MCG=OFF
+*
+RESET G-BROWSE-FLAGS
+SET KEY PF3
+PROFILE-STRING := G-USER-PROFILE
+* MASSDEL, XREF, IXREF only admin:
+IF G-USER-TYPE NE 'A'
+  RESET #COMMAND(52) #COMMAND(53) #COMMAND(54)
+    #COMMAND(58) /* fhi NOMALL-86 in
+END-IF
+MAIN-REPEAT. REPEAT
+  RESET #TOK(*)
+  RESET G-NATRP-ERC
+  SEPARATE G-DIRECT-COMMAND LEFT INTO #TOK(1:30) WITH DELIMITER ' '
+    GIVING NUMBER #NT
+  IF #NT = 0 ESCAPE ROUTINE END-IF
+*
+* fhi     2017-01-27 NOMALL-1620 start commenting
+* IF #TOK(1) = '>8'
+*   #TOK(1) := '>8.0'
+* END-IF
+* fhi     2017-01-27 NOMALL-1620 end commenting, start insertion
+  DECIDE FOR EVERY CONDITION
+    WHEN #TOK(1) = '>8'
+      #TOK(1) := '>8.0'
+    WHEN #TOK(1) = MASK(N'.'N'.'N) OR = MASK(N'.'N'.'NN)
+      +SUBMENU := SUBSTR(#TOK(1),5)
+      COMPRESS '>' SUBSTR(#TOK(1),1,3) TO #TOK(1) LEAVING NO
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+* fhi     2017-01-27 NOMALL-1620 end insertion
+  #TOKEN-2 := #TOK(1)
+  EXAMINE #COMMAND(*) FOR #TOKEN GIVING NUMBER #NOC INDEX #CN
+  IF #CN = 0
+    I-CMD := 1
+    RESET K #CMDVEC(*) #CMDVECN(*)
+    CV-MARK (*) := (AD=DP CD=TU)
+    FOR J 1 TO 60
+      IF #COMMAND(J) NE ' ' AND #COMMAND(J) NE SCAN '>'
+          AND #COMMAND(J) NE MASK (' .')
+        ADD 1 TO K
+        #CMDVEC(K) := #COMMAND(J)
+        #CMDVECN(K) := J
+        CV-MARK (K) := (AD=I CD=GR)
+      END-IF
+    END-FOR
+*
+    CALLNAT 'RSRTCMD' #CMDVECA(1:60)
+    REPEAT1.    REPEAT
+      J := I-CMD         + 9
+      RELEASE STACK
+      SET CONTROL 'WC16L25B8/30F'
+      INPUT USING MAP 'N--CPCM&'
+      IF *PF-KEY = 'PF3'
+        SET CONTROL 'WB'
+        ESCAPE ROUTINE
+      END-IF
+*
+      FOR K I-CMD TO J
+        IF L-MARK(K) NE ' '
+          #CN := #CMDVECN(K)
+          ESCAPE BOTTOM(REPEAT1.)
+        END-IF
+      END-FOR
+      IF I-CMD >= 30
+        I-CMD := 1
+      ELSE
+        ADD 10 TO I-CMD
+      END-IF
+    END-REPEAT
+  END-IF
+  IF #NOC > 1
+    RESET #CNVEC(*) #CMDVEC(*) K
+    CV-MARK (*) := (AD=DP CD=TU)
+    FOR J #CN TO 60
+      EXAMINE #COMMAND(J) FOR #TOKEN GIVING NUMBER #CN
+      IF #CN > 0
+        ADD 1 TO K
+        #CNVEC(K) := #CMDVECN(K) := J
+        #CMDVEC(K) := #COMMAND(J)
+        CV-MARK (K) := (AD=I CD=GR)
+      END-IF
+    END-FOR
+    CALLNAT 'RSRTCMD' #CMDVECA(1:60)
+    I-CMD := 1
+    REPEAT2.    REPEAT
+      J := I-CMD + 9
+      SET CONTROL 'WC16L25B8/30F'
+      INPUT USING MAP 'N--CPCM&'
+      IF *PF-KEY = 'PF3' ESCAPE ROUTINE END-IF
+      FOR K I-CMD TO J
+        IF L-MARK(K) NE ' '
+          #CN := #CMDVECN(K)
+          ESCAPE BOTTOM(REPEAT2.)
+        END-IF
+      END-FOR
+      IF I-CMD >= 20
+        I-CMD := 1
+      ELSE
+        ADD 10 TO I-CMD
+      END-IF
+    END-REPEAT
+  END-IF
+*
+  DECIDE ON FIRST VALUE OF #CN
+    VALUE 12 G-DIRECT-COMMAND := 'START CONDENSE'
+    VALUE 15 G-DIRECT-COMMAND := 'MENU MAIN     '
+    VALUE 16 G-DIRECT-COMMAND := 'LIST REPORTS  '
+    VALUE 17 G-DIRECT-COMMAND := 'LIST BUNDLES  '
+    VALUE 18 G-DIRECT-COMMAND := 'LIST PRINTERS '
+    VALUE 19 G-DIRECT-COMMAND := 'LIST LIST     '
+    VALUE 20 G-DIRECT-COMMAND := 'MENU AREPORTS '
+    VALUE 21 G-DIRECT-COMMAND := 'LIST ABUNDLES '
+    VALUE 22 G-DIRECT-COMMAND := 'ADMIN         '
+    VALUE 23 G-DIRECT-COMMAND := 'MENU MONITOR  '
+    VALUE 24 G-DIRECT-COMMAND := 'MENU DEFAULTS '
+    VALUE 25 G-DIRECT-COMMAND := 'LIST USERS    '
+    VALUE 26 G-DIRECT-COMMAND := 'LIST CALENDARS'
+    VALUE 27 G-DIRECT-COMMAND := 'LIST PRINTOUTS'
+    VALUE 28 G-DIRECT-COMMAND := 'COPY SECURITY'
+    VALUE 31 G-DIRECT-COMMAND := 'START ARCHIVE '
+    VALUE 32 G-DIRECT-COMMAND := 'START REVIVER  '
+    VALUE 34 G-DIRECT-COMMAND := 'EXIT           '
+    VALUE 37 G-DIRECT-COMMAND := 'LIST PHYSICAL  '
+    VALUE 40 G-DIRECT-COMMAND := 'LIST ARCHIVE   '
+    ANY VALUE ESCAPE TOP
+    NONE ESCAPE BOTTOM
+  END-DECIDE
+END-REPEAT
+IF WITH-OBJECT (#CN)
+  IF #TOK(2) = ' ' AND #DEFAULT-OBJECT(#CN) NE ' '
+    #TOK(2) := #DEFAULT-OBJECT(#CN)
+  END-IF
+  #TOKEN-2 := #TOK(2)
+  EXAMINE #OBJECTS(*) #TOKEN GIVING NUMBER #NOO INDEX #ON
+  #C-CMD := #COMMAND (#CN)
+  IF #ON NE 0
+    MOVE EDITED #CN (EM=99) TO #SER-CN
+    MOVE EDITED #ON (EM=99) TO #SER-ON
+    EXAMINE FULL VALUE OF #CMD-OBJ (*) FOR #SER GIVING INDEX #FOUND
+    IF #FOUND = 0
+      RESET #ON
+    END-IF
+  END-IF
+*
+  IF #ON = 0 OR #TOKEN = ' '
+    RESET #FUNC-TOK
+    CV-MARK(*) := (AD=DP CD=TU)
+    MOVE EDITED #CN(EM=99) TO #FT-CMD
+    FOR #FT 1 TO #CONST-OBJTAB    /* F(017)
+      IF #CMD-OBJ(#FT) = ' ' ESCAPE BOTTOM END-IF
+      IF #CMD-OBJ(#FT) = MASK (.XX) #FUNC-TOK
+        #FT-OBJ1 := VAL(#CO-OBJ(#FT))
+        ADD 1 TO #OBJ-N
+        #C-OBJ(#OBJ-N) := #OBJECTS(#FT-OBJ1)
+        #C-OBJN(#OBJ-N) := #FT-OBJ1
+        RESET CV-MARK(#OBJ-N)
+      END-IF
+    END-FOR
+    I-OBJ := 1
+    RESET L-MARK(*)
+    CALLNAT 'RSRTOBJ' #C-OBJ-S(1:30)   /* SORT  OBJECTS
+    REPEAT3.    REPEAT
+      J := I-OBJ  + 9
+      SET CONTROL 'WC16L24B5/45F'
+      INPUT USING MAP 'N--CPOM&'
+      IF *PF-KEY = 'PF3' ESCAPE ROUTINE END-IF
+      FOR K I-OBJ TO J
+        IF L-MARK(K) NE ' '
+          #ON := #C-OBJN(K)
+          RESET #NOO
+          ESCAPE BOTTOM(REPEAT3.)
+        END-IF
+      END-FOR
+      IF I-OBJ > #OBJ-N - 10
+        I-OBJ := 1
+      ELSE
+        ADD 10 TO I-OBJ
+      END-IF
+    END-REPEAT
+    IF WITH-VALUE(#CN) AND #TOK(3) = ' '
+        AND #ON NE 5 /* MONITOR
+      SET CONTROL 'WC5L32B7/48F'
+      INPUT (IP=OFF) 'Object-Value' / #TOK(3)(AD=MDLT'_' AL=25)
+    END-IF
+  END-IF
+  IF #NOO > 1  G-NATRP-ERC := 6005
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+COMPRESS #CN-A #ON-A TO #FFFF LEAVING NO
+* fhi     2016-06-09 NOMALL-1884 start insertion
+RESET #PARAM1 #PARAM2
+SEPARATE G-DIRECT-COMMAND
+  INTO G-DIRECT-COMMAND #PARAM1 #PARAM2 IGNORE WITH DELIMITER ' '
+* fhi     2016-06-09 NOMALL-1884 end   insertion
+RESET G-DIRECT-COMMAND
+DECIDE ON EVERY VALUE OF #CMD-REST(#CN)
+  VALUE 'HELP' /* HELP COMMAND
+    RESET G-DIRECT-COMMAND
+    REINPUT USING HELP
+  VALUE 'TECH'     /* TECH-FUNCTION
+    SET CONTROL 'WB'
+    FETCH RETURN 'NRMTECH'
+  VALUE 'SET'    /* SET COMMAND
+    PERFORM SET-COMMAND
+  VALUE 'FLIP'
+    PERFORM FLIP-HANDLE
+  VALUE 'FOLLOW'
+    PERFORM FOLLOW-MONITOR
+  VALUE 'PROFILE'  /* PROFILE-FUNCTION
+    FETCH RETURN 'RDEFPRF'
+  VALUE 'SELECT'   /* Selection criteria
+    FETCH RETURN 'RSELECT'
+  VALUE 'MASSDEL'  /* Mass delete                 GGS01 >>
+*   FETCH RETURN 'RMASSDEL'
+* fhi     2016-06-09 NOMALL-1884 line above out, start insertion
+    #PARAM1 := SUBSTR(#PARAM1,1,2)
+    IF #PARAM1 = 'RE' /* direct command abbrevation does not
+      #PARAM1 := 'RP' /* match expected parameter
+    END-IF
+    IF *USER = 'NATQA5'
+      /* QA uses the MASSDEL function in Proterm tests. The tests record
+      /* online functions and executed them in batch.
+      /* In the new MASSDEL map, the field "Object Mask" is removed.
+      /* This field however is included in the QE recordings (issuing a TAB,
+      /* the field will be skipped). It is not possible to edit the recordings.
+      /* About 300 tests would have to be newly recorded. To avoid this,
+      /* for the QE tests using *USER= NATQA5, the old
+      /* MASSDEL function will be called.
+      FETCH RETURN 'RMASSDEL' #PARAM1 #PARAM2
+    ELSE
+      /* All modules for the new MASSDEL function start with RNMASS*.
+      /* In addition, HNMASSD1 (Text) is needed. It's delivered in SYSNOMH1
+      /* (Englisch) and in SYSNOMH2 (German).
+      /* If only RNMASSDE is called, and not RMASSDE, modules NOM_MPAR,
+      /* NOM_MKEY and NOM_MASK would be obsolete.
+      FETCH RETURN 'RNMASSDE' #PARAM1 #PARAM2   /* << GGS01
+    END-IF
+* fhi     2016-06-09 NOMALL-1884 end   insertion
+* fhi NOMALL-86 start insertion
+  VALUE 'EXPORT'  /* Export NOM Objects
+    FETCH RETURN 'REXPORT'
+* fhi NOMALL-86 end   insertion
+  VALUE 'XREF'     /* Cross reference
+    FETCH RETURN 'RXREF'
+  VALUE 'IXREF'     /* Cross reference
+    FETCH RETURN 'RIXRF'
+  VALUE 'VTAM' /*  , '>8.11'     /* NOMVPRNT
+    SET CONTROL 'WB'
+    FETCH RETURN 'RVTMOPT'
+  ANY VALUE
+    ESCAPE ROUTINE
+  NONE VALUE IGNORE
+END-DECIDE
+*
+RELEASE STACK
+*
+PERFORM COMMIT-WORK
+COMPRESS #CN-A #ON-A TO #FFFF LEAVING NO
+RESET G-DIRECT-COMMAND
+DECIDE ON EVERY VALUE OF #CMD-REST(#CN)
+  VALUE 'HELP' /* HELP COMMAND
+    REINPUT USING HELP
+  VALUE 'QUIT' /* END  COMMAND
+    FETCH 'NATRPEND'
+  VALUE 'ADD','MODIFY','DELETE','DISPLAY'
+    IF #ON = 5
+      FETCH #DEF-PROG(#ON)
+    END-IF
+    DECIDE ON FIRST VALUE OF #ON
+      VALUE 1,29     /* ADDED ABILITY TO ACCESS USER-PROFILE
+        IF #TOK(3) NE ' '
+          G-C-USERID := #TOK(3)
+        END-IF
+      VALUE 2,20
+        G-C-REPORT := #TOK(3)
+      VALUE 3
+        G-C-BUNDLE := #TOK(3)
+      VALUE 4
+        G-C-PRINTER := #TOK(3)
+      VALUE 21
+        G-C-PHYSICAL := #TOK(3)
+      VALUE 12
+        IF #CN = 1
+          STACK TOP DATA #CODE (#CN)
+        ELSE
+          IF #TOK(4) IS (N4)
+            #CALNAME := #TOK(3)
+* xsetggr 2003-08-22 p(240465) insert 3 lines
+            IF #CMD-REST(#CN) = 'DISPLAY'
+              STACK TOP DATA 'D' #CALNAME #TOK(4)
+            ELSE
+              STACK TOP DATA 'M' #CALNAME #TOK(4)
+            END-IF        /* xsetggr 2003-08-22 p(240465) insert
+          ELSE
+            G-NATRP-ERC := 2001
+            ESCAPE ROUTINE
+          END-IF
+        END-IF
+      VALUE 14,7
+        IF #TOK(3) NE ' '
+          G-C-LIST := #TOK(3)
+        END-IF
+      NONE VALUE IGNORE
+    END-DECIDE
+    G-C-FUNC := #CODE(#CN)
+    FETCH #DEF-PROG(#ON)
+  VALUE 'TRANSFER'
+    FETCH #MIGRATE-PROG (#ON)
+  VALUE 'FIN'
+    TERMINATE
+  VALUE 'TRACE'
+    STACK TOP COMMAND 'RLISRP'
+    FETCH 'RTRARP'
+  VALUE 'LIST'
+    DECIDE ON FIRST VALUE OF #ON
+      VALUE  1 STACK TOP DATA FORMATTED #TOK(3)
+      VALUE  2 STACK TOP DATA FORMATTED #TOK(3) #TOK(4) #TOK(5)
+      VALUE  3 STACK TOP DATA FORMATTED #TOK(3)
+      VALUE  4 STACK TOP DATA FORMATTED #TOK(3) #TOK (4)
+      VALUE  7 STACK TOP DATA FORMATTED #TOK(3)
+      VALUE  9 STACK TOP DATA FORMATTED #TOK(3) #TOK (4) #TOK (5)
+      VALUE 12 STACK TOP DATA FORMATTED #TOK(3)
+      VALUE 21 STACK TOP DATA FORMATTED #TOK(3)
+      VALUE 13 STACK TOP DATA FORMATTED #TOK(3) #TOK(4)
+      NONE IGNORE
+    END-DECIDE
+    FETCH #LIST-PROG(#ON)
+  VALUE 'SHUTDOWN'
+    FETCH 'RHANMO' G-WAIT-MINIMUM G-WAIT-MAXIMUM G-WAIT-INCREMENT 'C'
+  VALUE 'START'
+    IF NOT PROF-STARTUP = 'Y' AND #ON NE 21
+      G-NATRP-ERC := 20
+      ESCAPE ROUTINE
+    END-IF
+    IF #ON NE 21 AND #TOK(3) NE ' '
+      RESET #TOK(3)
+    END-IF
+    DECIDE ON FIRST VALUE OF #ON
+      VALUE 5         /* START MONITOR
+        FETCH 'RHANMO' G-WAIT-MINIMUM G-WAIT-MAXIMUM G-WAIT-INCREMENT
+          'S'
+      VALUE 18       /* start archive task
+        IF PROF-ARCHIVE NE 'Y'
+          G-NATRP-ERC := 20
+          ESCAPE ROUTINE
+        END-IF
+        CALLNAT 'RINIAR-N' 'ARC' G-USERID G-NATRP-ERC G-NATRP-ERT
+        FETCH 'RADMIN'
+      VALUE 19       /* start reviver task
+        IF PROF-REVIVE NE 'Y'
+          G-NATRP-ERC := 20
+          ESCAPE ROUTINE
+        END-IF
+        CALLNAT 'RINIAR-N' 'REV' G-USERID G-NATRP-ERC G-NATRP-ERT
+        FETCH 'RADMIN'
+      VALUE 32       /* start condense task
+        IF PROF-ARCHIVE NE 'Y'
+          G-NATRP-ERC := 20
+          ESCAPE ROUTINE
+        END-IF
+        CALLNAT 'RINIAR-N' 'CDN' G-USERID G-NATRP-ERC G-NATRP-ERT
+        FETCH 'RADMIN'
+      VALUE 21                     /* physical printer
+        IF NOT (PROF-PHYSICAL = 'M' OR = 'P')
+          G-NATRP-ERC := 20
+          ESCAPE ROUTINE
+        END-IF
+        IF #TOK (3) = ' '
+          SET CONTROL 'WC5L32B7/13F'
+          INPUT (IP=OFF) 'Object-Value' (TU)
+            / #TOK(3) (AD=MDLT'_' AL=25 CD=NE)
+          SET CONTROL 'WMB'
+        END-IF
+        #PHYSICAL := #TOK(3)
+        CALLNAT 'RHANPH-N' #PHYSICAL 'S' G-USERID G-NATRP-ERC
+        IF G-NATRP-ERC = 0
+          END TRANSACTION
+        ELSE
+          ESCAPE ROUTINE
+        END-IF
+      NONE VALUE IGNORE
+    END-DECIDE
+  VALUE 'LOGON'
+    PERFORM LOGON-COMMAND
+  VALUE 'MENU'
+*
+    RELEASE STACK
+    DECIDE ON FIRST VALUE OF #ON
+      VALUE 05 FETCH 'RHANMO'
+      VALUE 08 FETCH 'RLISFO'
+      VALUE 10 FETCH 'RMENU'
+      VALUE 11 FETCH 'RADMIN'
+      VALUE 30 FETCH 'RDFMEN'
+      NONE IGNORE
+    END-DECIDE
+  VALUE 'SET'    /* SET COMMAND
+    PERFORM SET-COMMAND
+*
+  VALUE 'COPY'    /* COPY COMMAND
+    IF #ON NE 17 AND #TOK (3) = ' '
+      SET CONTROL 'WC5L32B7/13F'
+      INPUT (IP=OFF) 'Object-Value' (TU)
+        / #TOK(3) (AD=MDLT'_' AL=25 CD=NE)
+      SET CONTROL 'WMB'
+    END-IF
+    DECIDE ON FIRST VALUE OF #ON
+      VALUE 17 IGNORE
+      VALUE 01
+        G-C-USERID := #TOK (3)
+        STACK TOP DATA G-C-USERID
+      VALUE 02 G-C-REPORT  := #TOK (3)
+      VALUE 03 G-C-BUNDLE  := #TOK (3)
+      VALUE 04 G-C-PRINTER := #TOK (3)
+      VALUE 21
+        G-C-PRINTER := #TOK (3)
+        STACK TOP DATA G-C-PRINTER
+      ANY      FETCH #COPY-PROG (#ON)
+      NONE IGNORE
+    END-DECIDE
+  VALUE 'EXIT'
+    G-NATRP-ERC := 9999
+  VALUE 'ADMIN'
+    FETCH 'RADMIN'
+  VALUE 'TECH'
+    FETCH RETURN 'NRMTECH'
+  VALUE 'CONTENTS'
+    G-C-BUNDLE := #TOK(3)
+    FETCH 'RLISBR'
+  VALUE 'DLOG'
+    DECIDE ON FIRST VALUE OF #ON
+      VALUE 1
+        IF #TOK(3) NE ' '
+          STACK TOP DATA #TOK(3)
+        ELSE
+          STACK TOP DATA G-USERID
+        END-IF
+        FETCH 'RLISLU'
+      VALUE 5
+        FETCH 'RLISLM1'
+      VALUE 13
+        FETCH 'RLISLP'
+      NONE IGNORE
+    END-DECIDE
+  VALUE 'FLUSH'
+    G-C-BUNDLE := #TOK(3)
+    CALLNAT 'NOMFLUSH' G-C-BUNDLE G-NATRP-ERC
+    IF G-NATRP-ERC = 0
+      G-NATRP-ERT := G-C-BUNDLE
+      G-NATRP-ERC := 7132 /* BUNDLE FLUSHED
+    ELSE
+      G-NATRP-ERC := 715 /* not open or does not exist
+    END-IF
+    FETCH 'RLISAB'
+  VALUE 'SPF'
+    CALLNAT 'N-SPFACT' G-USERID (AD=O) SPF-ACTIVE G-NATRP-ERC
+      G-NATRP-ERT
+    IF NOT SPF-ACTIVE
+      G-NATRP-ERC := 24
+      ESCAPE ROUTINE
+    END-IF
+    CALLNAT 'RGETLIB' #LIBRARY-ID
+    STACK TOP COMMAND 'NRM 0'
+    FETCH RETURN 'NRMPUTAI'
+    STACK TOP COMMAND 'NRMGETAI'
+    STACK TOP COMMAND 'LOGON' #LIBRARY-ID
+    STACK TOP COMMAND 'SPF'
+    RELEASE VARIABLES
+    STOP
+  VALUE 'FLIP'
+    PERFORM FLIP-HANDLE
+  VALUE 'UP'
+    G-DIRECT-COMMAND := 'UP'
+    IF #TOK(2) IS (N2)
+      G-SCROLL-AMOUNT := VAL(#TOK(2))
+    END-IF
+    G-NATRP-ERC := 9997
+  VALUE 'DOWN'
+    G-DIRECT-COMMAND := 'DOWN'
+    IF #TOK(2) IS (N2)
+      G-SCROLL-AMOUNT := VAL(#TOK(2))
+    END-IF
+    G-NATRP-ERC := 9997
+  VALUE 'TOP'
+    G-DIRECT-COMMAND := 'TOP'
+    G-NATRP-ERC := 9997
+  VALUE 'BOT'
+    G-DIRECT-COMMAND := 'BOT'
+    G-NATRP-ERC := 9997
+  VALUE 'NRM'
+    STACK TOP COMMAND 'NRM' '*' #TOK(2) #TOK(3)
+    STOP
+  VALUE 'FOLLOW'
+    PERFORM FOLLOW-MONITOR
+  VALUE 'PROFILE'  /* PROFILE-FUNCTION
+    FETCH RETURN 'RDEFPRF'
+  VALUE 'CLOSE'
+    IF NOT(PROF-PHYSICAL = 'M' OR = 'P')
+      G-NATRP-ERC := 20
+      ESCAPE ROUTINE
+    END-IF
+    IF #TOK (3) = ' '
+      SET CONTROL 'WC5L32B7/13F'
+      INPUT (IP=OFF) 'Object-Value' (TU)
+        / #TOK(3) (AD=MDLT'_' AL=25 CD=NE)
+      SET CONTROL 'WMB'
+    END-IF
+    #PHYSICAL := #TOK(3)
+    CALLNAT 'RHANPH-N' #PHYSICAL 'C' G-USERID G-NATRP-ERC
+    IF G-NATRP-ERC = 0
+      END TRANSACTION
+    ELSE
+      ESCAPE ROUTINE
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SET-COMMAND
+************************************************************************
+DECIDE ON FIRST VALUE OF #ON
+  VALUE 15     /* SET AUTOCOMMIT FLAG
+    IF #TOK(3) = 'ON'
+      G-AUTOCOMMIT := 'I'
+    END-IF
+    IF #TOK(3) = 'OFF' OR = 'OF'
+      G-AUTOCOMMIT := 'E'
+    END-IF
+  VALUE 22     /* SET CONFIRM ON/OFF
+    DECIDE ON FIRST VALUE OF #TOK(3)
+      VALUE ' ','ON'    G-CONFIRM := TRUE
+      VALUE 'OFF','OF'  G-CONFIRM := FALSE
+      NONE VALUE IGNORE
+    END-DECIDE
+  VALUE 28     /* SET TEST ON/OFF
+    DECIDE ON FIRST VALUE OF #TOK(3)
+      VALUE ' ','ON'    G-TEST-MODE := TRUE
+      VALUE 'OFF','OF'  G-TEST-MODE := FALSE
+      NONE VALUE IGNORE
+    END-DECIDE
+  VALUE 16                    /* SET LANGUAGE
+    IF NOT(#TOK(3) IS (N1))
+      G-NATRP-ERC := 36
+      ESCAPE ROUTINE
+    END-IF
+    #TOKEN := #TOK(3)
+    #NUM := VAL(#TOKEN)
+    IF NOT(#NUM = 1 THRU 2)
+      G-NATRP-ERC := 36
+      ESCAPE ROUTINE
+    END-IF
+    IF #NUM NE *LANGUAGE
+      RESET G-LCB G-PFB G-OTB G-TXB
+    END-IF
+    *LANGUAGE := #NUM
+    G-LANGUAGE := #NUM
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* SET-COMMAND
+*
+************************************************************************
+DEFINE SUBROUTINE LOGON-COMMAND
+************************************************************************
+#APPLIC-TOKEN := 'APPLICATION'
+EXAMINE #TOK (2) FOR 'x' GIVING LENGTH #L
+IF #L = 3 THRU 10
+  RESET #APL (#L + 1:11)
+END-IF
+*
+IF #TOK (2) NE #APPLIC-TOKEN
+  FETCH 'NRM'  '*' #TOK(2) #TOK(3) #TOK(4)
+END-IF
+*
+NSCL-APPLID := #TOK (3)
+PERFORM LOGON-ALLOWED
+IF NOT LOGON-ALLOWED
+  G-NATRP-ERC := 0020
+  ESCAPE ROUTINE
+END-IF
+*
+FETCH RETURN 'NRMPUTGL'
+STACK TOP COMMAND 'RRETURN'
+FETCH RETURN 'NRMPUTAI'
+STACK TOP COMMAND 'NRMGETAI'
+CALLNAT 'RGETLIB' #LIBRARY-ID
+STACK TOP COMMAND 'LOGON' #LIBRARY-ID
+COMPRESS 'LOGON'  #TOK (3) INTO #LOGON
+IF #TOK (4) NE ' '
+  STACK TOP COMMAND #TOK (4)
+END-IF
+STACK TOP COMMAND #LOGON
+RELEASE VARIABLES
+STOP
+*
+END-SUBROUTINE /* LOGON-COMMAND
+*
+************************************************************************
+DEFINE SUBROUTINE LOGON-ALLOWED
+************************************************************************
+LOGON-ALLOWED := TRUE
+CALLNAT 'NSC-ACT' SECURITY-ACTIVE
+IF NOT SECURITY-ACTIVE
+  ESCAPE ROUTINE
+END-IF
+*
+NSCL-USERID := *USER
+RESET NSCL-PPARM1
+CALLNAT 'NSC---L' NSCL-APPLID NSCL-USERID NSCL-ERC NSCL-PPARM1
+IF NSCL-ERC NE 0
+  LOGON-ALLOWED := FALSE
+END-IF
+*
+END-SUBROUTINE /* LOGON-ALLOWED
+*
+END

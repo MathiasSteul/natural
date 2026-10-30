@@ -1,0 +1,95 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+***********************************************************************
+*                                                                     *
+*                NATURAL Data Collector Trace Facility                *
+*                                                                     *
+*                   Retrieval of NAT1132 Trace Data                   *
+***********************************************************************
+*                                                                     *
+* This program uses the CMRDC utility to retrieve NAT1132 trace data. *
+* It displays some fields from the collected trace data records in    *
+* the RDCSIZE buffer for the current session (one output line per     *
+* trace record). The fields contain I/O specific internal data and    *
+* might be useful for SAG personnel when debugging NAT1132 errors.    *
+*                                                                     *
+* Such trace data are created by the relevant I/O modules after the   *
+* session has been started with the following dynamic parameters:     *
+* ITRACE=ON RDCSIZE=128 TRACE=IO                                      *
+*                                                                     *
+***********************************************************************
+DEFINE DATA LOCAL USING RDCDATA LOCAL
+1 ETOD     (N6.4)                   /* EVENT TIME (HHMMSS.XXXX)
+1 REDEFINE ETOD
+  2 ETODHH (N2)
+  2 ETODMM (N2)
+  2 ETODSS (N2.4)
+1 ETIME    (N6.4)                   /* EVENT ELAPSED TIME
+1 REDEFINE ETIME
+  2 ETIME0 (N4)
+  2 ETIME1 (N2.4)
+1 FUNCTION (A1)  INIT<'F'>          /* FUNCTION CODE FOR NATRDC
+1 RETCODE  (I4)                     /* RETURN CODE
+1 TY       (A2)                     /* EVENT TYPE/SUBTYPE
+1 REDEFINE TY
+  2 TYPE1  (A1)
+  2 TYPE2  (A1)
+1 LV       (I1)                     /* PROGRAM LEVEL
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT SG=OFF ZP=OFF PS=0
+CALL 'CMRDC' 'P' /* Stop RDC statistics
+*
+REPEAT UNTIL RETCODE > 0
+  ETIME := ETOD
+  RESET LDATA GDATA
+  CALL 'CMRDC' FUNCTION ETOD GDATA LDATA  /* GET TRACE RECORD
+  RETCODE := RET('CMRDC')
+  IF RETCODE = 4 AND FUNCTION = 'F' AND ETOD = 0
+    WRITE NOTITLE 'NO TRACE DATA AVAILABLE'
+    ESCAPE BOTTOM
+  END-IF
+  FUNCTION := 'G'
+  RESET LOCALP LOCALD LOCALI LOCALC
+  IF GTYPE = 'N'
+    LOCALN := LDATA
+  END-IF
+  TYPE1 := GTYPE
+  IF GTYPE NE 'U'
+    TYPE2 := LTYPE
+  ELSE
+    RESET TYPE2
+  END-IF
+  LV := GLEV
+  IF RETCODE <= 4 AND GTYPE = 'N '
+    IF TY = 'NS'
+      NDATA := GLINE
+    END-IF
+    IF SUBSTRING (GPGM,1,5) NE 'LOGON'   /* SKIP LOGON RECORDS
+      DISPLAY GCUID LV (NL=2) GPGM GCAPL NDATA (AL=45)
+    END-IF               /* SKIP LOGON RECORDS
+  END-IF
+END-REPEAT
+*
+DECIDE ON FIRST VALUE OF RETCODE
+  VALUE  8 WRITE NOTITLE 'TOO LESS PARAMETERS'
+  VALUE 12 WRITE NOTITLE 'INVALID FUNCTION CODE'
+  VALUE 16 WRITE NOTITLE 'DATA COLLECTOR NOT ACTIVE'
+  VALUE 20 WRITE NOTITLE 'DATA COLLECTOR DISABLED'
+  VALUE 24 WRITE NOTITLE 'NO BUFFER SPACE FOR TRACE'
+  VALUE 28 WRITE NOTITLE 'INVALID PARAMETER VALUE'
+  NONE
+    IF RETCODE > 4
+      PRINT NOTITLE (AD=L) 'UNKNOWN RETURN CODE:' RETCODE (AD=L)
+    END-IF
+END-DECIDE
+*
+END

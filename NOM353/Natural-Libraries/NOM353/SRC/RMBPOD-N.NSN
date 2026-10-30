@@ -1,0 +1,124 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member       RMBPOD-N
+* Function     Create Orders for Purge Bufferpool
+* Version      1.3
+*
+* Maintenance
+* UUU YY-MM-DD Sagsis Desciption
+* --- -------- ------ --------------------------------------------------
+* gw  93-08-12        created
+* jvd 98-09-10 p(164220) NOM141Ö NAT23
+* sju 00-03-20 p(191368) monitor multitasking
+* fhi     2002-09-25 p(218246) Monitor error recovery
+* sju 04-11-29 nom31     restow for changed NRM-ORDER
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2018-08-06 NOMALL-2135 Use internal node id in orders
+* SU1     2020-11-10 NOMALL-2440 recat for VMONIT-L
+* SU2     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+*         +                      recat for VMONIT-L M-NATRPT-DBID/-FNR
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 RMBPOD-OBJ-LIB      (A8)
+1 RMBPOD-OBJ-NAME     (A40)
+1 RMBPOD-OBJ-DBID     (N5)
+1 RMBPOD-OBJ-FNR      (N5)
+1 RMBPOD-ERROR-CODE   (N4)
+1 RMBPOD-ERROR-TEXT   (A250)
+1 #TASK-NUMBER        (N3)
+* ---------------------------------------------------------------------
+INDEPENDENT
+1 +NOD-CURRENT-INTERNAL-ID (P11) /* Internal node id of the curr. node
+* ---------------------------------------------------------------------
+LOCAL USING VMONIT-L
+LOCAL USING RLOG-L
+LOCAL USING RMODTY-E
+LOCAL USING RMOD---L
+LOCAL USING RMTASK-P
+LOCAL USING NOMWK--P
+LOCAL USING NOMFNC-E
+LOCAL
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-SOURCE-ID
+  2 OD-TYPE
+  2 OD-MONITOR-ID
+  2 OD-USER-ID
+  2 OD-TIME-CREATED
+  2 OD-TIME-SCHEDULED
+  2 OD-PARAMETER        (1)
+  2 OD-MAX-RETRIES
+  2 OD-RETRY-INTERVAL
+  2 OD-INTERNAL-NODE-ID (P15)  /* NOMALL-2135 fhi in
+*
+1 #MONITOR-ID           (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=100 PS=60
+*
+RMTASK-P.FUNCTION       := 'L'
+RMTASK-P.SUBTASK-NUMBER := #TASK-NUMBER
+CALLNAT 'RMTASKID' RMTASK-P
+#MONITOR-ID := RMTASK-P.TASK-ID
+COMPRESS '1517' #TASK-NUMBER TO LG-MSG /* Purge buffer pool initiated.
+PERFORM WRITE-LOG-RECORD
+*
+PERFORM STORE-PURGE-BPM-ORDER
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+LG-USERID := *USER
+LG-CODE   := 'MO'
+CALLNAT 'RLOG' PL-PARMS
+END OF TRANSACTION
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE STORE-PURGE-BPM-ORDER
+************************************************************************
+CALLNAT 'RMODID-N' ORDER.OD-ID RMBPOD-ERROR-CODE RMBPOD-ERROR-TEXT
+IF RMBPOD-ERROR-CODE NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)
+FIND NRM-MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+END-FIND
+#OD-PRM-OBJ-LIB         := RMBPOD-OBJ-LIB
+#OD-PRM-OBJ-NAME        := RMBPOD-OBJ-NAME
+#OD-PRM-OBJ-DBID-N5     := RMBPOD-OBJ-DBID
+#OD-PRM-OBJ-FNR-N5      := RMBPOD-OBJ-FNR
+ORDER.OD-PARAMETER (1)  := #OD-PARAMETER
+ORDER.OD-TYPE           := OD-PURGE-BUFFERPOOL
+ORDER.OD-MONITOR-ID     := #MONITOR-ID
+ORDER.OD-USER-ID        := *USER
+ORDER.OD-TIME-CREATED   := *TIMX
+ORDER.OD-TIME-SCHEDULED := *TIMX
+ORDER.OD-MAX-RETRIES    := M-MAX-RETRIES
+ORDER.OD-RETRY-INTERVAL := M-RETRY-INTERVAL
+ORDER.OD-INTERNAL-NODE-ID  := +NOD-CURRENT-INTERNAL-ID
+STORE ORDER
+*
+NOMWK-TASK-TYPE := '*'
+CALLNAT NOM-WAKE-MONITOR NOMWK-NOMVERS NOMWK-PARMS (*)
+END TRANSACTION
+*
+END-SUBROUTINE /* STORE-PURGE-BPM-ORDER
+*
+END

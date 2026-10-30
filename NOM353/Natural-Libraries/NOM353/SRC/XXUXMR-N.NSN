@@ -1,0 +1,353 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* XXUXMR-N - MULTIPLE RECORD COMPRESSION/DECOMPRESSION(used in XXUX---N)
+* Template:XS-MRC-N
+*
+* MODIFICATIONS:
+* 28.04.04 ...
+* 17.07.19 NOMALL-2294 adapt to NOM (local mode, no N2936.1)      BLI
+* ---------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 P-FUNCTION       (A01)        /* IN
+*      'A' APPEND
+*      'G' GET AT POSITION
+1 P-BUFFER-FORMAT  (A01)        /* in
+*      '3' NPR_BF_TV3 - 3 byte prefix
+*      'A' NPR_BF_6V3 - 3 byte prefix, base64 encoded
+*      'L' NPR_BF_TVL - variable prefix    (NPR 212 PL 8 ff.) 274819.2
+1 P-RC             (I04)        /* OUT   RETURNCODE
+*     0   OK
+*     1   APPEND:  NO SPACE FOR RECORD
+*     1   GET:     NO MORE RECORDS
+*     2   INVALID POSITION
+*   101   invalid buffer format
+*   102   invalid buffer content
+*  0394   EOR0394 - Record is longer than :1: bytes
+1 P-POSITION       (I04)        /* MOD
+*                        BEFORE APPEND: NO MEANING
+*                        AFTER  APPEND: NEXT FREE POS. IN BUFFER
+*                        BEFORE GET:    POS. OF A LENGTH FIELD
+*                        AFTER  GET:    NEXT POS. OF A LENGTH FIELD
+* 1 P-RECORD       (A1000)  /* IN    APPEND
+1 P-RECORD         (A2000)  /* IN    APPEND
+  BY VALUE RESULT           /* OUT   GET
+1 P-BUFFER-TYPE    (A01)        /* in
+* -- see XS-FILKL
+1 P-BUFFER-99000   (A99000)     /* mod
+  BY VALUE RESULT
+1 P-RECORD-SIZE        (I02)    /* in
+  BY VALUE RESULT OPTIONAL
+1 P-ERROR-IF-SHORTENED (L)      /* in
+  OPTIONAL
+************************************************************************
+LOCAL USING XS-FILKL        /* Unix file access constants
+LOCAL
+1 #RECORD-SIZE       (I2)
+1 #RECORD-SIZE-INIT  (I2) CONST <1000>
+1 #RECORD-SIZE-MAX   (I2) CONST <2000>   /* sizeof(P-RECORD)
+1 #K               (I2)
+1 #PREFIX-LEN      (I2)
+1 #RECLEN-SIZE-TV3 (I2) CONST <3>
+1 #RECLEN          (I4)
+1 #RECLEN-MOVED    (I4)
+1 #POS             (I4)
+1 #NEXT-POS        (I4)
+1 #X1              (I4)
+1 #X2              (I4)
+1 #ERROR-IF-SHORTENED (L)
+1 #TRACE-MSG          (A70/1:2)
+1 #LENLEN-A           (A1)
+1 REDEFINE #LENLEN-A
+  2 #LENLEN           (N1)
+1 #RECLEN-A           (A16)
+1 #PREFIX             (A16)
+1 #BUFFER-SIZE        (I4)
+1 #BUFFER-99000       (A99000)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-RC
+#RECORD-SIZE := #RECORD-SIZE-INIT
+*
+DECIDE FOR EVERY CONDITION
+  WHEN P-RECORD-SIZE SPECIFIED
+    #RECORD-SIZE := P-RECORD-SIZE
+  WHEN P-ERROR-IF-SHORTENED SPECIFIED
+    #ERROR-IF-SHORTENED := P-ERROR-IF-SHORTENED
+  WHEN NONE ; IGNORE
+END-DECIDE
+*
+DECIDE FOR FIRST CONDITION
+  WHEN #RECORD-SIZE = 0
+    #RECORD-SIZE := #RECORD-SIZE-INIT
+  WHEN #RECORD-SIZE > #RECORD-SIZE-MAX
+    #RECORD-SIZE := #RECORD-SIZE-MAX
+  WHEN NONE ; IGNORE
+END-DECIDE
+*
+IF NOT (P-BUFFER-FORMAT ='3' OR='L' OR='A')
+  P-RC := 101       /* invalid buffer format
+  COMPRESS *PROGRAM *LINE '- buffer fmt' P-BUFFER-FORMAT '-> rc' P-RC
+    TO #TRACE-MSG(1)
+  CALLNAT 'LGW1---N' #TRACE-MSG(1)
+  ESCAPE MODULE
+END-IF
+*
+DECIDE ON FIRST VALUE OF P-BUFFER-TYPE
+  VALUE XS-FIRWD-BUFFER-TYPE              /* 'D'
+    #BUFFER-SIZE := XS-FIRWD-BUFFER-SIZE
+  VALUE XS-FIRWC-BUFFER-TYPE              /* 'C'
+    #BUFFER-SIZE := XS-FIRWC-BUFFER-SIZE
+  VALUE XS-FIRWB-BUFFER-TYPE              /* 'B'
+    #BUFFER-SIZE := XS-FIRWB-BUFFER-SIZE
+  NONE VALUE
+    #BUFFER-SIZE := XS-FIRWA-BUFFER-SIZE
+END-DECIDE
+*
+DECIDE ON FIRST VALUE OF P-FUNCTION
+  VALUE 'A'
+    PERFORM DO-APPEND
+  VALUE 'G'
+    PERFORM DO-GET
+  NONE VALUE ; IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DO-APPEND
+************************************************************************
+#BUFFER-99000 := P-BUFFER-99000
+PERFORM FIND-APPEND-POS
+IF P-RC NE 0
+  ESCAPE ROUTINE
+END-IF
+EXAMINE P-RECORD FOR ' ' GIVING LENGTH IN #RECLEN
+PERFORM CREATE-PREFIX
+IF P-RC NE 0
+  ESCAPE ROUTINE
+END-IF
+#NEXT-POS := #POS + #PREFIX-LEN + #RECLEN
+IF #NEXT-POS > #BUFFER-SIZE
+  P-RC := 1        /* no more space in buffer
+  ESCAPE ROUTINE
+END-IF
+MOVE #PREFIX TO SUBSTR(#BUFFER-99000,#POS,#PREFIX-LEN)
+#X1 := #POS + #PREFIX-LEN
+IF #RECLEN > 0
+  MOVE SUBSTR(P-RECORD,1,#RECLEN) TO SUBSTR(#BUFFER-99000,#X1,#RECLEN)
+END-IF
+IF #NEXT-POS < #BUFFER-SIZE
+* -- If buffer is not empty: Avoid appending at previous content.
+  MOVE ' ' TO SUBSTR(#BUFFER-99000,#NEXT-POS,1)
+END-IF
+*
+P-BUFFER-99000  := #BUFFER-99000
+P-POSITION      := #NEXT-POS
+*
+END-SUBROUTINE /* DO-APPEND
+*
+************************************************************************
+DEFINE SUBROUTINE DO-GET
+************************************************************************
+#BUFFER-99000 := P-BUFFER-99000
+*
+IF P-POSITION < 1  OR  P-POSITION > #BUFFER-SIZE
+  P-RC := 2   ; ESCAPE ROUTINE     /* INVALID POSITION
+END-IF
+#POS := P-POSITION
+PERFORM GET-AND-CHECK-PREFIX
+IF P-RC NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+#NEXT-POS := #POS + #PREFIX-LEN + #RECLEN
+*
+IF #NEXT-POS > #BUFFER-SIZE
+  P-RC := 102           /* invalid buffer content
+  COMPRESS *PROGRAM *LINE '-' 'np' #NEXT-POS '> bs' #BUFFER-SIZE
+    '-> rc' P-RC TO #TRACE-MSG(1)
+  CALLNAT 'LGW1---N' #TRACE-MSG(1)    /* emergency
+  ESCAPE MODULE
+END-IF
+*
+RESET P-RECORD
+#X1 := #POS + #PREFIX-LEN
+#RECLEN-MOVED := #RECLEN
+IF #RECLEN-MOVED GT #RECORD-SIZE
+  #RECLEN-MOVED := #RECORD-SIZE
+END-IF
+*
+IF #RECLEN > 0
+  MOVE SUBSTR(#BUFFER-99000,#X1,#RECLEN-MOVED)
+    TO SUBSTR(P-RECORD,1,#RECLEN-MOVED)
+  IF #RECLEN-MOVED < #RECLEN
+    #K := #RECORD-SIZE - 3
+    MOVE ' >>>' TO SUBSTR(P-RECORD,#K,4)
+*   -- record shortened ...
+    IF #ERROR-IF-SHORTENED
+      P-RC := 0394  /* EOR0394 - Record is longer than :1: bytes
+      ESCAPE MODULE
+    END-IF
+  END-IF
+END-IF
+P-POSITION := #NEXT-POS
+*
+END-SUBROUTINE /* DO-GET
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-PREFIX
+************************************************************************
+* Parameters:
+*   #RECLEN             in
+*   #PREFIX-LEN         out
+*   #PREFIX             out
+*
+DECIDE ON FIRST VALUE OF P-BUFFER-FORMAT
+  VALUE '3', 'A'
+    MOVE EDITED #RECLEN (EM=999) TO #PREFIX
+    #PREFIX-LEN := #RECLEN-SIZE-TV3
+  VALUE 'L'       /* NPR_BF_TVL
+    IF #RECLEN = 0
+      #PREFIX     := '0'
+      #PREFIX-LEN := 1
+    ELSE
+      MOVE LEFT #RECLEN TO #RECLEN-A
+      EXAMINE #RECLEN-A FOR 'x' GIVING LENGTH IN #LENLEN
+      COMPRESS #LENLEN-A #RECLEN-A TO #PREFIX LEAVING NO
+      #PREFIX-LEN := 1 + #LENLEN
+    END-IF
+  NONE VALUE
+    P-RC := 101     /* invalid buffer format
+    COMPRESS *PROGRAM *LINE '-buffer fmt' P-BUFFER-FORMAT '-> rc' P-RC
+      TO #TRACE-MSG(1)
+    CALLNAT 'LGW1---N' #TRACE-MSG(1)    /* emergency
+    ESCAPE MODULE
+END-DECIDE
+*
+END-SUBROUTINE /* CREATE-PREFIX
+*
+************************************************************************
+DEFINE SUBROUTINE GET-AND-CHECK-PREFIX
+************************************************************************
+* Parameters:
+**  #BUFFER-9700        in              N02219  N2115.B dis
+*   #BUFFER-99000       in              N2115.B
+*   #POS                in
+*   #PREFIX-LEN         out
+*   #RECLEN             out
+*
+RESET #PREFIX-LEN #RECLEN
+DECIDE ON FIRST VALUE OF P-BUFFER-FORMAT
+  VALUE '3', 'A'     /* NPR_BF_TV3   NPR_BF_6V3
+    IF #POS + #RECLEN-SIZE-TV3 >= #BUFFER-SIZE
+      P-RC := 1          /* buffer full
+      ESCAPE ROUTINE
+    END-IF
+    #RECLEN-A := SUBSTR(#BUFFER-99000,#POS,#RECLEN-SIZE-TV3)
+    DECIDE FOR FIRST CONDITION
+      WHEN #RECLEN-A IS (N3)
+        #PREFIX-LEN := #RECLEN-SIZE-TV3
+        #RECLEN     := VAL (#RECLEN-A)
+      WHEN SUBSTR(#RECLEN-A,1,1) = ' ' OR = H'00'
+        P-RC := 1       /* no more records in buffer
+        ESCAPE ROUTINE
+      WHEN NONE
+        P-RC := 102     /* invalid buffer content
+        COMPRESS *PROGRAM *LINE '-'
+          'reclen-a' #RECLEN-A '-> rc' P-RC TO #TRACE-MSG(1)
+        CALLNAT 'LGW1---N' #TRACE-MSG(1)   /* emergency
+        ESCAPE MODULE
+    END-DECIDE
+  VALUE 'L'       /* NPR_BF_TVL
+    IF #POS > #BUFFER-SIZE
+      P-RC := 1       /* buffer full
+      ESCAPE ROUTINE
+    END-IF
+    #LENLEN-A := SUBSTR(#BUFFER-99000,#POS,1)
+    IF #POS + 1 >= #BUFFER-SIZE AND #LENLEN-A NE '0'
+      P-RC := 1       /* buffer full
+      ESCAPE ROUTINE
+    END-IF
+*
+    DECIDE FOR FIRST CONDITION
+      WHEN #LENLEN-A IS (N1)
+        IGNORE
+      WHEN #LENLEN-A = ' ' OR = H'00'
+        P-RC := 1       /* no more records in buffer
+        ESCAPE ROUTINE
+      WHEN NONE
+        P-RC := 102     /* invalid buffer content
+        COMPRESS *PROGRAM *LINE '-'
+          'lenlen-a' #LENLEN-A '-> rc' P-RC TO #TRACE-MSG(1)
+        CALLNAT 'LGW1---N' #TRACE-MSG(1)      /* emergency
+        ESCAPE MODULE
+    END-DECIDE
+*
+    IF #LENLEN = 0
+      #PREFIX-LEN := 1      /* empty record
+      #RECLEN     := 0
+    ELSE
+      #X2 := #POS + 1
+      MOVE SUBSTR(#BUFFER-99000,#X2,#LENLEN) TO #RECLEN-A
+      GACP10. FOR #X2 = 1 TO #LENLEN
+        IF NOT (SUBSTR(#RECLEN-A,#X2,1) IS (N1))
+          P-RC := 102     /* invalid buffer content
+          COMPRESS *PROGRAM *LINE '-'
+            'not numeric' SUBSTR(#RECLEN-A,#X2,#LENLEN)
+            '-> rc' P-RC TO #TRACE-MSG(1)
+          CALLNAT 'LGW1---N' #TRACE-MSG(1)      /* emergency
+          ESCAPE MODULE
+        END-IF
+      END-FOR          /* GACP10.
+      #PREFIX-LEN := 1 + #LENLEN
+      #RECLEN     := VAL(#RECLEN-A)
+*
+      IF #POS + #PREFIX-LEN + #RECLEN >  #BUFFER-SIZE
+        P-RC := 1       /* buffer full / no more records in buffer
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+*
+  NONE VALUE
+    P-RC := 101     /* invalid buffer format
+    COMPRESS *PROGRAM *LINE '-'
+      'buffer fmt' P-BUFFER-FORMAT '-> rc' P-RC TO #TRACE-MSG(1)
+    CALLNAT 'LGW1---N' #TRACE-MSG(1)       /* emergency
+    ESCAPE MODULE
+END-DECIDE
+*
+END-SUBROUTINE /* GET-AND-CHECK-PREFIX
+*
+************************************************************************
+DEFINE SUBROUTINE FIND-APPEND-POS
+************************************************************************
+#POS := 1
+FAP1. REPEAT
+  PERFORM GET-AND-CHECK-PREFIX
+  #POS := #POS + #PREFIX-LEN + #RECLEN
+  DECIDE FOR EVERY CONDITION
+    WHEN P-RC = 0 OR = 1
+      P-RC := 0
+    WHEN P-RC NE 0
+      ESCAPE ROUTINE
+    WHEN NONE; IGNORE
+  END-DECIDE
+  IF #PREFIX-LEN = 0 AND #RECLEN = 0
+    ESCAPE BOTTOM (FAP1.)     /* current end of buffer found
+  END-IF
+END-REPEAT  /* FAP1.
+*
+END-SUBROUTINE /* FIND-APPEND-POS
+*
+END

@@ -1,0 +1,312 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RPRTBU   PUT A BUNDLE ON PRINTOUT QUEUE
+*
+* MAINTENANCE:
+* GW  91-01-31  F(124) CORRECT MESSAGE FOR 'FUNCTION ABORTED'
+* GW  91-01-31  F(125) SUPPRESS PRINTER SELECTION IF PRINTER EXISTS
+* GW  91-03-12  F(144) NAT1305 WHEN 3-DIGIT COPIES IN PRINTER DEF.
+* MB  91-05-15  F(193/4/5/6)
+* mrs 92-04-28  s(142275) label, dcb added, generic-tape-name added
+* mrs 92-05-22  s(150306) restrict printer selection
+* gw  93-11-11  s(999999) call rselpr-n instead of rselph-n
+* gw  94-05-13  s(999999) new field po-esy-userid
+* gw  94-07-04  s(999999) wake up monitor
+* gw  96-09-25  s(999999) init printer selection with global value
+* jwo 97-09-22  p(165064) new logic to get PO-ID
+* sju 00-04-28 p(191368)  wake up print task
+* wcd 00-04-01  CE 7267   Increase to 20 printers
+* sju 03-10-07 p(245720) NAT1305 if more than 99,999,999 lines in bundle
+* sju 03-12-15 p(248535) Default print class not taken
+* xsetggr 04-03-10 p(250355) default recfm not taken
+* sju     2004-04-22 p(250355) correct handling of recfm
+* fhi 05-12-14 P272732   cataloged, because VPRINT-L was changed.
+* xsetggr 2007-06-27 NOM3201   support 5 byte node and 11 byte run
+*                              numbers, restow - changes in eompom-parms
+* xsetggr 2007-10-25 NRT2185   default values for UNIXLP printers
+* xsetggr 2007-11-26 NRT2771   Start/Stop group of printers
+* xsetggr 2008-02-21 p(301593) honoured hold status of stopped po
+* xsetggr 2008-11-28 P311915  default printers DEFAULTA - DEFAULTZ
+* xsetggr 2010-11-03 NOMALL-865 restow due to changes in EOMPHTYE
+* raya    2012-02-06 NOMALL-1096 error-text a250 in NOMWK--P stow only
+* raya    2012-02-07 NOMALL-98 check existance of printer-exit and if
+*                    not exist no printout
+* raya    2012-04-18 NOMALL-98 remove-steplib only if added
+* raya    2012-06-19 NOMALL-1142 p-erc and not g-natrp-erc
+* xsetggr 2012-06-19 NOMALL-1142 corrections in add-steplib
+* raya    2013-01-08 NOMALL-1214 check cat date of user exit
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2015-06-09 NOMALL-1640 handle multiple print with user exit
+* fhi     2016-11-02 NOMALL-1621 +NOD-* instead of G-MONITOR-NODE       STEM
+* fhi     2016-11-10 NOMALL-1917 use correct node number
+* fhi     2017-04-07 NOMALL-1961 Omit field PO-MONITOR
+* SU3     2020-05-18 NOMALL-2349 use N-CHKCAT
+* SU4     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+INDEPENDENT
+1 +NOD-LOCAL-NODE             (N5)
+* *****
+LOCAL USING VPRINT-L
+LOCAL USING VPRRP-L
+LOCAL USING SUPER-L
+LOCAL USING EOMPOM-P
+LOCAL USING PROF-LOC
+LOCAL USING NOMWK--P
+LOCAL USING NOMFNC-E
+LOCAL USING RMTASK-E
+LOCAL USING EOMPHTYE
+/*SU4 LOCAL USING VMONITUL                    /* NOMALL-1917
+*
+LOCAL
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU4
+  2 MF-PRINT-CLASS
+1 PHYSICAL-PRINTER VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-VTAMID
+  2 PH-PRINTER-TYPE
+  2 PH-JCL-SKELETON
+  2 PH-ESCAPE-CHAR
+  2 PH-PRINT-PGM
+  2 PH-STATUS
+1 DEFAULT-PRINTER VIEW OF NRM-PRINTERS
+  2 P-ID
+  2 P-ATTRIBUTES              (1:25)
+1 ACTIVE-BUNDLES VIEW  OF  NRM-ACTIVE-BUNDLES
+  2 AB-COORDINATOR-ID
+  2 AB-BUNDLE
+  2 AB-PRINT-LIST             (20)
+  2 REDEFINE    AB-PRINT-LIST
+    3 AB-PRINT-TAB            (20)
+      4 AB-PRINTER            (A8)
+      4 AB-PRINTER-COPIES     (N3)
+  2 C*AB-PRINT-LIST
+  2 AB-PRINT-JOBCARD          (3)
+  2 AB-NUMBER-OF-LINES
+1 BUNDLE VIEW  OF  NRM-BUNDLES
+  2 B-PRINT-JOBCARD           (3)
+  2 C*B-PRINT-JOBCARD
+/*SU 2018-03 1 NRM-MONITOR VIEW OF NRM-MONITOR 2 M-PRINT-CLASS
+* *****
+1 #CLASS                      (A1)
+1 #PRTY                       (N1)
+1 #COPIES                     (N3) INIT <1>
+1 #DEST                       (A8)
+1 #FORM                       (A4)
+1 #HOLD                       (A1)
+1 #NOP                        (P2)
+1 #I                          (I1)
+1 #PRINTER                    (A8)
+1 #RMPOID-FUNC                (A1)
+1 #P-ID-E                     (A8)
+1 #P-ID                       (A8)  INIT <'DEFAULT'>
+1 REDEFINE #P-ID
+  2 #P-ID-1                   (A7)
+  2 #SUFFIX                   (A1)
+1 #TRACE-MSG                  (A250)
+1 #CAT-DATE-1                 (A10)
+1 #CAT-DATE-2                 (A10)
+1 #CALLER                  (A8) INIT <*PROGRAM>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM READ-BUNDLE
+PERFORM SELECT-PRINTER
+IF #PRINTER = ' '
+  G-NATRP-ERC := 0029 /* FUNCTION ABORTED
+  ESCAPE ROUTINE
+END-IF
+G-C-PRINTER := #PRINTER
+PERFORM CREATE-PRINTOUT-RECORD
+IF G-NATRP-ERC NE 0 AND P-EXITLIB NE ' ' AND P-EXITMEM NE ' '
+  IF G-NATRP-ERC =1079 OR=1078 OR=1592 OR=1591
+    COMPRESS P-EXITLIB '(' P-EXITMEM ')' TO #TRACE-MSG LEAVING NO
+    COMPRESS '1586' G-C-BUNDLE #TRACE-MSG  TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+  END-IF
+  END TRANSACTION
+  ESCAPE ROUTINE
+END-IF
+END TRANSACTION
+NOMWK-TASK-TYPE:= EQU-MANAGE-PRINTOUTS
+CALLNAT NOM-WAKE-MONITOR NOMWK-NOMVERS NOMWK-PARMS (*)
+G-NATRP-ERC := 0425
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-BUNDLE
+************************************************************************
+#AB-BUNDLE := G-C-BUNDLE
+#AB-BUNDRNB := G-C-BUNDRNB
+FIND ACTIVE-BUNDLES WITH AB-BUNDLE-RNB = #AB-BUNDLE-RNB
+  #NOP := C*AB-PRINT-LIST
+  FIND (1) BUNDLE WITH B-BUNDLE = AB-BUNDLE
+  END-FIND
+END-FIND
+*
+END-SUBROUTINE /* READ-BUNDLE
+*
+************************************************************************
+DEFINE SUBROUTINE SELECT-PRINTER
+************************************************************************
+#PRINTER := G-C-PRINTER
+CALLNAT 'RSELPR-N' #PRINTER #CLASS #FORM #DEST #COPIES G-P-PHYSICAL-NAME
+  #PRTY #HOLD G-USERID G-USER-TYPE ACTIVE-BUNDLES.AB-PRINTER (1:20) #NOP
+*
+END-SUBROUTINE /* SELECT-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-PRINTOUT-RECORD
+************************************************************************
+RESET PRINTOUTS
+*
+FIND (1) PRINTERS WITH P-ID = G-C-PRINTER
+  FIND (1) PHYSICAL-PRINTER WITH PH-VTAMID = P-PHYSICAL-NAME
+  END-FIND
+  IF P-EXITLIB NE ' ' AND P-EXITMEM NE ' '
+    CALLNAT 'N-CHKCAT' G-NATRP-ERC G-NATRP-ERT P-EXITMEM /*SU3
+      P-EXITLIB #CALLER #CAT-DATE-1 #CAT-DATE-2
+    IF G-NATRP-ERC NE 0
+      ESCAPE ROUTINE IMMEDIATE
+    END-IF
+  END-IF
+*
+  RESET #RMPOID-FUNC
+  CALLNAT 'RMPOID-N' PRINTOUTS.PO-ID
+    G-NATRP-ERC G-NATRP-ERT #RMPOID-FUNC
+  PRINTOUTS.PO-ID-INV := 9999998 - PRINTOUTS.PO-ID
+  FOR #I = 1 TO 25
+    IF P-ATTR-VAR(#I) = 'CLASS'
+      IF P-ATTR-VALUE(#I) = ' ' AND *MACHINE-CLASS = 'MAINFRAME'
+        READ(1) MF-NODE BY MF-TYPE-ID = 'MR-' /*SU4
+          P-ATTR-VALUE(#I):= MF-PRINT-CLASS
+        END-READ
+      END-IF
+    END-IF
+    IF PH-PRINTER-TYPE = ##PHYS-UNIXLP AND P-ATTR-VALUE (#I) = ' '
+      PERFORM DEFAULT-UNIXLP-VALUES
+    END-IF
+  END-FOR
+  PO-ATTRIBUTES (*) := P-ATTRIBUTES (*)
+  PO-BUNDLE         := G-C-BUNDLE
+  PO-BUNDRNB        := G-C-BUNDRNB
+  PERFORM ASSIGN-PO-COPIES
+  PO-NODE        := +NOD-LOCAL-NODE
+  PO-CREATED     := *TIMX
+  PO-ESCAPE-CHAR := PH-ESCAPE-CHAR
+  PO-EXITLIB     := P-EXITLIB
+  PO-EXITMEM     := P-EXITMEM
+  PO-FROM-LINE   := 1
+  IF PHYSICAL-PRINTER.PH-STATUS = 'S'
+    PO-STATUS := 'S'
+    IF #HOLD = 'Y'
+      PO-HOLD := 'Y'
+    ELSE
+      RESET PO-HOLD
+    END-IF
+  ELSE
+    IF #HOLD = 'Y'
+      PO-STATUS := 'H'
+    ELSE
+      PO-STATUS := 'R'
+    END-IF
+  END-IF
+  PO-JCL-SKELETON := PH-JCL-SKELETON
+  PERFORM ASSIGN-PO-JOBCARD
+  PO-LANGUAGE      := *LANGUAGE
+  PO-LOGICAL       := P-ID
+  PO-PHYSICAL-NAME := P-PHYSICAL-NAME
+  PO-PRINT-PGM     := PH-PRINT-PGM
+  PO-PRINTER-TYPE  := PH-PRINTER-TYPE
+  PO-PRIORITY      := P-PRIORITY
+  IF PO-STATUS = 'R'
+    PERFORM ASSIGN-PO-SCHEDULED
+  END-IF
+* PO-TO-LINE is P8 but AB-NUMBER-OF-LINES is P9. Active reports
+* created from MVS sequential files get number of lines set to
+* 99,999,999 (because NOM doesn't count the lines). So if such a
+* report is in the bundle, we may get a NAT1305 setting PO-TO-LINE to
+* AB-NUMBER-OF-LINES
+  IF ACTIVE-BUNDLES.AB-NUMBER-OF-LINES GT 99999999
+    PO-TO-LINE := 99999999
+  ELSE
+    PO-TO-LINE := AB-NUMBER-OF-LINES
+  END-IF
+  PO-USERID      := G-USERID
+  PROFILE-STRING := G-USER-PROFILE
+  IF PROF-EXTERNAL = 'Y'
+    PO-ESY-USERID := G-USERID
+  ELSE
+    IF G-USE-OWNER
+      PO-ESY-USERID := AB-COORDINATOR-ID
+    ELSE
+      RESET  PO-ESY-USERID
+    END-IF
+  END-IF
+  PO-OBJECT-TYPE := 'PO'
+  PO-OBJECT-TIME := *TIMX
+  STORE PRINTOUTS
+  END TRANSACTION
+  G-NATRP-ERC := 0425
+END-FIND
+*
+END-SUBROUTINE /* CREATE-PRINTOUT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE DEFAULT-UNIXLP-VALUES
+************************************************************************
+#SUFFIX := 'Z'
+#P-ID-E := #P-ID
+#SUFFIX := 'A'
+FIND (1) DEFAULT-PRINTER WITH P-PHYSICAL-NAME = PH-VTAMID
+WHERE P-ID = #P-ID THRU #P-ID-E                                       /*
+  PRINTERS.P-ATTRIBUTES(#I) := DEFAULT-PRINTER.P-ATTRIBUTES(#I)
+END-FIND
+*
+END-SUBROUTINE /* DEFAULT-UNIXLP-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-PO-COPIES
+************************************************************************
+IF #COPIES = 0
+  PO-COPIES := 1
+ELSE
+  PO-COPIES := #COPIES
+END-IF
+*
+END-SUBROUTINE /* ASSIGN-PO-COPIES
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-PO-JOBCARD
+************************************************************************
+IF ACTIVE-BUNDLES.AB-PRINT-JOBCARD (*) NE ' '
+  PO-JOBCARD (*) := ACTIVE-BUNDLES.AB-PRINT-JOBCARD (*)
+ELSE
+  IF C*BUNDLE.B-PRINT-JOBCARD NE 0
+    PO-JOBCARD (*) := BUNDLE.B-PRINT-JOBCARD           (*)
+  ELSE
+    PO-JOBCARD (*) := P-JOBCARD           (*)
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* ASSIGN-PO-JOBCARD
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-PO-SCHEDULED
+************************************************************************
+EOMPOM-PHYSICAL-NAME := PO-PHYSICAL-NAME
+CALLNAT 'EOMPOTWN' EOMPOM-PARMS
+PO-SCHEDULED := EOMPOM-SCHEDULED
+*
+END-SUBROUTINE /* ASSIGN-PO-SCHEDULED
+*
+END

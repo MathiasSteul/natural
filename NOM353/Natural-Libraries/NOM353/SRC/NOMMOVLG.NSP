@@ -1,0 +1,124 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMMOVLG - Change ENVIRONMENT in SAT-LOG-FILE (Template:NOMCONT)
+* Note      - Mandatory input parms are dbid and fnr (old and new)
+*
+* Maintenance:
+* uuu      yyyy-mm-dd iTrac       Remark
+* fhi      2016-02-04 NOMALL-1822 created
+* fhi      2019-05-14 NOMALL-2233 Correct microsecond handling
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL
+1 LOG  VIEW OF SAT-LOG-FILE35
+  2 LOG-PRODUCT-CODE
+  2 LOG-ENVIRONMENT
+  2 REDEFINE LOG-ENVIRONMENT
+    3 DBID             (N5)
+    3 FNR              (N5)
+* *****
+1 #DBID                (N5)
+1 #FNR                 (N5)
+1 #DISPLAY             (L)
+1 #CATDATE             (A19)
+1 #MSG                 (A250)
+1 #LOG-ENV-TIME        (A20)
+1 REDEFINE #LOG-ENV-TIME
+  2  #LOG-ENVIRONMENT  (A10)
+  2 REDEFINE #LOG-ENVIRONMENT
+    3 #DBID-OLD        (N5)
+    3 #FNR-OLD         (N5)
+  2  #TIME             (T)
+  2  #MICROSEC         (P5)
+1 #READ                (I4)
+1 #UPDATED             (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#TIME := D'1980-01-01'
+IF *DEVICE NE 'BATCH'
+  WRITE NOTITLE NOHDR
+ '* --------------------------------------------------------------- *' /
+ '*                            NOMMOVLG                             *' /
+'* --------------------------------------------------------------- *' //
+    'This program must be run in batch mode.' //
+    'It will take care of a moved log file and update the' /
+    'records that still point to the old place of the file.' //
+    'start this program and enter the old and new locations of NOM' /
+    'System File 1 (Lfile 206, menu 8.1/1).' /
+    'Enter the following parameters:' //
+    'NOMMOVLG <old DB> <new DB> <old filenumber> <new filenumber> <display>'/
+    '(where <display> is set to X if no updates but only displays are' /
+    'required. To update leave this parameter empty.)' //
+    'Example:' /
+    'NOMMOVLG 9 10 246 250 X' //
+    'This program will stop now.'
+  STOP
+END-IF
+* *****
+INPUT 'old DB' #DBID-OLD 'new DB' #DBID
+  'old FNR' #FNR-OLD 'new FNR' #FNR 'Display only' #DISPLAY
+WRITE 'Start Program' *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+  'migrating DB/FNR' #DBID-OLD #FNR-OLD 'to DB/FNR'
+  #DBID #FNR 'in current log file.'
+IF #DISPLAY
+  WRITE 'U P D A T E   D I S A B L E D, Display only.'
+END-IF
+*
+PERFORM XXCATAL-GET-CATDATE #CATDATE
+WRITE *PROGRAM 'cataloged at'  #CATDATE
+*
+PERFORM PROCESS-LOG
+*
+END TRANSACTION
+*
+WRITE 'End of' *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+  'migrated' #DBID-OLD #FNR-OLD 'to DB/FNR' #DBID #FNR
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-LOG
+************************************************************************
+RDLOG. READ LOG BY LOG-ENV-TIME STARTING FROM #LOG-ENV-TIME
+  IF DBID NE #DBID-OLD OR FNR NE #FNR-OLD
+    ESCAPE BOTTOM
+  END-IF
+  #READ := #READ + 1
+  IF NOT #DISPLAY
+    GTLOG. GET LOG *ISN(RDLOG.)
+    DBID := #DBID
+    FNR  := #FNR
+    UPDATE (GTLOG.)
+    END TRANSACTION
+    ADD 1 TO #UPDATED
+  END-IF
+END-READ
+WRITE 'Log records read:' #READ 'Updated:' #UPDATED
+*
+END-SUBROUTINE /* PROCESS-NP
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+*
+ WRITE 'Error Program' *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+    *PROGRAM 'abnormal termination'
+  CALLNAT 'C-NATERN' #MSG
+ PRINT 'Error Message' *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+    / #MSG
+  TERMINATE 50
+*
+END-ERROR
+*
+END

@@ -1,0 +1,232 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMPRMGN - DB Interface EOM Object Logical Printer <general attributes>
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  93-05-24 s(999999) created
+* mrs 93-11-15 s(999999) various modifications
+* gw  94-03-28 s(999999) lower case attributes
+* sju 95-09-27 s(229945) delete printer
+* xsethz   2000-05-30 s(CE7760) READ-NEXT, READ-HOLD-NEXT added
+* fhi      2000-08-24 QA03     Use NAT23006 for error values
+* fhi      2002-06-13 p(225125) Add printer type EMAIL
+* sju 03-05-22 p(240729) restrict usage
+* fhi     2007-07-04 p(295388) serialize UNIXLP printers if 'serial' in
+*                              jobcards found.
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2007-10-25 NRT2185   default values for UNIXLP printers
+* xsetggr 2008-06-27 p(304273) allow jobcards for NATUNIX printers
+* xsetggr 2008-11-28 P311915   default printers DEFAULTA thru DEFAULTZ
+* fhi     2009-11-06 N3460     allow jobcards for DISKUNIX printers
+* xsetggr 2010-06-11 P321578   printer records corrupted under BS2
+* xsetggr 2010-11-15 NOMALL-865 restow due to changes in EOMPHTYE
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-12 NOMALL-1058 Log delete from NOM API
+* SU1     2014-06-10 NOMALL-1281 show last update user+date
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER  USING  EOM----P
+PARAMETER  USING  EOMPRM-P
+PARAMETER  USING  EOMMSG-P
+************************************************************************
+LOCAL  USING  EOM----E
+LOCAL  USING  EOMPHTYE
+LOCAL
+1 PRINTER  VIEW  OF  NRM-PRINTERS
+  2 P-ID
+  2 P-PHYSICAL-NAME
+  2 P-NAME
+  2 P-ATTRIBUTES             (1:25)
+  2 C*P-ATTRIBUTES
+  2 P-EXITMEM
+  2 P-EXITLIB
+  2 P-COPIES
+  2 P-PRIORITY
+  2 P-JOBCARD                (1:3)
+  2 P-DISP
+  2 P-LAST-UPDATE-USER
+  2 P-LAST-UPDATE
+1 PHYSICAL-PRINTER  VIEW  OF  NRM-PHYSICAL-PRINTERS
+  2 PH-JCL-SKELETON
+  2 PH-ATTRIBUTES            (1:25)
+  2 C*PH-ATTRIBUTES
+  2 PH-PRINTER-TYPE
+*
+1 #I                         (I2)
+1 #P-ID-E                    (A8)
+1 #P-ID                      (A8) INIT <'DEFAULT'>
+1 REDEFINE #P-ID
+  2 #P-ID-1                  (A7)
+  2 #P-ID-2                  (A1)
+1 #OBJ                       (A50)
+1 #USER                      (A8)
+1 #APPL                      (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-READ, EOM-READ-NEXT
+    PERFORM READ-GENERAL-ATTRIBUTES
+  VALUE EOM-READHOLD, EOM-READHOLD-NEXT
+    PERFORM READ-GENERAL-ATTRIBUTES
+  VALUE EOM-ADD
+    PERFORM MODIFY-GENERAL-ATTRIBUTES
+  VALUE EOM-MODIFY
+    PERFORM MODIFY-GENERAL-ATTRIBUTES
+  VALUE EOM-DELETE
+    PERFORM DELETE-PRINTER
+  NONE  IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-GENERAL-ATTRIBUTES
+************************************************************************
+FNDRP. FIND PRINTER WITH P-ID = EOMPRM-I-NAME
+*
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0108
+    ESCAPE BOTTOM (FNDRP.)
+  END-NOREC
+*
+  EOMPRM-PHYSICAL-NAME    := P-PHYSICAL-NAME
+  EOMPRM-DESC             := P-NAME
+  EOMPRM-EXITMEM          := P-EXITMEM
+  EOMPRM-EXITLIB          := P-EXITLIB
+  EOMPRM-COPIES           := P-COPIES
+  EOMPRM-PRIORITY         := P-PRIORITY
+  EOMPRM-JOBCARDS   (*)   := P-JOBCARD   (*)
+  EOMPRM-ATTRIBUTES (*)   := P-ATTRIBUTES (*)
+  EOMPRM-ATTRIBUTES-OCC   := C*P-ATTRIBUTES
+  EOMPRM-RESTRICTED       := P-DISP
+  EOMPRM-LAST-UPDATE-USER := P-LAST-UPDATE-USER
+  EOMPRM-LAST-UPDATE      := P-LAST-UPDATE
+*
+  IF EOM-FUNCTION = EOM-READHOLD OR = EOM-READHOLD-NEXT
+    UPD. GET PRINTER *ISN (FNDRP.)
+    IF P-ID NE P-ID
+      UPDATE (UPD.)
+    END-IF
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* READ-GENERAL-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-GENERAL-ATTRIBUTES
+************************************************************************
+FNDMOD. FIND PRINTER WITH P-ID = EOMPRM-I-NAME
+*
+  IF NO RECORDS FOUND
+    ENTER
+  END-NOREC
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN EOM-FUNCTION = EOM-ADD AND *NUMBER (FNDMOD.) = 0
+      P-ID := EOMPRM-I-NAME
+    WHEN EOM-FUNCTION = EOM-ADD AND *NUMBER (FNDMOD.) > 0
+      EOMMSG-NR := 0104
+      BACKOUT TRANSACTION
+      ESCAPE BOTTOM (FNDMOD.)
+    WHEN EOM-FUNCTION = EOM-MODIFY AND *NUMBER (FNDMOD.) = 0
+      EOMMSG-NR := 0108
+      ESCAPE BOTTOM (FNDMOD.)
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+  IF *NUMBER (FNDMOD.) > 0
+    GETMOD. GET PRINTER *ISN (FNDMOD.)
+  END-IF
+*
+  FNDPH. FIND PHYSICAL-PRINTER WITH PH-VTAMID = EOMPRM-PHYSICAL-NAME
+    IF NO RECORDS FOUND
+      EOMMSG-NR := 0108
+      EOMMSG-FIELD-NAME := 'EOMPRM-PHYSICAL-NAME'
+      ESCAPE ROUTINE
+    END-NOREC
+    IF EOM-FUNCTION = EOM-ADD
+      EOMPRM-ATTRIBUTES (*) := PH-ATTRIBUTES (*)
+      EOMPRM-ATTRIBUTES-OCC := C*PH-ATTRIBUTES
+    ELSE
+      EOMPRM-ATTRIBUTES-OCC := C*P-ATTRIBUTES
+    END-IF
+*
+    IF PH-JCL-SKELETON = ' ' AND PH-PRINTER-TYPE NE ##PHYS-UNIXLP
+        AND PH-PRINTER-TYPE NE ##PHYS-NATUNIX
+        AND PH-PRINTER-TYPE NE ##PHYS-DISKUNIX
+      RESET EOMPRM-JOBCARDS (*)
+    END-IF
+  END-FIND
+*
+  P-PHYSICAL-NAME    := EOMPRM-PHYSICAL-NAME
+  P-NAME             := EOMPRM-DESC
+  P-EXITMEM          := EOMPRM-EXITMEM
+  P-EXITLIB          := EOMPRM-EXITLIB
+  P-COPIES           := EOMPRM-COPIES
+  P-PRIORITY         := EOMPRM-PRIORITY
+  P-JOBCARD    (*)   := EOMPRM-JOBCARDS  (*)
+  PERFORM TRANSLATE-ATTRIBUTES-TO-UPPER
+  P-ATTRIBUTES (*)   := EOMPRM-ATTRIBUTES (*)
+  P-DISP             := EOMPRM-RESTRICTED
+  P-LAST-UPDATE-USER := EOM-USER
+  P-LAST-UPDATE      := *TIMX
+*
+  IF *NUMBER (FNDMOD.) = 0
+    STORE PRINTER
+  ELSE
+    UPDATE (GETMOD.)
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* MODIFY-GENERAL-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE TRANSLATE-ATTRIBUTES-TO-UPPER
+************************************************************************
+EXAMINE ##PHYS-TYPES (*) FOR PH-PRINTER-TYPE GIVING INDEX #I
+IF NOT ##PHYS-TYPE-LOWER (#I)
+  EXAMINE EOMPRM-ATTR-VALUE(*) TRANSLATE INTO UPPER
+END-IF
+*
+END-SUBROUTINE /* TRANSLATE-ATTRIBUTES-TO-UPPER
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-PRINTER
+************************************************************************
+#P-ID-2 := 'Z'
+#P-ID-E := #P-ID
+#P-ID-2 := 'A'
+DELPR. FIND PRINTER WITH P-ID = EOMPRM-I-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0108
+    ESCAPE BOTTOM (DELPR.)
+  END-NOREC
+  IF P-ID = #P-ID THRU #P-ID-E
+    EOMMSG-NR := 0165
+    ESCAPE BOTTOM (DELPR.)
+  END-IF
+  DELETE
+  #OBJ := P-ID
+  #USER := EOM-USER
+  #APPL := EOM-LIBRARY
+  PERFORM RMLOGDEL #OBJ 'LOG-PRINTER' #USER #APPL
+END-FIND
+*
+END-SUBROUTINE /* DELETE-PRINTER
+*
+INCLUDE C-EOMERR
+*
+END

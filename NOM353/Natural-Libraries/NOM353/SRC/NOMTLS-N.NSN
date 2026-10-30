@@ -1,0 +1,163 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ----------------------------------------------------------------------
+* Subprogram  NOMTLS-N
+* Version     3.5.0
+* Function    NOM API List of Monitor tasks
+*
+*             = Reworked for version 3.5.0 =
+*
+* Maintenance:
+* XSETGGR 2004-11-02 created
+* XSETGGR 2005-09-12 add option'MS' when monitor is already started
+* XSETGGR 2007-03-22  replace call of ES...-N to direct call of module
+* XSETHZ  2008-12-03 p(312125) correct options
+* XSETHZ  2011-02-15 NOMALL-951
+* CF1     2015-06-01 NOMALL-1437 Allow functions as in NOM
+* CF2     2016-08-24 NOMALL-1910 Set access rights via NOPERM-N only
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* CF      2017-11-29 NOMALL-2055 Adapt to increased SubTask number
+* SU1     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOMTLS-A
+************************************************************************
+LOCAL USING NOMMTS-A
+LOCAL USING RMSETSTE
+LOCAL USING NOUSUP-L
+LOCAL USING RMTASK-P            /* NOMALL-1961 fhi in
+LOCAL
+1 MONITOR VIEW OF NRM-MONITOR
+1 SUBTASK VIEW OF NRM-SUBTASK-INFO
+  2 ST-SUBTASK-ID
+  2 ST-LAST-ACTIVE
+1 USERS VIEW OF NRM-USERS
+  2 USER-ID
+  2 USER-PROFILE
+1 #TASK-ID-E             (A16)
+1 #MAX-TASKS             (I1)           CONST <59>
+1 #I2                    (I4)
+1 #LI                    (I4)
+1 #IMAX                  (I4)
+1 #ES-CONTROL            (A253)
+1 #ES-INPUT-AREA         (A253/1:3)
+1 #TT                    (T)
+/*
+END-DEFINE
+/*
+************************************************************************
+* Main line
+************************************************************************
+/*
+RESET ES-RC ES-NUMBER ES-STARTINDEX ES-SORTKEY ES-SORTORDER #TT
+ES-EOF := 'X'
+ES-OPTION-COUNT := 10
+/*
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+FIND USERS WITH USER-ID = ES-USER
+  PROFILE-STRING := USERS.USER-PROFILE
+END-FIND
+/*
+/* Get status of Monitor-Tasks
+/*
+ES-OBJECT   := 'MM'
+ES-FUNCTION := 'TS'
+RESET ES-INPUT-AREA(*)
+CALLNAT 'NOMMTS-N' ES-CONTROL ES-INPUT-AREA(*) NOMM-PARMS
+IF ES-RC NE 0
+  ESCAPE ROUTINE
+END-IF
+ES-CONTROL       := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+/*
+#IMAX := 903        /* Note: The real max. list size is 37
+ES-FIELD-COUNT := 1
+NOMTEX-FIELD-LENGTH(1) := 8
+/*
+/* Read main task data
+/*
+RMTASK-P.FUNCTION       := 'S'
+RMTASK-P.SUBTASK-NUMBER := 1
+CALLNAT 'RMTASKID' RMTASK-P
+FNDMO. FIND MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+  /*
+  #I2 := 1
+  #LI := 1
+  PERFORM DATA-TO-LIST
+  ES-NUMBER := #I2
+END-FIND
+/*
+/* Read subtasks
+/*
+RMTASK-P.FUNCTION       := 'S'
+RMTASK-P.SUBTASK-NUMBER := #MAX-TASKS
+CALLNAT 'RMTASKID' RMTASK-P
+#TASK-ID-E              := RMTASK-P.TASK-ID
+RMTASK-P.SUBTASK-NUMBER := 21
+CALLNAT 'RMTASKID' RMTASK-P
+FNDST. FIND SUBTASK WITH ST-SUBTASK-ID=RMTASK-P.TASK-ID THRU #TASK-ID-E
+  RMTASK-P.TASK-ID := ST-SUBTASK-ID
+  RMTASK-P.FUNCTION       := 'G'
+  CALLNAT 'RMTASKID' RMTASK-P
+  RMTASK-P.FUNCTION       := 'L'
+  CALLNAT 'RMTASKID' RMTASK-P
+  EXAMINE NOMM-MONITOR-ID(*) FOR RMTASK-P.TASK-ID GIVING INDEX #LI
+  ACCEPT IF ST-LAST-ACTIVE GT #TT AND #LI GT 0  /* SubTask defined
+  /*
+  ADD 1 TO #I2
+  PERFORM DATA-TO-LIST
+  ES-NUMBER := #I2
+END-FIND
+/*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-TO-LIST
+************************************************************************
+NOMTEX-NUMBER (#I2) := RMTASK-P.SUBTASK-NUMBER
+/* Get options
+RESET NOMTEX-OPTIONS(#I2,*)
+IF NOMM-STATUS(#LI) = #EQN-NOTACTIVE OR = #EQ2-NOTACTIVE
+OR=#EQN-CLOSED OR=#EQ2-CLOSED OR=#EQN-SHUTDOWN OR=#EQ2-SHUTDOWN       /*
+OR=#EQN-ABENDED OR=#EQ2-ABENDED                                       /*
+  NOMTEX-OPTIONS(#I2,1) := 'MC'                    /* close monitor
+ELSE
+  NOMTEX-OPTIONS(#I2,1) := 'MS'                    /* start monitor
+END-IF
+IF PROF-TYPE NE 'A'
+  /*NOMTEX-OPTIONS(#I2,2) := 'PU'      /* CF1 ->
+  /*NOMTEX-OPTIONS(#I2,3) := 'PE'
+  /*NOMTEX-OPTIONS(#I2,4) := 'PP'      /* CF1 <-
+  IGNORE                               /* CF2 ->
+*   DECIDE FOR EVERY CONDITION
+*     WHEN PROF-STARTUP NE 'Y'
+*       NOMTEX-OPTIONS(#I2,5) := 'MS'
+*     WHEN PROF-SHUTDOWN NE 'Y'
+*       NOMTEX-OPTIONS(#I2,6) := 'MC'
+*     WHEN PROF-DISPLAY-MONITOR NE 'Y'
+*       NOMTEX-OPTIONS(#I2,7) := 'ML'    /* monitor log
+*       NOMTEX-OPTIONS(#I2,8) := 'FG'
+*     WHEN NONE IGNORE
+*   END-DECIDE                         /* CF2 <-
+END-IF
+/*
+END-SUBROUTINE /* DATA-TO-LIST
+/*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

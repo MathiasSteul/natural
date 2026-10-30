@@ -1,0 +1,2074 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 2
+* <Natural Source Header
+* RMINIT - Initialize NOM Monitor
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* mrs 93-07-26 s(999999) clean up
+* mrs 93-09-17 s(999999) *language must be 1
+* mrs 93-10-14 s(999999) scan NOMPUT Queue implemented
+* mrs 93-10-25 s(999999) set STEPLIBs if NSC is not installed
+* mrs 93-11-04 s(182359) monitor won't close
+* mrs 93-12-10 s(999999) use common data to reduce data base calls
+* mrs 93-12-22 s(999999) parameters not read if prtask number = 0
+* mrs 94-02-17 s(999999) log opsys and spool type
+* mrs 94-03-01 s(999999) bs2 implemented
+* mrs 94-05-13 s(999999) G-BS2USER added
+* mrs 94-05-16 s(999999) G-USE-OWNER added
+* gw  94-06-23 s(999999) fill GDA field G-NEW-VARIABLES
+* mrs 94-06-27 s(999999) NAF Parameter no longer in MONITOR Record
+* mrs 94-07-07 s(999999) wrong min/max wait log record
+* gw  94-11-17 s(999999) SAP-Spool implemented
+* mrs 94-11-21 s(211638) devices for space=... added
+* gw  94-11-29 s(999999) USR-spool added
+* gw  95-01-17 p(136151) time limit scan naf and cmaspool
+* mrs 95-01-18 s(217369) check BS2000 system-release
+* mrs 95-03-28 s(218302) generate ETID's for print tasks
+* mrs 95-07-05 s(999999) time limit for scan SAP added
+* gw  96-01-05 s(239209) store cleanup order in RMSRCP
+* gw  96-02-12 s(999999) check user exits active
+* gw  96-06-15 s(999999) renaming of bs2000 files
+* jwo 97-03-10 p(161209) copy   bs2000 files y/n
+* jwo 97-03-17 s(263392) set G-TRACE to analyze customer request
+* mwi 97-03-27 s(999999) scan default jobcards for TRACE=ON
+* jwo 97-11-13 p(167263) add active reports exit
+* gw  98-06-22 p(171828) user exit 009 to make count optimization
+*                        optional
+* jvd 98-06-26 s(164220) NOM141 - NAT23 changes
+* gw  98-09-14 p(173976) reset status
+* gw  98-10-15 s(164220) M-COPY-FILES-V141
+* jvd 98-10-27 s(164220) NOM141 - NAT23 changes
+* gw  98-11-02 s(164220) M-COPY-FILES-V141 for CMASPOOL
+* jvd 98-05-12 s(999999) NOM142 Changes / remove comments pre 1996
+* xsisaa 99-07-05 s(259992) CE7187
+* fhi 00-01-27 s(191368) Taken from NOM142 and merged with curr NOM141
+*                        to get basis for NOM211
+* jvd 99-11-17 s(188923) Set LFILE for SAPSPOOL /* s(191368) in
+* sju 00-03-21 s(191368) monitor multitasking
+* sju 00-05-17 p(191368) NAT-USER first 5 chars unique, for BS2000
+* xsisgg 00-07-03 p(195864) without NSC steplibsare not set
+* fhi    00-07-26 QA01      add SYSNOMS as steplib if NSC is not active
+* fhi    00-08-22 QA02      Use Natural RDC Utility for statistics
+* fhi    00-08-24 QA03      Use NAT23006 for error values
+* fhi    00-09-12 s(196560) Add Unix File support
+* sju 00-09-21 p(191368) No subtasking for BATCH monitor
+* sju 00-10-09 p(201854) Hang at initialisation after abend while in
+*                        report processing
+* sju 00-11-16 s(999999) Min/Max wait reported wrong way round
+* sju 00-11-21 s(999999) Check setting of lfile 131 (SAT log file)
+* fhi 01-02-09 p(194913) Write TSN of monitor to log at startup time
+* xsetggr 01-12-19 p(209875) prevent adding steplib twice for batch env
+*                            if NSC not active
+* sju 02-02-25 NOM221    New lfile for active data
+* fhi     02-01-24 p(209875) add some stuff for proper execution.
+* sju 02-03-21 p(221908) Correct STEPLIB handling
+* fhi 02-04-05 p(200224) Improve error messages
+* fhi 02-06-13 s(225125) Add email notificaton, NOMEX010
+* sju 02-10-30 NOM221    Long record support
+* sju 02-12-17 p(230197) Monitor hangs while system defaults are being
+*                        modified (8.1.1/8.1.2/8.1.3/8.1.4). Use a new
+*                        control record SYNCHCLN.
+* fhi 03-07-23 p(242064) Unify steplib concatentation
+* sju 03-10-22  p(246164) NPR 3.2 and JES3
+* xsetggr 03-11-27 p(246658) fix finding steplib from table
+* HH  04-07-29 CHANGE PROCESS-STATEMENT IN FIND(1)-STATEMENT
+* sju 04-12-06 NOM31     Specify print DDNAME for subtasks
+* sju 04-12-06 NOM31     Add date and time (tenths of second) to trace
+* fhi 05-06-23 p(266530) Monitor must be NPR Mainframe independent
+* fhi     2005-10-06 p(270012) STACKD parameter not honoured
+* sju     2005-10-20 p(270836) Multiple monitors in one node
+* fhi 05-11-15 P272724   End Transaction for Unix Eventing necessary
+* fhi     2006-03-30 p(275726) Multiple monitors startup parallel
+* fhi     2006-09-08 p(277186) Correct 275726
+* fhi     2006-12-12 p(286415) Correct highest order number
+* xsetggr 2007-05-03 NOM3201   support 5 byte node numbers
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2007-07-12 NOM3204   More detailed message at monitor abend.
+* fhi     2008-08-04 P307444   Printer task abends, no trace given
+* fhi     2008-10-21 P288164   Erroneus message ESY5888
+* xsetggr 2009-03-12 P300323   make steplib handling unix compliant
+* fhi     2009-05-28 P315875   Execute MIGEND if 4th version level changed
+* fhi     2010-03-22 P324726   Check for correct version on Unix
+* fhi     2010-04-08 P324726   Include SM level for calling MIGEND
+* fhi     2010-04-14 P325064  Load lfile 206 if system file fields empty
+* fhi     2010-05-25 P326018   Check for correct Lfile 91
+* fhi     2010-06-30 P326018   TEMPORARY DISABLED.
+* fhi     2010-08-04 NOMALL-93 Create statistics data for Optimize
+* fhi     2010-08-13 NOMALL-853 Monitor Multitasking under Unix         STEM
+* fhi     2010-08-23 NOMALL-853 Monitor Multitasking, old comments out  STEM
+* fhi     2010-09-03 NOMALL-97 Call RMRDCDSP with correct trace variable
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-09-22 NOMALL-800 Initialize file table
+* fhi     2010-10-25 NOMALL-97 Use SAT TRACE-OFF parameter
+* fhi     2010-11-05 NOMALL-97 Extend tracing
+* fhi     2010-11-08 NOMALL-95  Improve names of log files              STEM
+* fhi     2010-12-02 NOMALL-929 END TRANSACTION for Unix layer RMSTX--N STEM
+* fhi     2011-02-01 NOMALL-922 Reuse printer tasks                     STEM
+* fhi     2011-06-07 NOMALL-77  Add wrap around trace                   STEM
+* fhi     2011-06-10 NOMALL-927 Introduce the output of the NOM version
+* fhi     2012-01-30 NOMALL-812 Check for LFILE 91
+* fhi     2012-03-12 NOMALL-812 Check for LFILE 91 - rewritten
+* fhi     2012-08-20 NOMALL-78  disable long records
+* bli     2012-09-19 NOMALL-94  2 digit PRODUCT info
+* raya    2012-12-10 NOMALL-1214 check cat date of nomex004,NOMEX010
+* fhi     2013-05-08 NOMALL-1214 Check for ongoing migration
+* fhi     2013-05-09 NOMALL-1214 backout Check for nomex*
+*                                for RLOG
+* su1     2013-01-23 xref        PERFORM XXRLOG -> XXRLOG-WRITE-LOG
+* SU2     2013-01-31 unused      Deactivate unused data areas
+* SU3     2013-05-13 NOMALL-82   new class: error
+* fhi     2013-05-24 NOMALL-1260 Change CMA Spool to CA Spool on interf
+*                                No tags, only literals changed
+* raya    2013-06-25 NOMALL-1259 use SATID02N changes in MONIT-GL
+*                                                        VSUBPA-L
+* raya    2013-11-06 NOMALL-1300 avoid err 3113 when no record found
+* SU4     2014-01-27 NOMALL-1341 remove LA-fields
+* fhi     2014-05-08 NOMALL-1415 Check for valid NOMCOMPR routine
+* fhi     2014-11-21 NOMALL-1506 Use correct DD Name
+* SU5     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU6     2015-02-09 NOMALL-1450 'ST'->'SI'
+* SU7     2015-02-18 NOMALL-1572 show additional data in case of error
+* fhi     2015-05-20 NOMALL-1585 show additional system info at start
+* BLI     2015-07-09 NOMALL-1670 Monitor started twice with same name
+* BLI     2015-11-25 NOMALL-1572 Write longmsg 1538, 1544, 1571 to log
+* fhi     2016-01-18 NOMALL-1773 delete add system info at normal end
+* SU8     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-04-13 NOMALL-1858 Show version of NOMCOMPR under Unix
+* fhi     2016-04-15 NOMALL-1837 Introduce +DEVICE for testing
+* fhi     2016-07-20 NOMALL-1606 Send console msg at start/end of monitr
+* SU9     2016-07-25 NOM 3.5: remove unused code
+* fhi     2016-08-16 NOMALL-1621 Introduce Multinode Feature
+* fhi     2016-09-05 NOMALL-1621 Same
+* fhi     2016-09-15 NOMALL-1621 Use +NOD-LOCAL-NODE as monitor node
+* fhi     2016-11-09 NOMALL-1961 Duplicate copy subtask
+* fhi     2016-11-14 NOMALL-1961 same
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs, no tags
+* fhi     2017-01-06 NOMALL-1621 Call RDCDISIO, too.
+* fhi     2017-01-10 NOMALL-1961 Extend tracing, check *CODEPAGE
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi     2017-04-07 NOMALL-1961 Introduce status Start Nat Subtask
+* SU10    2018-01-03             NOM3.5 remove +G-BS2-VERSION
+* fhi     2018-04-13 NOMALL-1918 Improve messages
+* fhi     2018-04-26 NOMALL-1918 Improve event handling
+* SU11    2018-04-27 NOMALL-1823 remove SAP + steplibs SYSCNT2 + SYSEXT
+* SU12    2018-07-25 NOMALL-1643 NOM 3.5:remove steplibs SYSLIB,SYSLIBS
+* SU13    2018-10-18             LDA MONITNGL removed
+* fhi     2018-11-09 NOMALL-1621 Add info about code page (and more)
+* SU14    2018-11-12 NOMALL-2174 avoid Mainframe definitions on LUW
+* fhi     2018-12-14 NOMALL-1905 Show contents of O4I variable (stat.)
+* SU15    2019-03-13             BS2: do not show SYSTEM-RELEASE
+* fhi     2019-06-07 NOMALL-2267 Improve message 2044
+* fhi     2019-07-05 NOMALL-2287 Introduce NOM locking for Unix files
+* SU16    2019-08-07 NOMALL-2318 check CP: monitor node vs Natural
+* fhi     2019-08-16 NOMALL-2294 Deactivate obsolete AIVs +FO*
+* SU17    2020-06-19 NOMALL-2349 show full msg
+* SU18    2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU19    2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* BLI1    2023-01-11 NOMALL-2586 after nomshut: monitor does not start
+* SU20    2023-02-08 NOMALL-2618 correct SU18:handle NAF interface
+* SU21    2023-03-22 NOMALL-2629 PWD: SY-TST-N -> SATTS01N
+* SU22    2023-08-25 NOMALL-2647 more than 8 steplibs
+* SU23    2024-09-02 ES-35716    deactivate O4I
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+*
+INDEPENDENT
+1 +G-CLEANUP-SPOOL           (L)
+1 +G-NOMEXIT-ACTIVE          (L/1:20)
+1 +G-NOMEXIT-ACTIVE-009      (L)
+1 +G-BS2-RENAME              (L)
+1 +G-BS2-COPY                (L)
+1 +G-TASK-NUMBER             (I1)
+1 +G-NSC-USERID              (A8)
+1 +TRACE-WRAP                (I2)
+1 +G-SCAN-CMASPOOL-TIME-LIMIT(N3)
+1 +G-SCAN-NP-TIME-LIMIT      (N3)
+1 +G-PRTASK-ETID             (L)
+1 +G-PRTASK-ETID-PREFIX      (A6)
+1 +ERROR-COUNT-UX            (I2)
+1 +SPOOL-PARM                (A4)
+1 +DEVICE                    (A8)
+1 +NOD-CURRENT-ID            (A20)
+1 +NOD-LOCAL-NODE            (N5)
+1 +NOD-LOCAL-NAME            (A16)
+1 +NOD-LOCAL-USER            (A8)
+1 +NOD-LOCAL-CODEPAGE        (A64)
+1 +CMRDC                     (A1)
+/*SU23 1 +O4I                       (L)
+*
+LOCAL USING RMSETSTE
+/*SU18 LOCAL USING VMONIT-L
+/*SU18 LOCAL USING VMONITUL
+LOCAL USING RMSTX--P
+LOCAL USING RLOG-L
+LOCAL USING SATFNC3E
+LOCAL USING SATSP02P
+LOCAL USING SATLF02P
+LOCAL USING SATPA02P
+LOCAL USING SATMM02P
+LOCAL USING SAT00009
+LOCAL USING SATEL02P
+LOCAL USING VSUBT-L
+LOCAL USING VSUBPA-L
+LOCAL USING SATST03P
+LOCAL USING SATLGV1P
+LOCAL USING RACTLF-A
+LOCAL USING NOMVER-A
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING XXSUBS-A   /* NOMALL-1572 BLI end
+LOCAL USING RMTASK-P
+*
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR /*SU18 was VMONIT-L
+  2 M-MONITOR-TASKS          (A36)
+  2 REDEFINE M-MONITOR-TASKS
+    3 M-TASK-NUMBER          (N3/1:12)
+  2 C*M-COPY-FILES-V141
+  2 M-COPY-FILES-V141        (A26/1:20) /* MU-FIELD
+  2 REDEFINE M-COPY-FILES-V141
+    3 M-CP-TAB               (1:20)
+      4 M-CP-DBID            (N5)
+      4 M-CP-FNR             (N5)
+      4 M-CP-IDENT           (A16)
+      4 REDEFINE M-CP-IDENT
+        5 M-CP-IDENT-B       (A1/1:16)
+  2 M-WAIT-CURRENT           (P9)
+  2 M-USE-OWNER              (A1)
+  2 M-STATUS                 (A1)
+  2 M-WAIT-MINIMUM           (P9)
+  2 M-WAIT-MAXIMUM           (N9)
+  2 M-WAIT-INCREMENT         (N3)
+  2 M-BATCH-MODULE           (A8)
+  2 M-XCOM-JOBNAME           (A8)
+  2 M-NATRPT-DBID-N5         (N5)
+  2 M-NATRPT-FNR-N5          (N5)
+  2 M-PRT-TASK-NO            (N2)
+  2 M-DEFAULT-PRINTER        (A8)
+  2 M-JOBCARD                (A72/1:3)
+  2 M-FLUSH-TIME             (T)
+  2 M-TIME-SCHEDULE          (A1) /*NAF  SU20
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU18 was VMONITUL
+  2 MF-TYPE                  (A1)
+  2 MF-TIME-SCHEDULE         (A1)
+  2 MF-TEMP-CLASS            (A4)
+  2 MF-PRINT-CLASS           (A1)
+  2 MF-CLASSES               (A1/1:20)
+  2 MF-JES3-OUTPUT-CLASSES   (A1/1:20)
+  2 MF-BS2-DEST              (A8/1:4)
+  2 MF-ERR-CLASS             (A1)
+1 UX-NODES VIEW OF NRM-UX-NODES
+1 CLEANUP-DEFAULTS VIEW OF NRM-ARCHIVE-TASK
+  2 M-CLEANUP-SPOOL
+1 USER-EXITS VIEW OF NRM-MONITOR
+  2 M-USER-DEFAULTS
+  2 REDEFINE M-USER-DEFAULTS
+    3 M-NOMEXIT-ACTIVE       (A1/1:20)
+1 NOMUSR VIEW OF NRM-MONITOR
+  2 M-MONITOR-ID
+  2 REDEFINE M-MONITOR-ID
+    3 #NOMUSR-CONST          (A6)
+    3 #NOMUSR-NR             (N3)
+  2 M-TIME-SCHEDULE
+1 NATPROC-USERS  VIEW OF NATPROC-USERS
+  2 JOB-ID
+/*SU15 1 SYSTEM-VERSION VIEW OF SYSTEM-INFO 2 ERROR-CODE 2 SYSTEM-RELEASE
+1 NATURAL-SUB-TASK VIEW OF NATURAL-SUB-TASK
+  2 ERROR-CODE
+  2 NAT-STATUS
+  2 NAT-USER
+  2 DDNAME
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-PARAMETER             (1:1)
+  2 REDEFINE OD-PARAMETER
+    3 OD-LAST-ID             (P10)
+1 DAILY-CLEANUP VIEW OF NRM-ARCHIVE-TASK
+  2 M-MONITOR-ID
+  2 M-ARCHIVE-PREFIX
+  2 REDEFINE M-ARCHIVE-PREFIX
+    3 CLEANUP-IDENTIFIER     (A5)
+    3 CLEANUP-RESCHEDULE     (L)
+    3 CLEANUP-ACTIVE-NOW     (L)
+    3 REPORT-PROCESSING-NOW  (L)
+1 DAILY-CLEANUP-OLD VIEW OF NRM-ARCHIVE-TASK
+  2 M-ARCHIVE-PREFIX
+  2 REDEFINE M-ARCHIVE-PREFIX
+    3 CLEANUP-IDENTIFIER     (A5)
+    3 CLEANUP-RESCHEDULE     (L)
+    3 CLEANUP-ACTIVE-NOW     (L)
+    3 REPORT-PROCESSING-NOW  (L)
+1 SYSTEM-PARMS VIEW OF SYSTEM-INFO
+  2 STARTUP-PARM
+1 COMMON-DATA VIEW OF COMMON-DATA
+  2 ERROR-CODE
+************************************************************************
+1 #ESY-VERSION               (A8)
+1 REDEFINE #ESY-VERSION
+  2 #ESY-MAIN-VERSION        (N1)
+1 #SAT-SYSF                  (A10)
+1 REDEFINE #SAT-SYSF
+  2 #SAT-DBID                (N5)
+  2 #SAT-FNR                 (N5)
+1 #SAT-MEMBER                (A8)
+1 #SAT-LIBRARY               (A8)
+1 #SAT-NAME                  (A16) INIT <'SAT'>
+1 #PRD-MEMBER                (A8)
+1 #PRD-NAME                  (A16)
+1 #PRT-MEMBER                (A8)
+1 #PRT-NAME                  (A16)
+1 #ARC-MEMBER                (A8)
+1 #ARC-NAME                  (A16)
+1 #REV-MEMBER                (A8)
+1 #REV-NAME                  (A16)
+1 #EOM-SYSF                  (A10)
+1 REDEFINE #EOM-SYSF
+  2 #EOM-DBID                (N5)
+  2 #EOM-FNR                 (N5)
+1 #I                         (I2)
+1 I                          (P2)
+1 J                          (P2)
+1 #NATENV                    (A250)
+1 REDEFINE #NATENV
+  2 #NATENV-L                (A50/1:5)
+*
+1 FI                         (P2)
+1 NI                         (P2)
+1 CI                         (P2)
+1 PI                         (P2)
+1 SI                         (N1)
+1 REDEFINE SI
+  2 SI-A                     (A1)
+1 SECURITY-ACTIV             (L)
+*
+1 #STEPLIB                   (A20) INIT <'        /     /     '>
+1 REDEFINE #STEPLIB
+  2 #STEPLIB-LIBRARY         (A8)
+  2 #STEPLIB-FIL1            (A1)
+  2 #STEPLIB-DBID            (N5)
+  2 #STEPLIB-FIL2            (A1)
+  2 #STEPLIB-FNR             (N5)
+1 #MAX-TASKS                 (N2)          CONST <59>
+1 #MAX-FUNC                  (N2)          CONST <12>
+1 #FUNCTION-TABLE            (A10/#MAX-FUNC)
+  INIT < 'SCAN','COPY','COPY','COPY','COPY','COPY','COPY',
+  'COPY', 'COPY', 'COPY', 'CREATE', 'PRT / SPEC' >
+1 #SUBTASK-REQUIRED          (L/1:#MAX-TASKS)
+1 #UNSCRAMBLED               (A16)
+1 #SCRAMBLED                 (A32)
+* Note: The following is a table of libraries which NOM needs as
+*       step libraries. In an NSC environment, the customer must
+*       specify them on the SYSNOM library definition. In a non-NSC
+*       environment NOM automatically adds these and any specified
+*       in the steplib parameters in SYSSATU. It avoids adding the same
+*       library twice.
+*       (SYSSAT is always added for NSC and non-NSC environments).
+1 #USER-STEPLIB              (A8)
+1 REQUIRED-LIBRARIES
+  2 #SYSSAT                  (A8)      INIT <'SYSSAT'>
+  2 #SYSSAT-ADDED            (L)       INIT <FALSE>
+  2 #SYSNOMU                 (A8)      INIT <'SYSNOMU'>
+  2 #SYSNOMU-ADDED           (L)       INIT <FALSE>
+  2 #SYSNOMS                 (A8)      INIT <'SYSNOMS'>
+  2 #SYSNOMS-ADDED           (L)       INIT <FALSE>
+1 REDEFINE REQUIRED-LIBRARIES
+  2 #LIB-TABLE               (3)
+    3 #LIB-NAME              (A8)
+    3 #LIB-ADDED             (L)
+1 #ESY-NEW-VERSION           (A8)    INIT <'3.2'>
+1 #NOM-SUBTASK-VERSION       (A3)
+* #NOM-SUBTASK-VERSION is used internally for DDNAME only.
+* There is no need to compare with other NOM versions.
+1 #SUFFIX-CHARS              (A26) INIT <'MABCDEFGHIJKLNOPQRSTUVWXYZ'>
+1 REDEFINE #SUFFIX-CHARS
+  2 #SUFFIX-CHAR             (A1/26)
+1 EVENTING
+  2 P-NODE                   (N5)
+  2 P-EVENT-NAME             (A8)
+  2 P-FUNCTION               (A8)
+  2 P-WAIT-TIME              (N4)
+  2 P-ERROR-CODE             (N4)
+  2 P-ERROR-TEXT             (A250)
+  2 P-EVENT-MESSAGE          (A250)
+1 #EVENT                     (A8)
+1 #STEPLIB-EXIST             (L)
+1 #TRACING                   (L)
+1 #PRODUCT-VER               (A13)
+1 #SP-NATENV                 (A1080)
+1 #POINT                     (A)   DYNAMIC
+1 #COM-CREATE                (L)
+1 #FILLER-LINE               (L)  /* BLI 2015-12-25 NOMALL-1572
+1 #NOMCOMPR-VERS             (A10)
+1 #NOMCOMPR-RC               (I4)
+1 P-ERT                      (A250)
+1 #G-NPR-USERID              (A8)
+1 #SUBTASK-ID                (A16)
+1 #SUBTASK-NAME              (A16)
+1 #MF                        (L) /*SU16
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT PS=60 LS=133
+*
+IF +DEVICE = ' ' /* not set by RMINIONL for testing purposes
+  +DEVICE := *DEVICE
+END-IF
+IF *MACHINE-CLASS = 'MAINFRAME' /*SU16
+  #MF := TRUE
+END-IF
+CALLNAT 'NSC-ACT' SECURITY-ACTIV
+IF NOT SECURITY-ACTIV
+  FOR #I = 1 TO *OCC(#LIB-NAME)
+    IF #LIB-NAME(#I) = ' '
+      ESCAPE BOTTOM
+    END-IF
+    #USER-STEPLIB := #LIB-NAME(#I)
+    PERFORM ADD-USER-STEPLIB
+    #LIB-ADDED(#I):= TRUE
+  END-FOR
+END-IF
+PERFORM XXPARAMS-SET-PARAM 'WH=ON'
+RESET +ERROR-COUNT-UX
+*
+WRITE NOTITLE NOHDR ' '
+WRITE 'E O M   M O N I T O R'
+WRITE '====================='
+WRITE *PROGRAM 'started at' *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+SKIP 1
+NOMVER-PRODUCTNAME := 'EOM'
+CALLNAT 'PRDVER-N' NOMVER-PARMS G-NATRP-ERC G-NATRP-ERT
+COMPRESS NOMVER-VERSION '.' NOMVER-RELEASE
+  '.' NOMVER-SP '.' NOMVER-CF TO #PRODUCT-VER LEAVING NO
+WRITE 'Running NOM version ' #PRODUCT-VER 'of date' NOMVER-DATE
+SKIP 3
+* --------------------------------------- main -------------------------
+FETCH RETURN 'RM-ETR-P' 'RM-ERRTA'
+*ERROR-TA := 'RM-ERRTA'
+*LANGUAGE := 1
+*
+RESET G-NATRP-ERC G-NATRP-ERT
+*
+DECIDE FOR EVERY CONDITION
+  WHEN G-NATRP-ERC = 0
+    PERFORM INPUT-PARAMETER
+  WHEN G-NATRP-ERC = 0
+    PERFORM ADD-SAT-STEPLIB
+  WHEN G-NATRP-ERC = 0
+    PERFORM CHECK-SAT-LOG-FILE
+  WHEN G-NATRP-ERC = 0
+    PERFORM SET-EOM-SYSTEM-FILE
+  WHEN G-NATRP-ERC = 0 AND #MF
+    PERFORM EVALUATE-START-RECORD
+  WHEN G-NATRP-ERC = 0 AND #MF
+    PERFORM EVALUATE-MY-PARAMETERS
+  WHEN G-NATRP-ERC = 0
+    PERFORM LOCAL-MONITOR-RECORD
+  WHEN G-NATRP-ERC = 0
+    PERFORM READ-MONITOR-DEFINITION
+  WHEN G-NATRP-ERC = 0
+    PERFORM CHECK-LFILE91
+  WHEN G-NATRP-ERC = 0
+    CALLNAT 'RMCKCMPR'      /* Check for valid NOMCOMPR routine
+      G-NATRP-ERC G-NATRP-ERT G-TRACE
+    IF G-NATRP-ERC NE 0
+      COMPRESS '0005' 'RMCKCMPR reports:' G-NATRP-ERT TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+    END-IF
+  WHEN G-NATRP-ERC = 0
+    FETCH RETURN 'NOMSTCSR' /*write MSG Ü (was:Reset statistics values)
+/*SU23    WRITE / 'RMINIT -- O4I Statistics = ' +O4I (EM='OFF'/'ON') /
+  WHEN G-NATRP-ERC = 0
+    FETCH RETURN 'RMUNLOCK' /* Reset all usage stamps for sources (lock)
+  WHEN G-NATRP-ERC = 0
+    PERFORM SYSTEM-INFORMATION
+  WHEN G-NATRP-ERC = 0
+    PERFORM CORRECT-ORDER-NUMBERS
+  WHEN G-NATRP-ERC = 0 AND NOT #MF
+    #POINT := 'start of monitor task'
+  WHEN G-NATRP-ERC = 0 AND NOT #MF
+    PERFORM SHOW-NOMCOMPR-VERSION
+  WHEN G-NATRP-ERC = 0 AND NOT #MF AND G-TASK-NUMBER = 1
+    PERFORM INIT-UX-EVENTS
+  WHEN G-NATRP-ERC = 0 AND #MF
+    PERFORM DELETE-START-EVENT
+  WHEN G-NATRP-ERC = 0
+    PERFORM FILL-GDA-NEW-VARIABLES
+  WHEN G-NATRP-ERC = 0
+    PERFORM EVALUATE-NAF-PARAMETERS
+  WHEN G-NATRP-ERC = 0 AND #MF /*SU14
+    PERFORM EVALUATE-NOMUSR-PARAMETERS
+  WHEN G-NATRP-ERC = 0
+    IF SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN 'BS2'
+      PERFORM EVALUATE-BS2000-USER
+    END-IF
+  WHEN G-NATRP-ERC = 0 AND #MF AND G-PRTASK-NUMBER > 0
+    PERFORM EVALUATE-PRTASK-PARAMETERS
+  WHEN G-NATRP-ERC = 0 AND #MF AND G-NSC-ACTIVE
+    PERFORM EVALUATE-ARC-PARAMETERS
+  WHEN G-NATRP-ERC = 0 AND #MF AND G-NSC-ACTIVE
+    PERFORM EVALUATE-REV-PARAMETERS
+  WHEN G-NATRP-ERC = 0
+    PERFORM READ-CLEANUP-DEFAULTS
+  WHEN G-NATRP-ERC = 0 AND G-TASK-NUMBER = 1
+    FETCH RETURN 'RMODRS'        /* set unfinished orders to 'failed'
+  WHEN G-NATRP-ERC = 0 AND G-TASK-NUMBER = 1
+    PERFORM RESET-REPORT-PROCESSING-NOW
+    PERFORM START-SUBTASKS        /* start subordinate tasks
+    CALLNAT 'RMSETSTN' #EQU-INIT
+      G-MONITOR-NODE G-NATRP-DBID G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+  WHEN G-NATRP-ERC = 0
+    PERFORM CLEANUP-PRINTER-TASKS
+  WHEN NONE IGNORE
+END-DECIDE
+************************************************************************
+IF G-NATRP-ERC NE 0 /* error occured
+  G-TRACE-MSG := P-ERT := '1513'
+  PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+  IF G-TASK-NUMBER = 1 /* speaks for the whole monitor
+    CALLNAT 'XXCONTRM' 'C' G-TASK-NUMBER 1513 P-ERT #TRACING
+  END-IF
+  END TRANSACTION
+  IF #MF
+    FETCH RETURN 'RMRDCDSP'  /* Display RDC statistics in batch
+    FETCH RETURN 'RDCDISIO'
+  END-IF
+  STACK TOP COMMAND 'FIN'
+  STACK TOP COMMAND 'LASTMSG'
+  STOP
+END-IF
+* ***** ok Ü
+G-TRACE-MSG := P-ERT := '1510'
+PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+IF G-TASK-NUMBER = 1 /* speaks for the whole monitor
+  CALLNAT 'XXCONTRM' 'S'
+    G-TASK-NUMBER 1510 P-ERT #TRACING
+END-IF
+END TRANSACTION
+*
+FETCH 'RMONITOR'
+*
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INPUT-PARAMETER
+************************************************************************
+IF #MF
+  INPUT (AD=MI)
+    'MONITOR ID .............' G-MONITOR-ID
+    / 'MONITOR Minimum-Wait ...' G-WAIT-MINIMUM
+    / 'MONITOR Maximum-Wait ...' G-WAIT-MAXIMUM
+    / 'MONITOR Increment ......' G-WAIT-INCREMENT
+    / 'MONITOR Node ...........' G-MONITOR-NODE
+    / 'NOM     SYSF ...........' #EOM-SYSF
+    / 'SAT     SYSF ...........' #SAT-SYSF
+    / 'SAT     Library ........' #SAT-LIBRARY
+    / 'SAT     Member .........' #SAT-MEMBER
+    / 'MONITOR Task Number.....' G-TASK-NUMBER
+ELSE
+  INPUT (AD=MI)
+    / 'MONITOR Task Number.....' G-TASK-NUMBER
+    / 'NOM     SYSF ...........' #EOM-SYSF
+  RMTASK-P.FUNCTION       := 'L'
+  RMTASK-P.SUBTASK-NUMBER := G-TASK-NUMBER
+  CALLNAT 'RMTASKID' RMTASK-P
+  G-MONITOR-ID      := RMTASK-P.TASK-ID
+  G-WAIT-MINIMUM    := 5
+  G-WAIT-MAXIMUM    := 30
+  G-WAIT-INCREMENT  := 5
+  #SAT-LIBRARY      := 'SYSSATU'
+END-IF
+IF G-TASK-NUMBER LT 1
+  G-TASK-NUMBER:= 1
+END-IF
+RMTASK-P.FUNCTION       := 'S'
+RMTASK-P.SUBTASK-NUMBER := G-TASK-NUMBER
+CALLNAT 'RMTASKID' RMTASK-P
+#SUBTASK-ID             := RMTASK-P.TASK-ID
+G-NATRP-DBID            := #EOM-DBID
+G-NATRP-FNR             := #EOM-FNR
+G-LG-USERID             := G-MONITOR-ID
++G-TASK-NUMBER          := G-TASK-NUMBER
+RMTASK-P.FUNCTION       := 'L'
+RMTASK-P.SUBTASK-NUMBER := G-TASK-NUMBER
+CALLNAT 'RMTASKID' RMTASK-P
+LG-USERID := RMTASK-P.TASK-ID
+LG-CODE   := 'MO'
+IF #MF
+  PRINT *PROGRAM 'Input Parameter '
+    / 'MONITOR ID .............' G-MONITOR-ID
+    / 'MONITOR Minimum-Wait ...' G-WAIT-MINIMUM
+    / 'MONITOR Maximum-Wait ...' G-WAIT-MAXIMUM
+    / 'MONITOR Increment ......' G-WAIT-INCREMENT
+    / 'MONITOR Node ...........' G-MONITOR-NODE
+    / 'NOM     SYSF ...........' #EOM-SYSF
+    / 'SAT     SYSF ...........' #SAT-SYSF
+    / 'SAT     Library ........' #SAT-LIBRARY
+    / 'SAT     Member .........' #SAT-MEMBER /
+    'MONITOR Task Number.....' G-TASK-NUMBER /
+ELSE
+  PRINT *PROGRAM 'Input Parameter '
+    / 'MONITOR Task Number.....' G-TASK-NUMBER
+    / 'NOM     SYSF ...........' #EOM-SYSF
+END-IF
+*
+END-SUBROUTINE /* INPUT-PARAMETER
+*
+************************************************************************
+DEFINE SUBROUTINE SET-EOM-SYSTEM-FILE
+************************************************************************
+SATLF-FUNCTION := 'SET'
+SATLF-LFILE    := 206
+SATLF-DBID-N5  := #EOM-DBID
+SATLF-FNR-N5   := #EOM-FNR
+SATLF-SATVERS  := 21
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+IF SATLF-ERROR-CODE NE 0
+  G-NATRP-ERC := SATLF-ERROR-CODE
+  G-NATRP-ERT := SATLF-ERROR-TEXT
+  SKIP  2
+  WRITE '--> Error setting NOM System File ' G-NATRP-ERC
+  PRINT '-->' G-NATRP-ERT /*SU17 (AL=70)
+END-IF
+RESET RACTLF-ERROR-LOGGING
+RACTLF-LOGGING    := TRUE
+RACTLF-LOG-USERID := G-LG-USERID
+RACTLF-LOG-CODE   := 'MO'
+RACTLF-LFILE-1    := 91
+RACTLF-LFILE-2    := 206
+CALLNAT 'RACTLF-N' RACTLF-PARMS
+IF RACTLF-ERROR-CODE NE 0
+  G-NATRP-ERC := RACTLF-ERROR-CODE
+  WRITE '--> Error setting NOM System File ' G-NATRP-ERC
+  WRITE '--> Dbid1:' RACTLF-DBID-1 'Fnr1:' RACTLF-FNR-1
+  WRITE '--> Dbid2:' RACTLF-DBID-2 'Fnr2:' RACTLF-FNR-2
+END-IF
+*
+END-SUBROUTINE /* SET-EOM-SYSTEM-FILE
+*
+************************************************************************
+DEFINE SUBROUTINE EVALUATE-START-RECORD
+************************************************************************
+RESET SATSP-PARMS (*)
+SATSP-SATLIB            := #SAT-LIBRARY
+SATSP-SATMEM            := #SAT-MEMBER
+SATSP-SATDBID-N5        := #SAT-DBID
+SATSP-SATFNR-N5         := #SAT-FNR
+SATSP-START-SERVDBID-N5 := #EOM-DBID
+SATSP-START-SERVFNR-N5  := #EOM-FNR
+SATSP-SATVERS           := 21
+CALLNAT SAT-START-PARMS SATSP-SATVERS SATSP-PARMS (*)
+IF SATSP-ERROR-CODE NE 0
+  G-NATRP-ERC := SATSP-ERROR-CODE
+  G-NATRP-ERT := SATSP-ERROR-TEXT
+  SKIP  2
+  WRITE '--> Error reading start record ' G-NATRP-ERC
+  PRINT '-->' G-NATRP-ERT /*SU17 (AL=70)
+  ESCAPE ROUTINE
+END-IF
+*
+IF SATSP-START-MEMBER = ' '
+  #PRD-MEMBER := #SAT-MEMBER
+ELSE
+  #PRD-MEMBER := SATSP-START-MEMBER
+END-IF
+*
+COMPRESS SATSP-START-PRODUCT SATSP-START-PREFIX TO #PRD-NAME LEAVING NO
+*
+#PRT-MEMBER := #PRD-MEMBER
+COMPRESS #PRD-NAME 'PRT' TO #PRT-NAME LEAVING NO
+*
+#ARC-MEMBER := #PRD-MEMBER
+COMPRESS #PRD-NAME 'ARC' TO #ARC-NAME LEAVING NO
+*
+#REV-MEMBER := #PRD-MEMBER
+COMPRESS #PRD-NAME 'REV' TO #REV-NAME LEAVING NO
+*
+END-SUBROUTINE /* EVALUATE-START-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE READ-MONITOR-DEFINITION
+************************************************************************
+IF #MF
+  CALLNAT 'RMSETSTN' #EQU-INIT G-MONITOR-NODE G-NATRP-DBID G-NATRP-FNR
+    G-SHUTDOWN G-TASK-NUMBER
+END-IF
+RESET G-SHUTDOWN
+LG-MSG := '1509'
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+*
+RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)
+FIND-MONIT. FIND NRM-MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 9999
+    WRITE '   --> Monitor definitions not found'
+    ESCAPE BOTTOM (FIND-MONIT.)
+  END-NOREC
+*
+  IF #MF
+    READ(1) MF-NODE BY MF-TYPE-ID = 'MR-'
+    END-READ
+    IF MF-TYPE NE 'M'
+      G-NATRP-ERC := 9999
+      WRITE '   --> Spool data of monitor definitions not found'
+      ESCAPE BOTTOM (FIND-MONIT.)
+    END-IF
+  ELSE
+    RESET MF-NODE /*SU18
+  END-IF
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN #EOM-DBID < 1 OR #EOM-FNR < 1
+      IGNORE
+    WHEN M-NATRPT-DBID-N5 NE #EOM-DBID OR M-NATRPT-FNR-N5 NE #EOM-FNR
+      GET NRM-MONITOR *ISN(FIND-MONIT.)
+      M-NATRPT-DBID-N5 := #EOM-DBID
+      M-NATRPT-FNR-N5  := #EOM-FNR
+      UPDATE
+    WHEN NONE IGNORE
+  END-DECIDE
+  FOR #I = 1 TO #MAX-FUNC
+    IF M-TASK-NUMBER (#I) NE 0
+      G-TASK-TABLE(#I):= M-TASK-NUMBER(#I)
+      I:= G-TASK-TABLE(#I)
+      #SUBTASK-REQUIRED(I):= TRUE
+    END-IF
+  END-FOR
+  PERFORM RMGTRACE-GET-SETTINGS
+  IF G-TRACE > 0
+    #TRACING := TRUE
+  ELSE
+    #TRACING := FALSE
+  END-IF
+  IF G-TRACE > 0
+    WRITE 'RMINIT -- TRACE-Level =' G-TRACE
+    WRITE 'RMINIT -- TRACE-Set   =' G-TRACE-SET (AL=100)
+    WRITE 'RMINIT -- Wrap-Around =' +TRACE-WRAP 'sec'
+  ELSE
+    WRITE 'RMINIT -- TRACE = OFF'
+  END-IF
+  G-TRACE-MSG := 'Scheduling of monitor tasks:'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  IF G-TASK-NUMBER = 1
+    FOR #I = 1 TO #MAX-FUNC
+      IF G-TASK-TABLE (#I) > 0
+        COMPRESS 'Task' G-TASK-TABLE (#I) 'takes over function'
+          #FUNCTION-TABLE (#I) TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+    END-FOR
+  END-IF
+*
+  G-CLASSES (*)             := MF-CLASSES (*)
+  G-JES3-OUTPUT-CLASSES (*) := MF-JES3-OUTPUT-CLASSES (*)
+  RESET +G-BS2-RENAME +G-BS2-COPY
+  DECIDE ON FIRST VALUE OF MF-TIME-SCHEDULE /*SU18 (FIND-MONIT.)
+    VALUE 'K'  +G-BS2-COPY   := TRUE
+    VALUE 'Y'  +G-BS2-RENAME := TRUE
+    NONE IGNORE /*  VALUE 'N',' '
+  END-DECIDE
+  G-BS2-DEST (1:4)  := MF-BS2-DEST (1:4)
+  IF M-USE-OWNER = 'Y'
+    G-USE-OWNER := TRUE
+  ELSE
+    RESET G-USE-OWNER
+  END-IF
+  G-TEMP-CLASS      := MF-TEMP-CLASS
+  G-PRINT-CLASS     := MF-PRINT-CLASS
+  G-ERROR-CLASS     := MF-ERR-CLASS
+  G-MONITOR-JOBNAME := M-XCOM-JOBNAME
+  G-BATCH-MODULE    := M-BATCH-MODULE
+  G-DEF-FLUSH-TIME  := M-FLUSH-TIME
+  G-DEF-PRINTER     := M-DEFAULT-PRINTER
+  IF G-TASK-NUMBER > 1
+    RMTASK-P.FUNCTION       := 'S'
+    RMTASK-P.SUBTASK-NUMBER := G-TASK-NUMBER
+    CALLNAT 'RMTASKID' RMTASK-P
+    FND-SUBT. FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID=RMTASK-P.TASK-ID
+      IF NO RECORDS FOUND
+        WRITE '   --> Subtask Definition not found'
+        ST-SUBTASK-ID     := #SUBTASK-ID
+        ST-WAIT-MINIMUM   := M-WAIT-MINIMUM
+        ST-WAIT-MAXIMUM   := M-WAIT-MAXIMUM
+        ST-WAIT-INCREMENT := M-WAIT-INCREMENT
+        ST-WAIT-CURRENT   := M-WAIT-CURRENT
+      END-NOREC
+      G-WAIT-MINIMUM  := ST-WAIT-MINIMUM
+      G-WAIT-MAXIMUM  := ST-WAIT-MAXIMUM
+      G-WAIT-INCREMENT:= ST-WAIT-INCREMENT
+      G-WAIT-FACTOR   := ST-WAIT-CURRENT
+      IF *PID IS (N10)
+        ST-PID := VAL(*PID)
+      ELSE
+        RESET ST-PID
+      END-IF
+      RESET ST-STATUS
+      IF *NUMBER (FND-SUBT.) = 0
+        ST-OBJECT-TYPE := 'SI'
+        ST-OBJECT-TIME := *TIMX
+        STORE NRM-SUBTASK-INFO
+      ELSE
+        UPDATE (FND-SUBT.)
+      END-IF
+    END-FIND
+  ELSE
+    RMTASK-P.FUNCTION       := 'S'
+    RMTASK-P.SUBTASK-NUMBER := 1
+    CALLNAT 'RMTASKID' RMTASK-P
+    FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = RMTASK-P.TASK-ID
+      IF *PID IS (N10)
+        ST-PID := VAL(*PID)
+      ELSE
+        RESET ST-PID
+      END-IF
+      RESET ST-STATUS
+      UPDATE
+    END-FIND
+    G-WAIT-MINIMUM   := M-WAIT-MINIMUM
+    G-WAIT-MAXIMUM   := M-WAIT-MAXIMUM
+    G-WAIT-INCREMENT := M-WAIT-INCREMENT
+    G-WAIT-FACTOR    := M-WAIT-CURRENT
+  END-IF
+  FOR FI = 1 TO 20
+    IF M-COPY-FILES-V141 (FI) = ' '
+      ESCAPE TOP
+    END-IF
+    ADD 1 TO CI
+    G-COPY-FILES (CI) := M-COPY-FILES-V141 (FI)
+  END-FOR
+  G-JOBCARDS (*)  := M-JOBCARD (*)
+  G-PRTASK-NUMBER := M-PRT-TASK-NO
+  #NOM-SUBTASK-VERSION := SUBSTR(#PRD-NAME,4)
+  IF G-TASK-NUMBER = 1
+    GET NRM-MONITOR *ISN(FIND-MONIT.)
+    RESET M-STATUS
+    UPDATE
+  END-IF
+  END TRANSACTION
+END-FIND
+*
+G-WAIT-FACTOR := G-WAIT-MINIMUM
+DECIDE FOR EVERY CONDITION
+  WHEN G-WAIT-MINIMUM < 1
+    G-WAIT-MINIMUM := 30
+  WHEN G-WAIT-MAXIMUM = 0
+    G-WAIT-MAXIMUM := 300
+  WHEN G-WAIT-MAXIMUM < G-WAIT-MINIMUM
+    G-WAIT-MAXIMUM := G-WAIT-MINIMUM
+  WHEN G-WAIT-INCREMENT = 0
+    G-WAIT-INCREMENT := 5
+  WHEN G-MONITOR-NODE = 0 AND #MF
+    G-MONITOR-NODE := 148
+  WHEN NONE IGNORE
+END-DECIDE
+*
+G-WAIT-FACTOR := G-WAIT-MINIMUM
+COMPRESS '1503' G-WAIT-MINIMUM   TO LG-MSG CALLNAT 'RLOG' PL-PARMS
+COMPRESS '1504' G-WAIT-MAXIMUM   TO LG-MSG CALLNAT 'RLOG' PL-PARMS
+COMPRESS '1505' G-WAIT-INCREMENT TO LG-MSG CALLNAT 'RLOG' PL-PARMS
+COMPRESS '1506' G-MONITOR-NODE +NOD-LOCAL-NAME TO LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+COMPRESS '1507' G-NATRP-DBID     TO LG-MSG CALLNAT 'RLOG' PL-PARMS
+COMPRESS '1508' G-NATRP-FNR      TO LG-MSG CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+IF NOT #MF AND G-TASK-NUMBER GT 1  /* BLI1 start
+* G-TASK-NUMBER 1 will be handled below (INIT-UX-EVENTS, START-SUBTASKS)
+* RESET G-SHUTDOWN after RMSETSTN might be another option  BLI1 end
+  CALLNAT 'RMSETSTN' #EQU-INIT G-MONITOR-NODE G-NATRP-DBID G-NATRP-FNR
+    G-SHUTDOWN G-TASK-NUMBER
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* READ-MONITOR-DEFINITION
+*
+************************************************************************
+DEFINE SUBROUTINE CORRECT-ORDER-NUMBERS
+************************************************************************
+READ (1) ACTIVE-REPORTS DESCENDING BY AR-ORDER-REPNAME
+END-READ
+FIND ORDER WITH OD-ID = 9999999999
+  IF OD-LAST-ID LT AR-ORDER-ID         /* POTENTIAL FOR DUPLICATES
+    WRITE NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Order number updated from:' OD-LAST-ID
+    OD-LAST-ID := AR-ORDER-ID + 1
+    WRITE NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      '                       to:' OD-LAST-ID
+    UPDATE
+  END-IF
+*
+END-FIND
+END OF TRANSACTION
+*
+END-SUBROUTINE /* CORRECT-ORDER-NUMBERS
+*
+************************************************************************
+DEFINE SUBROUTINE EVALUATE-NOMUSR-PARAMETERS
+************************************************************************
+RESET G-SCAN-NOMUSR (*)
+FNDUSR. READ NOMUSR BY M-MONITOR-ID = 'NOMUSR'
+  IF M-MONITOR-ID NE MASK ('NOMUSR') OR NOT ( #NOMUSR-NR = 100 THRU 105)
+    ESCAPE BOTTOM
+  END-IF
+  IF M-TIME-SCHEDULE (FNDUSR.) = 'Y'
+    G-SCAN-NOMUSR (#NOMUSR-NR) := 'Y'
+    WRITE '   NOM User Interface' #NOMUSR-NR (EM=999)
+      '.... active'
+  ELSE
+    WRITE '   NOM User Interface' #NOMUSR-NR (EM=999)
+      '.... inactive'
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* EVALUATE-NOMUSR-PARAMETERS
+*
+************************************************************************
+DEFINE SUBROUTINE EVALUATE-NAF-PARAMETERS
+************************************************************************
+FNDNAF. FIND NRM-MONITOR WITH M-MONITOR-ID = 'NAF' /* 8.1.9
+  IF M-TIME-SCHEDULE NE 'Y' /*SU20 was MF-
+    ESCAPE BOTTOM (FNDNAF.)
+  END-IF
+  RESET NI
+  DECIDE FOR FIRST CONDITION
+    WHEN C*M-COPY-FILES-V141 > 0
+      FOR FI = 1 TO 20
+        IF M-COPY-FILES-V141 (FI) = ' '
+          ESCAPE TOP
+        END-IF
+        IF M-CP-IDENT (FI) = MASK ('FS=('............)
+          ADD 1 TO NI
+          G-NP-IDENT (NI) := M-CP-IDENT (FI)
+          G-NP-DBID  (NI) := M-CP-DBID (FI)
+          G-NP-FNR   (NI) := M-CP-FNR  (FI)
+        END-IF
+      END-FOR
+    WHEN NONE IGNORE
+  END-DECIDE
+  G-NP-ENTRIES := NI
+  IF G-NP-ENTRIES > 0
+    WRITE '   NAF Interface .............' 'active'
+    +G-SCAN-NP-TIME-LIMIT := M-WAIT-INCREMENT
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* EVALUATE-NAF-PARAMETERS
+*
+************************************************************************
+DEFINE SUBROUTINE SHOW-NOMCOMPR-VERSION
+************************************************************************
+CALL 'NSMCMPV' #NOMCOMPR-VERS
+#NOMCOMPR-RC := RET('NSMCMPV')
+*
+IF #NOMCOMPR-RC NE 0
+  CALLNAT 'XXCONTRM' 'C' G-TASK-NUMBER 1513
+    'NOM1513 Error accessing NOM Compression Routine' #TRACING
+  WRITE '   --> Error accessing NOM Compression Routine:'
+    #NOMCOMPR-RC
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'MONITOR goes down'
+  STACK TOP COMMAND 'FIN'
+  STACK TOP COMMAND 'LASTMSG'
+  STOP /* <<== STOP ==>>
+END-IF
+WRITE / '   Compression Routine Version:' #NOMCOMPR-VERS /
+*
+END-SUBROUTINE /* SHOW-NOMCOMPR-VERSION
+*
+************************************************************************
+DEFINE SUBROUTINE EVALUATE-MY-PARAMETERS
+************************************************************************
+RESET  SATPA-PARMS (*)
+SATPA-SATDBID-N5    := #SAT-DBID
+SATPA-SATFNR-N5     := #SAT-FNR
+SATPA-TYPE          := 'SATENV'
+SATPA-LIBRARY (1:2) := #SAT-LIBRARY
+SATPA-MEMBER  (1)   := #SAT-MEMBER
+SATPA-MEMBER  (2)   := #PRD-MEMBER
+SATPA-NAME    (1)   := #SAT-NAME
+SATPA-NAME    (2)   := #PRD-NAME
+SATPA-KEYWORD (1)   := 'ESYUSER'
+SATPA-KEYWORD (2)   := 'NSC'
+SATPA-KEYWORD (3)   := 'NSCUSER'
+SATPA-KEYWORD (4)   := 'NSCPSWD'
+*
+PI := 5
+FOR SI = 1 TO 6
+  COMPRESS 'STEPLIB' SI-A TO SATPA-KEYWORD (PI) LEAVING NO
+  ADD 1 TO PI
+END-FOR
+*
+SATPA-SATVERS := 21
+CALLNAT SAT-GET-MERGED-PARM-ARRAY SATPA-SATVERS SATPA-PARMS (*)
+*
+IF SATPA-ERROR-CODE NE 0
+  G-NATRP-ERC := SATPA-ERROR-CODE
+  G-NATRP-ERT := SATPA-ERROR-TEXT
+  SKIP  2
+  WRITE '--> Error reading SATENV Parameters ' G-NATRP-ERC
+  PRINT '-->' G-NATRP-ERT /*SU17 (AL=70)
+  ESCAPE ROUTINE
+END-IF
+*
+G-NPR-USERID := SATPA-VALUE (1)
+IF G-NPR-USERID = ' '
+  G-NPR-USERID := 'NOMMON'
+END-IF
+RESET G-NPR-CURRENT-USERID
+*
+SKIP  2
+WRITE 'Monitor parameters'
+WRITE '   NOM Active Data ...........' RACTLF-DBID-1 RACTLF-FNR-1
+WRITE '   ESY UserId ................' G-NPR-USERID
+*
+IF SATPA-VALUE (2) = 'YES'
+  G-NSC-ACTIVE   := TRUE
+  +G-NSC-USERID  := G-NSC-USERID := SATPA-VALUE (3)
+  G-NSC-PASSWORD := SATPA-VALUE (4)
+  WRITE '   NSC UserId ................' G-NSC-USERID
+  WRITE '   NSC Password ..............' '$$$$$$$$'
+ELSE
+  G-NSC-ACTIVE := FALSE
+  PERFORM ADD-DEFINED-STEPLIBS
+  IF G-NATRP-ERC NE 0
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+PERFORM DISPLAY-STEPLIBS
+*
+END-SUBROUTINE /* EVALUATE-MY-PARAMETERS
+*
+************************************************************************
+DEFINE SUBROUTINE EVALUATE-BS2000-USER
+************************************************************************
+RESET  SATPA-PARMS (*)
+SATPA-SATDBID-N5      := #SAT-DBID
+SATPA-SATFNR-N5       := #SAT-FNR
+SATPA-TYPE            := 'NOMENV'
+SATPA-LIBRARY   (1:2) := #SAT-LIBRARY
+SATPA-MEMBER    (1)   := #SAT-MEMBER
+SATPA-MEMBER    (2)   := #PRD-MEMBER
+SATPA-NAME      (1)   := #SAT-NAME
+SATPA-NAME      (2)   := #PRD-NAME
+SATPA-KEYWORD   (1)   := 'BS2USER'
+SATPA-SATVERS         := 21
+CALLNAT SAT-GET-MERGED-PARM-ARRAY SATPA-SATVERS SATPA-PARMS (*)
+IF SATPA-ERROR-CODE NE 0
+  G-NATRP-ERC := SATPA-ERROR-CODE
+  G-NATRP-ERT := SATPA-ERROR-TEXT
+  SKIP  2
+  WRITE '--> Error reading BS2USER' G-NATRP-ERC
+  PRINT '-->' G-NATRP-ERT /*SU17 (AL=70)
+  ESCAPE ROUTINE
+END-IF
+IF SATPA-VALUE (1) = ' '
+  G-BS2-USERID := G-NPR-USERID
+ELSE
+  G-BS2-USERID := SATPA-VALUE (1)
+END-IF
+WRITE '   BS2000 UserID .............' G-BS2-USERID
+*
+END-SUBROUTINE /* EVALUATE-BS2000-USER
+*
+************************************************************************
+DEFINE SUBROUTINE EVALUATE-PRTASK-PARAMETERS
+************************************************************************
+RESET  SATPA-PARMS (*)
+SATPA-SATDBID-N5  := #SAT-DBID
+SATPA-SATFNR-N5   := #SAT-FNR
+SATPA-TYPE        := 'SATENV'
+SATPA-LIBRARY (*) := #SAT-LIBRARY
+SATPA-MEMBER  (1) := #SAT-MEMBER
+SATPA-MEMBER  (2) := #PRD-MEMBER
+SATPA-MEMBER  (3) := #PRT-MEMBER
+SATPA-NAME    (1) := #SAT-NAME
+SATPA-NAME    (2) := #PRD-NAME
+SATPA-NAME    (3) := #PRT-NAME
+SATPA-KEYWORD (1) := 'NSC'
+SATPA-KEYWORD (2) := 'NSCUSER'
+SATPA-KEYWORD (3) := 'NSCPSWD'
+SATPA-KEYWORD (4) := 'JOBPREF'
+SATPA-KEYWORD (5) := 'NATSKEL'
+SATPA-KEYWORD (6) := 'NATTASK'
+SATPA-KEYWORD (7) := 'NATBATCH'
+SATPA-SATVERS := 21
+CALLNAT SAT-GET-MERGED-PARM-ARRAY SATPA-SATVERS SATPA-PARMS (*)
+IF SATPA-ERROR-CODE NE 0
+  G-NATRP-ERC := SATPA-ERROR-CODE
+  G-NATRP-ERT := SATPA-ERROR-TEXT
+  SKIP  2
+  WRITE '--> Error reading SATENV Parameters ' G-NATRP-ERC
+  PRINT '-->' G-NATRP-ERT /*SU17 (AL=70)
+  ESCAPE ROUTINE
+END-IF
+G-PRTASK-TYPE                := SATSP-START-TYPE
+G-PRTASK-SUBT-MODULE         := SATPA-VALUE (6)
+G-PRTASK-SKEL-LIBRARY := #SAT-LIBRARY
+G-PRTASK-SKEL-MEMBER         := SATPA-VALUE (5)
+G-PRTASK-SKEL-DBID           := #SAT-DBID
+G-PRTASK-SKEL-FNR            := #SAT-FNR
+G-PRTASK-BTCH-MODULE         := SATPA-VALUE (7)
+IF G-NSC-ACTIVE
+  G-PRTASK-NSC-USERID := SATPA-VALUE (2)
+  G-PRTASK-NSC-PASSWORD := SATPA-VALUE (3)
+END-IF
+RESET SATMM-PARMS (*)
+SATMM-SATDBID-N5     := #SAT-DBID
+SATMM-SATFNR-N5      := #SAT-FNR
+SATMM-TYPE           := 'NATENV'
+SATMM-LIBRARY   (*)  := #SAT-LIBRARY
+SATMM-MEMBER    (1)  := #SAT-MEMBER
+SATMM-MEMBER    (2)  := #PRD-MEMBER
+SATMM-MEMBER    (3)  := #PRT-MEMBER
+SATMM-NAME      (1)  := #SAT-NAME
+SATMM-NAME      (2)  := #PRD-NAME
+SATMM-NAME      (3)  := #PRT-NAME
+SATMM-SATVERS        := 21
+CALLNAT SAT-MERGE-PARM-MEMBERS SATMM-SATVERS SATMM-PARMS (*)
+IF SATMM-ERROR-CODE NE 0
+  G-NATRP-ERC := SATMM-ERROR-CODE
+  G-NATRP-ERT := SATMM-ERROR-TEXT
+  SKIP  2
+  WRITE '--> Error reading NATENV Parameters ' G-NATRP-ERC
+  PRINT '-->' G-NATRP-ERT /*SU17 (AL=70)
+  ESCAPE ROUTINE
+END-IF
+G-PRTASK-NATENV := SATMM-BLOCK-RESULT
+RESET  SATPA-PARMS (*)
+SATPA-SATDBID-N5  := #SAT-DBID
+SATPA-SATFNR-N5   := #SAT-FNR
+SATPA-TYPE        := 'NOMENV'
+SATPA-LIBRARY (*) := #SAT-LIBRARY
+SATPA-MEMBER  (1) := #SAT-MEMBER
+SATPA-MEMBER  (2) := #PRD-MEMBER
+SATPA-MEMBER  (3) := #PRT-MEMBER
+SATPA-NAME    (1) := #SAT-NAME
+SATPA-NAME    (2) := #PRD-NAME
+SATPA-NAME    (3) := #PRT-NAME
+SATPA-KEYWORD (1) := 'ETID'
+SATPA-KEYWORD (2) := 'ETIDPREF'
+SATPA-SATVERS     := 21
+CALLNAT SAT-GET-MERGED-PARM-ARRAY SATPA-SATVERS SATPA-PARMS (*)
+IF SATPA-ERROR-CODE NE 0
+  G-NATRP-ERC := SATPA-ERROR-CODE
+  G-NATRP-ERT := SATPA-ERROR-TEXT
+  SKIP  2
+  WRITE '--> Error reading NOMENV Parameters ' G-NATRP-ERC
+  PRINT '-->' G-NATRP-ERT /*SU17 (AL=70)
+  ESCAPE ROUTINE
+END-IF
+IF SATPA-VALUE (1) = 'YES'
+  +G-PRTASK-ETID := TRUE
+  DECIDE FOR FIRST CONDITION
+    WHEN SATPA-VALUE (2) NE ' '
+      +G-PRTASK-ETID-PREFIX := SATPA-VALUE (2)
+    WHEN G-NSC-ACTIVE
+      +G-PRTASK-ETID-PREFIX := G-PRTASK-NSC-USERID
+    WHEN NONE
+      +G-PRTASK-ETID-PREFIX := 'NOMPRT'
+  END-DECIDE
+ELSE
+  RESET +G-PRTASK-ETID +G-PRTASK-ETID-PREFIX
+END-IF
+CALLNAT 'SATID02N' G-PRTASK-NATENV
+PERFORM DISPLAY-PRTASK-PARAMETERS
+*
+END-SUBROUTINE /* EVALUATE-PRTASK-PARAMETERS
+*
+************************************************************************
+DEFINE SUBROUTINE DISPLAY-PRTASK-PARAMETERS
+************************************************************************
+RMTASK-P.FUNCTION       := 'L'
+RMTASK-P.SUBTASK-NUMBER := G-TASK-NUMBER
+CALLNAT 'RMTASKID' RMTASK-P
+LG-USERID := RMTASK-P.TASK-ID
+LG-CODE   := 'MO'
+SKIP  2
+WRITE 'Printer Task parameters'
+WRITE '   Number of Tasks ...........' G-PRTASK-NUMBER
+COMPRESS '1524' G-PRTASK-NUMBER TO LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+END OF TRANSACTION
+WRITE '   Type ......................' G-PRTASK-TYPE
+COMPRESS '1525' G-PRTASK-TYPE TO LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+END OF TRANSACTION
+IF G-PRTASK-TYPE = 'SUBTASK'
+  WRITE '   NATURAL Subtask Module ....' G-PRTASK-SUBT-MODULE
+ELSE
+  WRITE '   NATURAL Batch Module ......' G-PRTASK-BTCH-MODULE
+  WRITE '   NATURAL Batch Skeleton ....' G-PRTASK-SKEL-MEMBER
+  WRITE '   NATURAL Skeleton Library ..' G-PRTASK-SKEL-LIBRARY
+  WRITE '   NATURAL Skeleton DBID .....' G-PRTASK-SKEL-DBID
+  WRITE '   NATURAL Skeleton FNR ......' G-PRTASK-SKEL-FNR
+END-IF
+IF G-NSC-ACTIVE
+  WRITE '   NSC UserID ................' G-PRTASK-NSC-USERID
+  WRITE '   NSC Password ..............' '$$$$$$$$'
+END-IF
+IF +G-PRTASK-ETID
+  WRITE '   ETID Prefix ...............' +G-PRTASK-ETID-PREFIX
+END-IF
+#NATENV := G-PRTASK-NATENV
+RESET J
+FOR I = 1 TO 5
+  IF #NATENV-L (I) = ' '
+    ESCAPE TOP
+  END-IF
+  ADD 1 TO J
+  IF J = 1
+    WRITE '   NATENV ....................' #NATENV-L (I)
+  ELSE
+    WRITE '                              ' #NATENV-L (I)
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* DISPLAY-PRTASK-PARAMETERS
+*
+************************************************************************
+DEFINE SUBROUTINE EVALUATE-ARC-PARAMETERS
+************************************************************************
+RESET  SATPA-PARMS (*)
+SATPA-SATDBID-N5  := #SAT-DBID
+SATPA-SATFNR-N5   := #SAT-FNR
+SATPA-TYPE        := 'SATENV'
+SATPA-LIBRARY (*) := #SAT-LIBRARY
+SATPA-MEMBER  (1) := #SAT-MEMBER
+SATPA-MEMBER  (2) := #PRD-MEMBER
+SATPA-MEMBER  (3) := #ARC-MEMBER
+SATPA-NAME    (1) := #SAT-NAME
+SATPA-NAME    (2) := #PRD-NAME
+SATPA-NAME    (3) := #ARC-NAME
+SATPA-KEYWORD (1) := 'NSCUSER'
+SATPA-KEYWORD (2) := 'NSCPSWD'
+SATPA-SATVERS     := 21
+CALLNAT SAT-GET-MERGED-PARM-ARRAY SATPA-SATVERS SATPA-PARMS (*)
+IF SATPA-ERROR-CODE NE 0
+  G-NATRP-ERC := SATPA-ERROR-CODE
+  G-NATRP-ERT := SATPA-ERROR-TEXT
+  SKIP  2
+  WRITE '--> Error reading SATENV Parameters ' G-NATRP-ERC
+  PRINT '-->' G-NATRP-ERT /*SU17 (AL=70)
+  ESCAPE ROUTINE
+END-IF
+G-ARC-NSC-USERID   := SATPA-VALUE (1)
+G-ARC-NSC-PASSWORD := SATPA-VALUE (2)
+PERFORM DISPLAY-ARC-PARAMETERS
+*
+END-SUBROUTINE /* EVALUATE-ARC-PARAMETERS
+*
+************************************************************************
+DEFINE SUBROUTINE DISPLAY-ARC-PARAMETERS
+************************************************************************
+SKIP  2
+WRITE 'Archive Task parameters'
+WRITE '   NSC UserID ................' G-ARC-NSC-USERID
+WRITE '   NSC Password ..............' '$$$$$$$$'
+*
+END-SUBROUTINE /* DISPLAY-ARC-PARAMETERS
+*
+************************************************************************
+DEFINE SUBROUTINE EVALUATE-REV-PARAMETERS
+************************************************************************
+RESET  SATPA-PARMS (*)
+SATPA-SATDBID-N5  := #SAT-DBID
+SATPA-SATFNR-N5   := #SAT-FNR
+SATPA-TYPE        := 'SATENV'
+SATPA-LIBRARY (*) := #SAT-LIBRARY
+SATPA-MEMBER (1)  := #SAT-MEMBER
+SATPA-MEMBER (2)  := #PRD-MEMBER
+SATPA-MEMBER (3)  := #REV-MEMBER
+SATPA-NAME   (1)  := #SAT-NAME
+SATPA-NAME   (2)  := #PRD-NAME
+SATPA-NAME   (3)  := #REV-NAME
+SATPA-KEYWORD (1) := 'NSCUSER'
+SATPA-KEYWORD (2) := 'NSCPSWD'
+SATPA-SATVERS     := 21
+CALLNAT SAT-GET-MERGED-PARM-ARRAY SATPA-SATVERS SATPA-PARMS (*)
+IF SATPA-ERROR-CODE NE 0
+  G-NATRP-ERC := SATPA-ERROR-CODE
+  G-NATRP-ERT := SATPA-ERROR-TEXT
+  SKIP  2
+  WRITE '--> Error reading SATENV Parameters ' G-NATRP-ERC
+  PRINT '-->' G-NATRP-ERT /*SU17 (AL=70)
+  ESCAPE ROUTINE
+END-IF
+G-REV-NSC-USERID   := SATPA-VALUE (1)
+G-REV-NSC-PASSWORD := SATPA-VALUE (2)
+PERFORM DISPLAY-REV-PARAMETERS
+*
+END-SUBROUTINE /* EVALUATE-REV-PARAMETERS
+*
+************************************************************************
+DEFINE SUBROUTINE DISPLAY-REV-PARAMETERS
+************************************************************************
+SKIP  2
+WRITE 'Revive Task parameters'
+WRITE '   NSC UserID ................' G-REV-NSC-USERID
+WRITE '   NSC Password ..............' '$$$$$$$$'
+*
+END-SUBROUTINE /* DISPLAY-REV-PARAMETERS
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-USER-STEPLIB
+************************************************************************
+RESET NAT00009-PARMS
+NAT00009-LIBRARY := #USER-STEPLIB
+PERFORM ADD-STEPLIB
+*
+END-SUBROUTINE /* ADD-USER-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-SAT-STEPLIB
+************************************************************************
+RESET NAT00009-PARMS
+NAT00009-LIBRARY := 'SYSSAT'
+PERFORM ADD-STEPLIB
+*
+END-SUBROUTINE /* ADD-SAT-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-STEPLIB
+************************************************************************
+CALLNAT 'RLIBACT' NAT00009-LIBRARY #STEPLIB-EXIST
+IF NOT #STEPLIB-EXIST
+  RESET NAT00009-DBID NAT00009-FNR
+  CALLNAT 'RGETLIB' NAT00009-APPLIC
+  NAT00009-FUNCTION := 08
+  CALLNAT 'NAT00009' NAT00009-PARMS
+  IF NAT00009-NUMBER-ACTIVE > 8
+    IF NAT00009-LIBRARY = 'SYSSAT'
+      SKIP  2
+      WRITE '--> Unable to add SYSSAT Steplib'
+      WRITE '--> Will attempt to initialize'
+      SKIP  2
+    ELSE
+      G-NATRP-ERC := 0005
+      G-NATRP-ERT := 'Error accessing STEPLIB Table'
+      SKIP  2
+      WRITE '--> Too many STEPLIBs'
+    END-IF
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* ADD-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-DEFINED-STEPLIBS
+************************************************************************
+FOR PI = 1 TO 10
+  IF SATPA-KEYWORD (PI) NE MASK ('STEPLIB'.) OR SATPA-VALUE (PI) = ' '
+    ESCAPE TOP
+  END-IF
+  SATEL-SATVERS := 21
+  SATEL-VALUE   := SATPA-VALUE (PI)
+  CALLNAT SAT-EXTRACT-STEPLIB SATEL-SATVERS SATEL-PARMS (*)
+  IF SATEL-ERROR-CODE NE 0
+    G-NATRP-ERC := SATEL-ERROR-CODE
+    G-NATRP-ERT := SATEL-ERROR-TEXT
+    SKIP  2
+    WRITE '--> Error extracting STEPLIB Parameters ' G-NATRP-ERC
+    PRINT '-->' G-NATRP-ERT /*SU17 (AL=70)
+    ESCAPE ROUTINE
+  END-IF
+  EXAMINE #LIB-NAME(*) FOR SATEL-LIBRARY GIVING INDEX #I
+  IF #I GT 0
+    IF #LIB-ADDED(#I)
+      ESCAPE TOP
+    END-IF
+  END-IF
+  RESET NAT00009-PARMS
+  NAT00009-LIBRARY  := SATEL-LIBRARY
+  NAT00009-DBID     := SATEL-DBID-N5
+  NAT00009-FNR      := SATEL-FNR-N5
+  NAT00009-CIPHER   := SATEL-CIPHER
+  NAT00009-PASSWORD := SATEL-PASSWORD
+  PERFORM ADD-STEPLIB
+  IF G-NATRP-ERC NE 0
+    ESCAPE ROUTINE
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* ADD-DEFINED-STEPLIBS
+*
+************************************************************************
+DEFINE SUBROUTINE DISPLAY-STEPLIBS
+************************************************************************
+/*SU22 -> NAT00009-NUMBER-ACTIVE := 8
+/* FOR PI = 1 TO NAT00009-NUMBER-ACTIVE
+RESET PI
+#REP. REPEAT
+  ADD 1 TO PI /*SU22 <-
+  NAT00009-FUNCTION := 12
+  NAT00009-CURRENT-INDEX := PI
+  CALLNAT 'NAT00009' NAT00009-PARMS
+  RESET INITIAL #STEPLIB
+  #STEPLIB-LIBRARY := NAT00009-LIBRARY
+  #STEPLIB-DBID    := NAT00009-DBID
+  #STEPLIB-FNR     := NAT00009-FNR
+  EXAMINE #STEPLIB FOR ' ' DELETE
+  IF PI = 1
+    WRITE '   STEPLIBs...................' #STEPLIB
+  ELSE
+    WRITE '                              ' #STEPLIB
+  END-IF
+  IF PI GE NAT00009-NUMBER-ACTIVE /*SU22
+    ESCAPE BOTTOM
+  END-IF
+END-REPEAT
+*
+END-SUBROUTINE /* DISPLAY-STEPLIBS
+*
+************************************************************************
+DEFINE SUBROUTINE SYSTEM-INFORMATION
+************************************************************************
+IF G-MONITOR-NODE = 0 /*unix
+  SYSTEM-INFO-VIEW.SYSTEM-TYPE := *OPSYS
+  SYSTEM-INFO-VIEW.SPOOL-TYPE  := 'UNIX'
+  COMPRESS '1527' SYSTEM-INFO-VIEW.SYSTEM-TYPE TO LG-MSG
+  CALLNAT 'RLOG' PL-PARMS
+  COMPRESS '1528' SYSTEM-INFO-VIEW.SPOOL-TYPE TO LG-MSG
+  CALLNAT 'RLOG' PL-PARMS
+  SKIP  2
+  WRITE 'System Information'
+  WRITE '   System Type ...............' SYSTEM-INFO-VIEW.SYSTEM-TYPE
+  WRITE '   Spool Type ................' SYSTEM-INFO-VIEW.SPOOL-TYPE
+  WRITE '   Monitor Code Page .........' *CODEPAGE
+  ESCAPE ROUTINE
+END-IF
+/* Mainframe:
+FNDSY. FIND (1) SYSTEM-INFO-VIEW WITH NODE = G-MONITOR-NODE
+  IF SYSTEM-INFO-VIEW.ERROR-CODE NE 0
+    G-NATRP-ERC := SYSTEM-INFO-VIEW.ERROR-CODE + 5000
+    WRITE '   --> error reading system info' G-NATRP-ERC
+    PRINT '      ' G-NATRP-ERT /*SU17 (AL=70)
+  END-IF
+  EXAMINE FULL SYSTEM-INFO-VIEW.SYSTEM-TYPE FOR H'00' REPLACE ' '
+  EXAMINE FULL SYSTEM-INFO-VIEW.SPOOL-TYPE FOR H'00' REPLACE ' '
+  IF SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN 'BS2'
+    SYSTEM-INFO-VIEW.SPOOL-TYPE := SYSTEM-INFO-VIEW.SYSTEM-TYPE
+  END-IF
+  IF SYSTEM-INFO-VIEW.SPOOL-TYPE = 'JES3'
+  AND SYSTEM-INFO-VIEW.ESY-VERSION GT #ESY-NEW-VERSION                /*
+    FIND SYSTEM-PARMS WITH NODE = G-MONITOR-NODE
+      EXAMINE SYSTEM-PARMS.STARTUP-PARM FOR 'SPOOL=' GIVING POSITION #I
+      IF #I > 0
+        ADD 6 TO #I
+        +SPOOL-PARM := SUBSTR (SYSTEM-PARMS.STARTUP-PARM,#I,4)
+        ESCAPE BOTTOM
+      END-IF
+    END-FIND
+  END-IF
+  COMPRESS '1527' SYSTEM-INFO-VIEW.SYSTEM-TYPE TO LG-MSG
+  CALLNAT 'RLOG' PL-PARMS
+  COMPRESS '1528' SYSTEM-INFO-VIEW.SPOOL-TYPE TO LG-MSG
+  CALLNAT 'RLOG' PL-PARMS
+  SKIP  2
+  WRITE 'System Information'
+  WRITE '   System Type ...............' SYSTEM-INFO-VIEW.SYSTEM-TYPE
+/*SU15  IF SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN 'BS2'
+/*SU15      WRITE '   System release ............' SYSTEM-RELEASE
+/*SU15    END-IF
+  WRITE '   Spool Type ................' SYSTEM-INFO-VIEW.SPOOL-TYPE
+  WRITE '   Monitor Language ..........' *LANGUAGE
+  WRITE '   Monitor Code Page .........' +NOD-LOCAL-CODEPAGE
+  IF +NOD-LOCAL-CODEPAGE NE *CODEPAGE
+    WRITE '   Natural System Code Page ..' *CODEPAGE
+  END-IF
+  IF *CODEPAGE = ' ' AND +NOD-LOCAL-CODEPAGE NE ' ' /*SU16
+    LG-MSG := F#GETMSG (<-8314>) /*NAT8314 No Natural ICU handler avail.
+    SKIP  2
+    WRITE '--> NOM Monitor requires Natural ICU support'
+    PRINT '-->' LG-MSG /*SU17 (AL=70)
+    PERFORM WRITE-LOG-RECORD
+    G-NATRP-ERC := 1513 /*NOM1513 Monitor initialization failed.
+    ESCAPE ROUTINE
+  END-IF
+  IF +NOD-LOCAL-CODEPAGE NE ' ' /*check CP SU16
+    CALLNAT 'N-CP-CHK' +NOD-LOCAL-CODEPAGE G-NATRP-ERC LG-MSG
+    IF NOT (G-NATRP-ERC = 0 OR=4) /* 4 = user defined
+      LG-MSG := F#GETMSG (<G-NATRP-ERC,LG-MSG>)
+      SKIP  2
+      PRINT '-->' LG-MSG /*SU17 (AL=70)
+      G-NATRP-ERC := 1513 /*NOM1513 Monitor initialization failed.
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* SYSTEM-INFORMATION
+*
+************************************************************************
+DEFINE SUBROUTINE FILL-GDA-NEW-VARIABLES
+************************************************************************
+* ***** CA/CMASPOOL (8.1.8):
+IF #MF /*SU14
+  FNDCMA. FIND (1) CMASPOOL-MONITOR WITH M-MONITOR-ID = 'CMASPOOL'
+    IF M-TIME-SCHEDULE (FNDCMA.) = 'Y'
+      G-SCAN-CMASPOOL := 'Y'
+      G-SCAN-CMASPOOL-COPY-FILES (1:10) := M-COPY-FILES-V141 (1:10)
+      G-SCAN-CMASPOOL-VERSION := M-VERSION (FNDCMA.)
+      G-SCAN-CMASPOOL-TEMP-DEST := M-DEFAULT-PRINTER (FNDCMA.)
+      +G-SCAN-CMASPOOL-TIME-LIMIT     := M-WAIT-INCREMENT (FNDCMA.)
+      WRITE '   CA SPOOL Interface ........' 'active'
+    END-IF
+  END-FIND
+END-IF
+* ***** TRIGGER (8.1.10):
+FNDTRIGGER. FIND (1) API-DEFAULTS WITH M-MONITOR-ID = 'API-DEFS'
+  IF M-TIME-SCHEDULE (FNDTRIGGER.) = 'Y'
+    G-SCAN-TRIGGER      := 'Y'
+    G-SCAN-TRIGGER-DBID := M-NATRPT-DBID-N5
+    G-SCAN-TRIGGER-FNR  := M-NATRPT-FNR-N5
+    WRITE '   NOM Trigger Queue ......... active'
+  END-IF
+END-FIND
+* ***** Unix (8.1.13 UX):
+G-SCAN-UNIX := 'N'
+FDUX. FIND NUMBER UX-NODES WITH UX-NODE-NAME > ' '
+IF *NUMBER (FDUX.) > 0
+  G-SCAN-UNIX := 'Y'
+END-IF
+* ***** USER EXITS (8.1.12 3GL):
+FIND (1) USER-EXITS WITH M-MONITOR-ID = 'API-DEFS'
+  FOR I 1 20
+    IF M-NOMEXIT-ACTIVE (I) = 'Y'
+      +G-NOMEXIT-ACTIVE (I) := TRUE
+    ELSE
+      +G-NOMEXIT-ACTIVE (I) := FALSE
+    END-IF
+  END-FOR
+  IF M-NOMEXIT-ACTIVE (9) = 'Y'
+    +G-NOMEXIT-ACTIVE-009 := TRUE
+  ELSE
+    +G-NOMEXIT-ACTIVE-009 := FALSE
+  END-IF
+END-FIND                                             /* ???????????????
+*
+END-SUBROUTINE /* FILL-GDA-NEW-VARIABLES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-CLEANUP-DEFAULTS /*8.1.7
+************************************************************************
+FNDDF. FIND CLEANUP-DEFAULTS WITH M-MONITOR-ID = 'CLEANUP'
+  IF NO RECORDS FOUND
+    LG-MSG := '7122'            /* Cleanup defaults missing
+    PERFORM WRITE-LOG-RECORD
+    G-NATRP-ERC := 1513
+    ESCAPE BOTTOM (FNDDF.)
+  END-NOREC
+  IF M-CLEANUP-SPOOL = 'Y'
+    +G-CLEANUP-SPOOL := TRUE
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-CLEANUP-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+RMTASK-P.FUNCTION       := 'L'
+RMTASK-P.SUBTASK-NUMBER := G-TASK-NUMBER
+CALLNAT 'RMTASKID' RMTASK-P
+LG-USERID := RMTASK-P.TASK-ID
+LG-CODE   := 'MO'
+CALLNAT 'RLOG' PL-PARMS
+END OF TRANSACTION
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE START-SUBTASKS
+************************************************************************
+IF NOT #SUBTASK-REQUIRED(*)
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'RMSETSTN' #EQU-START-SUBTASK
+  G-MONITOR-NODE G-NATRP-DBID G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+IF #MF
+  IF G-BATCH-MODULE = 'BATCHJOB'
+    WRITE '   --> Subtasks not supported for BATCH Monitor'
+    G-TASK-TABLE(1:#MAX-FUNC):= 1
+    ESCAPE ROUTINE
+  END-IF
+  FIND (1) NRM-SUBTASK-PARMS WITH M-MONITOR-ID = 'SUBTPARM'
+    IF NO RECORDS FOUND
+      WRITE '   --> Subtask Definition not found'
+      G-TASK-TABLE(1:#MAX-FUNC):= 1
+      ESCAPE ROUTINE
+    END-NOREC
+    #SP-NATENV := SP-NATENV /* ÜÜ ATTENTION: A250 := A1080 ÜÜ
+    CALLNAT 'SATID02N' #SP-NATENV
+* set parms for SAT
+    SATST-SYSTEM-TYPE        := SP-SYSTEM-TYPE
+    SATST-SYSTEM-RELEASE     := SP-SYSTEM-RELEASE
+    SATST-NODE-N5            := G-MONITOR-NODE
+    SATST-TYPE               := SP-TASK-TYPE
+    SATST-NSC-ACTIVE         := SP-NSC-ACTIVE
+    SATST-NSC-USERID         := SP-NSC-USERID
+    #SCRAMBLED               := SP-NSC-PASSWORD
+    CALLNAT 'SATTS01N' 'U' #UNSCRAMBLED #SCRAMBLED /*SU21
+    SATST-NSC-PASSWORD       := #UNSCRAMBLED
+    SATST-BATCH-MODULE       := SP-BATCH-MODULE
+    SATST-SUBTASK-MODULE     := SP-SUBTASK-MODULE
+    RESET SATST-BATCH-JOBNAME
+    SATST-SKEL-LIBRARY       := SP-SKELETON-LIBRARY
+    SATST-SKEL-MEMBER        := SP-SKELETON-NAME
+    SATST-SKEL-DBID-N5       := SP-SAT-DBID
+    SATST-SKEL-FNR-N5        := SP-SAT-FNR
+    CALLNAT 'RGETLIB' SATST-NATLIB
+    SATST-NATENV             := SP-NATENV
+    SATST-NATPGM             := 'RMINIT'
+  END-FIND
+  FOR I = 21 TO #MAX-TASKS
+    RMTASK-P.FUNCTION       := 'T'
+    RMTASK-P.SUBTASK-NUMBER := I
+    CALLNAT 'RMTASKID' RMTASK-P
+    #SUBTASK-NAME := RMTASK-P.TASK-ID
+    FIND NATURAL-SUB-TASK WITH NAT-USER = #SUBTASK-NAME
+    AND NODE = G-MONITOR-NODE AND FUNCTION = 'STATUS'                 /*
+      IF NOT(NATURAL-SUB-TASK.ERROR-CODE = 663 /* subtask active
+      OR (NATURAL-SUB-TASK.ERROR-CODE = 0 AND NAT-STATUS = 'CLOSED')) /*
+        PERFORM KILL-SUBTASK
+      END-IF
+    END-FIND
+    IF #SUBTASK-REQUIRED(I) /*subtask not active - start it
+      RMTASK-P.FUNCTION       := 'S'
+      RMTASK-P.SUBTASK-NUMBER := I
+      CALLNAT 'RMTASKID' RMTASK-P
+      SUBTWAIT.
+      FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = RMTASK-P.TASK-ID
+      END-FIND
+      RMTASK-P.FUNCTION := 'T'
+      CALLNAT 'RMTASKID' RMTASK-P
+      SATST-SUBTASK-NAME := RMTASK-P.TASK-ID
+      RMTASK-P.FUNCTION := 'L'
+      CALLNAT 'RMTASKID' RMTASK-P
+      COMPRESS RMTASK-P.TASK-ID ST-WAIT-MINIMUM ST-WAIT-MAXIMUM
+        ST-WAIT-INCREMENT G-MONITOR-NODE #EOM-SYSF #SAT-SYSF
+        #SAT-LIBRARY #SAT-MEMBER
+        RMTASK-P.SUBTASK-NUMBER-A TO SATST-NATPGM-PARMS
+      SATST-SATVERS:= 21
+      COMPRESS SATSP-START-PRODUCT SATSP-START-PREFIX
+        RMTASK-P.SUBTASK-NUMBER-A
+        TO SATST-SUBTASK-MESSAGE-FILE LEAVING NO
+      IF #TRACING
+        COMPRESS 'Start task' I 'with params:' SATST-NATPGM-PARMS
+          TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        COMPRESS 'DDNAME:' SATST-SUBTASK-MESSAGE-FILE TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END TRANSACTION
+      END-IF
+* Create unique sysout DD name if using subtasking
+      IF SATST-TYPE = 'SUBTASK'
+        SETDDNAME. FOR #I = 1 TO 26
+          COMPRESS 'NO' #SUFFIX-CHAR(#I) SATSP-START-PREFIX
+            RMTASK-P.SUBTASK-NUMBER-A
+            TO SATST-SUBTASK-MESSAGE-FILE LEAVING NO
+          #COM-CREATE := FALSE
+          FIND COMMON-DATA WITH NODE = +NOD-LOCAL-NODE
+          AND FUNCTION ='CREATE' AND DATA-ID =SATST-SUBTASK-MESSAGE-FILE
+          AND NUMBER-OF-ENTRIES = 1 AND ENTRY-LENGTH = 1              /*
+            IF COMMON-DATA.ERROR-CODE = 621   /* Already exists
+              IF #TRACING
+                COMPRESS SATST-SUBTASK-MESSAGE-FILE 'already exists'
+                  TO G-TRACE-MSG
+                PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+              END-IF
+              #COM-CREATE := FALSE
+            ELSE
+              IF #TRACING
+                COMPRESS 'Create for' SATST-SUBTASK-MESSAGE-FILE
+                  'RC=' COMMON-DATA.ERROR-CODE TO G-TRACE-MSG
+                PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+              END-IF
+              #COM-CREATE := TRUE
+            END-IF
+          END-FIND
+          IF NOT #COM-CREATE
+            ESCAPE TOP    /* Next iteration of #I
+          END-IF
+          FIND NATURAL-SUB-TASK WITH NODE = G-MONITOR-NODE
+          AND FUNCTION = 'LIST' AND NAT-STATUS = 'ACTIVE'             /*
+          AND DDNAME = SATST-SUBTASK-MESSAGE-FILE                     /*
+            IF NO RECORDS FOUND
+              ESCAPE BOTTOM(SETDDNAME.)
+            END-NOREC
+            IF NATURAL-SUB-TASK.ERROR-CODE NE 0
+              ESCAPE BOTTOM(SETDDNAME.)
+            END-IF
+          END-FIND
+        END-FOR
+      END-IF
+      IF #TRACING
+        COMPRESS 'Using DDNAME:' SATST-SUBTASK-MESSAGE-FILE
+          TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+      INCLUDE CMRDC
+      IF #TRACING
+        CALLNAT SAT-SERVER-START SATST-SATVERS SATST-PARMS-03
+      ELSE
+        CALLNAT SAT-SERVER-START SATST-SATVERS SATST-PARMS-03
+          TRUE /* Set Trace-off, suppress WRITE stmts
+      END-IF
+      IF  #COM-CREATE
+        #COM-CREATE := FALSE
+        FIND COMMON-DATA WITH NODE=+NOD-LOCAL-NODE AND FUNCTION='DELETE'
+        AND DATA-ID = SATST-SUBTASK-MESSAGE-FILE                      /*
+          IF COMMON-DATA.ERROR-CODE = 0 AND #TRACING /* NOMALL-1272 BLI
+            COMPRESS SATST-SUBTASK-MESSAGE-FILE 'un-created'
+              TO G-TRACE-MSG
+            PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+          END-IF
+        END-FIND
+      END-IF
+      IF SATST-ERROR-CODE = 0
+        #ESY-VERSION := SYSTEM-INFO-VIEW.ESY-VERSION
+        IF SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN 'BS2'
+        AND #ESY-MAIN-VERSION > 2 /* NPR 3.1.1 and above              /*
+          FIND (1) NATPROC-USERS WITH NODE = G-MONITOR-NODE
+          AND TASK-ID = SATST-SUBTASK-NAME AND FULL-SCAN = 'YES'      /*
+            COMPRESS '1563&' I '/' JOB-ID TO LG-MSG LEAVING NO
+            EXAMINE LG-MSG FOR '&' AND REPLACE WITH ' '
+            PERFORM WRITE-LOG-RECORD
+          END-FIND
+        ELSE
+          COMPRESS '1563' I TO LG-MSG
+          PERFORM WRITE-LOG-RECORD
+        END-IF
+      ELSE
+        COMPRESS '1564' I TO LG-MSG
+        PERFORM WRITE-LOG-RECORD
+        WRITE '   --> Subtask start failed for:' #SUBTASK-ID
+          / '   --> Error:'  SATST-ERROR-CODE SATST-ERROR-TEXT
+        FOR J = 1 TO #MAX-FUNC
+          IF G-TASK-TABLE(J) = I
+            G-TASK-TABLE(J):= 1
+          END-IF
+        END-FOR /* J = 1 TO #MAX-FUNC
+      END-IF    /* SATST-ERROR-CODE = 0
+    END-IF      /* #SUBTASK-REQUIRED(I)
+  END-FOR       /* I = 21 TO #MAX-TASKS
+ELSE
+  FOR I = 21 TO #MAX-TASKS
+    IF #SUBTASK-REQUIRED(I)
+      STX-TASK-NUMBER := I
+      RMTASK-P.FUNCTION       := 'S'
+      RMTASK-P.SUBTASK-NUMBER := I
+      CALLNAT 'RMTASKID' RMTASK-P
+      STX-TASK-NAME := RMTASK-P.TASK-ID
+      STX-FUNCTION  := 'STATUS'
+      CALLNAT 'RMSTX--N' STX-PARMS G-TRACE
+      END TRANSACTION
+      IF #TRACING
+        COMPRESS 'Subtask' I 'got Unix status code' STX-TASK-STATUS
+          'with error' STX-ERROR-CODE 'in task' STX-TASK-NAME
+          TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+      IF STX-ERROR-CODE = 0 AND STX-TASK-STATUS = 0
+        PERFORM KILL-SUBTASK
+      END-IF
+      STX-FUNCTION      := 'START'
+      STX-START-SCRIPT  := '$NOMDIR/$NOMVERS/nommon.bsh'
+      COMPRESS '$EOM_WORK/nommon.task' STX-TASK-NUMBER '.stdout'
+        TO STX-LOGFILE LEAVING NO
+      RMTASK-P.FUNCTION       := 'S'
+      RMTASK-P.SUBTASK-NUMBER := I
+      CALLNAT 'RMTASKID' RMTASK-P
+      STX-TASK-NAME   := RMTASK-P.TASK-ID
+      STX-TASK-NUMBER := I
+      CALLNAT 'RMSTX--N' STX-PARMS G-TRACE
+      END TRANSACTION
+      IF STX-ERROR-CODE = 0
+        COMPRESS '1563' I TO LG-MSG
+      ELSE
+        COMPRESS '1564' I TO LG-MSG
+      END-IF
+      PERFORM WRITE-LOG-RECORD
+    END-IF
+  END-FOR
+END-IF
+*
+END-SUBROUTINE /* START-SUBTASKS
+*
+************************************************************************
+DEFINE SUBROUTINE KILL-SUBTASK
+************************************************************************
+IF #TRACING
+  COMPRESS 'Subtask' #SUBTASK-NAME 'still active - to be killed'
+    TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+IF G-MONITOR-NODE NE 0
+  FIND(1) NATURAL-SUB-TASK WITH NODE = G-MONITOR-NODE
+  AND NAT-USER = #SUBTASK-NAME AND FUNCTION = 'CLOSE'                 /*
+  END-FIND
+  IF NATURAL-SUB-TASK.ERROR-CODE NE 0
+    WRITE '   --> Error' NATURAL-SUB-TASK.ERROR-CODE
+      'closing' #SUBTASK-NAME
+  END-IF
+ELSE
+  STX-FUNCTION := 'KILL'
+  CALLNAT 'RMSTX--N' STX-PARMS G-TRACE
+  END TRANSACTION
+  IF STX-ERROR-CODE NE 0
+    COMPRESS 'Kill of' STX-TASK-NAME 'returned error' STX-ERROR-TEXT
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* KILL-SUBTASK
+*
+************************************************************************
+DEFINE SUBROUTINE CLEANUP-PRINTER-TASKS
+************************************************************************
+IF NOT #MF
+  FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = 'PRT0' THRU 'PRT9'
+    DELETE
+    END TRANSACTION
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* CLEANUP-PRINTER-TASKS
+*
+************************************************************************
+DEFINE SUBROUTINE RESET-REPORT-PROCESSING-NOW
+************************************************************************
+CLEANUP. FIND (1) DAILY-CLEANUP WITH M-MONITOR-ID = 'SYNCHCLN'
+  IF NO RECORDS FOUND
+    RMTASK-P.FUNCTION       := 'S'
+    RMTASK-P.SUBTASK-NUMBER := 1
+    CALLNAT 'RMTASKID' RMTASK-P
+    FIND (1) DAILY-CLEANUP-OLD WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+      DAILY-CLEANUP.M-ARCHIVE-PREFIX:=
+        DAILY-CLEANUP-OLD.M-ARCHIVE-PREFIX
+      IF DAILY-CLEANUP-OLD.CLEANUP-ACTIVE-NOW
+* if NOMCLEAN is running it will be working off the old control
+* record so we write a warning and force NOMCLEAN to go into an
+* endless sleep - it will have to be cancelled.
+        WRITE '   --> Batch Daily Cleanup is active in parallel'
+          / '   --> Please cancel the batch job'
+        DAILY-CLEANUP-OLD.REPORT-PROCESSING-NOW:= TRUE
+        UPDATE
+      END-IF
+    END-FIND
+    M-MONITOR-ID:= 'SYNCHCLN'
+    DAILY-CLEANUP.CLEANUP-IDENTIFIER:= 'CLEAN'
+    RESET DAILY-CLEANUP.REPORT-PROCESSING-NOW
+      DAILY-CLEANUP.CLEANUP-ACTIVE-NOW
+    STORE DAILY-CLEANUP
+    ESCAPE BOTTOM
+  END-NOREC
+  IF DAILY-CLEANUP.CLEANUP-IDENTIFIER = 'CLEAN'
+  AND DAILY-CLEANUP.REPORT-PROCESSING-NOW                             /*
+    RESET DAILY-CLEANUP.REPORT-PROCESSING-NOW
+    UPDATE(CLEANUP.)
+    WRITE '   --> Report processing now indicator reset'
+  END-IF
+END-FIND
+END TRANSACTION
+*
+END-SUBROUTINE /* RESET-REPORT-PROCESSING-NOW
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-SAT-LOG-FILE
+************************************************************************
+CALLNAT 'SATLGFVN' SATLGV-PARMS
+IF SATLGV-RC NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    SATLGV-ERROR-TEXT
+  IF SATLGV-LOG-DBID NE 0 OR SATLGV-LOG-FNR NE 0
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Dbid:' SATLGV-LOG-DBID 'Fnr:' SATLGV-LOG-FNR
+  END-IF
+  COMPRESS 'NOM0005' SATLGV-ERROR-TEXT TO P-ERT
+  CALLNAT 'XXCONTRM' 'T' G-TASK-NUMBER 5 P-ERT #TRACING
+END-IF
+*
+END-SUBROUTINE /* CHECK-SAT-LOG-FILE
+*
+************************************************************************
+DEFINE SUBROUTINE LOCAL-MONITOR-RECORD
+************************************************************************
+#G-NPR-USERID := G-NPR-USERID
+CALLNAT 'RMSWNODE' 'L'            /* switch to local node
+  G-TASK-NUMBER G-NATRP-DBID G-NATRP-FNR #TRACING
+IF G-NATRP-ERC NE 0
+  PERFORM XXRLOG-WRITE-LOG 'W' G-NATRP-ERT
+  G-SHUTDOWN:= TRUE
+  END TRANSACTION
+  FETCH 'RMCHKDWN'
+END-IF
+RESET +NOD-CURRENT-ID /* begin first cycle with local node
+G-NPR-USERID := +NOD-LOCAL-USER
+*
+END-SUBROUTINE /* LOCAL-MONITOR-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-START-EVENT
+************************************************************************
+FIND NATURAL-SUB-TASK WITH NODE = G-MONITOR-NODE AND NAT-STATUS='ACTIVE'
+AND FUNCTION = 'LIST' AND NAT-USER = 'NO*'                            /*
+  IF NAT-USER = MASK('NO'.'X') AND NAT-USER = SCAN(#EOM-SYSF)
+    P-FUNCTION := 'DELETE' /* No more needed, product start complete.
+    #EVENT     := DDNAME   /* Had been set in NOMSATxx.
+    PERFORM EVENTING
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* DELETE-START-EVENT
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-UX-EVENTS
+************************************************************************
+EVENTING.P-FUNCTION := 'INIT'
+#EVENT              := 'all' /* dummy entry
+PERFORM EVENTING
+*
+END-SUBROUTINE /* INIT-UX-EVENTS
+*
+************************************************************************
+DEFINE SUBROUTINE EVENTING
+************************************************************************
+P-NODE       := +NOD-LOCAL-NODE
+P-EVENT-NAME := #EVENT
+IF P-EVENT-NAME = ' '
+  ESCAPE ROUTINE /* no eventing required.
+END-IF
+P-WAIT-TIME  := 0
+CALLNAT 'RMEVNT-N' EVENTING
+IF P-ERROR-CODE NE 0 AND P-ERROR-CODE NE 890 /* does not exist
+AND P-ERROR-CODE NE 888 /* NPR VSE Bug P288164 in                     /*
+  G-NATRP-ERC := P-ERROR-CODE
+  G-NATRP-ERT := P-ERROR-TEXT
+  SKIP 3
+  WRITE '--> Error starting monitor' G-NATRP-ERC
+  PRINT '                          ' G-NATRP-ERT /*SU17 (AL=70)
+  PERFORM WRITE-MESSAGE-TO-LOG
+END-IF
+*
+END-SUBROUTINE /* EVENTING
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-MESSAGE-TO-LOG
+************************************************************************
+IF G-NATRP-ERC = 5500 THRU 5999 OR G-NATRP-ERC = 3148
+  LG-MSG:= G-NATRP-ERT
+ELSE
+  COMPRESS G-NATRP-ERC G-NATRP-ERT TO LG-MSG
+END-IF
+RMTASK-P.FUNCTION       := 'L'
+RMTASK-P.SUBTASK-NUMBER := G-TASK-NUMBER
+CALLNAT 'RMTASKID' RMTASK-P
+LG-USERID := RMTASK-P.TASK-ID
+*
+LG-CODE := 'MO'
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+RESET G-NATRP-ERC G-NATRP-ERT
+*
+END-SUBROUTINE /* WRITE-MESSAGE-TO-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-LFILE91
+************************************************************************
+RMTASK-P.FUNCTION       := 'S'
+RMTASK-P.SUBTASK-NUMBER := 1
+CALLNAT 'RMTASKID' RMTASK-P
+CALLNAT 'RMCHK91N' RMTASK-P.TASK-ID G-NATRP-ERC G-NATRP-ERT
+DECIDE ON FIRST VALUE OF G-NATRP-ERC
+  VALUE 1538, 1544, 1571
+    PERFORM LONG-MESSAGE
+  NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE              /* CHECK-LFILE91
+*
+************************************************************************
+DEFINE SUBROUTINE LONG-MESSAGE  /* BLI 2015-12-25 NOMALL-1572 created
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND    := 'U'
+NADA2000.ERROR-NUMBER   := G-NATRP-ERC
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := *LANGUAGE
+CALLNAT 'RGETLIB' NADA2000.LIBRARY
+REPEAT
+* get short and long message
+  CALLNAT 'NATA2000' NADA2000  NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+  #XX-SHORT-TEXT := SHORT-MSG
+  IF G-NATRP-ERT NE ' '       /* dynamic variables from RMCHK91N
+    SEPARATE G-NATRP-ERT INTO #XX-MSG-DYNA (1:8)
+      REMAINDER #XX-MSG-DYNA (9) WITH DELIMITER ' '
+    CALLNAT 'XXSUBS-N' #XX-SUBS-PARMS
+  END-IF
+  WRITE '-->'
+  PRINT '-->' #XX-SHORT-TEXT /*SU17 (AL=70)
+  WRITE '-->'
+* log the short message - note: RLOG makes its own resolution of
+* of message numbers in front of message, which means a mixture of
+* message parameters, too. The compressed hyphen ('-') prevents a
+* change of text
+  COMPRESS '-' #XX-SHORT-TEXT   TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+*
+  FOR #I = 1 TO 20
+    IF LONG-MSG(#I) NE ' ' AND LONG-MSG(#I) NE '.'
+      PRINT '-->' LONG-MSG(#I) /*SU17 (AL=75)
+      G-TRACE-MSG := LONG-MSG(#I)
+      PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+      RESET #FILLER-LINE
+    ELSE
+      IF #FILLER-LINE EQ FALSE
+        WRITE '-->'
+        #FILLER-LINE := TRUE
+      END-IF
+    END-IF
+  END-FOR
+* get English
+  IF  OPT-LANGUAGE GT 1
+    OPT-LANGUAGE := 1
+    ESCAPE TOP
+  END-IF
+  END TRANSACTION
+  ESCAPE BOTTOM
+END-REPEAT
+*
+END-SUBROUTINE /* LONG-MESSAGE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  CALLNAT 'C-NATERN' LG-MSG
+  PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Initialization failed in' LG-MSG /*SU17 (AL=30)
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'MONITOR goes down'
+  COMPRESS '0021' LG-MSG TO LG-MSG
+  IF NOT (*ERROR-NR = 3000 THRU 3255)
+    CALLNAT 'RLOG' PL-PARMS
+    LG-MSG := P-ERT := '1513'
+    CALLNAT 'RLOG' PL-PARMS
+    CALLNAT 'XXCONTRM' 'C' G-TASK-NUMBER 1513 P-ERT #TRACING
+    END OF TRANSACTION
+  END-IF
+  STACK TOP COMMAND 'FIN'
+  STACK TOP COMMAND 'LASTMSG'
+  STOP
+END-ERROR
+*
+END

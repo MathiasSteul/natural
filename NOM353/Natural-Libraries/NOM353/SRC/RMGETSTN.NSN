@@ -1,0 +1,187 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMGETSTN - Read current Monitor status
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-12-10 s(999999) Read current Monitor status
+* jvd 98-06-26 s(164220) NOM141 - NAT23 changes
+* sju 00-03-13 s(191368) monitor multitasking
+* fhi 05-06-23 p(266530) Monitor must be NPR Mainframe independent
+* xsetggr 2007-05-02 NOM3201 Support 5 byte node numbers
+* fhi 16-11-08 NOMALL-1621 Add node to Common Data
+* fhi 16-11-15 NOMALL-1961 Use new task IDs
+* fhi 18-11-13 NOMALL-2159 Use 'BY VALUE' for task number
+* SU  2020-03-19             cosmetics - no tags
+* SU1     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* SU2     2021-10-05 NOMALL-2501 Unix: avoid NAT1305(RMEVNTXN:no change
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 P-STATUS               (A1)
+1 P-TIME                 (T)
+1 #NODE                  (N5)
+1 #NATRP-DBID            (N5)
+1 #NATRP-FNR             (N5)
+1 #TASK-NUMBER           (N3)  BY VALUE
+1 P-NODE                 (A16) OPTIONAL
+1 P-LINE                 (N4)  OPTIONAL
+1 TRACING                (L)   OPTIONAL
+* ----------------------------------------------------------------------
+LOCAL USING RMTASK-P
+LOCAL
+1 STATUS VIEW OF COMMON-DATA
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 DATA
+  2 REDEFINE DATA
+    3 DATA-STATUS        (A1)
+    3 DATA-TIME          (T)
+    3 REDEFINE DATA-TIME
+      4 #DATA-TIME_A7    (A7) /*SU2
+    3 DATA-NODE          (A20)
+    3 DATA-LINE          (N4)
+1 EVENTING               (A512)
+1 REDEFINE EVENTING
+  2 ERROR-CODE           (N3)
+  2 ERROR-TEXT           (A58)
+  2 NODE                 (N5)
+  2 SYSTEM-MESSAGE-CODE  (A10)
+  2 FUNCTION             (A8)
+  2 EVENT-NAME           (A8)
+  2 MAX-TIME             (B4)
+  2 REDEFINE MAX-TIME
+    3 MAX-TIME-A         (A4)
+  2 NUMBER-OF-WAITERS    (N5)
+  2 NUMBER-OF-MESSAGES   (N5)
+  2 MESSAGE-ARRAY        (A250)
+1 #TASK-ID-C             (A12)
+1 #TASK-ID-E             (A8)
+1 #COUNTER               (P2)
+1 #LINE                  (I4)
+1 #TRACING               (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+/*SU 2019-12 IF TRACING SPECIFIED #TRACING := TRACING END-IF
+RMTASK-P.FUNCTION       := 'C' /* TASK ID for COMMON-DATA
+RMTASK-P.SUBTASK-NUMBER := #TASK-NUMBER
+#LINE                   := *LINE
+CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+*
+#TASK-ID-C              := RMTASK-P.TASK-ID
+RMTASK-P.FUNCTION       := 'E' /* TASK ID for EVENTING
+RMTASK-P.SUBTASK-NUMBER := #TASK-NUMBER
+#LINE                   := *LINE
+CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+#TASK-ID-E := RMTASK-P.TASK-ID
+*
+REPEAT
+  ADD 1 TO #COUNTER
+  PERFORM READ-STATUS
+  DECIDE ON FIRST STATUS.ERROR-CODE
+    VALUE 0
+      ESCAPE ROUTINE
+    VALUE 621
+      IF #COUNTER > 1
+        ESCAPE ROUTINE
+      END-IF
+      PERFORM CREATE-COMMON-DATA
+      IF STATUS.ERROR-CODE NE 0
+        ESCAPE ROUTINE
+      END-IF
+    NONE VALUE
+      ESCAPE ROUTINE
+  END-DECIDE
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-COMMON-DATA
+************************************************************************
+IF *MACHINE-CLASS = 'MAINFRAME'
+  FNDCR. FIND STATUS WITH NODE = #NODE AND FUNCTION = 'CREATE'
+  AND DATA-ID            = #TASK-ID-C AND NUMBER-OF-ENTRIES  = 1      /*
+  AND ENTRY-LENGTH       = 32 /* NOMALL-1621 was = 8                  /*
+  AND EDITOR-BUFFER-POOL = 'N'                                        /*
+    /*
+  END-FIND
+ELSE
+  EVENTING.FUNCTION := 'DEFINE'
+  EVENT-NAME        := #TASK-ID-E
+  CALLNAT 'RMEVNTXN' EVENTING
+  STATUS.ERROR-CODE := EVENTING.ERROR-CODE
+  STATUS.ERROR-TEXT := EVENTING.ERROR-TEXT
+END-IF
+*
+END-SUBROUTINE /* CREATE-COMMON-DATA
+*
+************************************************************************
+DEFINE SUBROUTINE READ-STATUS
+************************************************************************
+IF *MACHINE-CLASS = 'MAINFRAME'
+  FNDST. FIND STATUS WITH NODE = #NODE AND FUNCTION = 'GET'
+  AND DATA-ID = #TASK-ID-C AND ENTRY-NUMBER = 1                       /*
+  AND ENTRY-LENGTH      = 32  /* NOMALL-1621 was = 8                  /*
+    PERFORM MOVE-FIELDS
+  END-FIND
+ELSE
+  EVENTING.FUNCTION := 'GET'
+  EVENT-NAME        := #TASK-ID-E
+  CALLNAT 'RMEVNTXN' EVENTING
+  STATUS.ERROR-CODE := EVENTING.ERROR-CODE
+  STATUS.ERROR-TEXT := EVENTING.ERROR-TEXT
+  DATA := MESSAGE-ARRAY
+  PERFORM MOVE-FIELDS
+END-IF
+*
+END-SUBROUTINE /* READ-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE MOVE-FIELDS
+************************************************************************
+IF DATA-STATUS = ' ' OR = H'00'
+  RESET P-STATUS P-TIME
+  IF P-NODE SPECIFIED
+    RESET P-NODE
+  END-IF
+  IF P-LINE SPECIFIED
+    RESET P-LINE
+  END-IF
+ELSE
+  P-STATUS := DATA-STATUS
+  IF NOT (#DATA-TIME_A7 =' ' OR='RACEON' OR='RACEOFF') /*SU2
+    P-TIME := DATA-TIME /*leads to NAT1305
+  ELSE
+    RESET P-TIME
+  END-IF
+  IF P-NODE SPECIFIED
+    P-NODE := DATA-NODE
+  END-IF
+  IF P-LINE SPECIFIED
+    P-LINE := DATA-LINE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* MOVE-FIELDS
+*
+************************************************************************
+ON ERROR /*SU2
+************************************************************************
+  IF *ERROR-NR = 1305
+    PRINT 'Error:' *ERROR 'pgm:' *PROGRAM
+      'date:' #DATA-TIME_A7 (EM=H(7))
+  END-IF
+*
+END-ERROR
+*
+END

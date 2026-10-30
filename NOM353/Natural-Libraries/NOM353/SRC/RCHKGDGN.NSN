@@ -1,0 +1,166 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RCHKGDGN - Check GDG existence and some attributes
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* gw      1991-03-19           created
+* gw      1993-11-26 s(999999) don't assign volsers
+* xsetggr 2007-05-02 NOM3201 Support 5 byte node number
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2019-02-05 NOMALL-2142 remove predefined volsers(def arc)
+* SU2     2020-04-23 NOMALL-2349 error handling (NPR)
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER
+1 P-NODE          (N5)
+1 P-GENERIC       (A8)   /* GENERIC DEVICE NAME
+1 P-ARC-PREFIX    (A30)  /* PREFIX DEFINED IN ARC D                     EFAULTS
+1 P-FOUND         (L)    /* GDG BASE FOUND
+1 P-DEVICE-CHANGE (L)    /* ATTEMPT TO USE A NEW DE                     VICE CLASS
+1 P-LIMIT         (N4)   /* MAXIMUM NUMBER OF DATA                      SETS IN GROUP
+1 P-CURRENT       (N4)   /* CURRENT NUMBER OF DATA                      SETS IN GROUP
+1 P-NATRP-ERC     (N4)
+1 P-NATRP-ERT     (A250)
+************************************************************************
+LOCAL
+1 IDCAMS VIEW OF IDCAMS
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 COMMAND
+  2 REDEFINE COMMAND
+    3 #A1         (A1)
+    3 #CMD        (A79)
+  2 LINE
+1 CATALOG VIEW OF CATALOG
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 DSNAME
+  2 CLASS
+1 DEVICE-NAMES VIEW OF DEVICE-NAMES
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 ADDRESS
+1 UNIT-ATTRIBUTES VIEW OF UNIT-ATTRIBUTES
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 CLASS
+*
+1 #TEMP-STRING                (A100)
+1 REDEFINE    #TEMP-STRING
+  2 #TEMP-STRING-V            (A1/100)
+1 REDEFINE    #TEMP-STRING
+  2 #TEMP-STRING-V-A20        (A20/5)
+1 REDEFINE    #TEMP-STRING
+  2 #TEMP-STRING-A44          (A44)
+1 #I                          (I4)
+1 #CLASS                      (A4)
+1 #OLD-CLASS                  (A4)
+1 #SW-STOP-GETTING-VOLS       (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-FOUND P-DEVICE-CHANGE P-LIMIT P-CURRENT P-NATRP-ERC P-NATRP-ERT
+*
+#TEMP-STRING := P-ARC-PREFIX
+FOR #I 54 1 STEP -1
+  IF #TEMP-STRING-V(#I) = '.'
+    RESET #TEMP-STRING-V(#I)
+    ESCAPE BOTTOM
+  END-IF
+  RESET #TEMP-STRING-V(#I)
+END-FOR
+COMPRESS 'LISTCAT GDG LEVEL(' #TEMP-STRING ') ALL' TO IDCAMS.#CMD
+  LEAVING NO
+*
+FIND IDCAMS WITH NODE = P-NODE AND COMMAND = IDCAMS.COMMAND
+  IF ERROR-CODE NE 0
+    P-NATRP-ERC := 5 /*SU2
+    COMPRESS ERROR-TEXT 'node=' P-NODE 'command=' COMMAND TO P-NATRP-ERT
+    ESCAPE ROUTINE
+  END-IF
+  IF LINE = SCAN 'GDG BASE'
+    IF P-FOUND
+      ESCAPE BOTTOM  /* DON'T CARE ABOUT ANY OTHER GDG'S
+    END-IF
+    IF LINE = SCAN P-ARC-PREFIX
+      COMPRESS P-ARC-PREFIX '.' TO #TEMP-STRING LEAVING NO
+      IF NOT LINE = SCAN #TEMP-STRING
+        P-FOUND := TRUE
+      END-IF
+    END-IF
+  END-IF
+  IF NOT P-FOUND
+    ESCAPE TOP
+  END-IF
+  IF LINE = SCAN 'LIMIT'
+    EXAMINE LINE FOR '-' REPLACE ' '
+    SEPARATE LINE LEFT JUSTIFIED INTO #TEMP-STRING-V-A20(*)
+    P-LIMIT := VAL (#TEMP-STRING-V-A20 (2))
+  END-IF
+  COMPRESS P-ARC-PREFIX '.G' TO #TEMP-STRING LEAVING NO
+  IF LINE = SCAN #TEMP-STRING
+    ADD 1 TO P-CURRENT
+    IF P-CURRENT = 1
+      #TEMP-STRING := LINE
+      EXAMINE #TEMP-STRING FOR P-ARC-PREFIX GIVING POSITION #I
+      SUBTRACT 1 FROM #I
+      MOVE ALL ' ' TO #TEMP-STRING UNTIL #I
+      MOVE LEFT JUSTIFIED #TEMP-STRING TO LINE
+      #TEMP-STRING := LINE
+      EXAMINE FULL #TEMP-STRING FOR ' ' GIVING POSITION #I
+      RESET #TEMP-STRING-V (#I:100) #I
+      FIND CATALOG WITH NODE = P-NODE AND DSNAME = #TEMP-STRING
+        IF ERROR-CODE NE 0 /*SU2
+          P-NATRP-ERC := 5
+          COMPRESS ERROR-TEXT 'node=' P-NODE 'dsname=' #TEMP-STRING
+            TO P-NATRP-ERT
+          ESCAPE ROUTINE
+        END-IF
+        AT BREAK DSNAME
+          #SW-STOP-GETTING-VOLS := TRUE
+        END-BREAK
+        IF CLASS NE #OLD-CLASS AND #OLD-CLASS NE ' '
+          P-NATRP-ERC := 952
+          ESCAPE ROUTINE
+        END-IF
+        #OLD-CLASS := CLASS
+        IF NOT #SW-STOP-GETTING-VOLS AND DSNAME = SCAN #TEMP-STRING-A44
+          ADD 1 TO #I
+          #CLASS := CLASS
+        END-IF
+      END-FIND
+    END-IF
+  END-IF
+END-FIND
+IF P-FOUND AND P-CURRENT > 0
+  FIND (1) DEVICE-NAMES WITH NODE = P-NODE AND NAME = P-GENERIC
+    IF ERROR-CODE NE 0
+      P-NATRP-ERC := 5
+      COMPRESS ERROR-TEXT 'node=' P-NODE 'name=' P-GENERIC /*SU2
+        TO P-NATRP-ERT
+      ESCAPE ROUTINE
+    END-IF
+    FIND (1) UNIT-ATTRIBUTES WITH NODE = P-NODE AND UNIT-HEX = ADDRESS
+      IF ERROR-CODE NE 0
+        P-NATRP-ERC := 5
+        COMPRESS ERROR-TEXT 'node=' P-NODE 'unit-hex=' ADDRESS /*SU2
+          TO P-NATRP-ERT
+        ESCAPE ROUTINE
+      END-IF
+      IF CLASS NE #CLASS
+        P-DEVICE-CHANGE := TRUE
+      END-IF
+    END-FIND
+  END-FIND
+END-IF
+*
+END

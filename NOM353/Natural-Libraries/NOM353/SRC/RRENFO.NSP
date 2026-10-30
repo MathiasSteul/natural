@@ -1,0 +1,86 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RRENFO - Rename a Folder
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-08-03           created
+* gw  95-12-06 s(236063) allow admin to maintain folders
+* xsetggr 2007-12-19 p(300375) restow due changes in EOMFOMP
+* xsetggr 2011-05-03 NOMALL-902 changes in EOMFOM-P
+* xsetggr 2012-09-21 NOMALL-89 implement external security check subrout
+* SU1     2024-04-29 NOM 36      remove unused
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+*
+LOCAL USING EOM----E
+LOCAL USING EOM----P
+LOCAL USING EOMFOM-P
+LOCAL USING EOMMSG-P
+*
+LOCAL
+/*SU1 1 FO VIEW OF NRM-FOLDER 2 FO-ID 2 FO-USER-ID 2FO-LINKED-FO-ID(A10)
+/*SU1 2 REDEFINE FO-LINKED-FO-ID 3 FO-LINKED-USER(A8) 3 FO-LINKED-ID(B2)
+/*SU1 1 #FO-USER-NAME (A24) 1 REDEFINE #FO-USER-NAME 2 #FO-USER (A8)
+/*SU1 2 #FO-NAME (A16) 1 #FO-ID-N(N5) 1 REDEFINE #FO-ID-N 2 #FO-ID-A(A5)
+1 #FATHER-PROG         (A8) INIT <'RLISFO'>
+1 #FOLDER              (A16)
+1 #PROG                (A8) INIT <*PROGRAM>
+1 #ALLOWED             (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE WINDOW RENAME-WINDOW SIZE 11*55 BASE 07/20 CONTROL WINDOW
+* security chheck
+PERFORM XXSECURITY-CHECK #PROG G-C-OBJNAME #ALLOWED
+INCLUDE C-NALLOW
+*
+#FOLDER := G-C-FOLDER
+*
+EOMFOM-I-NAME := #FOLDER
+EOMFOM-I-USER := G-FOR-USERID
+*
+EOM-USER-PROFILE := G-USER-PROFILE
+EOM-USER         := G-USERID
+EOM-USER-TYPE    := G-USER-TYPE
+EOM-LANGUAGE     := *LANGUAGE
+*
+EOM-FUNCTION := EOM-READ
+CALLNAT 'EOMFOM-N' EOM-PARMS EOMFOM-PARMS EOMMSG-PARMS
+IF EOMMSG-NR NE 0
+  G-NATRP-ERC := EOMMSG-NR
+  G-NATRP-ERT := EOMMSG-TOKEN (1)
+  INCLUDE C-ESCAPE
+END-IF
+SET KEY PF3 = PGM
+REPEAT
+  SET CONTROL 'MT'
+  INPUT WINDOW = 'RENAME-WINDOW' WITH TEXT *G-NATRP-ERC, G-NATRP-ERT
+    USING MAP 'RRENFOM&'
+  RESET G-NATRP-ERC G-NATRP-ERT
+  IF *PF-KEY = 'PF3'
+    SET CONTROL 'WB'
+    INCLUDE C-ESCAPE
+  END-IF
+  RESET  EOMMSG-PARMS
+  EOM-FUNCTION := EOM-RENAME
+  CALLNAT 'EOMFOM-N' EOM-PARMS EOMFOM-PARMS EOMMSG-PARMS
+  IF EOMMSG-NR = 0
+    END OF TRANSACTION
+  ELSE
+    BACKOUT TRANSACTION
+    G-NATRP-ERC := EOMMSG-NR
+    G-NATRP-ERT := EOMMSG-TOKEN (1)
+  END-IF
+*
+  UNTIL EOMMSG-NR = 0
+END-REPEAT
+*
+END

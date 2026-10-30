@@ -1,0 +1,63 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    N-SPFACT
+* Version   1.3
+* Function  Check NSPF active and call user exit NOMEX003
+*           to allow/disallow access to NSPF
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  95-12-11 s(222350) user exit to allow/disallow access to NSPF
+* HH 04-12-13 use callnat NATA1100 instead of SYSTEM-FNAT/SYSTEM-FUSER
+* SJU 05-02-03 Can't use NATA1100 for SYSLIB
+* SJU 05-04-20 NOMEX003 doesn't work anymore
+* FHI 05-05-18 s(264879) Don't ask for SYSISPFU(CONFIG) but SYSISPS1
+* SJU 07-12-10 s(300183) Use API to check for NSPF
+* FHI 10-09-02 NOMALL-97 Extend message line
+* raya     2012-11-29 NOMALL-1214 check cat date of nomex*
+* raya     2013-05-09 NOMALL-1214 backout check cat date of nomex*
+* SU1     2016-10-14 NOM3.5 remove deactivated coding
+* SU2     2020-11-10 NOMALL-2440 recat for VMONIT-L
+* SU3     2021-04-22 NOMALL-2454 recat for VMONIT-L M-NATRPT-DBID/-FNR
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 USER-ID               (A8)
+1 NSPF-INSTALLED        (L)
+1 ERROR-CODE            (N4)
+1 ERROR-TEXT            (A250)
+************************************************************************
+LOCAL USING VMONIT-L
+LOCAL USING CONST-L
+LOCAL
+1 NATF0405-PARMS
+  2 NATF0405-FUNCTION   (A1)
+  2 NATF0405-ID         (A3) INIT <'ISP'>
+  2 NATF0405-RETURN-CODE(N4)
+  2 NATF0405-VERSION    (N4)
+  2 NATF0405-RESERVED   (A1/1:1)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET NSPF-INSTALLED
+CALLNAT 'NATF0405' NATF0405-PARMS
+IF NATF0405-RETURN-CODE NE 0
+  ESCAPE ROUTINE
+END-IF
+NSPF-INSTALLED:= TRUE
+FIND NRM-MONITOR WITH M-MONITOR-ID = #CONST-MONITOR-API-DEFAULTS
+  IF NRM-MONITOR.M-NOMEXIT-ACTIVE (3) = 'Y'
+    RESET NSPF-INSTALLED
+    CALLNAT 'NOMEX003' USER-ID (AD=O) NSPF-INSTALLED ERROR-CODE
+      ERROR-TEXT
+  END-IF
+END-FIND
+*
+END

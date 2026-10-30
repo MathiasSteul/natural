@@ -1,0 +1,233 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NODAFF-N - NOM API Maintenance of User defined archives
+*            Functions rename,  delete
+*            Input keys :
+*            ES-KEY-PARM(1)     archive number
+*            ES-KEY-PARM(2)     archive-name
+*            ES-NEWNAME         new archive name for rename
+* Maintenance:
+* XSETGGR  2004-08-24  created
+* XSETGGR  2004-09-20  add second parameter
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-20 NOMALL-901 correct writing delete operations in log
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* -------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL USING VUSARC-L
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RLOG-L
+LOCAL
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+1 ARCHIVE-DATASET VIEW OF NRM-ARCHIVE-DATASET
+1 ACTIVE-REPORTS VIEW OF NRM-ACTIVE-REPORTS
+1 #ES-CONTROL              (A253)
+1 #ES-INPUT-AREA           (A253/1:3)
+1 #ES-MSG-PREF             (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM            (A3)
+  2 #ES-MSG-NR             (N4)
+1 #ES-MSG-TXT              (A250)
+1 #MONITOR-ID              (A10) INIT <'USERARC'>
+1 REDEFINE #MONITOR-ID
+  2 #MONITOR-TYPE          (A7)
+  2 #USERARC-NUM           (N2)
+1 #LIBRARY-ID              (A8)
+1 #PARM                    (A20)
+1 REDEFINE #PARM
+  2 #OPTIONS               (A2/1:10)
+1 #USER-LIB                (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-MSG-NR ES-MSG-FIELD ES-MSG-TXT
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA (*) := ES-INPUT-AREA(*)
+#LIBRARY-ID  := ES-APP-SERVER-LIBRARY
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+IF ES-KEY-PARM(1) > ' '
+  #USERARC-NUM := VAL(ES-KEY-PARM(1))
+END-IF
+DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+  VALUE 'RN'
+    PERFORM RENAME-USER-ARCHIVE
+  VALUE 'DL'
+    PERFORM DELETE-USER-ARCHIVE
+  ANY VALUE
+    IF ES-RC = 0
+      PERFORM WRITE-LOG
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE RENAME-USER-ARCHIVE
+************************************************************************
+RESET #PARM
+FNDREN. FIND NRM-USER-DEFINED-ARCHIVE WITH M-MONITOR-ID = #MONITOR-ID
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0001             /* not defined
+    #ES-MSG-TXT := #MONITOR-ID
+    ESCAPE BOTTOM(FNDREN.)
+  END-NOREC
+  PERFORM VALIDATION
+  IF #ES-MSG-NR NE 0
+    ESCAPE BOTTOM(FNDREN.)
+  END-IF
+  GETREN. GET NRM-USER-DEFINED-ARCHIVE *ISN(FNDREN.)
+  M-USERARC-NAME := ES-NEWNAME
+  UPDATE(GETREN.)
+END-FIND
+/* return data
+FNNM. FIND NUMBER NRM-USER-DEFINED-ARCHIVE
+WITH  M-MONITOR-ID = 'USERARC00' THRU 'USERARC09'                     /*
+IF *NUMBER(FNNM.) = 9
+  #OPTIONS (1) := 'NW'
+END-IF
+FNDRP. FIND NUMBER REPORTS WITH R-ARCHIVE-TYPE = M-USERARC-NUMBER
+FNDAD. FIND NUMBER ARCHIVE-DATASET WITH AD-ARCHIVE-TYPE=M-USERARC-NUMBER
+FNDAR. FIND NUMBER ACTIVE-REPORTS WITH AR-ARCHIVE-TYPE =M-USERARC-NUMBER
+DECIDE FOR FIRST CONDITION
+  WHEN *NUMBER(FNDRP.) > 0 OR *NUMBER(FNDAD.) > 0 OR *NUMBER(FNDAR.) > 0
+    #OPTIONS(2) := 'DL'
+  WHEN *NUMBER(FNDRP.) = 0 AND *NUMBER(FNDAD.) = 0 AND *NUMBER(FNDAR.)=0
+    #OPTIONS(3) := 'XA'
+  WHEN NONE IGNORE
+END-DECIDE
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+ELSE
+  ES-KEY-PARM(3) := #PARM
+END-IF
+*
+END-SUBROUTINE /* RENAME-USER-ARCHIVE
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-USER-ARCHIVE
+************************************************************************
+FNDDEL. FIND NRM-USER-DEFINED-ARCHIVE WITH M-MONITOR-ID = #MONITOR-ID
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0001          /* :1: is not defined
+    #ES-MSG-TXT := #MONITOR-ID
+    ESCAPE BOTTOM(FNDDEL.)
+  END-NOREC
+  PERFORM VALIDATION
+  IF #ES-MSG-NR NE 0
+    ESCAPE BOTTOM(FNDDEL.)
+  END-IF
+  DELETE(FNDDEL.)
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* DELETE-USER-ARCHIVE
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+  VALUE 'RN'
+    IF ES-NEWNAME = ' '
+      #ES-MSG-NR := 2000              /* please enter name
+      ESCAPE ROUTINE
+    END-IF
+    FNDRN1. FIND NRM-USER-DEFINED-ARCHIVE M-MONITOR-ID = 'USERARC00'
+        THRU 'USERARC09' WHERE M-USERARC-NAME = ES-NEWNAME
+      IF *COUNTER(FNDRN1.) > 0
+        #ES-MSG-NR := 0033            /* :1: already defined
+        #ES-MSG-TXT := ES-NEWNAME
+        ESCAPE ROUTINE
+      END-IF
+    END-FIND
+  VALUE 'DL'
+    NUMREP. FIND NUMBER REPORTS WITH R-ARCHIVE-TYPE
+      = NRM-USER-DEFINED-ARCHIVE.M-USERARC-NUMBER
+    IF *NUMBER(NUMREP.) GT 0
+      #ES-MSG-NR := 1111 /* Archive type in use - deletion not allowed
+      ESCAPE ROUTINE
+    END-IF
+    NUMAD. FIND NUMBER ARCHIVE-DATASET WITH AD-ARCHIVE-TYPE
+      = NRM-USER-DEFINED-ARCHIVE.M-USERARC-NUMBER
+    IF *NUMBER(NUMAD.) GT 0
+      #ES-MSG-NR := 1111
+      ESCAPE ROUTINE
+    END-IF
+    NUMAR. FIND NUMBER ACTIVE-REPORTS WITH AR-ARCHIVE-TYPE
+      = NRM-USER-DEFINED-ARCHIVE.M-USERARC-NUMBER
+    IF *NUMBER(NUMAR.) GT 0
+      #ES-MSG-NR := 1111
+      ESCAPE ROUTINE
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG
+************************************************************************
+IF ES-ORIG-FUNCTION = 'DL'
+  COMPRESS '0075' #MONITOR-ID 'USER-ARCHIVE' TO LG-MSG
+  LG-USERID   := ES-USER
+  LG-CODE     := 'MO'
+  LG-FUNCTION := 'W'
+  CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+IF ES-MSG-NR = 0001 OR = 0033
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT
+ELSE
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+END-IF
+EXAMINE ES-MSG-TXT FOR ':2:' REPLACE ' '
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

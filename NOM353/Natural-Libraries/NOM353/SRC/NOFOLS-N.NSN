@@ -1,0 +1,405 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOFOLS-N - NOM API Different Folder Lists
+*
+*            List type in ES-FUNCTION:
+*              'LS'    Lists all folders and folder links of the
+*                      specified user. Used for list view and
+*                      tree view presentation. Called by List of
+*                      Folders in folder node and in transfer
+*                      function.
+*              'LS1'   Lists all granted folders of the specified
+*                      user. Used for the selection of a folder when
+*                      creating a folder link.
+*              'LS2'   Lists all folder of the specified user. Used
+*                      for the selection of a 'File to' folder.
+*
+* Maintenance:
+* XSETHZ  2002-01-10 created
+* XSETGGR 2002-04-04 read headers from SYSERR
+* XSETHZ  2002-05-23
+* XSETHZ  2002-06-04
+* XSETGGR 2002-11-14 new field ES-APP-SERVER-LIBRARY
+* XSETHZ  2003-26-08 P241902
+* XSETGGR 2005-01-12 NOM31 add listing folders from user list,
+* XSETGGR 2005-06-03 changes
+* XSETGGR 2007-04-26 read folder with other name than '#Inbasket'
+* xsetggr 2007-07-04 NOM3201 Support P11 format run numbers
+* XSETHZ  2008-02-08 Option LS, if AR not exist
+* xsetggr 2008-04-10 restow
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* XSETHZ  2010-11-08 NOMALL-883
+* XSETHZ  2010-12-15 NOMALL-907
+* XSETHZ  2011-04-11 NOMALL-880
+* xsetggr 2011-08-03 NOMALL-902 read folder grants to set options
+* XSETHZ  2012-04-26 ES-104
+* xsetggr 2012-04-23 NOMALL-1136 corrections of setting options
+* xsetggr 2012-09-28 NOMALL-89 implement copycode to check grants
+* XSETHZ  2013-02-14 ES-1499 (new descriptors in NRM-MAIL)
+* CF1     2017-02-21 NOMALL-1999 Retrieve folder list without links
+* CF2     2019-01-17 NOMALL-1964 No restrictions on folder functions
+* CF3     2020-01-22 NOMALL-2377 Regard user profile restrictions
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOFOLS-A
+************************************************************************
+LOCAL USING NOFOSL-A
+LOCAL USING ESMCONSL
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING NOUSUP-L             /* CF3
+LOCAL
+1 FO VIEW OF NRM-FOLDER
+  2 FO-NAME
+  2 FO-USER-ID
+  2 FO-ID
+  2 FO-DESC
+  2 FO-LINKED-FO-ID
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER-ID  (A8)
+    3 FO-LINKED-ID       (B2)
+1 LINKED-FO VIEW OF NRM-FOLDER
+  2 FO-ID
+  2 FO-USER-ID
+  2 FO-LINKED-FO-ID
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER-ID  (A8)
+    3 FO-LINKED-ID       (B2)
+1 MA VIEW OF NRM-MAIL
+  2 MA-REPNAME
+  2 MA-REPRNB
+  2 MA-USERID
+  2 MA-FO-ID
+  2 MA-FOLDER-REP-RNB
+1 US VIEW OF NRM-USERS
+  2 USER-ID
+  2 LAST-NAME
+  2 FIRST-NAME
+  2 USER-PROFILE                   /* CF3
+1 #I2                    (I4)
+1 #IMAX                  (I4)
+1 #USERNAME-S            (A24)
+1 REDEFINE #USERNAME-S
+  2 #USER-S              (A8)
+  2 #NAME-S              (A16)
+1 #NAME-E                (A16)
+1 #S-USER-FO-ID          (A10)
+1 REDEFINE #S-USER-FO-ID
+  2 #S-USER              (A8)
+  2 #S-FO-ID             (B2)
+1 #MA-FOLDER-REP         (A41)
+1 REDEFINE #MA-FOLDER-REP
+  2 #MA-USERID           (A8)
+  2 #MA-FO-ID            (B2)
+  2 #MA-REPNAME          (A25)
+1 #MA-FOLDER-REP-E       (A41)
+1 #AR-REPNAME-RNB        (A31)
+1 #GR-N                  (A25)
+1 #FO-NUMBER             (N5)
+1 REDEFINE #FO-NUMBER
+  2 #FO-NUMBER-A         (A5)
+1 #OPTIONS               (A2/10)
+1 #MSG-NR                (N4)  CONST <6106>
+1 #GRANTS                (A1/6)
+1 #LS-USERID             (A8)
+1 #USER-FOR-READ         (A8)
+1 #USER-E-LS1            (A8)
+1 #NEW-OPTIONS           (A2/1:8)
+1 I                      (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-NUMBER ES-SORTKEY ES-SORTORDER ES-STARTINDEX
+ES-OPTION-COUNT := 10
+IF ES-KEY-PARM(1) = ' '
+  #USER-FOR-READ := ES-USER
+ELSE
+  #USER-FOR-READ := ES-KEY-PARM(1)
+END-IF
+/*
+FIND US WITH USER-ID = ES-USER                             /* CF3 ->
+  PROFILE-STRING := USER-PROFILE
+END-FIND                                                   /* CF3 <-
+/*
+DECIDE ON FIRST VALUE OF ES-FUNCTION
+  VALUE 'LS'
+    IF ES-EXPAND NE ' '
+      #IMAX := 702
+      ES-FIELD-COUNT := 1
+      NOFOEX-FIELD-LENGTH(1) := 16
+    ELSE
+      #IMAX := 294
+      ES-FIELD-COUNT := 2
+      NOFOLS-FIELD-LENGTH(1) := 16
+      NOFOLS-FIELD-LENGTH(2) := 50
+    END-IF
+    #NOFOSL := ES-SELECT
+    EXAMINE #NOFOSL.#NAME FOR '*' DELETE
+    #USER-S := #USER-FOR-READ
+    #NAME-S := #NOFOSL.#NAME
+    COMPRESS #NOFOSL.#NAME H'FF' TO #NAME-E LEAVING NO
+  VALUE 'LS1'
+    #IMAX := 287
+    ES-FIELD-COUNT := 3
+    ES-OPTION-COUNT := 0
+    NOFOLU-FIELD-LENGTH(1) := 8
+    NOFOLU-FIELD-LENGTH(2) := 16
+    NOFOLU-FIELD-LENGTH(3) := 64
+    #USER-S := ES-SELECT
+    COMPRESS #USER-S H'FF' TO #USER-E-LS1 LEAVING NO
+    RESET #NAME-S
+  VALUE 'LS2'
+    #IMAX := 1581
+    ES-FIELD-COUNT := 1
+    ES-OPTION-COUNT := 0
+    NOFOLI-FIELD-LENGTH(1) := 16
+    #USER-S := #USER-FOR-READ
+    #NAME-S := H'00'
+    #NAME-E := H'FF'
+  NONE VALUE IGNORE
+END-DECIDE
+/*
+ES-EOF := 'X'
+RESET ES-NUMBER
+/*
+DECIDE ON FIRST VALUE OF ES-FUNCTION
+  VALUE 'LS'
+    IF ES-NEXT-KEY-PARM(1) > ' '
+      #USERNAME-S := ES-NEXT-KEY-PARM(1)
+    ELSE
+      IF ES-EXPAND NE 'E'
+        ES-STARTINDEX := 2
+        #I2 := 1
+        RESET SHORT-MSG LONG-MSG(*) NOFOLS-HEADER(1)
+        VERSION := 0
+        NADA2000.OBJECT-KIND := 'U'
+        NADA2000.ERROR-NUMBER := #MSG-NR
+        NADA2000.OPT-INSERT-DYN := FALSE
+        NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+        NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+        CALLNAT 'NATA2000' NADA2000
+          NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+        COMPRESS LONG-MSG(1) C-HEADER-DELIMITER LONG-MSG(2)
+          TO NOFOLS-HEADER(1) LEAVING NO
+      END-IF
+    END-IF
+    PERFORM READ-USER-FOLDERS
+  VALUE 'LS1'
+    IF ES-NEXT-KEY-PARM(1) NE ' '
+      #USERNAME-S := ES-NEXT-KEY-PARM(1)
+    END-IF
+    PERFORM READ-ALL-GRANTED-FOLDERS
+  VALUE 'LS2'
+    IF ES-NEXT-KEY-PARM(1) NE ' '
+      #USERNAME-S := ES-NEXT-KEY-PARM(1)
+    END-IF
+    PERFORM READ-USER-FOLDERS
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-USER-FOLDERS
+************************************************************************
+READ FO WITH FO-USER-NAME STARTING FROM #USERNAME-S
+  IF FO.FO-USER-ID > #USER-S
+  OR FO.FO-USER-ID = #USER-S AND FO-NAME > #NAME-E                    /*
+    ESCAPE BOTTOM
+  END-IF
+  /*IF ES-FUNCTION NE 'LS2' OR FO.FO-ID > 100  /* CF1 +
+  IF ES-FUNCTION = 'LS' OR
+      (ES-FUNCTION = 'LS2' AND FO.FO-LINKED-FO-ID = ' ')
+    /*                                           /* CF1 -
+    PERFORM VALUES-TO-PDA
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* READ-USER-FOLDERS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ALL-GRANTED-FOLDERS
+************************************************************************
+READ FO WITH FO-USER-NAME STARTING FROM #USERNAME-S
+  IF FO.FO-USER-ID > #USER-E-LS1
+    ESCAPE BOTTOM
+  END-IF
+  IF FO.FO-USER-ID NE ES-USER
+    IF FO.FO-LINKED-FO-ID = ' '
+      #FO-NUMBER := FO.FO-ID
+      COMPRESS FO.FO-USER-ID #FO-NUMBER-A TO #GR-N LEAVING NO
+      CALLNAT 'NOGROU-N'  'F' #GR-N ES-USER #LS-USERID #GRANTS(*)
+      IF #LS-USERID > ' '
+        PERFORM VALUES-TO-PDA
+      END-IF
+    END-IF
+  ELSE
+    IF FO.FO-LINKED-FO-ID = ' '
+      PERFORM VALUES-TO-PDA
+    END-IF
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* READ-ALL-GRANTED-FOLDERS
+*
+************************************************************************
+DEFINE SUBROUTINE VALUES-TO-PDA
+************************************************************************
+ADD 1 TO #I2
+IF #I2 > #IMAX
+  #USER-S := FO.FO-USER-ID
+  #NAME-S := FO-NAME
+  ES-NEXT-KEY-PARM(1) := #USERNAME-S
+  ES-NUMBER := #IMAX
+  RESET ES-EOF
+  ESCAPE BOTTOM
+END-IF
+IF FO.FO-ID = 1
+  DECIDE FOR FIRST CONDITION
+    WHEN ES-LANGUAGE = 1 AND FO-NAME = '#Listeneingang'
+      FO-NAME := '#Inbasket'
+    WHEN ES-LANGUAGE = 2 AND FO-NAME = '#Inbasket'
+      FO-NAME := '#Listeneingang'
+    WHEN NONE IGNORE
+  END-DECIDE
+END-IF
+/*
+DECIDE ON FIRST VALUE OF ES-FUNCTION
+  VALUE 'LS'
+    RESET #OPTIONS(*)
+      #NEW-OPTIONS(*) I
+    /*
+    /* Do not use the folder grants for the folder itself.
+    /* Folder grants are to be used for the contained
+    /* Actice Reports only.
+    /*
+    /*   PERFORM READ-FOLDER-GRANTS             /* CF2
+    /*   INCLUDE NOOPT--C                       /* CF2
+    /*   RESET #NEW-OPTIONS(*) I                /* CF2
+    /*
+    /* Base folders: Prevent delete if still
+    /*               Active Reports contained
+    /* Folder-links: Can always be deleted
+    /*
+    /* Enable list Active Reports only if in folder contained
+    #NEW-OPTIONS(1) := 'LS'  /* (LS = List Active Reports)
+    LINKED-FO.FO-USER-ID := FO.FO-USER-ID
+    LINKED-FO.FO-ID := FO.FO-ID
+    LINKED-FO.FO-LINKED-FO-ID := FO.FO-LINKED-FO-ID
+    PERFORM READ-MAIL
+    IF #NEW-OPTIONS(1) = ' '
+      #NEW-OPTIONS(2) := 'DL' /* folder not empty, can not delete
+    END-IF
+    /*
+    /* Check base folder of folder-link if Active Reports contained
+    /*
+    R. REPEAT WHILE LINKED-FO.FO-LINKED-FO-ID NE ' ' AND
+        #NEW-OPTIONS(1) = 'LS'
+      #S-USER := LINKED-FO.FO-LINKED-USER-ID
+      #S-FO-ID := LINKED-FO.FO-LINKED-ID
+      FIND LINKED-FO WITH FO-USER-FO-ID = #S-USER-FO-ID
+        IF NO RECORDS FOUND
+          ESCAPE BOTTOM (R.)
+        END-NOREC
+        PERFORM READ-MAIL
+      END-FIND
+    END-REPEAT
+    /*
+    /* Protected folder: no delete and no rename allowed
+    #FO-NUMBER := FO.FO-ID
+    IF #FO-NUMBER = 1 THRU 100
+      #NEW-OPTIONS(3) := 'DL'
+      #NEW-OPTIONS(4) := 'RN'
+    END-IF
+    /* Function FN (Link for other user) no longer available CF2 +
+    /*  IF FO.FO-LINKED-FO-ID NE ' '
+    /*    #NEW-OPTIONS(5) := 'LN'
+    /*  END-IF                                               CF2 -
+    /*
+    IF ES-USER-TYPE NE 'A' AND PROF-AREPS = ' '        /* CF3 ->
+      /* User is disallowed for Active Report handling
+      #NEW-OPTIONS(1) := 'LS'
+      /*
+    END-IF                                             /* CF3 <-
+    /*
+    /* If List Active Reports (LS) disallowed,
+    /* then Filter Active Reports (SS) is also
+    IF #NEW-OPTIONS(1) = 'LS'
+      #NEW-OPTIONS(6) := 'SS'
+    END-IF
+    /*
+    CALLNAT 'NOOPT--N' #NEW-OPTIONS(*) #OPTIONS(*)
+    IF ES-EXPAND NE ' '
+      NOFOEX-NAME(#I2) := FO-NAME
+      NOFOEX-OPTIONS(#I2,*) := #OPTIONS(*)
+    ELSE
+      NOFOLS-NAME(#I2) := FO-NAME
+      NOFOLS-DESC(#I2) := FO-DESC
+      NOFOLS-OPTIONS(#I2,*) := #OPTIONS(*)
+    END-IF
+  VALUE 'LS1'
+    NOFOLU-USER-ID(#I2) := FO.FO-USER-ID
+    NOFOLU-NAME(#I2) := FO-NAME
+    FIND US WITH USER-ID = FO.FO-USER-ID
+      COMPRESS FIRST-NAME ',' TO NOFOLU-USER-NAME(#I2) LEAVING NO
+      COMPRESS NOFOLU-USER-NAME(#I2) LAST-NAME TO NOFOLU-USER-NAME(#I2)
+    END-FIND
+  VALUE 'LS2'
+    NOFOLI-NAME(#I2) := FO-NAME
+  NONE VALUE IGNORE
+END-DECIDE
+ES-NUMBER := #I2
+*
+END-SUBROUTINE /* DATA-TO-PDA
+*
+************************************************************************
+DEFINE SUBROUTINE READ-FOLDER-GRANTS
+************************************************************************
+RESET #GRANTS(*) #LS-USERID #GR-N
+IF ES-USER-TYPE = 'A'
+  #GRANTS(*) := 'Y'
+  ESCAPE ROUTINE
+END-IF
+IF FO.FO-LINKED-USER-ID > ' '
+  #FO-NUMBER := FO.FO-LINKED-ID
+  COMPRESS FO.FO-LINKED-USER-ID #FO-NUMBER-A TO #GR-N LEAVING NO
+ELSE
+  #FO-NUMBER := FO.FO-ID
+  COMPRESS FO.FO-USER-ID #FO-NUMBER-A TO #GR-N LEAVING NO
+END-IF
+CALLNAT 'NOGROU-N' 'F' #GR-N ES-USER #LS-USERID #GRANTS(*)
+IF #GRANTS(1) = 'Y'
+  #GRANTS(*) := 'Y'
+END-IF
+*
+END-SUBROUTINE /* READ-FOLDER-GRANTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-MAIL
+************************************************************************
+#MA-USERID := LINKED-FO.FO-USER-ID
+#MA-FO-ID := LINKED-FO.FO-ID
+#MA-REPNAME := H'FF'
+#MA-FOLDER-REP-E := #MA-FOLDER-REP
+#MA-REPNAME := H'00'
+READ (1) MA BY MA-FOLDER-REP-RNB STARTING FROM #MA-FOLDER-REP
+    ENDING AT #MA-FOLDER-REP-E
+  #NEW-OPTIONS(1) := ' '
+END-READ
+*
+END-SUBROUTINE /* READ-MAIL
+*
+END

@@ -1,0 +1,290 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDFLBU - Bundle Processing Defaults maintenance
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mwi 96-06-14 s(153781) #2  check field 'Report'
+*              F(023)    OK
+*     90-10-25 F(005)    OK
+* mrs 91-12-28 s(141159) support languages other than english
+* mrs 92-04-30           new parameters and validation added
+* gw  93-05-27   p(120080) NAT0936 in bundle defaults printer selection
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsetggr 01-03-27 p(205776) consistent error message handling
+* xsetggr 01-04-18 p(205828) check input values for bundle processing
+*                            defaults
+* sju 02-04-16 NOM221    Allow display mode
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* xsetggr 2009-09-01 P314431 only DISKUNIX and NATUNIX printers valid
+*                            for Unix systems, but UNIXLP printers
+*                            valid only on mainframe
+* fhi     2009-11-16 P304569  Modify only if PF10 pressed
+* xsetggr 2010-01-18 P300184  use G-LANGUAGE instead of *LANGUAGE
+* fhi     2010-02-01 P304569  Show additionally record kind
+* xsetggr 2010-11-03 NOMALL-865 restow due to changes in EOMPHTYE
+* xsetggr 2012-05-17 NOMALL-1136 improve validation of printers
+* xsetggr 2012-06-20 NOMALL-1163 unify retention check
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2016-08-15 NOMALL-1906 allow NONE/KEIN for separator page
+* SU3     2016-09-28 NOMALL-1906 show msg 32 only once+handle NONE/KEIN
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* NKEW1   2024-07-24 EF-4541     Decide what to show on map with func
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING RPFK---L
+LOCAL USING VDEFBU-L
+LOCAL USING EOMPHTYE
+LOCAL USING RLOG-L
+LOCAL USING CONST-L /* NKEW1 changed
+LOCAL
+1 PRINTER VIEW OF NRM-PRINTERS
+  2 P-PHYSICAL-NAME
+1 PHYSICAL VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-PRINTER-TYPE
+* *****
+1 #FATHER-PROG      (A8) INIT <'RDFMEN'>
+1 CV-MAP            (C) INIT <(AD=I)>
+1 #ISN              (N10)
+1 L-HEADER          (A78)
+1 #ALLOWED          (L)
+1 I(P3)
+1 #FUNC             (A1)
+1 #PRINTER          (A8)
+1 #DEFINED          (L)
+1 #LANGUAGE         (I1)
+1 #EXIST            (L)
+1 #PROGRAM          (A8)
+1 #LOG-FLAG         (L)
+1 F                 (I2)
+1 #POS              (I4)
+1 #OLD-SEPSTART     (A8)
+1 #OLD-SEPEND       (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+* NKEW1 <
+#JOB_ADD_FIELD := F#SETVAR(<#_JOBCARDS(1:2),#_ADDITIONALPARA(1:2)>)
+#JOB_ADD_FIELD1 := F#SETVAR(<#_JOBCARD(1:2),#_ADDITIONALPARA(1:2)>)
+* NKEW1 >
+#PROGRAM := *PROGRAM
+RESET G-COMMIT G-MAP-MODIFIED
+IF G-C-FUNC = 'X' /* recursivly called
+  G-C-FUNC := #FUNC := 'M'
+ELSE
+  #FUNC := 'D'
+END-IF
+MAIN-LOOP. REPEAT
+  BUNDLE-DEFAULTS.M-MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+  FIND-LOOP. FIND BUNDLE-DEFAULTS WITH M-MONITOR-ID =
+      BUNDLE-DEFAULTS.M-MONITOR-ID
+    IF NO RECORDS FOUND
+      *ERROR-NR := 999 /* Internal error
+    END-NOREC
+    #ISN := *ISN
+    G-HOLD-TIME := *TIMX
+    IF M-BUNDLE-DEFAULTS = ' '
+      RESET  BUNDEF
+    END-IF
+    DECIDE ON FIRST VALUE OF #FUNC
+      VALUE 'M'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'MMO' #ALLOWED
+        INCLUDE C-NALLOW
+        IF NOT #LOG-FLAG
+          LG-USERID := G-USERID
+          LG-CODE := 'MO'
+          IF G-LANGUAGE = 2
+            G-NATRP-ERT := '''Buendel-Standards'''
+          ELSE
+            G-NATRP-ERT := '''Bundle-Defaults'''
+          END-IF
+          COMPRESS '1543' G-NATRP-ERT TO LG-MSG
+          G-NATRP-ERC := 1543
+          CALLNAT 'RLOG' PL-PARMS
+          END TRANSACTION
+          #LOG-FLAG := TRUE
+        END-IF
+        GETREC. GET BUNDLE-DEFAULTS #ISN
+      VALUE 'D'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'DMO' #ALLOWED
+        INCLUDE C-NALLOW
+        CV-MAP := (AD=IP)
+      NONE VALUE IGNORE
+    END-DECIDE
+*
+    SCREEN-LOOP. REPEAT
+      IF #LANGUAGE NE *LANGUAGE
+        PERFORM INIT-PFKEYS
+        MOVE G-LANGUAGE TO #LANGUAGE *LANGUAGE
+      END-IF
+      PERFORM SET-PFKEYS
+      CALLNAT 'N-NONE' BUNDLE-DEFAULTS.B-SEPSTART
+        BUNDLE-DEFAULTS.B-SEPEND
+      CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDFLBUM&'
+      IF #POS = 0
+        #POS := POS(G-DIRECT-COMMAND)
+      END-IF
+      SET CONTROL 'WFC18L79B02/1'
+      SET CONTROL 'M15'
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK #POS
+        USING MAP 'RDFLBUM&'
+      INCLUDE RPFKVA-C
+      RESET G-NATRP-ERC G-NATRP-ERT
+      INCLUDE RPFKED-C
+      IF G-PF-FUNC = ##PFK-MODIFY
+          AND G-C-FUNC = 'M' /* modify allowed in user profile
+        G-C-FUNC := 'X'
+        FETCH RETURN #PROGRAM
+        ESCAPE BOTTOM (MAIN-LOOP.)
+      END-IF
+      IF (CV-MAP MODIFIED OR G-MAP-MODIFIED) AND #FUNC NE 'D'
+        G-MAP-MODIFIED := TRUE
+        PERFORM VALIDATE-INPUT
+        IF G-NATRP-ERC NE 0
+          ESCAPE TOP
+        END-IF
+        UPDATE (GETREC.)
+        IF CV-MAP MODIFIED
+          G-NATRP-ERC := 0032
+        END-IF
+        INCLUDE C-COMMIT
+      END-IF
+      IF G-PF-FUNC = 'DO'
+        END TRANSACTION
+        RESET G-HOLD-TIME G-COMMIT
+        G-NATRP-ERC := 15
+      END-IF
+    END-REPEAT
+  END-FIND /* (FIND-LOOP.)
+END-REPEAT /* (MAIN-LOOP.)
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+* --- CHECK IF PRINTER DEFINED
+FOR I 1 TO 5
+  IF BUNDLE-DEFAULTS.B-PRINTER(I)    NE ' '
+    EXAMINE FULL BUNDLE-DEFAULTS.B-PRINTER(*) FOR FULL VALUE OF
+      BUNDLE-DEFAULTS.B-PRINTER(I) GIVING NUMBER F
+    IF F > 1
+      REINPUT *0104 MARK *BUNDLE-DEFAULTS.B-PRINTER(I)
+    END-IF
+    #PRINTER := BUNDLE-DEFAULTS.B-PRINTER(I)
+    CALLNAT 'RCHKPRT' #PRINTER #DEFINED
+    IF NOT #DEFINED
+      CALLNAT 'HRSELPRN' BUNDLE-DEFAULTS.B-PRINTER (I) '        ' 'A'
+    END-IF
+    PERFORM CHECK-PRINTER-TYPE
+    IF BUNDLE-DEFAULTS.B-PRINTER-COPIES(I) = 0
+      BUNDLE-DEFAULTS.B-PRINTER-COPIES(I) := 1
+    END-IF
+  ELSE
+    RESET BUNDLE-DEFAULTS.B-PRINTER-COPIES (I)
+  END-IF
+END-FOR
+IF NOT ( BUNDLE-DEFAULTS.B-FLAG-REPSEP = 'Y' OR = 'N' OR =' ' )
+  REINPUT *1099 MARK *BUNDLE-DEFAULTS.B-FLAG-REPSEP ALARM
+END-IF
+IF NOT ( BUNDLE-DEFAULTS.B-HOLD = 'Y' OR= 'N' OR=' ' )
+  REINPUT *1099 MARK *BUNDLE-DEFAULTS.B-HOLD ALARM
+END-IF
+IF BUNDLE-DEFAULTS.B-RETENTION-PERIOD = '000'
+  RESET BUNDLE-DEFAULTS.B-RETENTION-PERIOD
+END-IF
+*
+IF BUNDLE-DEFAULTS.B-RETENTION-PERIOD NE ' '
+  CALLNAT 'RCHKRETU' BUNDLE-DEFAULTS.B-RETENTION-UNIT G-NATRP-ERC
+  IF G-NATRP-ERC NE 0
+    REINPUT USING HELP MARK *BUNDLE-DEFAULTS.B-RETENTION-UNIT ALARM
+  END-IF
+  IF BUNDLE-DEFAULTS.B-RETENTION-NUM = 0
+      AND (BUNDLE-DEFAULTS.B-RETENTION-UNIT  NE ' '
+      OR  BUNDLE-DEFAULTS.B-RETENTION-CALENDAR NE ' ')
+    REINPUT *0415 MARK *BUNDLE-DEFAULTS.B-RETENTION-PERIOD ALARM
+  END-IF
+  IF BUNDLE-DEFAULTS.B-RETENTION-CALENDAR = SCAN '*'
+    REINPUT USING HELP MARK *BUNDLE-DEFAULTS.B-RETENTION-CALENDAR
+  END-IF
+  IF BUNDLE-DEFAULTS.B-RETENTION-NUM > 0
+    IF BUNDLE-DEFAULTS.B-RETENTION-CALENDAR NE ' '
+      CALLNAT 'RCHKCA' BUNDLE-DEFAULTS.B-RETENTION-CALENDAR #EXIST
+      IF NOT #EXIST
+        REINPUT *2004 MARK *BUNDLE-DEFAULTS.B-RETENTION-CALENDAR
+      END-IF
+      IF BUNDLE-DEFAULTS.B-RETENTION-UNIT = ' '
+        BUNDLE-DEFAULTS.B-RETENTION-UNIT := 'W'
+      END-IF
+      IF NOT (B-RETENTION-UNIT = 'W' OR = 'A' OR = 'V' OR = 'M')
+        REINPUT *0634 MARK *BUNDLE-DEFAULTS.B-RETENTION-UNIT ALARM
+      END-IF
+    END-IF
+    IF BUNDLE-DEFAULTS.B-RETENTION-UNIT = 'W'
+    AND BUNDLE-DEFAULTS.B-RETENTION-CALENDAR = ' '                    /*
+      RESET BUNDLE-DEFAULTS.B-RETENTION-UNIT
+      REINPUT *2003 MARK *BUNDLE-DEFAULTS.B-RETENTION-CALENDAR
+    END-IF
+  END-IF
+END-IF
+CALLNAT 'N-SEPMEM' BUNDLE-DEFAULTS.B-SEPSTART #OLD-SEPSTART
+  'S' 'B' 2X G-NATRP-ERC G-NATRP-ERT
+IF G-NATRP-ERC NE 0
+  #POS := POS(BUNDLE-DEFAULTS.B-SEPSTART)
+  ESCAPE ROUTINE
+END-IF
+*
+CALLNAT 'N-SEPMEM' BUNDLE-DEFAULTS.B-SEPEND #OLD-SEPEND
+  'E' 'B' 2X G-NATRP-ERC G-NATRP-ERT
+IF G-NATRP-ERC NE 0
+  #POS := POS(BUNDLE-DEFAULTS.B-SEPEND)
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFCOM-C
+*
+IF G-C-FUNC = 'M' /* modify allowed in user profile
+  G-PF-IDENT (10) := G-PF-IDENT (22) := ##PFN-MODIFY
+  G-PF-CODE  (10) := G-PF-CODE  (22) := ##PFK-MODIFY
+END-IF
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-PRINTER-TYPE
+************************************************************************
+FIND PRINTER WITH P-ID = #PRINTER
+  FIND PHYSICAL WITH PH-VTAMID = P-PHYSICAL-NAME
+    IF *MACHINE-CLASS = 'MAINFRAME'
+      IF PH-PRINTER-TYPE = ##PHYS-NATUNIX
+        REINPUT *130 MARK *BUNDLE-DEFAULTS.B-PRINTER(I)
+      END-IF
+    ELSE
+      IF NOT(PH-PRINTER-TYPE = ##PHYS-DISKUNIX OR = ##PHYS-NATUNIX)
+        REINPUT *131 MARK *BUNDLE-DEFAULTS.B-PRINTER(I)
+      END-IF
+    END-IF
+  END-FIND
+END-FIND
+*
+END-SUBROUTINE /* CHECK-PRINTER-TYPE
+*
+INCLUDE RPFSET-C
+*
+END

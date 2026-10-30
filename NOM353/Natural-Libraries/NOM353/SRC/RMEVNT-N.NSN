@@ -1,0 +1,326 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMEVNT-N - Wait for event until wait time expires
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* mrs 93-12-03 s(999999) make event-name unique to allow multiple NOMs
+*                        under one ESY
+* gw  95-12-01 s(220701) support shutdown operator command
+*                        /f esynuc,shutdown nom
+* jwo 97-07-02 P(163367) accept 887 (already defined) when defining a
+*                        new event.
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* fhi 99-11-02 s(185560) Shutdown operator command does not work
+* sju 00-03-29 p(191368) Eventing no longer supports MESSAGE
+* sju 00-04-25 p(191368) Support new functions eg DELETE
+* sju 00-11-17 s(999999) Diagnostic write if P-EVENT-NAME is empty
+* sju 03-04-23 p(235477) SHUTDOWN ignored if control record is in hold
+* sju 04-06-10 p(249262) Restart after NPR SHUTDOWN opercom may hang
+* sju 04-07-15 NOM31     Dynamic tracing
+* sju 05-02-01 p(261275) Signal shutdown requested to RM-ERRTA
+* fhi 05-06-23 p(266530) Monitor must be NPR Mainframe independent
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* fhi 06-03-30 p(275726) Multiple monitors startup parallel
+* fhi 06-09-08 p(277186) Multiple monitors startup parallel - Correction
+* fhi 07-05-02       NOM3201 Support 5 byte node numbers
+* xsetggr 2007-10-31 NRT1560 operator command to ckeck monitor status
+* fhi     2008-03-03 NRT1560 out 2007-10-31, to be handled different
+* splildav 2008-12-08  p(304616)  Event-name not passed to RMEVNTXN
+* bli     2009-04-22 p(316788) ESY5888 when deleting events (esp. VSE)
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* fhi     2014-06-18 NOMALL-1389 Add trace statements
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* SU2     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 P-NODE                   (N5)
+1 P-EVENT-NAME             (A8)
+1 P-FUNCTION               (A8)
+1 P-WAIT-TIME              (N4)
+1 P-ERROR-CODE             (N4)
+1 P-ERROR-TEXT             (A250)
+1 P-EVENT-MESSAGE          (A250)
+************************************************************************
+INDEPENDENT
+1 +SHUTDOWN-BY-NPR (A1)
+* *****
+LOCAL USING RLOG-L
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+LOCAL USING RMTASK-P
+LOCAL
+1 EVENTING VIEW OF EVENTING
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 NODE
+  2 SYSTEM-MESSAGE-CODE
+  2 FUNCTION
+  2 EVENT-NAME
+  2 MAX-TIME
+  2 NUMBER-OF-WAITERS
+  2 NUMBER-OF-MESSAGES
+  2 MESSAGE-ARRAY (1)
+1 XEVENT                   (A512)
+1 REDEFINE XEVENT
+  2 XEVENT-GROUP
+    3 ERROR-CODE           (N3)
+    3 ERROR-TEXT           (A58)
+    3 NODE                 (N5)
+    3 SYSTEM-MESSAGE-CODE  (A10)
+    3 FUNCTION             (A8)
+    3 EVENT-NAME           (A8)
+    3 MAX-TIME             (B4)
+    3 REDEFINE MAX-TIME
+      4 MAX-TIME-A         (A4)
+    3 NUMBER-OF-WAITERS    (N5)
+    3 NUMBER-OF-MESSAGES   (N5)
+    3 MESSAGE-ARRAY        (A250)
+1 NRM-MONITOR VIEW OF NRM-MONITOR
+  2 M-STATUS
+*
+1 #MONIT-ISN               (P10)
+1 #EOM-DBID                (N5)
+1 #EOM-FNR                 (N5)
+1 #ADA-RC                  (N4)
+1 #TRACING                 (L)
+1 #TRACE-MSG               (A250)
+1 #LASTPROG                (A8)
+1 #EVENT-NAME-H            (A16)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
++SHUTDOWN-BY-NPR:= 'N'
+PERFORM RMGTRACE-GET-SETTINGS #TRACING
+IF #TRACING
+  MOVE EDITED P-EVENT-NAME (EM=H(8)) TO #EVENT-NAME-H
+  COMPRESS *PROGRAM *TIMX 'Function:' P-FUNCTION
+    'Event:' P-EVENT-NAME #EVENT-NAME-H
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+IF P-FUNCTION = 'POST' OR = 'DELETE' OR = 'INIT'
+  EVENTING.FUNCTION := P-FUNCTION
+  PERFORM EVENTING
+  ESCAPE ROUTINE
+END-IF
+IF P-FUNCTION = 'CHECK'
+  EVENTING.FUNCTION := 'RECEIVE'
+  PERFORM EVENTING
+  IF EVENTING.ERROR-CODE NE 0
+    P-ERROR-CODE := EVENTING.ERROR-CODE
+    P-ERROR-TEXT := EVENTING.ERROR-TEXT
+  END-IF
+  ESCAPE ROUTINE
+END-IF
+IF P-FUNCTION = 'DEFINE'
+  EVENTING.FUNCTION := P-FUNCTION
+  PERFORM EVENTING
+  IF EVENTING.ERROR-CODE NE 0
+    IF EVENTING.ERROR-CODE = 887 /* already defined, don't care
+      RESET EVENTING.ERROR-CODE EVENTING.ERROR-TEXT
+    END-IF
+    P-ERROR-CODE := EVENTING.ERROR-CODE
+    P-ERROR-TEXT := EVENTING.ERROR-TEXT
+  END-IF
+  ESCAPE ROUTINE
+END-IF
+IF P-FUNCTION = 'SENDPOST'
+  EVENTING.FUNCTION         := P-FUNCTION
+  EVENTING.MESSAGE-ARRAY(1) := P-EVENT-MESSAGE
+  PERFORM SEND-A-MESSAGE
+  ESCAPE ROUTINE
+END-IF
+*
+EVENTING.FUNCTION := 'WAIT'
+PERFORM EVENTING
+*
+IF EVENTING.ERROR-CODE = 890  /* event does not exist
+  EVENTING.FUNCTION := 'DEFINE'
+  PERFORM EVENTING
+  EVENTING.FUNCTION := 'WAIT'
+  PERFORM EVENTING
+END-IF
+EVENTING.FUNCTION := 'RECEIVE'
+EVENTING.MAX-TIME := 0
+PERFORM EVENTING
+IF EVENTING.MESSAGE-ARRAY(1) = MASK ('SHUTDOWN')
+  +SHUTDOWN-BY-NPR:= 'Y'
+  RMTASK-P.TASK-ID  := P-EVENT-NAME
+  RMTASK-P.FUNCTION := 'G'
+  CALLNAT 'RMTASKID' RMTASK-P
+  IF RMTASK-P.SUBTASK-NUMBER = 1  /* only for main task
+    PERFORM NOM-SHUTDOWN
+  END-IF
+END-IF
+IF EVENTING.MESSAGE-ARRAY(1) = MASK ('TRACE')
+  P-EVENT-MESSAGE:= EVENTING.MESSAGE-ARRAY(1)
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE EVENTING
+************************************************************************
+EVENTING.MAX-TIME := P-WAIT-TIME
+IF #TRACING
+  COMPRESS 'Got function:' P-FUNCTION
+    '- Wait time:' P-WAIT-TIME
+    '- Event-Msg:' SUBSTR(P-EVENT-MESSAGE,1,80) TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+IF *MACHINE-CLASS = 'MAINFRAME'
+  FIND (1) EVENTING WITH FUNCTION   = EVENTING.FUNCTION
+  AND EVENT-NAME = P-EVENT-NAME AND MAX-TIME   = EVENTING.MAX-TIME    /*
+  AND NODE       = P-NODE                                             /*
+    PERFORM EVENT-ERROR /* P266530 in, Error block deleted.
+  END-FIND
+ELSE
+  EVENTING.EVENT-NAME := P-EVENT-NAME
+  EVENTING.NODE       := P-NODE
+  MOVE BY NAME EVENTING TO XEVENT-GROUP
+  CALLNAT 'RMEVNTXN' XEVENT
+  MOVE BY NAME XEVENT-GROUP TO EVENTING
+  PERFORM EVENT-ERROR
+END-IF
+*
+END-SUBROUTINE /* EVENTING
+*
+************************************************************************
+DEFINE SUBROUTINE NOM-SHUTDOWN
+************************************************************************
+PERFORM GET-NOM-LFILE
+*
+IF P-ERROR-CODE NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)
+FIND NRM-MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+  #MONIT-ISN := *ISN
+  CALLNAT 'GETHOLD' #EOM-DBID #EOM-FNR #MONIT-ISN 'BS' #ADA-RC
+  IF #ADA-RC = 145
+    BACKOUT TRANSACTION
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY-MM-DD' 'HH:II)
+      '--> Monitor record' RMTASK-P.TASK-ID 'in hold:'
+      'Orderly shutdown not possible'
+    P-ERROR-CODE:= 999
+    RMTASK-P.FUNCTION       := 'L'
+    RMTASK-P.SUBTASK-NUMBER := 1
+    CALLNAT 'RMTASKID' RMTASK-P
+    LG-USERID:= RMTASK-P.TASK-ID
+    LG-CODE  := 'MO'
+    COMPRESS 'Monitor record' RMTASK-P.TASK-ID 'in hold:'
+      'Orderly shutdown not possible' TO LG-MSG
+    CALLNAT 'RLOG' PL-PARMS
+    END TRANSACTION
+    ESCAPE ROUTINE
+  END-IF
+*
+  CLOSE. GET NRM-MONITOR #MONIT-ISN
+  CLOSE.M-STATUS := 'D'
+  UPDATE (CLOSE.)
+  IF #TRACING
+    #TRACE-MSG := 'Shutdown. Monitor Status =D'
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+  END TRANSACTION
+END-FIND
+*
+END-SUBROUTINE /* NOM-SHUTDOWN
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NOM-LFILE
+************************************************************************
+SATLF-FUNCTION := 'GET'
+SATLF-LFILE           := 206
+SATLF-SATVERS         := 21
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+#EOM-DBID:= SATLF-DBID-N5
+#EOM-FNR := SATLF-FNR-N5
+IF #TRACING
+  COMPRESS 'Get NOM Lfile. Return code:' SATLF-ERROR-CODE
+    '- DBID:' #EOM-DBID '_ FNR:'  #EOM-FNR TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+IF SATLF-ERROR-CODE NE 0
+  P-ERROR-CODE := SATLF-ERROR-CODE
+  P-ERROR-TEXT := SATLF-ERROR-TEXT
+END-IF
+*
+END-SUBROUTINE /* GET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SEND-A-MESSAGE
+************************************************************************
+EVENTING.MAX-TIME := P-WAIT-TIME
+IF P-NODE NE 0
+  FIND (1) EVENTING WITH FUNCTION   = EVENTING.FUNCTION
+      AND EVENT-NAME = P-EVENT-NAME AND MAX-TIME   = EVENTING.MAX-TIME      /*
+      AND NODE       = P-NODE AND MESSAGE-ARRAY = EVENTING.MESSAGE-ARRAY(1) /*
+    PERFORM EVENT-ERROR /* P266530 in, Error block deleted.
+  END-FIND
+ELSE
+  EVENTING.EVENT-NAME := P-EVENT-NAME
+  EVENTING.NODE       := P-NODE
+  MOVE BY NAME EVENTING TO XEVENT-GROUP
+  CALLNAT 'RMEVNTXN' XEVENT
+  MOVE BY NAME XEVENT-GROUP TO EVENTING
+  PERFORM EVENT-ERROR
+END-IF
+IF #TRACING
+  COMPRESS 'Send a msg:' EVENTING.FUNCTION
+    '- Max time:'        EVENTING.MAX-TIME
+    '- To node:'         P-NODE
+    '- Event-Msg:'       SUBSTR(EVENTING.MESSAGE-ARRAY(1),1,80)
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* SEND-A-MESSAGE
+*
+************************************************************************
+DEFINE SUBROUTINE EVENT-ERROR
+************************************************************************
+PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG
+IF #TRACING
+  COMPRESS 'Function result of function:' P-FUNCTION
+    '- return code:' EVENTING.ERROR-CODE
+    '- Text:'        EVENTING.ERROR-TEXT
+    '- Called from:' #LASTPROG TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+IF NOT (EVENTING.ERROR-CODE = 0 OR = 890 OR = 891)
+    AND NOT (EVENTING.ERROR-CODE = 887 AND EVENTING.FUNCTION = 'DEFINE')
+    AND NOT (EVENTING.ERROR-CODE = 888 AND EVENTING.FUNCTION = 'DELETE')
+  COMPRESS EVENTING.ERROR-TEXT 'in' #LASTPROG TO LG-MSG
+  RMTASK-P.FUNCTION       := 'L'
+  RMTASK-P.SUBTASK-NUMBER := 1
+  CALLNAT 'RMTASKID' RMTASK-P
+  LG-USERID := RMTASK-P.TASK-ID
+  LG-CODE   := 'MO'
+  CALLNAT 'RLOG' PL-PARMS
+  END TRANSACTION
+  P-ERROR-CODE := EVENTING.ERROR-CODE
+  P-ERROR-TEXT := EVENTING.ERROR-TEXT
+END-IF
+*
+END-SUBROUTINE /* EVENT-ERROR
+*
+END

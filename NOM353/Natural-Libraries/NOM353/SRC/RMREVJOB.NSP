@@ -1,0 +1,1092 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 5
+* <Natural Source Header
+* RMREVJOB - submit Revive Jobs
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* mrs 93-06-18 s(999999) clean up
+* mrs 93-06-18 s(999999) various modifications (MVS)
+* gw  94-03-02 s(196114) substitute '$$$' by #job-count
+* mrs 94-05-26 s(999999) BS2000
+* gw  94-06-01 p(129118) NAT1316 when volsers ' '
+* mrs 94-06-03 s(999999) FIN commented out
+* gw  94-12-18 p(135157) use only one skeleton for tape and disk
+* gw  95-12-04 s(237389) avoid loop when member doesn't exist
+* gw  96-10-15 s(249304) revive for reports with volser 'UNKNWN'
+*                        ==> thanks, Peter (SAGBPM)
+* mwi 97-06-26 p(163220) add some trace outputs
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* jvd 99-06-02 p(182769) increase the volser array size to 20
+* sju 00-03-24 p(191368) monitor multitasking
+* sju 01-02-20 p(206182) NOMEX008
+* fhi 01-02-21 p(206311) No error message if submit fails
+* xsetggr 01-10-18 p(206311) add error messages if submit fails
+* fhi 02-06-13 s(225125) Add email notificaton, NOMEX010
+* sju 02-08-06 NOM221    User defined archive types
+* fhi 02-10-30 fhi101    switch on optimizer compiler
+* sju 04-12-06 NOM31     Add date and time (tenths of second) to trace
+* sju 05-02-04 NOM31     NAT00021 instead of CMQ
+* fhi     2005-04-14   NOM3107 Added Support for 7 byte jobnumbers
+* fhi     2005-06-23 p(266530) Make Monitor NPR Mainframe independent
+* fhi     2007-02-21 FHI211   Get Revive working on Unix
+* xsetggr 2007-05-03 NOM3201  Support 5 byte node numbers
+* fhi     2008-05-07 p(304334) Start of Condense fails under Unix
+* xsetggr 2009-12-18 cancel changes for P322358 - not necessary
+* fhi     2010-08-25 NOMALL-853 Monitor Multitasking under Unix
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* fhi     2010-11-08 NOMALL-95  Improve names of log files
+* fhi     2010-12-02 NOMALL-929 END TRANSACTION for Unix layer RMSTX--N
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* fhi     2014-03-03 NOMALL-1363 Get cat cate into trace messages
+* fhi     2014-04-11 NOMALL-1378 Handle changed VOLSERS, old tags delet.
+* fhi     2014-05-12 NOMALL-1378 Added more trace statements
+* fhi     2014-06-02 NOMALL-1422 Avoid VOLSER=*
+* SU2     2014-07-21 NOMALL-1279 fill fields for Adabas Vista
+* BLI     2014-09-26 NOMALL-1422 Multivolume handling
+* SU3     2014-11-05 NOMALL-1450 fill fields for Adabas Vista
+* BLI     2014-12-12 NOMALL-1422 Correct unix handling
+* BLI     2015-10-06 NOMALL-1716 RECALL (MIGRAT,ARCIVE), Traces, Review
+* SU4     2016-01-19 NOMALL-1802 do not update Adabas Vista fields
+* BLI     2016-02-18 NOMALL-1835 Job ends without revive
+* SU5     2016-10-26 NOMALL-1942 avoid NAT1106 in RJREVIVE/Unix PID
+* SU6     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* fhi   2016-12-02 NOMALL-1621 +NOD-LOCAL-NODE instead of G-MONITOR-NODE
+* fhi     2016-11-10 NOMALL-1917 use correct node number
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* SU7     2018-02-15 NOMALL-1823 NOM 3.5: remove CONNECT
+* fhi     2018-03-08 NOMALL-1918 Get it on Unix / Correct NPR Logons
+* BLI     2018-03-21 Monitor/Spool: not all values exist as AIV
+* SU8     2020-04-27 NOMALL-2349 use N-ESYLG
+* SU9     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU10    2021-04-22 NOMALL-2454 recat for VMONIT-L M-NATRPT-DBID/-FNR
+* BLI1    2022-06-15 NOMALL-2547 AD without Volser
+* SU11    2022-07-11 NOMALL-2548 avoid NAT3041 on UNIX (itrac for uqac
+* BLI2    2022-11-03 NOMALL-2582 prevent empty volser
+* SU12    2024-03-07 ES-34613    NOM 3.6 Remove power / BS2
+* SU13    2024-06-26             117: show missing skeleton
+* BLI     2024-08-22 ES-35654    comment #SU-C-DE
+* ----------------------------------------------------------------------
+*
+DEFINE DATA GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE  (L/1:20)
+1 +NOD-LOCAL-NODE    (N5)
+1 +CMRDC             (A1)
+************************************************************************
+LOCAL USING VARCIV-L
+/*SU9 LOCAL USING VMONIT-L
+/*SU9 LOCAL USING VMONITUL
+LOCAL USING RMJBST-P
+LOCAL USING RMJBSK-A
+LOCAL USING RMSTX--P
+LOCAL USING RLOG-L
+LOCAL USING VUSARC-L
+*
+LOCAL
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU9
+  2 MF-SYSTEM-TYPE
+  2 MF-TYPE
+  2 MF-MONITOR-ID
+1 NRM-MONITOR VIEW OF NRM-MONITOR
+/*SU10  2 M-NATRPT-DBID      (N3)
+  2 M-NATRPT-DBID-N5   (N5)
+/*SU10  2 M-NATRPT-FNR       (N3)
+  2 M-NATRPT-FNR-N5    (N5)
+1 REVIVE-REPORTS VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REVIVE
+  2 AR-ARCHIVE-DATA-SET
+  2 AR-ARCHIVE-VOLSER  (1:2)
+  2 AR-ARCHIVE-TYPE
+  2 AR-REPRNB                      /* BLI2
+/*SU11  2 AR-DATASET-VOLSER-REVIVE /*????
+1 UPDATE-REPORTS VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REVIVE
+  2 AR-ARCHIVE-DATA-SET
+  2 AR-ARCHIVE-VOLSER  (1:2)
+1 ARCHIVE-DATASET VIEW OF NRM-ARCHIVE-DATASET
+  2 AD-ARCHIVE-DSNAME
+  2 C*AD-VOLSERS
+  2 AD-VOLSERS         (1:20)
+1 SUBMIT VIEW OF SUBMIT
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 JOB-NUMBER
+  2 JOB-ID
+1 CATALOG VIEW OF CATALOG
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 CLASS
+  2 VOLSER
+  2 DSNAME
+1 FILE-MAINTENANCE  VIEW OF FILE-MAINTENANCE      /* NOMALL-1716 BLI
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 REDEFINE ERROR-TEXT
+    3 ERROR-PREFIX     (A7)
+    3 ERROR-TXT        (A51)
+  2 NODE
+  2 DSNAME
+  2 FUNCTION
+* ----------------------------------------------------------------------
+1 #VOLSERS-UNKNOWN             (L)
+1 #LOGON-LINE                  (A50)
+1 NOJ                          (P3)
+1 I                            (P3)
+1 J                            (P3)
+1 K                            (P3)
+1 CHECK-DATASET                (L)
+1 IN-REVIVE                    (L)
+1 LINE-SUBMITTED               (L)
+1 #STRING                      (A50)
+1 #LASTVOL                     (A6)
+1 #VOL-I                       (P3)
+1 #VOL-I-RESET                 (P3)           /* BLI NOMALL-1422
+1 #VOL-I-OLD                   (P3)           /* BLI NOMALL-1422
+1 #CATALOG-CLASS               (L)            /* BLI NOMALL-1422
+1 #VOL-DSNAME                  (A45)
+1 REDEFINE #VOL-DSNAME
+  2 #VOL-DSNAME-TAPE           (A17)
+1 #VOLS (1:20)
+  2 #VOLSERS                   (A6)
+  2 #VOL-USED                  (L)
+1 #JOBCARD                     (A72/1:3)
+1 #DEFAULT-JOBCARD             (A72/1:3)
+*
+1 #N                           (I2)
+1 #NCARDS                      (I2) CONST <6>
+1 #NATCARDS                    (A72/1:#NCARDS) INIT
+  (01) <'&NATLOGON                                             '>
+  (02) <'SETNRMLF &DBID &FNR                                   '>
+  (03) <'RJREVIVE                                              '>
+  (04) <'&ESYUSER &NODE &DSNAME &EXIT8 &ARCTYPE &GTRACE        '>
+  (05) <'&VOLSER1 &VOLSER2 &VOLSER3 &VOLSER4 &VOLSER5 &VOLSER6 '>
+  (06) <'&VOLSER7 &VOLSER8 &VOLSER9 &VOLSER10 &VOLSER11 &VOLSER12 '>
+1 #NODE                        (N5)
+1 REDEFINE #NODE
+  2 #NODE-A                    (A5)
+1 #DBID                        (N5)
+1 REDEFINE #DBID
+  2 #DBID-A                    (A5)
+1 #FNR                         (N5)
+1 REDEFINE #FNR
+  2 #FNR-A                     (A5)
+1 #SAVE-ENTRIES                (N3)
+1 #VOL-SEQ                     (N2)         /* BLI NOMALL-1422 was N1
+1 #UNIT                        (A6)
+1 #COUNTER                     (P10)
+1 #JOB-COUNT-INDEX             (I4)
+1 #JOB-COUNT-N3                (N3)
+1 REDEFINE #JOB-COUNT-N3
+  2 #JOB-COUNT                 (A3)
+1 #JOB-NUMBER                  (A7)
+1 #START-STRING                (A10)
+1 #END-STRING                  (A10)
+1 #SUPPRESS-TAPE-SPECIFICS     (L)
+1 #LINE-CNT                    (I4)
+1 #NOMEX008                    (A01)      INIT <'N'>
+1 #LAST-ARCTYPE                (N1)
+1 #CURRENT-ARCTYPE             (N1)
+1 #USERARC-ID                  (A10)  INIT <'USERARC00'>
+1 REDEFINE #USERARC-ID
+  2 #USERARC-FIXED             (A8)
+  2 #USERARC-NUMBER            (N1)
+1 #G-NPR-USERID                (A8)
+1 #TRACING                     (L)
+1 #CATDATE                     (A19)
+1 #VOLSERS-CHANGED             (L)
+1 #RECALL                      (L)     /* NOMALL-1716 BLI
+1 #LIBRARY-ID                  (A8)    /* NOMALL-1716 BLI
+1 #CALLER                      (A8) INIT <*PROGRAM>
+1 #MONITOR-ID                  (A20)
+1 #REVIVE                      (A10) CONST <'REVIVE'>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+** INCLUDE #SU-C-DE
+PRINT '===>' *PROGRAM *LINE '=' G-TRACE
+IF G-TRACE GE *LEVEL
+  #TRACING := TRUE
+END-IF
+#NODE := +NOD-LOCAL-NODE
+IF +G-NOMEXIT-ACTIVE(8)
+  #NOMEX008:= 'Y'
+END-IF
+*
+SET CONTROL 'Z'                /* clear source area
+*
+RESET G-NATRP-ERC G-NATRP-ERT
+PERFORM CHECK-NATURAL-SECURITY
+PERFORM READ-SYSTEM-DEFINITIONS
+IF G-NATRP-ERC NE 0
+  CALLNAT 'RLOG' PL-PARMS
+  END OF TRANSACTION
+  RESET G-NATRP-ERC G-NATRP-ERT
+  ESCAPE ROUTINE
+END-IF
+* SU12 ->
+/*IF MF-SYSTEM-TYPE=SCAN 'BS2' AND G-NPR-CURRENT-USERID NE G-BS2-USERID
+/*G-NPR-CURRENT-USERID := G-BS2-USERID PERFORM LOGON-TO-ESY
+/*IF G-NATRP-ERC NE 0 PERFORM WRITE-ERROR-LOG
+/*  G-NPR-CURRENT-USERID := G-NPR-USERID PERFORM LOGON-TO-ESY
+/*SU12 <- RESET G-NATRP-ERC G-NATRP-ERT ESCAPE ROUTINE END-IF END-IF
+*
+IF MF-SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP'  /* BLI2 start
+  VOLCHK. FIND REVIVE-REPORTS WITH AR-REVIVE ='S' OR='D'
+    IF REVIVE-REPORTS.AR-ARCHIVE-VOLSER(1) EQ ' '
+      FIND ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = AR-ARCHIVE-DATA-SET
+      END-FIND
+      VOLAR. GET UPDATE-REPORTS *ISN(VOLCHK.)
+      UPDATE-REPORTS.AR-ARCHIVE-VOLSER (1) := AD-VOLSERS (1)
+      UPDATE (VOLAR.)
+      IF #TRACING
+        COMPRESS 'Volser set for ADS=' AR-ARCHIVE-DATA-SET
+          ' REP=' AR-REPNAME ' VOL=' AR-ARCHIVE-VOLSER (1)
+          ' RNB=' AR-REPRNB TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+      END TRANSACTION
+    END-IF
+END-FIND                                                              /*
+END-IF                                          /* BLI2 end
+*
+RESET #COUNTER
+MAIN-LOOP. READ REVIVE-REPORTS BY AR-DATASET-VOLSER-REVIVE
+    WHERE AR-REVIVE ='S' OR='D'
+  ADD 1 TO #COUNTER
+  #CURRENT-ARCTYPE:= AR-ARCHIVE-TYPE
+  IF #TRACING
+    COMPRESS 'CNT =' #COUNTER ' ADS=' AR-ARCHIVE-DATA-SET
+      ' REP=' AR-REPNAME ' VOL=' AR-ARCHIVE-VOLSER (1:2)
+      ' TYP=' AR-ARCHIVE-TYPE TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  INCLUDE CMRDC
+*
+  AT START OF DATA
+    CHECK-DATASET := TRUE
+  END-START
+*
+  AT BREAK OF AR-ARCHIVE-DATA-SET
+    IF (NOT #VOLSERS-UNKNOWN) OR #CURRENT-ARCTYPE GT 0
+      IF #CURRENT-ARCTYPE NE #LAST-ARCTYPE    /* different type
+        IF #CURRENT-ARCTYPE GT 0              /* user defined
+          PERFORM READ-USER-DEFINED-ARCHIVE
+          IF G-NATRP-ERC NE 0
+            CALLNAT 'RLOG' PL-PARMS
+            END OF TRANSACTION
+            RESET G-NATRP-ERC G-NATRP-ERT
+            ESCAPE ROUTINE
+          END-IF
+        ELSE                                  /* standard
+          #JOBCARD(*):= #DEFAULT-JOBCARD(*)
+        END-IF
+        #LAST-ARCTYPE:= #CURRENT-ARCTYPE
+      END-IF
+      IF *MACHINE-CLASS = 'MAINFRAME'
+        PERFORM SUBMIT-REVIVE-JOBS
+      ELSE
+        PERFORM START-REVIVE-SCRIPTS
+      END-IF
+      IF G-NATRP-ERC NE 0
+        ESCAPE BOTTOM
+      END-IF
+      CHECK-DATASET := TRUE
+      IF *MACHINE-CLASS = 'MAINFRAME'   /* BLI NOMALL-1422 14-12-12
+        ADD 1 TO #JOB-COUNT-N3
+        RMJBST-TEXT (#JOB-COUNT-INDEX) := #JOB-COUNT
+      END-IF                            /* BLI NOMALL-1422 14-12-12
+    ELSE
+      CHECK-DATASET := TRUE
+    END-IF
+  END-BREAK
+*
+  IF CHECK-DATASET
+    PERFORM READ-ARCHIVE-DATASET
+    IF #VOLSERS-UNKNOWN AND #CURRENT-ARCTYPE = 0
+      ESCAPE TOP
+    END-IF
+    CHECK-DATASET := FALSE
+  END-IF
+*
+  IF #CURRENT-ARCTYPE = 0
+    PERFORM MARK-VOLSER
+  END-IF
+END-READ
+*
+DECIDE FOR FIRST CONDITION
+  WHEN #COUNTER = 0
+    LG-USERID := G-LG-USERID
+    LG-CODE := 'R1'
+    LG-MSG := '0452'                      /* no job submitted
+    G-NATRP-ERC := 0452                   /* nothing to revive
+    CALLNAT 'RLOG' PL-PARMS
+  WHEN G-NATRP-ERC = 0
+    LG-USERID := G-LG-USERID
+    LG-CODE := 'R1'
+    COMPRESS '0457' NOJ TO LG-MSG         /* :1: revive jobs
+    G-NATRP-ERC := 0457                   /* submitted
+    G-NATRP-ERT := NOJ
+    CALLNAT 'RLOG' PL-PARMS
+  WHEN NONE
+    CALLNAT 'RLOG' PL-PARMS
+END-DECIDE
+END OF TRANSACTION                         /* commit log records
+RESET G-NATRP-ERC G-NATRP-ERT
+*
+SET CONTROL 'Z'                            /* clear source area
+*
+IF G-NPR-CURRENT-USERID NE G-NPR-USERID
+  G-NPR-CURRENT-USERID := G-NPR-USERID
+  PERFORM LOGON-TO-ESY
+END-IF
+*
+************************************************************************
+* End of main line
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ARCHIVE-DATASET
+************************************************************************
+RESET #VOLS(*) #VOL-I #VOL-I-RESET #VOL-I-OLD   /* NOMALL-1422 BLI start
+  #CATALOG-CLASS
+#VOLSERS-UNKNOWN := TRUE
+*
+FNDDS. FIND ARCHIVE-DATASET
+WITH AD-ARCHIVE-DSNAME = REVIVE-REPORTS.AR-ARCHIVE-DATA-SET           /*
+  IF #TRACING
+    COMPRESS 'Processing Archive Dataset' AD-ARCHIVE-DSNAME
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  END-IF
+  #VOL-DSNAME := REVIVE-REPORTS.AR-ARCHIVE-DATA-SET          /* BLI1
+  IF C*AD-VOLSERS = 0
+    IF SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP' /* BLI1
+      RESET #VOL-I-OLD #VOL-I-RESET
+      ESCAPE BOTTOM
+    ELSE                                                     /* BLI1 end
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+  #VOL-I-RESET := C*AD-VOLSERS
+  EXAMINE AD-VOLSERS (1:#VOL-I-RESET) FOR '*' GIVING INDEX #VOL-I
+  IF #VOL-I GT 1
+    #VOL-I-OLD := #VOL-I - 1
+  ELSE
+    #VOL-I-OLD := #VOL-I-RESET
+  END-IF
+* move volsers (except *) to tables (current and old)
+  #VOLSERS (1:#VOL-I-OLD) := AD-VOLSERS (1:#VOL-I-OLD)
+  #VOLSERS-UNKNOWN := FALSE
+END-FIND
+*
+RESET #VOLSERS-CHANGED #VOL-I
+*
+IF SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP'
+  REPEAT                                        /* BLI NOMALL-1716 start
+    PERFORM ZOS-CATALOG                /* in case of RECALL do it again
+    IF #RECALL EQ FALSE
+      ESCAPE BOTTOM
+    END-IF
+  END-REPEAT                                    /* BLI NOMALL-1716 end
+  IF #VOLSERS-CHANGED EQ FALSE                  /* BLI1 start
+      AND #VOL-I-OLD EQ 0 AND #VOL-I EQ 0       /* still no volser found
+    #VOLSERS-UNKNOWN := TRUE                    /* BLI2
+    ESCAPE ROUTINE
+  END-IF                                        /* BLI1 end
+END-IF
+*
+IF #VOLSERS-CHANGED OR
+    #VOL-I-RESET GT #VOL-I-OLD
+  GETDS. GET ARCHIVE-DATASET *ISN(FNDDS.)
+  RESET AD-VOLSERS (*)
+  IF #VOLSERS-CHANGED EQ FALSE
+    #VOL-I := #VOL-I-OLD
+  END-IF
+  AD-VOLSERS (1:#VOL-I) := #VOLSERS (1:#VOL-I)
+  IF #TRACING
+    COMPRESS 'Updating Archive Dataset' AD-ARCHIVE-DSNAME
+      '- number of volumes up to now:' #VOL-I
+      '- Volsers found up to now:' #VOLSERS (1:#VOL-I) TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  UPDATE (GETDS.)
+  END TRANSACTION
+  #VOLSERS-UNKNOWN := FALSE                     /* BLI1
+ELSE
+  IF #TRACING                                   /* BLI NOMALL-1716
+    COMPRESS 'Use old index:' #VOL-I-OLD
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  END-IF                                        /* BLI NOMALL-1716
+  #VOL-I := #VOL-I-OLD     /* needed in submit-../start-.. subroutines
+END-IF                                        /* NOMALL-1422 BLI end
+*
+IF #VOL-I GT 0                                /* NOMALL-1835 BLI start
+* although the catalog is updated, the active reports might contain
+* the old volsers
+  UPDAR. READ UPDATE-REPORTS BY AR-DATASET-VOLSER-REVIVE = #VOL-DSNAME
+    IF AR-ARCHIVE-DATA-SET NE #VOL-DSNAME
+      ESCAPE BOTTOM (UPDAR.)
+    END-IF
+    EXAMINE FULL VALUE OF #VOLSERS (1:#VOL-I)
+      FOR FULL VALUE OF REVIVE-REPORTS.AR-ARCHIVE-VOLSER (1)
+      GIVING INDEX IN J
+    IF J > 0
+* active report contains one of the current volsers --> no update
+      ESCAPE TOP
+    END-IF
+    IF #TRACING
+      COMPRESS 'Updating Active Report' AR-REPNAME
+        '- First VOLSER:' AR-ARCHIVE-VOLSER (1) '-' #VOLSERS (1)
+        '- Last VOLSER:' AR-ARCHIVE-VOLSER (2) '-' #VOLSERS (#VOL-I)
+        TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+*
+    GETAR. GET UPDATE-REPORTS *ISN (UPDAR.)
+    AR-ARCHIVE-VOLSER (1) := #VOLSERS (1)
+    AR-ARCHIVE-VOLSER (2) := #VOLSERS (#VOL-I)
+    UPDATE (GETAR.)
+    END TRANSACTION
+*
+  END-READ
+END-IF                                          /* NOMALL-1835 BLI end
+*
+END-SUBROUTINE /* READ-ARCHIVE-DATASET
+*
+************************************************************************
+DEFINE SUBROUTINE ZOS-CATALOG                 /* BLI NOMALL-1716
+************************************************************************
+RESET #RECALL #CATALOG-CLASS
+FNDCAT. FIND CATALOG WITH NODE = +NOD-LOCAL-NODE
+AND DSNAME = REVIVE-REPORTS.AR-ARCHIVE-DATA-SET AND PREFIX = 'NO'     /*
+  IF CATALOG.ERROR-CODE NE 0
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      CATALOG.ERROR-TEXT
+    IF #TRACING
+      COMPRESS 'Catalog error occurred:'
+        CATALOG.ERROR-TEXT TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END TRANSACTION
+    END-IF
+    RESET #VOLSERS-CHANGED #VOL-I #CATALOG-CLASS
+    ESCAPE BOTTOM (FNDCAT.)
+  END-IF
+  IF #TRACING
+    COMPRESS 'Volume' CATALOG.VOLSER 'CLASS' CLASS TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  END-IF
+  IF CATALOG.VOLSER EQ '*'
+    ESCAPE TOP
+  END-IF
+  IF CATALOG.VOLSER EQ 'MIGRAT' OR='ARCIVE'    /* BLI NOMALL-1716 start
+    #RECALL := TRUE
+    PERFORM PROCESS-RECALL
+    RESET #VOLSERS-CHANGED #VOL-I #CATALOG-CLASS
+    ESCAPE BOTTOM (FNDCAT.)
+  END-IF                                       /* BLI NOMALL-1716 end
+*
+  IF CLASS = 'DASD'
+    #CATALOG-CLASS := TRUE
+  END-IF
+*
+  ADD 1 TO #VOL-I
+  IF #VOLSERS (#VOL-I) NE CATALOG.VOLSER
+    IF #TRACING
+      COMPRESS 'VOLSER changed. Old:' #VOLSERS (#VOL-I)
+        'New catalog entry:' CATALOG.VOLSER TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      COMPRESS 'Set usage for:' #VOL-I TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END TRANSACTION
+    END-IF
+    #VOLSERS (#VOL-I) := CATALOG.VOLSER
+    #VOL-USED (#VOL-I):= TRUE
+    #VOLSERS-CHANGED  := TRUE
+    IF #VOL-I-OLD GT #VOL-I
+      RESET #VOLSERS (#VOL-I + 1:#VOL-I-OLD) /* BLI2
+        #VOL-USED (#VOL-I + 1:#VOL-I-OLD)    /* BLI2
+    END-IF
+  ELSE
+    IF #TRACING
+      COMPRESS 'VOLSER unchanged:' #VOLSERS (#VOL-I) 'Index' #VOL-I
+        TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END TRANSACTION
+    END-IF
+    IF #VOL-I EQ 1 /* AND #CATALOG-CLASS          /* BLI NOMALL-1716
+      #VOL-USED (1:#VOL-I-OLD) := TRUE
+      IF #TRACING
+        COMPRESS 'Set usage for:' #VOL-I-OLD TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END TRANSACTION
+      END-IF
+    END-IF
+  END-IF
+END-FIND
+*
+END-SUBROUTINE  /* ZOS-CATALOG
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-RECALL                  /* BLI NOMALL-1716
+************************************************************************
+FM. FIND FILE-MAINTENANCE WITH NODE = +NOD-LOCAL-NODE
+AND DSNAME = REVIVE-REPORTS.AR-ARCHIVE-DATA-SET AND FUNCTION =  'RECALL'
+  IF FILE-MAINTENANCE.ERROR-CODE NE 0
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      FILE-MAINTENANCE.ERROR-TEXT
+    #RECALL := FALSE                                /* don't do it again
+  END-IF
+  IF #TRACING
+    COMPRESS 'RECALL:' FILE-MAINTENANCE.ERROR-TEXT TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  END-IF
+END-FIND /*(FM.)
+*
+END-SUBROUTINE /* PROCESS-RECALL
+*
+************************************************************************
+DEFINE SUBROUTINE MARK-VOLSER
+************************************************************************
+IF REVIVE-REPORTS.AR-ARCHIVE-VOLSER(1) = 'UNKNWN'
+  #VOL-USED (1:#VOL-I) := TRUE
+  #VOLSERS  (1:#VOL-I) := 'UNKNWN'
+END-IF
+*
+EXAMINE FULL VALUE OF #VOLSERS (1:#VOL-I)
+  FOR FULL VALUE OF REVIVE-REPORTS.AR-ARCHIVE-VOLSER (1)
+  GIVING INDEX IN J
+IF REVIVE-REPORTS.AR-ARCHIVE-VOLSER (1) =
+    REVIVE-REPORTS.AR-ARCHIVE-VOLSER (2)
+  IF J > 0
+    #VOL-USED (J) := TRUE
+  END-IF
+ELSE
+  EXAMINE FULL VALUE OF #VOLSERS (1:#VOL-I)
+    FOR FULL VALUE OF REVIVE-REPORTS.AR-ARCHIVE-VOLSER (2)
+    GIVING INDEX IN K
+  IF NOT ( J = 0 OR K = 0 OR K < J)
+    #VOL-USED (J:K) := TRUE
+  END-IF
+END-IF
+IF #TRACING                                   /* BLI NOMALL-1716
+  COMPRESS 'Mark' REVIVE-REPORTS.AR-ARCHIVE-VOLSER (1) '2'
+    REVIVE-REPORTS.AR-ARCHIVE-VOLSER (2) 'J' J 'K' K
+    TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF                                        /* BLI NOMALL-1716
+*
+END-SUBROUTINE /* MARK-VOLSER
+*
+************************************************************************
+DEFINE SUBROUTINE SUBMIT-REVIVE-JOBS
+************************************************************************
+IF #TRACING
+  G-TRACE-MSG := 'submit revive jobs'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+RESET RMJBST-TAB (*) RMJBST-ENTRIES
+*
+RMJBST-VAR (01) := '&JOBCARD01'   RMJBST-TEXT (01) := #JOBCARD (1)
+RMJBST-VAR (02) := '&JOBCARD02'   RMJBST-TEXT (02) := #JOBCARD (2)
+RMJBST-VAR (03) := '&JOBCARD03'   RMJBST-TEXT (03) := #JOBCARD (3)
+RMJBST-VAR (04) := '&NODE'        RMJBST-TEXT (04) := #NODE-A
+RMJBST-VAR (05) := '&DBID'        RMJBST-TEXT (05) := #DBID-A
+RMJBST-VAR (06) := '&FNR'         RMJBST-TEXT (06) := #FNR-A
+RMJBST-VAR (07) := '&ESYUSER'     RMJBST-TEXT (07) := G-NPR-USERID
+RMJBST-VAR (08) := '&NATLOGON'    RMJBST-TEXT (08) := #LOGON-LINE
+RMJBST-VAR (09) := '&DSNAME'      RMJBST-TEXT (09) := #VOL-DSNAME
+RMJBST-VAR (10) := '&TAPE-DSNAME' RMJBST-TEXT (10) := #VOL-DSNAME-TAPE
+RMJBST-VAR (11) := '&UNIT'        RMJBST-TEXT (11) := #UNIT
+RMJBST-VAR (12) := '&EXIT8'       RMJBST-TEXT (12) := #NOMEX008
+RMJBST-VAR (13) := '&ARCTYPE'     RMJBST-TEXT (13) := #CURRENT-ARCTYPE
+RMJBST-VAR (14) := '&GTRACE'      RMJBST-TEXT (14) := G-TRACE
+* BLI NOMALL-1422 next line in, all three parms should be in sync
+#JOB-COUNT-INDEX := RMJBST-ENTRIES := #SAVE-ENTRIES := 15
+*
+RMJBST-VAR  (#JOB-COUNT-INDEX) := '$$$'
+RMJBST-TEXT (#JOB-COUNT-INDEX) := #JOB-COUNT
+*
+IF #CURRENT-ARCTYPE GT 0
+  FOR I = 1 TO #MAX-SYMBOLS
+    IF M-USERARC-SYMBOLS(I) = ' '
+      ESCAPE BOTTOM
+    END-IF
+    ADD 1 TO RMJBST-ENTRIES
+    COMPRESS '&' M-USERARC-SYMBOL-NAME(I) TO
+      RMJBST-VAR (RMJBST-ENTRIES) LEAVING NO
+    RMJBST-TEXT(RMJBST-ENTRIES):= M-USERARC-SYMBOL-VALUE(I)
+  END-FOR
+END-IF
+*
+/*SU12 DECIDE FOR FIRST CONDITION
+/*SU12  WHEN MF-SYSTEM-TYPE = SCAN 'BS2' #START-STRING := '(L=('
+/*SU12  #END-STRING := '))' WHEN NONE
+#START-STRING := '('
+#END-STRING := ')'
+/*SU12 END-DECIDE
+*
+#STRING := #START-STRING
+*
+K := #VOL-I + 1
+*
+FOR J = 1 TO K
+  DECIDE FOR FIRST CONDITION
+    WHEN IN-REVIVE AND NOT #VOL-USED (J)
+      IF #TRACING                                   /* BLI NOMALL-1716
+        COMPRESS 'Case 1' J '-' K '-' #VOL-SEQ
+          TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END TRANSACTION
+      END-IF                                        /* BLI NOMALL-1716
+      IN-REVIVE := FALSE
+      COMPRESS #STRING #END-STRING TO #STRING LEAVING NO
+      DECIDE FOR FIRST CONDITION
+/*SU12  WHEN MF-SYSTEM-TYPE = SCAN 'BS2'
+/*SU12    ADD 1 TO RMJBST-ENTRIES
+/*SU12    RMJBST-VAR  (RMJBST-ENTRIES) := '&VSEQ'
+/*SU12    RMJBST-TEXT (RMJBST-ENTRIES) := #STRING
+        WHEN MF-SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP'
+          ADD 1 TO RMJBST-ENTRIES
+          RMJBST-VAR  (RMJBST-ENTRIES) := '&VOLSERS'
+          RMJBST-TEXT (RMJBST-ENTRIES) := #STRING
+        WHEN NONE
+          IGNORE
+      END-DECIDE
+      ADD 1 TO #VOL-SEQ
+      FOR #VOL-SEQ = #VOL-SEQ TO 12        /* BLI NOMALL-1422 was 6
+        ADD 1 TO RMJBST-ENTRIES
+        COMPRESS '&VOLSER' #VOL-SEQ TO RMJBST-VAR (RMJBST-ENTRIES)
+          LEAVING NO
+        RESET RMJBST-TEXT (RMJBST-ENTRIES)
+      END-FOR
+      ADD 1 TO RMJBST-ENTRIES
+      RMJBST-VAR  (RMJBST-ENTRIES) := '&LASTVOL'
+      RMJBST-TEXT (RMJBST-ENTRIES) := #LASTVOL
+*
+      IF #TRACING                                   /* BLI NOMALL-1716
+        COMPRESS 'SRJ LASTVOL' #LASTVOL TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END TRANSACTION
+      END-IF                                        /* BLI NOMALL-1716
+*
+      PERFORM SUBMIT-REVIVE-JOB
+*
+      RESET #VOL-SEQ #LASTVOL
+      RMJBST-ENTRIES := #SAVE-ENTRIES
+      #STRING := #START-STRING
+    WHEN IN-REVIVE AND #VOL-USED (J)
+      ADD 1 TO RMJBST-ENTRIES
+      ADD 1 TO #VOL-SEQ
+      COMPRESS '&VOLSER' #VOL-SEQ
+        TO RMJBST-VAR (RMJBST-ENTRIES) LEAVING NO
+      RMJBST-TEXT (RMJBST-ENTRIES) := #VOLSERS (J)
+      IF #TRACING                                   /* BLI NOMALL-1716
+        COMPRESS 'Case 2' J '-' K '-' #VOL-SEQ '-'
+          RMJBST-ENTRIES '-' #VOLSERS (J) TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END TRANSACTION
+      END-IF                                        /* BLI NOMALL-1716
+/*SU12 -> DECIDE FOR FIRST CONDITION  WHEN MF-SYSTEM-TYPE = SCAN 'BS2'
+/*  COMPRESS #STRING ',' J TO #STRING LEAVING NO #LASTVOL := #VOLSERS(J)
+/*SU12 <- WHEN NONE
+      COMPRESS #STRING ',' #VOLSERS (J) TO #STRING LEAVING NO
+      #LASTVOL := #VOLSERS (J)
+/*SU12  END-DECIDE
+    WHEN NOT IN-REVIVE AND #VOL-USED (J)
+      IN-REVIVE := TRUE
+/*SU12 DECIDE FOR FIRST CONDITION WHEN MF-SYSTEM-TYPE = SCAN 'BS2'
+/*SU12 COMPRESS  #STRING J TO #STRING LEAVING NO WHEN NONE
+      COMPRESS  #STRING #VOLSERS (J) TO #STRING LEAVING NO
+/*SU12 END-DECIDE
+      ADD 1 TO RMJBST-ENTRIES
+      ADD 1 TO #VOL-SEQ
+      IF #TRACING                                   /* BLI NOMALL-1716
+        COMPRESS 'Case 3' J '-' K '-' #VOL-SEQ '-'
+          RMJBST-ENTRIES '-' #VOLSERS (J) TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END TRANSACTION
+      END-IF                                        /* BLI NOMALL-1716
+      COMPRESS '&VOLSER' #VOL-SEQ
+        TO RMJBST-VAR (RMJBST-ENTRIES) LEAVING NO
+      RMJBST-TEXT (RMJBST-ENTRIES) := #VOLSERS (J)
+/*SU12 -> IF MF-SYSTEM-TYPE = SCAN 'VSE' OR = SCAN 'DOS'
+/* ADD 1 TO RMJBST-ENTRIES RMJBST-VAR (RMJBST-ENTRIES) := '&FIRSTVOL'
+/* IF #VOLSERS (J) = 'UNKNWN' RESET RMJBST-TEXT (RMJBST-ENTRIES)
+/* ELSE RMJBST-TEXT (RMJBST-ENTRIES) := #VOLSERS (J) END-IF
+/* ADD 1 TO RMJBST-ENTRIES RMJBST-VAR (RMJBST-ENTRIES) := '&FIRSTSEQ'
+/*SU12 <- RMJBST-TEXT (RMJBST-ENTRIES) := J END-IF
+      #LASTVOL := #VOLSERS (J)
+    WHEN NONE                        /* BLI2
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Unknown condition in SUBMIT-REVIVE-JOBS for' #VOL-DSNAME
+  END-DECIDE
+  IF G-NATRP-ERC NE 0
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* SUBMIT-REVIVE-JOBS
+*
+************************************************************************
+DEFINE SUBROUTINE START-REVIVE-SCRIPTS
+************************************************************************
+* BLI NOMALL-1422 'mainframe' parts removed from this subroutine
+*
+IF #TRACING
+  G-TRACE-MSG := 'Start Revive Script'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS *PROGRAM 'cataloged at'  #CATDATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+K := #VOL-I + 1
+*
+FOR J = 1 TO K
+  DECIDE FOR FIRST CONDITION
+    WHEN IN-REVIVE AND NOT #VOL-USED (J)
+      IN-REVIVE := FALSE
+      PERFORM START-REVIVE-SCRIPT
+    WHEN NOT IN-REVIVE AND #VOL-USED (J)
+      IN-REVIVE := TRUE
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+  IF G-NATRP-ERC NE 0
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* START-REVIVE-SCRIPTS
+*
+************************************************************************
+DEFINE SUBROUTINE SUBMIT-REVIVE-JOB
+************************************************************************
+IF #TRACING
+  G-TRACE-MSG := 'submit revive job '
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+RESET IN-REVIVE LINE-SUBMITTED
+*
+CALLNAT 'RGETLIB' #JCSK-LIBRARY
+COMPRESS #JCSK-LIBRARY 'U' TO #JCSK-LIBRARY LEAVING NO
+IF #CURRENT-ARCTYPE = 0
+  #JCSK-MEMBER := 'JREVSKEL'
+END-IF
+*
+RESET #JCSK-EOF #JCSK-IN-SOURCE
+SET CONTROL 'Z'
+RESET #LINE-CNT
+REPEAT
+  ADD 1 TO #LINE-CNT
+* Process JCL Skeleton-JCL skeleton is read from text member and written
+* to the source area. From there it is retrieved as whole or in part:
+  CALLNAT 'RMJBSK-N' #JCSK-PARMS
+  IF #JCSK-EOF
+    IF #LINE-CNT = 1
+      G-NATRP-ERC := 0721 /*Job submit error
+      PERFORM WRITE-ERROR-LOG
+      G-NATRP-ERC := 117 /*Skeleton does not exist.
+      PERFORM WRITE-ERROR-LOG
+      G-NATRP-ERC := 5  /*:1: SU13
+      COMPRESS #REVIVE ': not found skeleton:' #JCSK-LIBRARY '('
+        #JCSK-MEMBER ')' TO G-NATRP-ERT LEAVING NO
+      PERFORM WRITE-ERROR-LOG
+      RESET G-NATRP-ERC
+    END-IF
+    ESCAPE BOTTOM
+  END-IF
+  IF #TRACING                                   /* BLI NOMALL-1716
+    COMPRESS 'JCSK' #LINE-CNT #JCSK-CARD
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  END-IF                                        /* BLI NOMALL-1716
+  IF #JCSK-CARD = SCAN '&EOMNATCARDS'
+    FOR #N = 1 TO #NCARDS
+      #JCSK-CARD := #NATCARDS (#N)
+      PERFORM PROCESS-LINE
+    END-FOR
+  ELSE
+    IF #JCSK-CARD = SCAN '&EOMSTARTTAPE'
+      IF #CATALOG-CLASS = TRUE                    /* BLI NOMALL-1422
+        #SUPPRESS-TAPE-SPECIFICS := TRUE
+      END-IF
+      ESCAPE TOP
+    END-IF
+    IF #JCSK-CARD = SCAN '&EOMENDTAPE'
+      #SUPPRESS-TAPE-SPECIFICS := FALSE
+      ESCAPE TOP
+    END-IF
+    IF NOT #SUPPRESS-TAPE-SPECIFICS
+      PERFORM PROCESS-LINE
+    END-IF
+  END-IF
+END-REPEAT
+*
+IF LINE-SUBMITTED
+  IF #TRACING                                   /* BLI NOMALL-1716
+    COMPRESS 'PERFORM CLOSE-SUBMIT'
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  END-IF                                        /* BLI NOMALL-1716
+  PERFORM CLOSE-SUBMIT
+END-IF
+*
+END-SUBROUTINE /* START-REVIVE-SCRIPTS
+*
+************************************************************************
+DEFINE SUBROUTINE START-REVIVE-SCRIPT
+************************************************************************
+IF #TRACING
+  G-TRACE-MSG := 'Start Revive Script '
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+RESET IN-REVIVE
+#G-NPR-USERID := G-NPR-USERID
+IF #G-NPR-USERID = ' '
+  #G-NPR-USERID := 'N'
+END-IF
+COMPRESS '$NOMDIR/$NOMVERS/nomrev.bsh' 'RJREVIVE' #G-NPR-USERID #NODE-A
+  #VOL-DSNAME #NOMEX008 #USERARC-NUMBER TO STX-START-SCRIPT
+/*SU5 #VOL-DSNAME #NOMEX008 #USERARC-NUMBER *PID TO STX-START-SCRIPT
+*
+RESET STX-TASK-NUMBER                              /* NOMALL-853 in
+COMPRESS '$EOM_WORK/' 'nomrev.' *PID '.stdout' TO STX-LOGFILE LEAVING NO
+STX-TASK-NAME := 'NOMREV'
+STX-FUNCTION  := 'START'
+CALLNAT 'RMSTX--N' STX-PARMS G-TRACE
+END TRANSACTION
+IF STX-ERROR-CODE NE 0
+  PRINT *PROGRAM *DATX *TIMX STX-ERROR-TEXT /*SU8 (AL=70)
+  G-NATRP-ERT := STX-ERROR-CODE
+  G-NATRP-ERC := 1534
+ELSE
+  ADD 1 TO NOJ
+  IF #TRACING
+    COMPRESS ' Revive task started logging to ' STX-LOGFILE
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* START-REVIVE-SCRIPT
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-LINE
+************************************************************************
+CALLNAT 'RMJBST-N' RMJBST-PARMS #JCSK-CARD
+IF #JCSK-CARD = ' '
+  ESCAPE ROUTINE
+END-IF
+SUBMIT-L. FIND (1) SUBMIT WITH NODE =+NOD-LOCAL-NODE AND CARD=#JCSK-CARD
+  IF SUBMIT.ERROR-CODE NE 0
+    G-NATRP-ERC := 0453
+    LG-USERID := G-LG-USERID
+    LG-CODE := 'R1'
+    COMPRESS '0453' SUBMIT.ERROR-TEXT TO LG-MSG  /* submit failed
+    ESCAPE BOTTOM (SUBMIT-L.)
+  END-IF
+  LINE-SUBMITTED := TRUE
+END-FIND
+*
+END-SUBROUTINE /* PROCESS-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-NATURAL-SECURITY
+************************************************************************
+CALLNAT 'RGETLIB' #LIBRARY-ID
+IF G-NSC-ACTIVE
+  COMPRESS #LIBRARY-ID G-REV-NSC-USERID G-REV-NSC-PASSWORD
+    TO #LOGON-LINE
+ELSE
+  COMPRESS 'LOGON' #LIBRARY-ID TO #LOGON-LINE
+END-IF
+*
+END-SUBROUTINE /* CHECK-NATURAL-SECURITY
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SYSTEM-DEFINITIONS
+************************************************************************
+FNDREV. FIND ARCHIVE-TASK WITH M-MONITOR-ID = #REVIVE
+  IF NO RECORDS FOUND
+    LG-USERID := G-LG-USERID
+    LG-CODE := 'R1'
+    COMPRESS '0457' #REVIVE TO LG-MSG       /* revive defaults
+    G-NATRP-ERC := 0457      /* not found
+    G-NATRP-ERT := #REVIVE
+    ESCAPE BOTTOM (FNDREV.)
+  END-NOREC
+*
+  #JOBCARD (*) := M-JOBCARD (*)
+  #DEFAULT-JOBCARD(*):= #JOBCARD (*)
+*
+  IF NOT (#JOBCARD (*) NE ' ') AND *MACHINE-CLASS = 'MAINFRAME'
+    LG-USERID := G-LG-USERID
+    LG-CODE := 'R1'
+    LG-MSG := '0451'     /* jobcard missing
+    G-NATRP-ERC := 0451
+    ESCAPE BOTTOM (FNDREV.)
+  END-IF
+*
+  FNDARC. FIND ARCHIVE-TASK WITH M-MONITOR-ID = 'ARCHIVE'
+    IF NO RECORDS FOUND
+      LG-USERID := G-LG-USERID
+      LG-CODE := 'R1'
+      COMPRESS '0457' 'ARCHIVE' TO LG-MSG     /* archive defaults
+      G-NATRP-ERC := 0457      /* not found
+      G-NATRP-ERT := 'ARCHIVE'
+      ESCAPE BOTTOM (FNDREV.)
+    END-NOREC
+    #UNIT := M-TAPE-GENERIC
+  END-FIND
+*
+  #MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+  FNDMON. FIND NRM-MONITOR WITH M-MONITOR-ID = #MONITOR-ID
+    IF NO RECORDS FOUND
+      LG-USERID := G-LG-USERID
+      LG-CODE := 'R1'
+      COMPRESS '0457' 'SYSTEM' TO LG-MSG    /* system defaults
+      G-NATRP-ERC := 0457      /* not found
+      G-NATRP-ERT := 'SYSTEM'
+      ESCAPE BOTTOM (FNDREV.)
+    END-NOREC
+    DECIDE FOR FIRST CONDITION
+      WHEN M-NATRPT-DBID-N5 > 0
+        #DBID := M-NATRPT-DBID-N5
+        #FNR  := M-NATRPT-FNR-N5
+/*SU10  WHEN M-NATRPT-DBID > 0
+/*SU10        #DBID := M-NATRPT-DBID
+/*SU10        #FNR  := M-NATRPT-FNR
+      WHEN NONE
+        G-NATRP-ERC := 0457
+        ESCAPE BOTTOM (FNDMON.)
+    END-DECIDE
+  END-FIND
+  IF *MACHINE-CLASS = 'MAINFRAME'
+    READ(1) MF-NODE BY MF-TYPE-ID = 'MR-'
+    END-READ
+    IF MF-TYPE NE 'M' OR MF-MONITOR-ID NE MASK('R-')
+      LG-USERID := G-LG-USERID
+      LG-CODE := 'R1'
+      COMPRESS '0457' 'SYSTEM' TO LG-MSG    /* system defaults
+      G-NATRP-ERC := 0457      /* not found
+      G-NATRP-ERT := 'SYSTEM'
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-SYSTEM-DEFINITIONS
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-SUBMIT
+************************************************************************
+CLOSE-SUBMIT. FIND SUBMIT WITH NODE=+NOD-LOCAL-NODE AND FUNCTION='CLOSE'
+  IF SUBMIT.ERROR-CODE > 0
+    G-NATRP-ERC := 0453
+    LG-USERID := G-LG-USERID
+    LG-CODE := 'R1'
+    LG-MSG := '0453' /* submit failed
+    COMPRESS LG-MSG SUBMIT.ERROR-TEXT TO LG-MSG
+    ESCAPE ROUTINE
+  END-IF
+  DECIDE FOR FIRST CONDITION
+    WHEN JOB-NUMBER NE 0
+      #JOB-NUMBER := ABS(JOB-NUMBER)
+    WHEN NOT (JOB-ID = ' ' OR = H'0000000000')
+      #JOB-NUMBER := JOB-ID
+    WHEN NONE
+      RESET #JOB-NUMBER
+  END-DECIDE
+  IF #JOB-NUMBER = ' '
+    G-NATRP-ERC := 0453
+    LG-USERID := G-LG-USERID
+    LG-CODE := 'R1'
+    LG-MSG := '0721'
+    ESCAPE ROUTINE
+  END-IF
+  ADD 1 TO NOJ
+  LG-USERID := G-LG-USERID
+  LG-CODE := 'R1'
+  COMPRESS '0420' #JOB-NUMBER TO LG-MSG        /* submit done
+  CALLNAT 'RLOG' PL-PARMS
+END-FIND
+*
+END-SUBROUTINE /* CLOSE-SUBMIT
+*
+************************************************************************
+DEFINE SUBROUTINE LOGON-TO-ESY
+************************************************************************
+CALLNAT 'N-ESYLG' 1X +NOD-LOCAL-NODE G-NPR-CURRENT-USERID #CALLER
+  G-NATRP-ERC G-NATRP-ERT 1X
+IF G-NATRP-ERC NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Error logging on to ESY ' G-NPR-CURRENT-USERID G-NATRP-ERC
+  G-NATRP-ERC := 1534 /*SAT error :1: occured.
+  RESET G-NPR-CURRENT-USERID
+END-IF
+*
+END-SUBROUTINE /* LOGON-TO-ESY
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-ERROR-LOG
+************************************************************************
+LG-USERID := G-LG-USERID
+LG-CODE := 'MO'
+MOVE EDITED G-NATRP-ERC (EM=9999) TO LG-MSG
+COMPRESS LG-MSG G-NATRP-ERT TO LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+END OF TRANSACTION
+IF #TRACING
+  COMPRESS 'Ended with --->' G-NATRP-ERC-A LG-MSG TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* WRITE-ERROR-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE READ-USER-DEFINED-ARCHIVE
+************************************************************************
+#USERARC-NUMBER:= #CURRENT-ARCTYPE
+READUDA. FIND NRM-USER-DEFINED-ARCHIVE WITH M-MONITOR-ID = #USERARC-ID
+  IF NO RECORDS FOUND
+    LG-USERID := G-LG-USERID
+    LG-CODE := 'R1'
+    COMPRESS '0458' #USERARC-ID TO LG-MSG   /* user defined archive
+    G-NATRP-ERC := 0458      /* not found
+    G-NATRP-ERT := #REVIVE
+    ESCAPE BOTTOM (READUDA.)
+  END-NOREC
+  #JCSK-MEMBER:= M-USERARC-REVIVE-SKEL
+  IF M-USERARC-REVIVE-JOBCARDS(1) = ' '
+    #JOBCARD(*):= #DEFAULT-JOBCARD(*)
+  ELSE
+    #JOBCARD(*):= M-USERARC-REVIVE-JOBCARDS(*)
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-USER-DEFINED-ARCHIVE
+*
+END

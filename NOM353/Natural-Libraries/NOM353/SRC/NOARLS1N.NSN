@@ -1,0 +1,1578 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 5
+* <Natural Source Header
+* NOARLS1N - EOM API Active Report List
+* XSETHZ  2011-10-27 NOMALL-1069 optimization (created from NOARLS-N)
+*
+*     Note:  This routine handles all Active Report lists for
+*            the list view and straight on read tree view lists.
+*            Called from routine NOARLS-N.
+*
+*            Supported list types:
+*               LSA  - lists the active reports of a selected
+*                      report definition (from report node)
+*               LS   - lists the report definitions containing
+*                      active reports (summary from folder node)
+*               LS1  - lists the active reports of a selected
+*                      report definition (from summary node)
+*               LS2  - lists the active reports of a selected
+*                      location type All, Browsable, Archived
+*               LS3  - internally switched to LS2
+*                      Return type is LS3 for normal lists
+*                                     LS2 for virtual lists
+*
+*     Note:  (CF3) The list types LS1 and LS2/LS3 are reworked
+*            regarding their grant checking to work in the same
+*            way as the partner module NOARLS-N.
+*
+*
+* Maintenance:
+* XSETHZ  2001-03-22 created
+* XSETGGR 2001-07-10 developed
+* XSETHZ  2002-01-12 created
+* XSETGGR 2002-04-02 read headers from SYSERR
+* XSETHZ  2002-06-04
+* XSETGGR 2002-08-23 change check-source
+* XSETGGR 2002-09-25 change work with time variables
+* XSETGGR 2002-10-28 change numeric fields in list
+* XSETGGR 2002-11-12 change CHECK-SOURCE
+* XSETGGR 2002-11-14 use new parameter ES-APP-SERVER-LIBRARY
+* XSETGGR 2002-11-19 add number of options
+* XSETGGR 2002-11-27 read user profile
+* sju 03-01-31 p(231843) mail wrong if run number wraps round
+* xsetggr 2003-03-10 changes list from folder
+* sju     2003-03-18 special  TYPE=AL
+* fhi     2005-04-19 NOM31107  Support 7-byte job numbers
+* xsetggr 2006-07-31 prevent err-msg 'source not found'
+* xsetggr 2007-02-27   new user profile value for archive/revive
+* xsetggr 2007-05-09 p(294774) change date/time format in lists
+* xsetggr 2007-05-24 NOM3201   Support P11 format run number
+* xsetggr 2007-12-11 NRT2768   Display length of binary docs in bytes
+* xsetggr 2008-02-10 NRT2774   separate list of archived reports
+* xsetggr 2008-02-24 add parm to RBINSZ-N
+* xsetggr 2008-03-06 fill options reports from Summary tree view
+*                    and change option 'BR' to option 'BB'
+* xsetggr 2008-03-11 p(302778) change format of RBINSZ-N parm
+* xsetggr 2008-03-17 form right header for summary list of active reps
+* xsetggr 2008-05-05 p(304350) read size of binary docs from spool attr.
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* XSETHZ  2008-11-05 P299405   sort flag from user profile
+* XSETHZ  2008-11-27 P311898 correct Summary list
+* fhi     2009-05-20 N3463   restow due to extended metadata
+* XSETHZ  2009-10-27 N3460   SOURCE/SENDER added
+* fhi     2009-12-10 N3460   Use non-opo active-reports view for NOM321
+* xsetggr 2009-12-18 N3460   get NOM version with NOMVI--N
+* xsetggr 2010-01-03 N3460   integrate NOARLS1N in NOARLS-N
+* fhi     2010-02-24 N3460   Non-opo active-reports view only < NOM3300
+*                            No tags entered for this change.
+* xsetggr 2010-03-01 P321493   check folder grants and owner folder
+*                              before funcctions on active reports
+* xsetggr 2010-07-07 NOMALL-833 set options from folder grants for NOM32
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-09-20 NOMALL-870 correct source check and set 'BB' option
+* XSETHZ  2010-11-04 NOMALL-880 new filter
+* XSETHZ  2010-12-15 NOMALL-907
+* xsetggr 2011-03-03 NOMALL-907 change options due to change of source
+*                               check
+* XSETGGR 2011-03-03 NOMALL-953 correct setting folder grants
+* XSETHZ  2011-07-29 ES-634 : Calendar, Time, Postfix
+* --------------------------------------------------------------------
+* XSETHZ  2011-10-27 NOMALL-1069 optimization (created from NOARLS-N)
+* BLI     2012-09-21 NOMALL-94   delete NOMVI../NOMVER
+* XSETHZ  2013-01-04 ES-104 optimization (new descriptors in NRM-MAIL)
+* XSETHZ  2013-02-14 ES-1499 (new descriptors in NRM-MAIL)
+* XSETHZ  2013-03-25 ES-104 (new descriptors in NRM-MAIL)
+* SU1     2013-08-28 remove unused variables
+* RAYA    2013-09-12 NOMALL-1278 new superdescriptor for filtering mails
+* SU2     2014-02-17 NOMALL-1278 compare correct dates
+* CF1     2014-04-29 NOMALL-1412 Correct filter for revived reports
+* fhi     2015-05-18 NOMALL-1552 Show real size, not base64 size
+* SU3     2015-06-01 NOMALL-1552 Show size 1 (instead 0)
+* BLI     2016-03-01 NOMALL-1829 Check flags A R L
+* BLI     2016-09-12 NOMALL-1914 Check folder-num
+* CF2     2017-02-23 NOMALL-2000 Disable File funct. in linked folders
+* SU4     2018-02-15 NOMALL-1823 NOM 3.5: remove CONNECT
+* CF3     2019-01-29 NOMALL-2221 Unify grant checking
+* fhi     2019-05-13 NOMALL-2272 Correct evaluation of time inverted
+* HEB1    2020-09-28 NOMALL-2439 return error message to client/NOMLOG
+* HEB2    2023-10-04 ES-34375    active help for keyword + and/or
+************************************************************************
+*
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOARLS-A
+************************************************************************
+LOCAL USING ESMCONSL
+LOCAL USING NOARSL-A
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING VAREP1-L
+LOCAL USING NOUSUP-L
+LOCAL USING RMSPL--L
+LOCAL USING CONST-L
+*
+LOCAL
+1 DR VIEW OF NRM-DATASET-REPORT
+  2 DR-EXPIRATION-DATE
+1 MA VIEW OF NRM-MAIL
+  2 MA-REPNAME
+  2 MA-REPRNB
+  2 MA-USERID
+  2 MA-PROCESS-TIME-INV
+  2 MA-PROCESS-TIME
+  2 MA-FO-ID
+  2 MA-STATUS
+1 MA-N VIEW OF NRM-MAIL
+  2 MA-FO-ID
+1 HM VIEW OF NRM-MAIL
+  2 MA-FOLDER-REP-RNB
+  2 REDEFINE MA-FOLDER-REP-RNB
+    3 MA-FOLDER-USER-ID   (A8)
+    3 MA-FOLDER-ID        (B2)
+    3 MA-REP              (A25)
+1 FO VIEW OF NRM-FOLDER
+  2 FO-ID
+  2 FO-NAME
+  2 FO-USER-ID
+  2 FO-LINKED-FO-ID
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER-ID    (A8)
+    3 FO-LINKED-ID         (B2)
+1 FO-L VIEW OF NRM-FOLDER
+  2 FO-ID
+  2 FO-USER-ID
+  2 FO-LINKED-FO-ID
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER-ID    (A8)
+    3 FO-LINKED-ID         (B2)
+1 BC VIEW OF NRM-BUNDLE-CONTENTS
+1 USERS VIEW OF NRM-USERS
+  2 USER-PROFILE
+1 #IS-ORIGINAL-FOLDER      (L)                   /* CF2
+1 #I                       (I4)
+1 #K                       (I4)
+1 #L                       (I4)
+1 #I2                      (I4)
+1 #IMAX                    (I4)
+1 #DATE-14                 (A14)
+1 #F-DATE-C-PUR            (T)
+1 #F-DATE-C                (T)
+1 REDEFINE #F-DATE-C
+  2 #F-DATE-C-P            (P13)
+1 #T-DATE-C-PUR            (T)
+1 #T-DATE-C                (T)
+1 REDEFINE #T-DATE-C
+  2 #T-DATE-C-P            (P13)
+1 #REPORT-RNB              (A31)
+1  REDEFINE #REPORT-RNB
+  2 #REPNAME               (A25)
+  2 #REPRNB                (P11)
+  2 REDEFINE #REPRNB
+    3 #REPRNB-A            (A6)
+1 #REPORT-RNB-E            (A31)
+1 #SELECTED                (L)
+1 #SOURCE-EXIST            (L)
+1 #REPRNB-A11              (A11)
+1 REDEFINE #REPRNB-A11
+  2 #REPRNB-N11            (N11)
+1 #OPTIONS                 (A2/10)
+1 #NEXT-FO-ID              (A5)
+1 REDEFINE #NEXT-FO-ID
+  2 #NEXT-FO-ID-N          (N5)
+1 #NEXT-TIME               (A13)
+1 REDEFINE #NEXT-TIME
+  2 #NEXT-TIME-N           (N13)
+1 #MA-FOLDER-PROCESS-TIME          (A17)
+1 REDEFINE #MA-FOLDER-PROCESS-TIME
+  2 #MA-USERID             (A8)
+  2 #MA-FO-ID              (B2)
+  2 #MA-PROCESS-TIME       (P13)
+1 #MA-FOLDER-PROCESS-TIME-E (A17)
+1 #MA-FOLDER-REP-PROCESS-TIME      (A42)
+1 REDEFINE #MA-FOLDER-REP-PROCESS-TIME
+  2 #MAR-USERID            (A8)
+  2 #MAR-FO-ID             (B2)
+  2 #MAR-REPNAME           (A25)
+  2 #MAR-PROCESS-TIME      (P13)
+1 #MA-RNB-USER             (A14)
+1 REDEFINE #MA-RNB-USER
+  2 #MA-RNB                (P11)
+  2 #MA-USER               (A8)
+1 #FO-USERNAME             (A24)
+1 REDEFINE #FO-USERNAME
+  2 #FO-USER               (A8)
+  2 #FO-NAME               (A16)
+1 #S-USER-FO-ID            (A10)
+1 REDEFINE #S-USER-FO-ID
+  2 #S-USER                (A8)
+  2 #S-FO-ID               (B2)
+1 #BC-REPORT-RNB           (A31)
+1 REDEFINE #BC-REPORT-RNB
+  2 #BC-REPORT             (A25)
+  2 #BC-REPRNB             (P11)
+1 #TIME                    (T)
+1 REDEFINE #TIME
+  2 #TIME-P13              (P13)
+1 #MA-FOLDER-REP           (A41)
+1  REDEFINE #MA-FOLDER-REP
+  2 #MA-FOLDER-USER-ID     (A8)
+  2 #MA-FOLDER-ID          (B2)
+  2 #MA-REP                (A25)
+  2 #MA-RNBR               (P11)
+1 #MA-FOLDER-REP-E         (A41)
+1  REDEFINE #MA-FOLDER-REP-E
+  2 #MA-FOLDER-USER-ID-E   (A8)
+  2 #MA-FOLDER-ID-E        (B2)
+  2 #MA-REP-E              (A25)
+  2 #MA-RNB-E              (P11)
+1 #MSG-NR                  (N4) INIT <6102>
+1 #J                       (I2) INIT  <0014>
+1 #HEADER                  (A20)
+1 #NAME-F                  (A25)
+1 #NAME-T                  (A25)
+1 #NEXT                    (L)
+1 #NUMBER                  (N7)
+1 #FOUSERID                (A8)
+1 #FOID                    (B2)
+1 #FOLINKEDFOID            (A10)
+1 #TT                      (T)
+1 #NEW-OPTIONS             (A2/1:8)
+1 #MA-REP-RNB              (A31)
+1 REDEFINE #MA-REP-RNB
+  2 #MA-REPORT             (A25)
+  2 #MA-REPRNB             (P11)
+1 #A4                      (A4)
+1 REDEFINE #A4
+  2 #I4                    (I4)
+1 #ERC                     (N4)
+1 #ERT                     (A250)
+1 #RECNUM                  (I4)
+1 #BIN-SIZE                (I4)
+1 #LOC                     (A1)   INIT <'*'>
+1 #SOURCE-F                (A17)
+1 #SOURCE-T                (A17)
+1 #SENDER-F                (A17)
+1 #SENDER-T                (A17)
+1 #BIN-REPNAME             (A25)
+1 #BIN-REPRNB              (P11)
+1 #GR-USERID               (A8)
+1 #GR-NAME                 (A25)
+1 #OWNER-REPORT            (L)
+1 #FO-ID-N                 (N5)
+1 REDEFINE #FO-ID-N
+  2 #FO-ID-A               (A5)
+1 #GRANTS                  (A1/6)
+1 #MY-FOLDER               (L)  INIT <TRUE>
+1 #FO-USER-FO-ID           (A10)
+1 REDEFINE #FO-USER-FO-ID
+  2 #FO-USER-ID            (A8)
+  2 #FO-ID                 (B2)
+1 #START-ISN-N             (N10)
+1 REDEFINE #START-ISN-N
+  2 #START-ISN-A           (A10)
+1 #START-ISN-S             (N10)
+1 #START-IN-SET            (N10)
+1 #ISN-SET                 (A16)
+1 #NUMBER-IN-SET           (I4)
+1 #TIMEOUT                 (T)
+1 #MA-L-FOLDER-REP         (A42)
+1 REDEFINE #MA-L-FOLDER-REP
+  2 #MA-CURRENT-LOC-R      (A1)
+  2 #MA-USERID-R           (A8)
+  2 #MA-FO-ID-R            (B2)
+  2 #MA-REP-R              (A25)
+  2 #MA-RNB-R              (P11)
+1 #MA-L-FOLDER-REP-E       (A42)
+1 #MA-L-FOLDER-TIME        (A18)
+1 #MA-L-FOLDER-PROCESS-TIME (A18)
+1 REDEFINE #MA-L-FOLDER-PROCESS-TIME
+  2 #MA-CURRENT-LOC-T       (A1)
+  2 #MA-USERID-T            (A8)
+  2 #MA-FO-ID-T             (B2)
+  2 #MA-PROCESS-TIME-T      (P13)
+1 #MA-L-FOLDER-PROCESS-TIME-E (A18)
+1 #MA-REP-S                 (A25)
+*
+1 ##FO-ID                  (B2)                  /* CF3 ->
+1 ##FO-USER-ID             (A8)
+1 ##FO-LINKED-FO-ID        (A10)
+1 REDEFINE ##FO-LINKED-FO-ID
+  2 ##FO-LINKED-USER-ID    (A8)
+  2 ##FO-LINKED-ID         (B2)                  /* CF3 <-
+*
+1 #NATRP-ERC               (N4)                         /* HEB1
+1 #NATRP-ERT               (A250)                       /* HEB1
+1 #KY-SEL                  (A15/1:4)                    /* HEB2 >
+1 #NUM                     (I2)
+1 #L1                      (I2)
+1 #L2                      (I2)
+1 #L3                      (I2)
+1 #L4                      (I2)                         /* HEB2 <
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+* PRINT *PROGRAM *LINE 'HEB-KY' 'start'  /* HEB-TEMP
+*
+RESET ES-RC ES-NUMBER ES-STARTINDEX #TT ES-INVCOL-NUM
+IF ES-CLIENT-TIMEOUT > 10 AND ES-CLIENT-TIMEOUT < 9999
+  #TIMEOUT := *TIMX + (ES-CLIENT-TIMEOUT - 10) * 10
+ELSE
+  #TIMEOUT := *TIMX + 450
+END-IF
+ES-EOF := 'X'
+#NOARSL := ES-SELECT
+EXAMINE #NOARSL.#SOURCE FOR '*' DELETE
+EXAMINE #NOARSL.#SENDER FOR '*' DELETE
+COMPRESS #NOARSL.#SOURCE H'00' TO #SOURCE-F LEAVING NO
+COMPRESS #NOARSL.#SOURCE H'FF' TO #SOURCE-T LEAVING NO
+COMPRESS #NOARSL.#SENDER H'00' TO #SENDER-F LEAVING NO
+COMPRESS #NOARSL.#SENDER H'FF' TO #SENDER-T LEAVING NO
+/* HEB2 >
+#KY-SEL (1)   := #NOARSL.#KEYWORD
+#KY-SEL (2:4) := #NOARSL.#KEYWORD-2-4 (1:3)
+IF #KY-SEL (*) = '*'
+AND #KEYWORD-AND-OR NE 'A'
+  RESET #KY-SEL (*)
+END-IF
+EXAMINE #KY-SEL (1) FOR '*' REPLACE WITH ' '
+        GIVING NUMBER #NUM LENGTH #L1
+IF #L1 < 1 OR #NUM = 0      #L1 := 15 END-IF
+EXAMINE #KY-SEL (2) FOR '*' REPLACE WITH ' '
+        GIVING NUMBER #NUM LENGTH #L2
+IF #L2 < 1 OR #NUM = 0      #L2 := 15 END-IF
+EXAMINE #KY-SEL (3) FOR '*' REPLACE WITH ' '
+        GIVING NUMBER #NUM LENGTH #L3
+IF #L3 < 1 OR #NUM = 0      #L3 := 15 END-IF
+EXAMINE #KY-SEL (4) FOR '*' REPLACE WITH ' '
+        GIVING NUMBER #NUM LENGTH #L4
+IF #L4 < 1 OR #NUM = 0      #L4 := 15 END-IF
+/* HEB2 <
+FIND USERS WITH USER-ID = ES-USER
+  PROFILE-STRING := USER-PROFILE
+END-FIND
+EXAMINE #NOARSL.#KEYWORD FOR '*' DELETE
+EXAMINE #NOARSL.#REPNAME FOR '*' DELETE
+PERFORM INIT-DAT-KEY
+IF ES-KEY-CODE(3) = 'LC'
+  #LOC := ES-KEY-PARM(3)
+END-IF
+ES-OPTION-COUNT := 10
+IF ES-EXPAND = 'E'
+  ES-FIELD-COUNT := 1
+  DECIDE ON FIRST VALUE OF ES-FUNCTION
+    VALUE 'LSA','LS1'
+      #IMAX := 816
+      NOAREX-FIELD-LENGTH(1) := 11
+    VALUE 'LS'
+      #IMAX := 1011
+      ES-OPTION-COUNT := 0
+      NOARE1-FIELD-LENGTH(1) := 25
+    VALUE 'LS2'
+      #IMAX := 443
+      NOARE2-FIELD-LENGTH(1) := 37
+    NONE VALUE IGNORE
+  END-DECIDE
+ELSE
+  DECIDE ON FIRST VALUE OF ES-FUNCTION
+    VALUE 'LSA'
+      ES-SORTKEY := 0
+      ES-SORTORDER := 1
+      IF #NOARSL.#SOURCE NE ' ' OR #NOARSL.#SENDER NE ' '
+        ES-SORTKEY := 12
+        ES-SORTORDER := 0
+      END-IF
+      #IMAX := 139
+      ES-FIELD-COUNT := 13
+      NOARLA-FIELD-LENGTH(1)    := 812
+      NOARLA-FIELD-LENGTH(2)    := 911
+      NOARLA-FIELD-LENGTH(3:4)  := 909
+      NOARLA-FIELD-LENGTH(5:7)  := 1
+      NOARLA-FIELD-LENGTH(8:10) := 808
+      NOARLA-FIELD-LENGTH(11)   := 10
+      NOARLA-FIELD-LENGTH(12)   := 50
+      NOARLA-FIELD-LENGTH(13)   := 33
+    VALUE 'LS'
+      ES-SORTKEY := 0
+      ES-SORTORDER := 0
+      #IMAX := 308
+      ES-FIELD-COUNT := 3
+      ES-OPTION-COUNT := 0
+      NOARLS-FIELD-LENGTH(1) := 25
+      NOARLS-FIELD-LENGTH(2) := 50
+      NOARLS-FIELD-LENGTH(3) := 907
+    VALUE 'LS1'
+      ES-SORTKEY := 0
+      ES-SORTORDER := 1
+      IF #NOARSL.#SOURCE NE ' ' OR #NOARSL.#SENDER NE ' '
+        ES-SORTKEY := 13
+        ES-SORTORDER := 0
+      END-IF
+      #IMAX := 130
+      ES-FIELD-COUNT := 14
+      NOARL1-FIELD-LENGTH(1:2)  := 812
+      NOARL1-FIELD-LENGTH(3)    := 911
+      NOARL1-FIELD-LENGTH(4:5)  := 909
+      NOARL1-FIELD-LENGTH(6:8)  := 1
+      NOARL1-FIELD-LENGTH(9:11) := 808
+      NOARL1-FIELD-LENGTH(12)   := 10
+      NOARL1-FIELD-LENGTH(13)   := 50
+      NOARL1-FIELD-LENGTH(14)   := 33
+    VALUE 'LS2'
+      IF PROF-AR-SORT = 'D' OR #NOARSL.#REPNAME = ' ' OR='*'
+        ES-SORTKEY := 2
+        ES-SORTORDER := 1
+      ELSE
+        ES-SORTKEY := ES-SORTORDER := 0
+      END-IF
+      IF #NOARSL.#SOURCE NE ' ' OR #NOARSL.#SENDER NE ' '
+        ES-SORTKEY := 14
+        ES-SORTORDER := 0
+      END-IF
+      #IMAX := 115
+      ES-FIELD-COUNT := 15
+      NOARL2-FIELD-LENGTH(1)     := 25
+      NOARL2-FIELD-LENGTH(2)     := 911
+      NOARL2-FIELD-LENGTH(3:4)   := 812
+      NOARL2-FIELD-LENGTH(5:6)   := 909
+      NOARL2-FIELD-LENGTH(7:9)   := 1
+      NOARL2-FIELD-LENGTH(10:12) := 808
+      NOARL2-FIELD-LENGTH(13)    := 10
+      NOARL2-FIELD-LENGTH(14)    := 50
+      NOARL2-FIELD-LENGTH(15)    := 33
+    NONE VALUE IGNORE
+  END-DECIDE
+END-IF
+DECIDE ON FIRST VALUE OF ES-FUNCTION
+  VALUE 'LSA'
+    PERFORM LIST-ACTIVE-REPORTS
+  VALUE 'LS'
+    PERFORM LIST-ACTIVE-REPORTS-IN-FOLDER-SUMMARY
+  VALUE 'LS1'
+    PERFORM LIST-ACTIVE-REPORTS-IN-FOLDER-REPORT
+  VALUE 'LS2'
+    PERFORM LIST-ACTIVE-REPORTS-IN-FOLDER
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE LIST-ACTIVE-REPORTS                       /* LSA
+************************************************************************
+#REPORT-RNB.#REPNAME := ES-KEY-PARM(1)
+IF ES-NEXT-KEY-PARM(1) NE ' '
+  #REPRNB-A11 := ES-NEXT-KEY-PARM(1)
+  #REPRNB   := #REPRNB-N11
+ELSE
+  RESET #REPRNB
+  IF ES-EXPAND NE 'E'
+    ES-STARTINDEX := 2
+    #I2 := 1
+    RESET INITIAL #J
+    PERFORM GET-TEXT
+    COMPRESS LONG-MSG(#J) TO NOARLA-HEADER(1) LEAVING NO
+    SUBTRACT 1 FROM #J
+    FOR #I = #J TO 5 STEP -1
+      COMPRESS  LONG-MSG(#I) C-HEADER-DELIMITER NOARLA-HEADER(1)
+        TO NOARLA-HEADER(1) LEAVING NO
+    END-FOR
+    COMPRESS LONG-MSG(2) C-HEADER-DELIMITER NOARLA-HEADER(1)
+      TO NOARLA-HEADER(1) LEAVING NO
+    COMPRESS LONG-MSG(4) C-HEADER-DELIMITER NOARLA-HEADER(1)
+      TO NOARLA-HEADER(1) LEAVING NO
+    COMPRESS NOARLA-HEADER(1) C-HEADER-DELIMITER LONG-MSG(16)
+      TO NOARLA-HEADER(1) LEAVING NO
+  END-IF
+END-IF
+PERFORM READ-AR-LA
+*
+END-SUBROUTINE /* LIST-ACTIVE-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-AR-LA
+************************************************************************
+READ ACTIVE-REPORTS WITH AR-REPORT-RNB = #REPORT-RNB
+  IF ACTIVE-REPORTS.AR-REPNAME NE ES-KEY-PARM(1)
+    ESCAPE BOTTOM
+  END-IF
+  PERFORM SELECT-RECORD
+  ACCEPT IF #SELECTED
+  ADD 1 TO #I2
+  IF #I2 > #IMAX
+    #REPRNB-N11 := ACTIVE-REPORTS.AR-REPRNB
+    ES-NEXT-KEY-PARM(1) := #REPRNB-A11
+    ES-NUMBER := #IMAX
+    RESET  ES-EOF
+    ESCAPE BOTTOM
+  END-IF
+  PERFORM DATA-TO-PDA
+  ES-NUMBER := #I2
+END-READ
+*
+END-SUBROUTINE /* READ-AR-LA
+*
+************************************************************************
+DEFINE SUBROUTINE LIST-ACTIVE-REPORTS-IN-FOLDER            /* LS2
+************************************************************************
+COMPRESS ES-USER *PROGRAM TO #ISN-SET LEAVING NO
+IF ES-NEXT-KEY-PARM(1) NE ' '
+  /* Get folder grants again (next buffer)                 /* CF3 ->
+  /* (old coding removed - see former version if required)
+  #FO-USER := ES-USER
+  #FO-NAME := ES-KEY-PARM(1)
+  PERFORM GET-BASE-FOLDER
+  PERFORM GET-FOLDER-GRANTS                                /* CF3 <-
+  /*
+  #START-ISN-A := ES-NEXT-KEY-PARM(1)
+  #START-ISN-S := #START-IN-SET := #START-ISN-N
+  ES-STARTINDEX := 1
+ELSE
+  IF ES-EXPAND NE 'E'
+    ES-STARTINDEX := 2
+    #I2 := ES-NUMBER := 1
+    RESET #START-IN-SET #START-ISN-S #START-ISN-N
+    RESET INITIAL #J
+    PERFORM GET-TEXT
+    COMPRESS LONG-MSG(#J) TO NOARL2-HEADER(1) LEAVING NO
+    SUBTRACT 1 FROM #J
+    FOR #I = #J TO 1 STEP -1
+      COMPRESS  LONG-MSG(#I) C-HEADER-DELIMITER NOARL2-HEADER(1)
+        TO NOARL2-HEADER(1) LEAVING NO
+    END-FOR
+    COMPRESS NOARL2-HEADER(1) C-HEADER-DELIMITER LONG-MSG(16)
+      TO NOARL2-HEADER(1) LEAVING NO
+  ELSE
+    ES-STARTINDEX := 1
+  END-IF
+  /* Get base folder and folder grants                     /* CF3 ->
+  /* (old coding removed - see former version if required)
+  #FO-USER := ES-USER
+  #FO-NAME := ES-KEY-PARM(1)
+  PERFORM GET-BASE-FOLDER
+  PERFORM GET-FOLDER-GRANTS
+  #MA-USERID := ##FO-USER-ID
+  #MA-FO-ID  := ##FO-ID                                    /* CF3 <-
+  /*
+  #MA-FOLDER-USER-ID := #MA-USERID
+  #MA-FOLDER-ID := #MA-FO-ID
+  #MA-PROCESS-TIME := #T-DATE-C-P
+  #MA-FOLDER-PROCESS-TIME-E := #MA-FOLDER-PROCESS-TIME /*nomall-1278 in
+  #MA-PROCESS-TIME := #F-DATE-C-P
+  EXAMINE #NOARSL.#REPNAME FOR '*' DELETE
+/*
+/* ToDo: Check if Prefix/Substring validation works correctly
+/*       as there is a difference to the output of NOARLS-N
+/*
+  IF #NOARSL.#POSTFIX NE 'Y'
+    COMPRESS #NOARSL.#REPNAME H'FF' TO #MA-REP LEAVING NO
+    #MA-FOLDER-REP-E := #MA-FOLDER-REP
+    #MA-REP := #NOARSL.#REPNAME
+  ELSE
+    #MA-REP := H'FF'
+    #MA-FOLDER-REP-E := #MA-FOLDER-REP
+    #MA-REP := ' '
+  END-IF
+  #MA-USERID-R := #MA-USERID-T := #MA-USERID
+  #MA-FO-ID-R := #MA-FO-ID-T := #MA-FO-ID
+  IF #LOC ='A' OR='B' OR='D' OR='S'
+    #MA-CURRENT-LOC-R := #LOC
+  ELSE
+    IF #NOARSL.#ARCHIVE = '*'
+      #MA-CURRENT-LOC-R := 'A'
+    ELSE
+      IF #NOARSL.#LOCATION ='A' OR='D' OR='S'
+        #MA-CURRENT-LOC-R := #NOARSL.#LOCATION
+      END-IF
+    END-IF
+  END-IF
+  IF #MA-CURRENT-LOC-R ='D' OR='S'
+    #MA-CURRENT-LOC-R := 'B'
+  END-IF
+  IF #NOARSL.#ARCHIVE = '*' AND #NOARSL.#REVIVE = '*'   /* CF1 ->
+    #MA-CURRENT-LOC-R := 'B'
+  END-IF                                                /* CF1 <-
+  #MA-CURRENT-LOC-T := #MA-CURRENT-LOC-R
+  #MA-REP-R := #MA-REP-E
+  #MA-RNB-R := 99999999999
+  #MA-L-FOLDER-REP-E := #MA-L-FOLDER-REP
+  #MA-REP-R := #MA-REP
+  #MA-RNB-R := 0
+  #MA-PROCESS-TIME-T := #T-DATE-C-P
+  #MA-L-FOLDER-PROCESS-TIME-E := #MA-L-FOLDER-PROCESS-TIME /*nomall-1278
+  #MA-PROCESS-TIME-T := #F-DATE-C-P
+  IF (#LOC ='A' OR='B' OR='D' OR='S') OR #NOARSL.#ARCHIVE = '*' OR
+      (#NOARSL.#LOCATION ='A' OR='D' OR='S')
+    IF #MA-REP NE ' ' OR #MA-REP =  ' ' AND
+        #CREAT-DATE-FROM = ' ' AND #CREAT-DATE-TO = ' '
+      FL1. FIND NUMBER MA WITH MA-LOC-USER-FOLDER-REP-RNB =
+        #MA-L-FOLDER-REP THRU #MA-L-FOLDER-REP-E
+        RETAIN AS #ISN-SET
+      #NUMBER-IN-SET := *NUMBER (FL1.)
+    END-IF
+   IF (#CREAT-DATE-FROM NE ' ' OR #CREAT-DATE-TO NE ' ')/*nomall-1278 in
+      IF #NUMBER-IN-SET > 0
+        FL2. FIND NUMBER MA WITH MA-LOC-USER-FOLDER-PROCESS-TIME =
+          #MA-L-FOLDER-PROCESS-TIME THRU
+          #MA-L-FOLDER-PROCESS-TIME-E AND #ISN-SET
+          RETAIN AS #ISN-SET
+        #NUMBER-IN-SET := *NUMBER (FL2.)
+      ELSE
+        FL3. FIND NUMBER MA WITH MA-LOC-USER-FOLDER-PROCESS-TIME =
+          #MA-L-FOLDER-PROCESS-TIME THRU
+          #MA-L-FOLDER-PROCESS-TIME-E RETAIN AS #ISN-SET
+        #NUMBER-IN-SET := *NUMBER (FL3.)
+      END-IF
+    END-IF
+  ELSE
+    IF #MA-REP NE ' ' OR #MA-REP =  ' ' AND
+        #CREAT-DATE-FROM = ' ' AND #CREAT-DATE-TO = ' '/*nomall-1278 in
+      FN1. FIND NUMBER MA
+        WITH MA-FOLDER-REP-RNB = #MA-FOLDER-REP THRU #MA-FOLDER-REP-E
+        RETAIN AS #ISN-SET
+      #NUMBER-IN-SET := *NUMBER (FN1.)
+    END-IF
+   IF (#CREAT-DATE-FROM NE ' ' OR #CREAT-DATE-TO NE ' ')/*nomall-1278 in
+      IF #NUMBER-IN-SET > 0
+        FN2. FIND NUMBER MA
+          WITH MA-FOLDER-PROCESS-TIME =
+          #MA-FOLDER-PROCESS-TIME THRU #MA-FOLDER-PROCESS-TIME-E
+          AND #ISN-SET RETAIN AS #ISN-SET
+        #NUMBER-IN-SET := *NUMBER (FN2.)
+      ELSE
+        FN3. FIND NUMBER MA
+          WITH MA-FOLDER-PROCESS-TIME =
+          #MA-FOLDER-PROCESS-TIME THRU #MA-FOLDER-PROCESS-TIME-E
+          RETAIN AS #ISN-SET
+        #NUMBER-IN-SET := *NUMBER (FN3.)
+      END-IF
+    END-IF
+  END-IF
+END-IF
+FS2. FIND MA WITH #ISN-SET STARTING WITH ISN = #START-IN-SET
+  #START-ISN-S := #START-ISN-N
+  #START-ISN-N := *ISN(FS2.)
+  #REPORT-RNB.#REPNAME := MA-REPNAME
+  #REPRNB  := MA-REPRNB
+  IF *TIMX > #TIMEOUT
+    #START-ISN-N := #START-ISN-S
+    ES-NEXT-KEY-PARM(1) := #START-ISN-A
+    ES-FUNCTION := 'LS3'
+    RESET  ES-EOF
+    ESCAPE ROUTINE
+  END-IF
+  FNDAR2. FIND ACTIVE-REPORTS WITH AR-REPORT-RNB = #REPORT-RNB
+    RESET #OWNER-REPORT
+    IF AR-USERID = ES-USER
+      #OWNER-REPORT := TRUE
+    END-IF
+    PERFORM SELECT-RECORD
+    IF #SELECTED
+      ADD 1 TO #I2
+      IF #I2 > #IMAX
+        #START-ISN-N := #START-ISN-S
+        ES-NEXT-KEY-PARM(1) := #START-ISN-A
+        ES-NUMBER := #IMAX
+        ES-FUNCTION := 'LS3'
+        RESET  ES-EOF
+        ESCAPE ROUTINE
+      END-IF
+      PERFORM DATA-TO-PDA
+      ES-NUMBER := #I2
+    END-IF
+  END-FIND
+END-FIND
+IF ES-EOF = 'X'
+  RELEASE SET #ISN-SET
+END-IF
+ES-FUNCTION := 'LS3'
+*
+END-SUBROUTINE /* LIST-ACTIVE-REPORTS-IN-FOLDER
+*
+************************************************************************
+DEFINE SUBROUTINE LIST-ACTIVE-REPORTS-IN-FOLDER-REPORT     /* LS1
+************************************************************************
+#MAR-REPNAME := ES-KEY-PARM(3)
+IF ES-NEXT-KEY-PARM(1) NE ' '
+  /* Get base folder and folder grants                     /* CF3 ->
+  /* (old coding removed - see former version if required)
+  #FO-USER := ES-USER
+  #FO-NAME := ES-KEY-PARM(1)
+  PERFORM GET-BASE-FOLDER
+  PERFORM GET-FOLDER-GRANTS                                /* CF3 <-
+  /*
+  #MAR-USERID := ES-NEXT-KEY-PARM(1)
+  #NEXT-FO-ID := ES-NEXT-KEY-PARM(2)
+  #MAR-FO-ID := #NEXT-FO-ID-N
+  #NEXT-TIME := ES-NEXT-KEY-PARM(3)
+  #MAR-PROCESS-TIME := #NEXT-TIME-N
+  #S-USER := #MAR-USERID
+  #S-FO-ID := #MAR-FO-ID
+  FIND FO WITH FO-USER-FO-ID = #S-USER-FO-ID
+  END-FIND
+ELSE
+  IF ES-EXPAND NE 'E'
+    ES-STARTINDEX := 2
+    #I2 := ES-NUMBER := 1
+    RESET INITIAL #J
+    PERFORM GET-TEXT
+    COMPRESS LONG-MSG(#J) TO NOARL1-HEADER(1) LEAVING NO
+    SUBTRACT 1 FROM #J
+    FOR #I = #J TO 5 STEP -1
+      COMPRESS  LONG-MSG(#I) C-HEADER-DELIMITER NOARL1-HEADER(1)
+        TO NOARL1-HEADER(1) LEAVING NO
+    END-FOR
+    COMPRESS LONG-MSG(2) C-HEADER-DELIMITER NOARL1-HEADER(1)
+      TO NOARL1-HEADER(1) LEAVING NO
+    COMPRESS LONG-MSG(4) C-HEADER-DELIMITER NOARL1-HEADER(1)
+      TO NOARL1-HEADER(1) LEAVING NO
+    COMPRESS LONG-MSG(3) C-HEADER-DELIMITER NOARL1-HEADER(1)
+      TO NOARL1-HEADER(1) LEAVING NO
+    COMPRESS NOARL1-HEADER(1) C-HEADER-DELIMITER LONG-MSG(16)
+      TO NOARL1-HEADER(1) LEAVING NO
+  END-IF
+  /* Get base folder and folder grants                     /* CF3 ->
+  /* (old coding removed - see former version if required)
+  #FO-USER := ES-USER
+  #FO-NAME := ES-KEY-PARM(1)
+  PERFORM GET-BASE-FOLDER
+  PERFORM GET-FOLDER-GRANTS                                /* CF3 <-
+  /*
+  RESET #FO-ID-N
+  FIND FO WITH FO-USER-NAME = #FO-USERNAME
+    #MAR-USERID := FO-USER-ID
+    #MAR-FO-ID  := FO-ID
+    #MAR-PROCESS-TIME       := #F-DATE-C-P
+  END-FIND
+END-IF
+/*
+/*
+/* ToDo: Check if loop over several folder-ids is necessary/meaningful
+/*       (active report lists are always seen from a base folders view
+/*        and a folder-link never contains active reports)
+/*
+/*
+REPEAT WHILE FO.FO-USER-ID NE ' '
+  READ MA BY MA-FOLDER-REP-PROCESS-TIME = #MA-FOLDER-REP-PROCESS-TIME
+    IF MA.MA-USERID NE #MAR-USERID OR MA.MA-FO-ID NE #MAR-FO-ID OR
+        MA-REPNAME NE #MAR-REPNAME OR MA-PROCESS-TIME-INV > #T-DATE-C-P
+      ESCAPE BOTTOM
+    END-IF
+    RESET #NEXT
+    #MA-RNB := MA-REPRNB
+    FO-L.FO-LINKED-FO-ID := FO.FO-LINKED-FO-ID
+    REPFOL2. REPEAT WHILE FO-L.FO-LINKED-USER-ID NE ' '
+      #MA-USER := FO-L.FO-LINKED-USER-ID
+      FIND MA-N WITH MA-RNB-USER = #MA-RNB-USER
+          WHERE MA-N.MA-FO-ID = FO-L.FO-LINKED-ID
+        #NEXT := TRUE
+        ESCAPE BOTTOM (REPFOL2.)
+      END-FIND
+      #S-USER := FO-L.FO-LINKED-USER-ID
+      #S-FO-ID := FO-L.FO-LINKED-ID
+      FIND FO-L WITH FO-USER-FO-ID = #S-USER-FO-ID
+        IF NO RECORDS FOUND
+          ESCAPE BOTTOM (REPFOL2.)
+        END-NOREC
+      END-FIND
+    END-REPEAT
+    REJECT IF #NEXT
+    ADD 1 TO #I2
+    IF #I2 > #IMAX
+      ES-NEXT-KEY-PARM(1) := MA.MA-USERID
+      #NEXT-FO-ID-N := MA.MA-FO-ID
+      ES-NEXT-KEY-PARM(2) := #NEXT-FO-ID
+      #NEXT-TIME-N := MA-PROCESS-TIME-INV
+      ES-NEXT-KEY-PARM(3) := #NEXT-TIME
+      ES-NUMBER := #IMAX
+      RESET  ES-EOF
+      ESCAPE ROUTINE
+    END-IF
+    #REPORT-RNB.#REPNAME := MA-REPNAME
+    #REPRNB  := MA-REPRNB
+    FIND ACTIVE-REPORTS WITH AR-REPORT-RNB = #REPORT-RNB
+      IF NO RECORDS FOUND
+        #I2 := ES-NUMBER
+        ESCAPE BOTTOM
+      END-NOREC
+      RESET #OWNER-REPORT
+      IF AR-USERID = ES-USER
+        #OWNER-REPORT := TRUE
+      END-IF
+      PERFORM SELECT-RECORD
+      IF #SELECTED
+        PERFORM DATA-TO-PDA
+        ES-NUMBER := #I2
+      ELSE
+        #I2 := ES-NUMBER
+      END-IF
+    END-FIND
+  END-READ
+  FO.FO-USER-ID := ' '
+  IF FO.FO-LINKED-FO-ID NE ' '
+    #S-USER := FO.FO-LINKED-USER-ID
+    #S-FO-ID := FO.FO-LINKED-ID
+    FIND FO WITH FO-USER-FO-ID = #S-USER-FO-ID
+      #MAR-USERID := FO-USER-ID
+      #MAR-FO-ID := FO-ID
+      #MAR-PROCESS-TIME := #F-DATE-C-P
+    END-FIND
+  END-IF
+END-REPEAT
+*
+END-SUBROUTINE /* LIST-ACTIVE-REPORTS-IN-FOLDER-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE LIST-ACTIVE-REPORTS-IN-FOLDER-SUMMARY    /* LS
+************************************************************************
+IF ES-NEXT-KEY-PARM(1) NE ' '
+  #MA-FOLDER-USER-ID := ES-NEXT-KEY-PARM(1)
+  #NEXT-FO-ID := ES-NEXT-KEY-PARM(2)
+  #MA-FOLDER-ID := #NEXT-FO-ID-N
+  #MA-REP := ES-NEXT-KEY-PARM(3)
+  #MA-RNBR := 0
+  #S-USER := #MA-FOLDER-USER-ID
+  #S-FO-ID := #MA-FOLDER-ID
+  FIND FO WITH FO-USER-FO-ID = #S-USER-FO-ID
+  END-FIND
+  IF #NOARSL.#POSTFIX NE 'Y'
+    #NAME-F := #NOARSL.#REPNAME
+    COMPRESS #NAME-F H'FF' TO #NAME-T LEAVING NO
+  ELSE
+    #NAME-F := H'00'
+    #NAME-T := H'FF'
+  END-IF
+ELSE
+  IF ES-EXPAND NE 'E'
+    ES-STARTINDEX := 2
+    #I2 := ES-NUMBER := 1
+    #J := 15
+    PERFORM GET-TEXT
+    RESET NOARLS-HEADER(1)
+    COMPRESS LONG-MSG(#J) TO NOARLS-HEADER(1) LEAVING NO
+    SUBTRACT 1 FROM #J
+    COMPRESS LONG-MSG(#J) C-HEADER-DELIMITER NOARLS-HEADER(1)
+      TO NOARLS-HEADER(1) LEAVING NO
+    COMPRESS LONG-MSG(1) C-HEADER-DELIMITER NOARLS-HEADER(1)
+      TO NOARLS-HEADER(1) LEAVING NO
+  END-IF
+  IF #NOARSL.#POSTFIX NE 'Y'
+    #NAME-F := #NOARSL.#REPNAME
+    COMPRESS #NAME-F H'FF' TO #NAME-T LEAVING NO
+  ELSE
+    #NAME-F := H'00'
+    #NAME-T := H'FF'
+  END-IF
+  #FO-USER := ES-USER
+  #FO-NAME := ES-KEY-PARM(1)
+  IF #FO-NAME = '#Inbasket' OR = '#Listeneingang'
+    #S-USER := #FO-USER
+    #S-FO-ID := 1
+    FIND FO WITH FO-USER-FO-ID = #S-USER-FO-ID
+      #FO-NAME := FO.FO-NAME
+    END-FIND
+  END-IF
+  FIND FO WITH FO-USER-NAME = #FO-USERNAME
+    #MA-FOLDER-USER-ID := FO-USER-ID
+    #MA-FOLDER-ID := FO-ID
+    #MA-REP := #NAME-F
+    #MA-RNBR := 0
+  END-FIND
+END-IF
+#MA-FOLDER-REP-E := #MA-FOLDER-REP
+#MA-FOLDER-ID-E := #MA-FOLDER-ID
+#MA-REP-E := #NAME-T
+#MA-RNB-E := 99999999999
+#FOUSERID := FO.FO-USER-ID
+#FOID := FO.FO-ID
+#FOLINKEDFOID := FO.FO-LINKED-FO-ID
+REPEAT WHILE FO.FO-USER-ID NE ' '
+  #MA-REP-S := ' '
+  HMA. HISTOGRAM HM FOR MA-FOLDER-REP-RNB
+      STARTING FROM #MA-FOLDER-REP
+      ENDING AT     #MA-FOLDER-REP-E
+    ACCEPT IF (#NOARSL.#REPNAME = ' '  OR #NOARSL.#POSTFIX NE 'Y' OR
+      MA-REP = SCAN #NOARSL.#REPNAME) AND MA-REP NE #MA-REP-S
+    RESET #NEXT
+    #MA-REP := MA-REP
+    FO-L.FO-LINKED-FO-ID := FO.FO-LINKED-FO-ID
+    REPFOL3. REPEAT WHILE FO-L.FO-LINKED-USER-ID NE ' '
+      #MA-FOLDER-USER-ID := FO-L.FO-LINKED-USER-ID
+      #MA-FOLDER-ID := FO-L.FO-LINKED-ID
+      FNMAR. FIND NUMBER MA-N WITH MA-FOLDER-REP-RNB = #MA-FOLDER-REP
+        THRU #MA-FOLDER-REP-E
+      IF *NUMBER (FNMAR.) > 0
+        #NEXT := TRUE
+        ESCAPE BOTTOM (REPFOL3.)
+      END-IF
+      #S-USER := FO-L.FO-LINKED-USER-ID
+      #S-FO-ID := FO-L.FO-LINKED-ID
+      FIND FO-L WITH FO-USER-FO-ID = #S-USER-FO-ID
+        IF NO RECORDS FOUND
+          ESCAPE BOTTOM (REPFOL3.)
+        END-NOREC
+      END-FIND
+    END-REPEAT
+    REJECT IF #NEXT
+    #MA-REP-S := MA-REP
+    #MA-FOLDER-USER-ID := #FOUSERID
+    #MA-FOLDER-ID := #FOID
+    CALLNAT 'NOARNUMN' #MA-FOLDER-REP #FOLINKEDFOID #NUMBER
+    ADD 1 TO #I2
+    IF #I2 > #IMAX
+      ES-NEXT-KEY-PARM(1) := MA-FOLDER-USER-ID
+      #NEXT-FO-ID-N := MA-FOLDER-ID
+      ES-NEXT-KEY-PARM(2) := #NEXT-FO-ID
+      ES-NEXT-KEY-PARM(3) := MA-REP
+      ES-NUMBER := #IMAX
+      RESET  ES-EOF
+      ESCAPE ROUTINE
+    ELSE
+      #REPORT-RNB.#REPNAME := MA-REP
+      #REPRNB := 99999999999
+      #REPORT-RNB-E := #REPORT-RNB
+      #REPRNB := 0
+      FIND (1) ACTIVE-REPORTS WITH AR-REPORT-RNB = #REPORT-RNB
+          THRU #REPORT-RNB-E
+        IF NO RECORDS FOUND
+          #I2 := ES-NUMBER
+          ESCAPE BOTTOM
+        END-NOREC
+        PERFORM SELECT-RECORD
+        IF NOT #SELECTED
+          #I2 := ES-NUMBER
+        END-IF
+      END-FIND
+      IF #I2 > ES-NUMBER
+        PERFORM DATA-TO-PDA
+        ES-NUMBER := #I2
+      END-IF
+    END-IF
+  END-HISTOGRAM
+  FO.FO-USER-ID := ' '
+  IF FO.FO-LINKED-FO-ID NE ' '
+    #S-USER := FO.FO-LINKED-USER-ID
+    #S-FO-ID := FO.FO-LINKED-ID
+    FIND FO WITH FO-USER-FO-ID = #S-USER-FO-ID
+      #MA-FOLDER-USER-ID := FO-USER-ID
+      #MA-FOLDER-ID := FO-ID
+      #MA-REP := #NAME-F
+      #MA-RNBR := 0
+      #MA-FOLDER-REP-E := #MA-FOLDER-REP
+      #MA-REP-E := #NAME-T
+      #MA-RNB-E := 99999999999
+    END-FIND
+  END-IF
+END-REPEAT
+*
+END-SUBROUTINE /* LIST-ACTIVE-REPORTS-IN-FOLDER-SUMMARY
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-DAT-KEY
+************************************************************************
+IF #CREAT-DATE-FROM = ' '
+  MOVE EDITED '19010101000000' TO #F-DATE-C-PUR(EM=YYYYMMDDHHIISS)
+  #T-DATE-C-P := #CONST-INV-TIME
+ELSE
+  IF #CREAT-TIME-FROM = ' '
+    COMPRESS #CREAT-DATE-FROM '000000' TO #DATE-14 LEAVING NO
+  ELSE
+    COMPRESS #CREAT-DATE-FROM SUBSTRING(#CREAT-TIME-FROM,1,4) '00'
+      TO #DATE-14 LEAVING NO
+  END-IF
+  MOVE EDITED #DATE-14 TO #T-DATE-C(EM=YYYYMMDDHHIISS)
+  #F-DATE-C-PUR := #T-DATE-C
+  #T-DATE-C-P := #CONST-INV-TIME - #T-DATE-C-P
+END-IF
+IF #CREAT-DATE-TO = ' '
+  MOVE EDITED '20991231235959' TO #T-DATE-C-PUR(EM=YYYYMMDDHHIISS)
+  #F-DATE-C-P := 0
+ELSE
+  IF #CREAT-TIME-TO = ' '
+    COMPRESS #CREAT-DATE-TO '235959' TO #DATE-14 LEAVING NO
+  ELSE
+    COMPRESS #CREAT-DATE-TO SUBSTRING(#CREAT-TIME-TO,1,4) '59'
+      TO #DATE-14 LEAVING NO
+  END-IF
+  MOVE EDITED #DATE-14 TO #F-DATE-C(EM=YYYYMMDDHHIISS)
+  #T-DATE-C-PUR := #F-DATE-C
+  #F-DATE-C-P := #CONST-INV-TIME - #F-DATE-C-P
+END-IF
+*
+END-SUBROUTINE /* INIT-DAT-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE SELECT-RECORD
+************************************************************************
+#SELECTED := TRUE
+IF #LOC NE '*'
+    AND (#LOC NE 'B' AND ACTIVE-REPORTS.AR-CURRENT-LOCATION NE #LOC
+    OR #LOC='B' AND NOT(ACTIVE-REPORTS.AR-CURRENT-LOCATION ='S' OR='D'))
+  #SELECTED := FALSE
+  ESCAPE ROUTINE
+END-IF
+IF ES-USER-TYPE NE 'A' AND ES-FUNCTION = 'LSA'
+  #MA-USER:= ES-USER
+  #MA-REPORT:= ACTIVE-REPORTS.AR-REPNAME
+  #MA-REPRNB:= ACTIVE-REPORTS.AR-REPRNB
+  #MA-RNB := ACTIVE-REPORTS.AR-REPRNB
+  FNDMA. FIND NUMBER MA WITH MA-RNB-USER = #MA-RNB-USER
+    AND  MA-REP-RNB  = #MA-REP-RNB
+  IF *NUMBER(FNDMA.) = 0
+    RESET #SELECTED
+    ESCAPE ROUTINE    /* Useless to do further checks...  CF3
+  END-IF
+END-IF
+IF #NOARSL NE ' '
+  DECIDE FOR EVERY CONDITION
+    WHEN #NOARSL.#SOURCE NE ' ' AND
+        NOT (ACTIVE-REPORTS.AR-SOURCE = #SOURCE-F THRU #SOURCE-T)
+      #SELECTED := FALSE
+      ESCAPE ROUTINE
+*   WHEN #NOARSL.#KEYWORD NE ' '                         HEB2 > --
+*     EXAMINE #NOARSL.#KEYWORD FOR H'00' GIVING LENGTH #L
+*     FOR #K = 1 TO 6
+*       IF SUBSTRING(ACTIVE-REPORTS.AR-KEYWORDS(#K),1,#L)
+*           = #NOARSL.#KEYWORD
+*         ESCAPE BOTTOM
+*       END-IF
+*     END-FOR
+*     IF #K > 6
+*       #SELECTED := FALSE
+*       ESCAPE ROUTINE
+*     END-IF                                             HEB2 < --
+    WHEN #KY-SEL (*) NE ' '                              /* HEB2 > ++
+      IF #KEYWORD-AND-OR NE 'A' /* OR
+        FOR #K = 1 TO 6
+         IF AR-KEYWORDS(#K) NE ' '
+         AND (    SUBSTR(AR-KEYWORDS(#K),1,#L1) = #KY-SEL (1)
+               OR SUBSTR(AR-KEYWORDS(#K),1,#L2) = #KY-SEL (2)
+               OR SUBSTR(AR-KEYWORDS(#K),1,#L3) = #KY-SEL (3)
+               OR SUBSTR(AR-KEYWORDS(#K),1,#L4) = #KY-SEL (4) )
+           ESCAPE BOTTOM
+         END-IF
+        END-FOR
+        IF #K > 6
+          #SELECTED := FALSE
+          ESCAPE ROUTINE
+        END-IF
+      ELSE                      /* AND
+        IF  ( #KY-SEL (1) = ' '
+            OR SUBSTR(AR-KEYWORDS(*),1,#L1) = #KY-SEL (1) )
+        AND ( #KY-SEL (2) = ' '
+            OR SUBSTR(AR-KEYWORDS(*),1,#L2) = #KY-SEL (2) )
+        AND ( #KY-SEL (3) = ' '
+            OR SUBSTR(AR-KEYWORDS(*),1,#L3) = #KY-SEL (3) )
+        AND ( #KY-SEL (4) = ' '
+            OR SUBSTR(AR-KEYWORDS(*),1,#L4) = #KY-SEL (4) )
+           IGNORE
+        ELSE
+          #SELECTED := FALSE
+          ESCAPE ROUTINE
+        END-IF
+      END-IF                                             /* HEB2 <
+    WHEN (ES-FUNCTION = 'LSA' OR = 'LS1' OR = 'LS2') AND
+        NOT (ACTIVE-REPORTS.AR-PROCESS-TIME = #F-DATE-C-PUR
+        THRU #T-DATE-C-PUR)
+      #SELECTED := FALSE
+      ESCAPE ROUTINE
+    WHEN ES-FUNCTION = 'LS2' AND #NOARSL.#POSTFIX NE 'Y'
+      IF #NOARSL.#REPNAME NE ' '
+        EXAMINE #NOARSL.#REPNAME FOR H'00' GIVING LENGTH #L
+        IF SUBSTRING(ACTIVE-REPORTS.AR-REPNAME,1,#L) NE #NOARSL.#REPNAME
+          #SELECTED := FALSE
+          ESCAPE ROUTINE
+        END-IF
+      END-IF
+    WHEN ES-FUNCTION = 'LS2' AND #NOARSL.#POSTFIX = 'Y'
+        AND #NOARSL.#REPNAME NE ' '
+        AND ACTIVE-REPORTS.AR-REPNAME NE SCAN #NOARSL.#REPNAME
+      #SELECTED := FALSE
+      ESCAPE ROUTINE
+    WHEN #NOARSL.#EXPIR-DATE NE ' ' AND
+        ACTIVE-REPORTS.AR-EXPIRATION NE #NOARSL.#EXPIR-DATE
+      #SELECTED := FALSE
+      ESCAPE ROUTINE
+    WHEN #NOARSL.#ARCHIVE NE ' ' AND
+        #NOARSL.#ARCHIVE NE ACTIVE-REPORTS.AR-ARCHIVE
+      #SELECTED := FALSE
+      ESCAPE ROUTINE
+    WHEN #NOARSL.#REVIVE NE ' ' AND
+        #NOARSL.#REVIVE NE ACTIVE-REPORTS.AR-REVIVE
+      #SELECTED := FALSE
+      ESCAPE ROUTINE
+    WHEN #NOARSL.#LOCATION NE ' ' AND
+        #NOARSL.#LOCATION NE ACTIVE-REPORTS.AR-CURRENT-LOCATION
+      #SELECTED := FALSE
+      ESCAPE ROUTINE
+    WHEN NONE IGNORE
+  END-DECIDE
+END-IF
+*
+END-SUBROUTINE /* SELECT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-TO-PDA
+************************************************************************
+RESET #SPOOL-ATTRIBUTES #BIN-REPRNB  #BIN-REPNAME
+IF ACTIVE-REPORTS.AR-CC-TYPE = 0005
+  #SPOOL-ATTRIBUTES := ACTIVE-REPORTS.AR-SPOOL-ATTRIBUTES
+  #BIN-REPNAME      := ACTIVE-REPORTS.AR-REPNAME
+  #BIN-REPRNB       := ACTIVE-REPORTS.AR-REPRNB
+  PERFORM GET-BINARY-SIZE
+END-IF
+IF ES-FUNCTION NE 'LS'
+  PERFORM OPTIONS
+END-IF
+IF ES-EXPAND = 'E'
+  DECIDE ON FIRST VALUE OF ES-FUNCTION
+    VALUE 'LSA','LS1'
+      NOAREX-REPRNB(#I2)    := ACTIVE-REPORTS.AR-REPRNB
+      NOAREX-OPTIONS(#I2,*) := #OPTIONS(*)
+    VALUE 'LS'
+      NOARE1-REPNAME(#I2) := MA-REP
+    VALUE 'LS2'
+      COMPRESS MA-REPNAME C-PARM-DELIMITER MA-REPRNB
+        TO NOARE2-REPNAME-RNB(#I2) LEAVING NO
+      NOARE2-OPTIONS(#I2,*) := #OPTIONS(*)
+    NONE VALUE IGNORE
+  END-DECIDE
+ELSE
+  DECIDE ON FIRST VALUE OF ES-FUNCTION
+    VALUE 'LSA'
+      NOARLA-REPRNB(#I2) := ACTIVE-REPORTS.AR-REPRNB
+      MOVE RIGHT JUSTIFIED NOARLA-REPRNB(#I2) TO NOARLA-REPRNB(#I2)
+      NOARLA-DESC(#I2)   := ACTIVE-REPORTS.AR-DESC
+      IF ACTIVE-REPORTS.AR-SOURCE = ' ' AND
+          ACTIVE-REPORTS.AR-SENDER = ' '
+        RESET NOARLA-OWNER(#I2)
+      ELSE
+        COMPRESS ACTIVE-REPORTS.AR-SOURCE '/'
+          ACTIVE-REPORTS.AR-SENDER TO NOARLA-OWNER(#I2) LEAVING NO
+      END-IF
+      IF ACTIVE-REPORTS.AR-PROCESS-TIME NE #TT
+        MOVE EDITED ACTIVE-REPORTS.AR-PROCESS-TIME (EM=YYYYMMDDHHII)
+          TO NOARLA-TIME (#I2)
+      ELSE
+        RESET NOARLA-TIME (#I2)
+      END-IF
+      IF ACTIVE-REPORTS.AR-CC-TYPE = 0005
+        RESET NOARLA-NUMBER-OF-LINES(#I2)
+        NOARLA-BYTES(#I2) := #BIN-SIZE
+        MOVE RIGHT JUSTIFIED NOARLA-BYTES(#I2) TO NOARLA-BYTES(#I2)
+      ELSE
+        RESET NOARLA-BYTES(#I2)
+        NOARLA-NUMBER-OF-LINES(#I2) :=
+          ACTIVE-REPORTS.AR-NUMBER-OF-LINES
+        MOVE RIGHT JUSTIFIED NOARLA-NUMBER-OF-LINES(#I2) TO
+          NOARLA-NUMBER-OF-LINES(#I2)
+      END-IF
+      NOARLA-ARCHIVE(#I2) := ACTIVE-REPORTS.AR-ARCHIVE
+      NOARLA-REVIVE(#I2)  := ACTIVE-REPORTS.AR-REVIVE
+      NOARLA-CURRENT-LOCATION(#I2) :=
+        ACTIVE-REPORTS.AR-CURRENT-LOCATION
+      IF ACTIVE-REPORTS.AR-EXPIRATION NE ' '
+        NOARLA-EXPIRATION (#I2) := ACTIVE-REPORTS.AR-EXPIRATION
+      ELSE
+        RESET  NOARLA-EXPIRATION (#I2)
+      END-IF
+      IF ACTIVE-REPORTS.AR-REVIVE-EXPIRATION NE ' '
+        NOARLA-REVIVE-EXPIRATION (#I2) :=
+          ACTIVE-REPORTS.AR-REVIVE-EXPIRATION
+      ELSE
+        RESET NOARLA-REVIVE-EXPIRATION (#I2)
+      END-IF
+      #REPORT-RNB.#REPNAME := ACTIVE-REPORTS.AR-REPNAME
+      #REPRNB              := ACTIVE-REPORTS.AR-REPRNB
+      RESET NOARLA-ARCHIVE-EXPIRATION(#I2)
+      FIND DR WITH DR-REPORT-RNB = #REPORT-RNB
+        IF DR-EXPIRATION-DATE NE ' '
+          NOARLA-ARCHIVE-EXPIRATION (#I2) := DR-EXPIRATION-DATE
+        ELSE
+          RESET NOARLA-ARCHIVE-EXPIRATION (#I2)
+        END-IF
+      END-FIND
+      NOARLA-OPTIONS(#I2,*) := #OPTIONS(*)
+      #REPORT-RNB.#REPNAME := ACTIVE-REPORTS.AR-REPNAME
+      #REPRNB              := ACTIVE-REPORTS.AR-REPRNB
+    VALUE 'LS'
+      NOARLS-REPNAME(#I2) := MA-REP
+      NOARLS-DESC(#I2)    := ACTIVE-REPORTS.AR-DESC
+      NOARLS-REP-NUMBER(#I2) := #NUMBER
+      MOVE RIGHT JUSTIFIED NOARLS-REP-NUMBER(#I2) TO
+        NOARLS-REP-NUMBER(#I2)
+    VALUE 'LS1'
+      NOARL1-REPRNB(#I2) := ACTIVE-REPORTS.AR-REPRNB
+      MOVE RIGHT JUSTIFIED NOARL1-REPRNB(#I2) TO NOARL1-REPRNB(#I2)
+      NOARL1-DESC(#I2)   := ACTIVE-REPORTS.AR-DESC
+      IF ACTIVE-REPORTS.AR-SOURCE = ' ' AND
+          ACTIVE-REPORTS.AR-SENDER = ' '
+        RESET NOARL1-OWNER(#I2)
+      ELSE
+        COMPRESS ACTIVE-REPORTS.AR-SOURCE '/'
+          ACTIVE-REPORTS.AR-SENDER TO NOARL1-OWNER(#I2) LEAVING NO
+      END-IF
+      IF ACTIVE-REPORTS.AR-PROCESS-TIME NE #TT
+        MOVE EDITED ACTIVE-REPORTS.AR-PROCESS-TIME (EM=YYYYMMDDHHII) TO
+          NOARL1-TIME (#I2)
+      ELSE
+        RESET NOARL1-TIME (#I2)
+      END-IF
+      #TIME-P13 := MA-PROCESS-TIME
+      IF #TIME NE #TT
+        MOVE EDITED #TIME (EM=YYYYMMDDHHII) TO NOARL1-MAIL(#I2)
+      ELSE
+        RESET NOARL1-MAIL(#I2)
+      END-IF
+      IF ACTIVE-REPORTS.AR-CC-TYPE = 0005
+        RESET NOARL1-NUMBER-OF-LINES(#I2)
+        NOARL1-BYTES(#I2) := #BIN-SIZE
+        MOVE RIGHT JUSTIFIED NOARL1-BYTES(#I2) TO NOARL1-BYTES(#I2)
+      ELSE
+        RESET NOARL1-BYTES(#I2)
+        NOARL1-NUMBER-OF-LINES(#I2) :=
+          ACTIVE-REPORTS.AR-NUMBER-OF-LINES
+        MOVE RIGHT JUSTIFIED NOARL1-NUMBER-OF-LINES(#I2)
+          TO NOARL1-NUMBER-OF-LINES(#I2)
+      END-IF
+      NOARL1-ARCHIVE(#I2) := ACTIVE-REPORTS.AR-ARCHIVE
+      NOARL1-REVIVE(#I2)  := ACTIVE-REPORTS.AR-REVIVE
+      NOARL1-CURRENT-LOCATION(#I2) :=
+        ACTIVE-REPORTS.AR-CURRENT-LOCATION
+      IF ACTIVE-REPORTS.AR-EXPIRATION > ' '
+        NOARL1-EXPIRATION(#I2) := ACTIVE-REPORTS.AR-EXPIRATION
+      ELSE
+        RESET  NOARL1-EXPIRATION(#I2)
+      END-IF
+      IF ACTIVE-REPORTS.AR-REVIVE-EXPIRATION > ' '
+        NOARL1-REVIVE-EXPIRATION(#I2) :=
+          ACTIVE-REPORTS.AR-REVIVE-EXPIRATION
+      ELSE
+        RESET  NOARL1-REVIVE-EXPIRATION(#I2)
+      END-IF
+      #REPORT-RNB.#REPNAME := ACTIVE-REPORTS.AR-REPNAME
+      #REPRNB              := ACTIVE-REPORTS.AR-REPRNB
+      RESET NOARL1-ARCHIVE-EXPIRATION(#I2)
+      FIND DR WITH DR-REPORT-RNB = #REPORT-RNB
+        IF DR-EXPIRATION-DATE > ' '
+          NOARL1-ARCHIVE-EXPIRATION(#I2) := DR-EXPIRATION-DATE
+        ELSE
+          RESET NOARL1-ARCHIVE-EXPIRATION(#I2)
+        END-IF
+      END-FIND
+      NOARL1-OPTIONS(#I2,*) := #OPTIONS(*)
+      NOARL1-MESSAGE(#I2)   := MA-STATUS
+    VALUE 'LS2'
+      NOARL2-REPNAME(#I2) := ACTIVE-REPORTS.AR-REPNAME
+      NOARL2-REPRNB(#I2)  := ACTIVE-REPORTS.AR-REPRNB
+      MOVE RIGHT JUSTIFIED NOARL2-REPRNB(#I2) TO NOARL2-REPRNB(#I2)
+      NOARL2-DESC(#I2)    := ACTIVE-REPORTS.AR-DESC
+      IF ACTIVE-REPORTS.AR-SOURCE = ' ' AND
+          ACTIVE-REPORTS.AR-SENDER = ' '
+        RESET NOARL2-OWNER(#I2)
+      ELSE
+        COMPRESS ACTIVE-REPORTS.AR-SOURCE '/'
+          ACTIVE-REPORTS.AR-SENDER TO NOARL2-OWNER(#I2) LEAVING NO
+      END-IF
+      IF ACTIVE-REPORTS.AR-PROCESS-TIME NE #TT
+        MOVE EDITED ACTIVE-REPORTS.AR-PROCESS-TIME (EM=YYYYMMDDHHII)
+          TO NOARL2-TIME (#I2)
+      ELSE
+        RESET NOARL2-TIME (#I2)
+      END-IF
+      #TIME-P13 := MA-PROCESS-TIME
+      IF #TIME NE #TT
+        MOVE EDITED #TIME (EM=YYYYMMDDHHII) TO NOARL2-MAIL (#I2)
+      ELSE
+        RESET NOARL2-MAIL (#I2)
+      END-IF
+      IF ACTIVE-REPORTS.AR-CC-TYPE = 0005
+        RESET NOARL2-NUMBER-OF-LINES(#I2)
+        NOARL2-BYTES(#I2) := #BIN-SIZE
+        MOVE RIGHT JUSTIFIED NOARL2-BYTES(#I2) TO NOARL2-BYTES(#I2)
+      ELSE
+        RESET NOARL2-BYTES(#I2)
+        NOARL2-NUMBER-OF-LINES(#I2) :=
+          ACTIVE-REPORTS.AR-NUMBER-OF-LINES
+        MOVE RIGHT JUSTIFIED NOARL2-NUMBER-OF-LINES(#I2) TO
+          NOARL2-NUMBER-OF-LINES(#I2)
+      END-IF
+      NOARL2-ARCHIVE(#I2) := ACTIVE-REPORTS.AR-ARCHIVE
+      NOARL2-REVIVE(#I2)  := ACTIVE-REPORTS.AR-REVIVE
+      NOARL2-CURRENT-LOCATION(#I2) := ACTIVE-REPORTS.AR-CURRENT-LOCATION
+      IF ACTIVE-REPORTS.AR-EXPIRATION NE ' '
+        NOARL2-EXPIRATION (#I2) := ACTIVE-REPORTS.AR-EXPIRATION
+      ELSE
+        RESET  NOARL2-EXPIRATION (#I2)
+      END-IF
+      IF ACTIVE-REPORTS.AR-REVIVE-EXPIRATION NE ' '
+        NOARL2-REVIVE-EXPIRATION (#I2) :=
+          ACTIVE-REPORTS.AR-REVIVE-EXPIRATION
+      ELSE
+        RESET NOARL2-REVIVE-EXPIRATION (#I2)
+      END-IF
+      #REPORT-RNB.#REPNAME := ACTIVE-REPORTS.AR-REPNAME
+      #REPRNB              := ACTIVE-REPORTS.AR-REPRNB
+      RESET NOARL2-ARCHIVE-EXPIRATION(#I2)
+      FIND DR WITH DR-REPORT-RNB = #REPORT-RNB
+        IF DR-EXPIRATION-DATE NE ' '
+          NOARL2-ARCHIVE-EXPIRATION (#I2) := DR-EXPIRATION-DATE
+        ELSE
+          RESET NOARL2-ARCHIVE-EXPIRATION (#I2)
+        END-IF
+      END-FIND
+      NOARL2-OPTIONS(#I2,*) := #OPTIONS(*)
+      NOARL2-MESSAGE(#I2)   := MA-STATUS
+    NONE VALUE IGNORE
+  END-DECIDE
+END-IF
+*
+END-SUBROUTINE /* DATA-TO-PDA
+*
+************************************************************************
+DEFINE SUBROUTINE GET-BINARY-SIZE
+************************************************************************
+RESET #BIN-SIZE #RECNUM #ERC #ERT
+IF NOT (#SPOOL-DI-SIZE = #I4 OR = 0)
+  #BIN-SIZE := (#SPOOL-DI-SIZE / 1024) * 3 / 4 + 1
+ELSE
+  CALLNAT 'RBINSZ-N' #BIN-REPNAME #BIN-REPRNB 'R' #RECNUM #BIN-SIZE
+    #ERC #ERT
+  IF #ERC = 0 AND #BIN-SIZE NE 0
+    #BIN-SIZE := #BIN-SIZE / 1024 + 1
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* GET-BINARY-SIZE
+*
+************************************************************************
+DEFINE SUBROUTINE OPTIONS                        /* - reworked - CF3 ->
+************************************************************************
+RESET #OPTIONS(*) #NEW-OPTIONS(*) #I
+      #NATRP-ERC #NATRP-ERT                             /* HEB1
+/*
+/* Set functional restrictions for logical and physical reasons
+CALLNAT 'NOSRCK1N' ACTIVE-REPORTS.AR-CURRENT-LOCATION
+  ACTIVE-REPORTS.AR-SOURCE-ID ACTIVE-REPORTS.AR-REVIVE
+  ACTIVE-REPORTS.AR-REVIVE-EXPIRATION ACTIVE-REPORTS.AR-ARCHIVE
+  ACTIVE-REPORTS.AR-EXPIRATION #SOURCE-EXIST
+  #NATRP-ERC #NATRP-ERT ES-USER (AD=O)                  /* HEB1
+  ES-APP-SERVER-LIBRARY (AD=O)                          /* HEB1
+IF #NATRP-ERC NE 0                                      /* HEB1 >
+  ES-RC := 1
+  ES-MSG-NR := #NATRP-ERC
+  ES-MSG-TXT := #NATRP-ERT
+  ESCAPE MODULE
+END-IF                                                  /* HEB1 <
+IF NOT #SOURCE-EXIST
+  #OPTIONS(1) := 'BB'
+  #OPTIONS(2) := 'PR'        /* Print active report
+  #OPTIONS(3) := 'AR'
+  #OPTIONS(4) := 'DI'
+  #OPTIONS(5) := 'BU'        /* Put in Bundle
+  #I := 5
+ELSE
+  IF ACTIVE-REPORTS.AR-CC-TYPE = 0005 AND #BIN-SIZE = 0
+    ADD 1 TO #I
+    #OPTIONS(#I) := 'BB'     /* Browse
+  END-IF
+  IF NOT (ACTIVE-REPORTS.AR-ARCHIVE = ' ' OR = 'A')
+    ADD 1 TO #I
+    #OPTIONS(#I) := 'AR'     /* Archive
+  END-IF
+END-IF
+/*
+IF NOT #IS-ORIGINAL-FOLDER   /* Is a link...     /* CF2 +
+  ADD 1 TO #I
+  #OPTIONS(#I) := 'FI'       /* File active report
+END-IF                                           /* CF2 -
+** IF NOT (ACTIVE-REPORTS.AR-ARCHIVE = '*' OR = 'P' OR = 'R') OR
+IF NOT (ACTIVE-REPORTS.AR-ARCHIVE = '*') OR   /* BLI NOMALL-1829
+    ACTIVE-REPORTS.AR-REVIVE = '*'
+  ADD 1 TO #I
+  #OPTIONS(#I) := 'RV'       /* Revive
+END-IF
+#BC-REPORT := ACTIVE-REPORTS.AR-REPNAME
+#BC-REPRNB := ACTIVE-REPORTS.AR-REPRNB
+FNBC1. FIND NUMBER BC WITH BC-REPORT-RNB = #BC-REPORT-RNB
+IF *NUMBER(FNBC1.) = 0
+  ADD 1 TO #I
+  #OPTIONS(#I) := 'LX'       /* XREFs
+END-IF
+/*
+/* Set functional restrictions for user profile or granting reasons
+IF ES-USER-TYPE NE 'A'
+  DECIDE FOR EVERY CONDITION
+    WHEN PROF-ARCHIVE NE 'Y' AND PROF-ARCHIVE NE 'M'
+      #NEW-OPTIONS(1) := 'AR'
+    WHEN PROF-REVIVE NE 'Y' AND PROF-REVIVE NE 'M'
+      #NEW-OPTIONS(2) := 'RV'
+    WHEN (ES-FUNCTION = 'LS1' OR = 'LS2')
+      PERFORM SET-FOLDER-GRANTS
+    WHEN ANY
+      CALLNAT 'NOOPT--N'  #NEW-OPTIONS(*) #OPTIONS(*)
+    WHEN NONE IGNORE
+  END-DECIDE
+END-IF
+/*
+END-SUBROUTINE /* OPTIONS                                     /* CF3 <-
+*
+************************************************************************
+DEFINE SUBROUTINE GET-FOLDER-GRANTS              /* - reworked - CF3 ->
+************************************************************************
+/*
+RESET #GR-USERID #GRANTS(*) #GR-NAME
+IF ES-USER-TYPE = 'A'
+  #GRANTS(*) := 'Y'
+ELSE
+  /* Last check to get a real folder (not a link) for grantings
+  IF ##FO-LINKED-FO-ID = ' '
+    #FO-ID-N := ##FO-ID
+    COMPRESS ##FO-USER-ID #FO-ID-A TO #GR-NAME LEAVING NO
+  ELSE
+    #FO-ID-N := ##FO-LINKED-ID
+    COMPRESS ##FO-LINKED-USER-ID #FO-ID-A TO #GR-NAME LEAVING NO
+  END-IF
+  CALLNAT 'NOGROU-N' 'F' #GR-NAME ES-USER #GR-USERID #GRANTS(*)
+END-IF
+/*
+END-SUBROUTINE /* GET-FOLDER-GRANTS                           /* CF3 <-
+/*
+************************************************************************
+DEFINE SUBROUTINE SET-FOLDER-GRANTS              /* - reworked - CF3 ->
+************************************************************************
+/*
+IF #GRANTS(1) = 'Y'   /* Authorized as folder owner
+  ESCAPE ROUTINE
+END-IF
+/* In the following, an empty GRANTS list is treated like       /* CF2
+/* granted for owner rights.
+/* May be for compatibility reasons for objects existing before
+/* the authorization system was implemented ?                   /* CF2
+IF NOT(#GRANTS(*) NE ' ')
+  ESCAPE ROUTINE
+END-IF
+/*
+IF NOT #OWNER-REPORT           /* (Report owner always has full rights)
+  DECIDE FOR EVERY CONDITION
+    WHEN #GRANTS(4) NE 'Y'
+      #NEW-OPTIONS(3) := 'BB'  /* Browse
+      /*
+    WHEN #GRANTS(2) NE 'Y'
+      #NEW-OPTIONS(4) := 'OP'  /* Modify/Open
+      /*
+    WHEN #GRANTS(2) NE 'Y'
+      #NEW-OPTIONS(5) := 'FI'  /* File report
+      /*
+    WHEN #GRANTS(2) NE 'Y'
+      #NEW-OPTIONS(6) := 'BU'  /* Put report in bundle
+      /*
+    WHEN #GRANTS(3) NE 'Y'
+      #NEW-OPTIONS(7) := 'DL'  /* Delete
+      /*
+    WHEN #GRANTS(2) NE 'Y'
+      #NEW-OPTIONS(8) := 'DI'  /* Distribute
+      /*
+    WHEN #GRANTS(5) NE 'Y'
+      #NEW-OPTIONS(1) := 'AR'  /* Archive
+      /*
+    WHEN #GRANTS(6) NE 'Y'
+      #NEW-OPTIONS(2) := 'RV'  /* Revive
+      /*
+    WHEN NONE IGNORE
+  END-DECIDE
+END-IF
+/*
+END-SUBROUTINE /* SET-FOLDER-GRANTS                           /* CF3 <-
+/*
+************************************************************************
+DEFINE SUBROUTINE GET-TEXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*) #HEADER
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+*
+END-SUBROUTINE /* GET-TEXT
+/*
+************************************************************************
+DEFINE SUBROUTINE GET-BASE-FOLDER                     /* - new - CF3 ->
+************************************************************************
+/*
+/*   Identify the folder where the Active Reports are
+/*   really contained. In case of a folder-link the base folder
+/*   has to be retrieved.
+/*
+/*   To be compatible with an old structure, where folder-links
+/*   could be set on folder-links, a loop to get the base folder
+/*   is furthermore used.
+/*   At least with NOM351 no longer folder-links on folder-links
+/*   are possible.
+/*
+/*   To be used in list types LS1 and LS2/LS3
+/*
+/*   #FO-USER            :  Input   (e.g. ES-USER)
+/*   #FO-NAME            :  Input   (e.g. ES-KEY-PARM(1) )
+/*
+/*   ##FO-ID             :  Output
+/*   ##FO-USER-ID        :  Output
+/*   ##FO-LINKED-FO-ID   :  Output
+/*   #IS-ORIGINAL-FOLDER :  Output
+/*
+/* ---------------------------------------------------------------------
+/*
+IF #FO-NAME = '#Inbasket' OR = '#Listeneingang'
+  ##FO-LINKED-USER-ID := #FO-USER
+  ##FO-LINKED-ID      := 1
+  FIND FO WITH FO-USER-FO-ID = ##FO-LINKED-FO-ID
+    #FO-NAME := FO.FO-NAME
+  END-FIND
+END-IF
+/*
+RESET #FO-ID-N ##FO-ID ##FO-USER-ID ##FO-LINKED-FO-ID
+/*
+FIND FO WITH FO-USER-NAME = #FO-USERNAME
+  ##FO-ID           := FO.FO-ID
+  ##FO-USER-ID      := FO.FO-USER-ID
+  ##FO-LINKED-FO-ID := FO.FO-LINKED-FO-ID
+  /*
+  IF FO.FO-LINKED-USER-ID = ' '
+    #IS-ORIGINAL-FOLDER := TRUE
+  END-IF
+  /*
+  RPT. REPEAT WHILE ##FO-LINKED-FO-ID NE ' '
+    FIND FO-L WITH FO-USER-FO-ID = ##FO-LINKED-FO-ID
+      IF NO RECORDS FOUND
+        ESCAPE BOTTOM (RPT.)
+      END-NOREC
+      ##FO-ID           := FO-L.FO-ID
+      ##FO-USER-ID      := FO-L.FO-USER-ID
+      ##FO-LINKED-FO-ID := FO-L.FO-LINKED-FO-ID
+    END-FIND
+  END-REPEAT
+  /*
+END-FIND
+/*
+END-SUBROUTINE /* GET-BASE-FOLDER                             /* CF3 <-
+/*
+** ---------------------------------------------------------------------
+ON ERROR
+  ES-RC := 1
+ COMPRESS *PROGRAM 'Error' *ERROR-NR 'in line' *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+**-------------------------------------------------------------------
+END

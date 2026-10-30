@@ -1,0 +1,100 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMEXMSKN
+* Version   1.3
+* Function  build ident string for Standard separation routines
+*
+* Maintenance
+* uuu yy-mm-dd s(999999)  ...
+* mrs 93-08-17            created
+* gw  96-11-20 s(257884)  accept Natural mask in form: MASK(...)
+* ---------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 P-IN-STRING           (A50)
+1 P-OUT-STRING          (A78)
+1 REDEFINE P-OUT-STRING
+  2 P-OUT               (A1/1:78)
+************************************************************************
+LOCAL
+1 IN-TEXT               (L)
+1 #K                    (P2)
+1 #J                    (P2)
+1 #L                    (P2)
+1 #MASK-LENGTH          (P2) CONST <78>
+1 #P-IN-STRING          (A51)
+1 REDEFINE #P-IN-STRING
+  2 #P-IN               (A1/1:51)
+1 #VALIDATE             (L)
+1 #T                    (A80)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+MOVE LEFT JUSTIFIED P-IN-STRING TO #T
+EXAMINE SUBSTR (#T, 1, 4) TRANSLATE INTO UPPER
+EXAMINE #T FOR ' ' DELETE
+IF #T = MASK ('MASK(')
+  MOVE LEFT JUSTIFIED P-IN-STRING TO #T
+  IF P-OUT-STRING = 'VALIDATE'
+    #VALIDATE := TRUE
+  END-IF
+  P-OUT-STRING := SUBSTR (#T,5,46)
+  MOVE LEFT JUSTIFIED P-OUT-STRING TO P-OUT-STRING
+  SEPARATE P-OUT-STRING
+    INTO P-OUT-STRING P-OUT-STRING IGNORE WITH DELIMITER '()'
+  IF #VALIDATE
+    IF #T = MASK P-OUT-STRING     /* provoke NAT0258 if invalid mask
+      IGNORE
+    END-IF
+  END-IF
+  ESCAPE ROUTINE
+END-IF
+RESET P-OUT-STRING
+#P-IN-STRING := P-IN-STRING
+EXAMINE #P-IN-STRING FOR 'X' GIVING LENGTH #L
+*
+FOR #J = 1 TO 50
+  ADD 1 TO #K
+  IF #K > #MASK-LENGTH OR #J > #L
+    ESCAPE BOTTOM
+  END-IF
+  DECIDE FOR EVERY CONDITION
+    WHEN IN-TEXT AND #P-IN (#J) = '%' OR = '*'
+      P-OUT (#K) := ''''
+      ADD 1 TO #K
+      IF #P-IN (#J) = '%'
+        P-OUT (#K) := '.'
+      ELSE
+        P-OUT (#K) := #P-IN (#J)
+      END-IF
+      IN-TEXT := FALSE
+    WHEN NOT IN-TEXT AND NOT (#P-IN (#J) = '%' OR = '*')
+      P-OUT (#K) := ''''
+      ADD 1 TO #K
+      P-OUT (#K) := #P-IN (#J)
+      IN-TEXT := TRUE
+    WHEN IN-TEXT AND #J = #L
+      P-OUT (#K) := #P-IN (#J)
+      ADD 1 TO #K
+      P-OUT (#K) := ''''
+    WHEN NONE
+      P-OUT (#K) := #P-IN (#J)
+  END-DECIDE
+END-FOR
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF *ERROR-NR = 258
+    P-OUT-STRING := H'FF'
+    ESCAPE ROUTINE
+  END-IF
+END-ERROR
+*
+END

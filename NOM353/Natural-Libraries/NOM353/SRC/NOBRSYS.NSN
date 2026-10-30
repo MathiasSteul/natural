@@ -1,0 +1,1110 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 5
+* <Natural Source Header
+* NOBRSYS - NOM GUI browse an Active Report with Location 'Source'
+* Description see below
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* sju     03-03-17 sju       created from REXBRSYS
+* sju     2003-10-10 p(245720) NAT1305 scanning sources with more than
+*                              9,999,999 lines (eg seq. files)
+* HH      04-08-10 FOR UNIX-ENVIRONMENTS: CHANGE H'40' INTO ' '
+* fhi     05-04-19   NOM31107  Support 7-byte job numbers
+* xsetggr 2005-11-28 p(271774) support more than 40 Power segments
+* xsetggr 2007-05-14 NOM3201   convert node numbers to 5 digit format
+* xsetggr 2007-07-04 NOM3201   Support P11 format run numbers
+* xsetggr 2009-05-11 P313558 do not truncate lines of length 251 if
+*                            no control char
+* fhi     2009-05-19 N3463   Restowed due to extended metadata for OPO
+* fhi     2009-07-28 P319282 Binary files on Linux corrupted
+* fhi     2009-09-15 P320367 Use compression routine NOMCOMPR,rewritten
+* XSETHZ  2009-10-08 P320858 Linux: parts missing in browse
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2012-02-10 NOMALL-1104 correct finding of string
+* xsetggr 2012-02-21 NOMALL-1061 add timeout handling
+* SPLILDAV 2012-06-27 NOMALL-1078 SUPPORT COMPRESSION 16K BYTE RECORDS
+* raya     2012-09-24 NOMALL-1143 work with lob fields
+* SU1     2014-01-27 NOMALL-1341 remove LA-fields
+* SU2     2014-09-08 NOMALL-1447 binary report with NOMDB N corrupted:
+*                                no changes - only restructured
+* SU3     2015-02-27 NOMALL-1569 restructured
+* SU4     2015-11-23 NOMALL-1784 avoid NAT1301 (P10->B4/I4 - big ISNs)
+* SU5     2016-07-28 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* SU6    2019-05-17 NOMALL-2244 better msg for ESY errors
+* SU7     2021-05-31 NOMALL-2454 recat for EXIT-CB
+* SU8     2024-02-19 NOMALL-2489 recat for EXIT-CB
+* SU9     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+*  This routine is used for browsing an NRM report located on the jes
+*  spool .
+*  It gets 3 parameters
+*            1. exit control block
+*            2. work area - the content is saved and returned each call
+*            3. data area
+* xsetggr 2012-02-21 NOMALL-1061 add parameters
+*            4. timeout value
+*            5. work area for call server repeatedly after timeout break
+*
+*  It has the following functions:
+*    O - OPEN
+*        INPUT:     EX-FILE   - file id
+*        RETURN:    EX-RCODE  - error code
+*                   EX-UDATA  - error text
+*                   EX-RLEN   - record length
+*    C - CLOSE
+*        INPUT:     EX-FILE   - file id
+*
+*        RETURN:    EX-RCODE  - error code
+*                   EX-UDATA  - error text
+*    G - GET LINES
+*        INPUT:     EX-FILE   - file id
+*                   EX-RTOP   - # of top record
+*                   EX-BNUM   - # of wanted records
+*                   EX-RLEN   - record length
+*                   EX-RMAX   - scan limit (for EX-STYPE ne ' ')
+*                   EX-STYPE  - scan type  A - absolute  N - normal
+*                   EX-SLEN   - length of string (for scan type A)
+*                   EX-SCOL   - column start
+*                   EX-SFROM  - start column (for scan type A)
+*                   EX-STO    - end column  (for scan type A)
+*                   EX-UDATA  - string to scan
+*        RETURN:    EX-RCODE  - error code
+*                   EX-UDATA  - error text
+*                   EX-BNUM   - # of records gotted
+*                   EX-RNUM   - total # of records in the file
+*                   EX-RMAX   - total # of records so far (if # of
+*                               records is going to be changed)
+*                   EX-STYPE  - S - string found, L - limit reached
+********************************************************************
+*
+DEFINE DATA PARAMETER
+1 P1               (A250)
+1 P2               (B64)
+1 P-LINES          (A251/1:V)
+1 P-CLIENT-TIMEOUT (N4)      OPTIONAL
+1 P-WORK           (A253)    OPTIONAL
+************************************************************************
+LOCAL USING RMSR---E
+LOCAL USING RMSR---L
+LOCAL USING RCCTYP-E
+LOCAL USING EXIT-CB
+LOCAL USING VRPCT-L
+LOCAL USING RLOG-L
+LOCAL USING ESMWORKA
+LOCAL
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-CC-TYPE
+  2 SR-TYPE
+/*SU9 ->  2 SR-SPOOL-ATTR-EXTENDED   (1:2)
+/*  2 REDEFINE SR-SPOOL-ATTR-EXTENDED
+/*    3 #EXTRA-SEGMENTS        (N3)
+/*SU9 <-    3 #EXTRA-LAST-LINES      (B4/41:127)
+1 READ-FILE VIEW OF READ-FILE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD
+  2 RECORD-NUMBER
+  2 SEGMENT-LENGTH
+  2 SEGMENT-NUMBER
+1 READ-SPOOL VIEW OF READ-SPOOL
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD
+  2 RECORD-NUMBER
+1 SOURCE-TEXT VIEW OF NRM-SOURCE-TEXT
+  2 ST-ID
+  2 ST-LINE-START
+  2 ST-LINE-END
+  2 ST-TEXT                  (1:66)
+  2 REDEFINE ST-TEXT
+    3 #ST-TEXT-BUFFER-LENGTH (B2)
+  2 REDEFINE ST-TEXT
+    3 #ST-TEXT-BUFFER-LOB    (A16381)
+*
+1 #P2                        (A64)
+1 REDEFINE #P2
+  2 SAV-TOP                  (B4)
+  2 NPR-VER                  (A8)
+  2 FIRST-CALL               (A1)
+1 READ-BUFFER                (L)
+1 LINE-FOUND                 (L)
+1 #ST-ID-LINE                (B10)
+1 REDEFINE #ST-ID-LINE
+  2 #ST-ID                   (P10)
+  2 #ST-LINE                 (B4)
+1 #ST-START-LINE             (P10)
+1 #ST-RECORD-NUMBER          (P10)
+*
+1 I                          (I4)
+1 K                          (P8)
+1 L                          (P8)
+1 R-LEN                      (B4)
+1 R-DISP                     (B4)
+1 #EX-RTOP                   (P9)
+1 #EX-SCOL                   (I2)
+1 W                          (P3)
+1 #SEQNO                     (P9)
+1 #AC-RRS                    (A35)
+1 REDEFINE #AC-RRS
+  2 #AC-REPNAME              (A25)
+  2 #AC-REPRNB               (P11)
+  2 #AC-SEQNO                (B4)
+1 #NUMREC                    (P9)
+1 #REST                      (P9)
+1 #F                         (P9)
+1 #T                         (P9)
+1 #K                         (P9)
+1 #N                         (P9)
+1 #W                         (P9)
+1 #FR                        (P9/99)
+1 #TR                        (P9/99)
+* 1 #HEADNO                  (N3)
+1 #HEADNO                    (I4)
+1 O-RECORD                   (A251)
+1 REDEFINE O-RECORD
+  2 O-RECORD-V               (A1/251)
+1 REDEFINE O-RECORD
+  2 O-RECORD1                (A50/5)
+1 I-RECORD                   (A251)
+1 REDEFINE I-RECORD
+  2 I-RECORD-V               (A1/251)
+1 #OPOS                      (P3) INIT <2>
+1 #LEN1                      (P3)
+1 #LEN                       (P3)
+1 #FROM-COL                  (P3)
+1 #TO-COL                    (P3)
+1 SW-NP                      (L)
+1 #SEARCH-STRING             (A66)
+1 #STRING-FOUND              (L)
+1 #RECORD-NUMBER             (P8)
+1 #EX-RMAX-R                 (P8)
+1 #EX-BNUM                   (P8)
+1 #NUM                       (P3)
+1 #BASE-LINE                 (P8)
+1 #AC-FROM-LINE              (P8)
+1 #SCAN                      (A3)
+1 #SCAN-TYPE                 (A1)
+1 #SCAN-LIMIT-REACHED        (L) INIT <FALSE>
+*
+1 #NSMCOMP-CB                (B40)
+1 REDEFINE #NSMCOMP-CB
+  2 #NSMCOMP-COMMAND         (A1)
+  2 #NSMCOMP-CODE            (B1)
+  2 #NSMCOMP-INLENGTH-OLD    (B1)
+  2 #NSMCOMP-OUTLENGTH-OLD   (B1)
+  2 #NSMCOMP-INLENGTH        (B2)
+  2 #NSMCOMP-OUTLENGTH       (B2)
+1 #NSMCOMP-RC                (B2)
+1 #NSMCOMP-WORK              (B4)
+1 #NSMCOMP-LINE              (A251)
+1 #NSMCOMP-BUFFER-LENGTH     (B4)
+1 #SCAN-LIMIT                (P10)
+1 #LINE-NUMBER               (I2)
+1 #LINES-IN-TABLE            (I2)
+1 #EX-RTOP-B4                (B4)
+1 #READ-NEXT-AC-BLOCK        (L)
+1 #COUNTER                   (I4)
+1 #MAX-ISN-AC                (I4)  INIT <8>
+1 #N-ISN-AC                  (I4)
+1 #I-ISN-AC                  (I4)
+1 #I-AC                      (I4)
+1 #AC-SEQNO-A                (B4/10)
+1 #ISN-AC-A                  (P10/10) /*SU4 was I4
+1 #TIMEOUT                   (T)
+1 #TIMEOUT-OCCURS            (L)
+1 #TIMEOUT-CONTROL           (L)
+1 #REPEAT-CALL               (L)
+1 #MIN-TOUT                  (N4) INIT <8>
+1 #EX-UDATA                  (A64)
+1 REDEFINE #EX-UDATA
+  2 #EX-UDATA1               (A50)
+  2 #EX-UDATA2               (A14)
+1 #SEQNO-N                   (N10)
+1 #REPEAT-COUNT              (I4)
+1 #BREAK-SEQNO               (N10)
+1 REDEFINE #BREAK-SEQNO
+  2 #BREAK-SEQNO-A           (A10)
+1 #EX-RTOP-N                 (N10)
+1 #BREAK-LINE-NUMBER         (N10)
+1 REDEFINE #BREAK-LINE-NUMBER
+  2 #BREAK-LINE-NUMBER-A     (A10)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+EXIT-CB := P1
+#LINES-IN-TABLE:= EX-BNUM
+#P2 := P2
+*
+#EX-RTOP := EX-RTOP
+#EX-RTOP-B4 := EX-RTOP
+#NUMREC := #EX-BNUM := EX-BNUM
+*
+IF P-WORK SPECIFIED
+  ES-WORK := P-WORK
+END-IF
+*
+IF P-CLIENT-TIMEOUT SPECIFIED AND EX-REQ = 'S'
+AND P-CLIENT-TIMEOUT >= #MIN-TOUT                                     /*
+  #TIMEOUT-CONTROL := TRUE
+  #TIMEOUT := *TIMX + (P-CLIENT-TIMEOUT - #MIN-TOUT) * 10
+END-IF
+*
+R-LEN := EX-RLEN
+IF EX-RLEN > 251
+  R-LEN := 251
+  LG-USERID := *PROGRAM
+  LG-CODE := 'MO'
+  COMPRESS '7205' '(SOME)' EX-FILE TO LG-MSG /*line :1:truncated:2:
+  CALLNAT 'RLOG' PL-PARMS
+  END TRANSACTION
+END-IF
+R-DISP := 0
+#EX-SCOL := EX-SCOL
+*
+IF #EX-SCOL = 0
+  #EX-SCOL := 1
+END-IF
+*
+IF EX-REQ = 'G' OR = 'S'
+  GET SOURCE EX-NRM-SOURCE-ISN
+END-IF
+*
+DECIDE ON EVERY VALUE OF  EX-REQ
+  VALUE  'O'                                      /* open
+    EX-RNUM := EX-RMAX := EX-NRM-MAXREC
+    EX-RLEN := EX-NRM-LRECL
+    SAV-TOP := 0
+*
+  VALUE 'C'                                       /* close
+    EX-RNUM := EX-RMAX := 0
+*
+  VALUE 'S'                                       /* scan for a string
+    IF #TIMEOUT-CONTROL AND ES-NEXT-KEY-PARM(1) > ' '
+      #REPEAT-CALL   := TRUE
+      #EX-RTOP-N     := VAL(ES-NEXT-KEY-PARM(1))
+      #EX-RTOP       := #EX-RTOP-N + 1
+      #EX-UDATA1     := ES-NEXT-KEY-PARM(3)
+      IF ES-NEXT-KEY-PARM(4) > ' '
+        #EX-UDATA2 := ES-NEXT-KEY-PARM(4)
+      END-IF
+      EX-UDATA := #EX-UDATA
+    END-IF
+    #RECORD-NUMBER := #EX-RTOP - 1
+*
+    EX-RNUM := EX-RMAX := EX-NRM-MAXREC
+    #EX-RMAX-R := EX-RMAX
+    EXAMINE  EX-UDATA FOR H'00' REPLACE ' '
+    #NUMREC := #EX-BNUM := 99999999
+*
+    IF NOT(EX-STYPE = 'A' OR = 'N')
+      EX-REQ := 'G'
+      #NUMREC := #EX-BNUM := 1
+      RESET EX-STYPE
+    END-IF
+*
+  VALUE 'G','S'                                   /* get
+    EX-RNUM := EX-NRM-MAXREC
+    IF EX-REQ = 'G'
+      RESET EX-RMAX
+    END-IF
+    I := 0
+    #REST := #NUMREC
+    #NUMREC := #EX-RTOP + #NUMREC - 1
+*
+    IF EX-NRM-LOCATION = 'S'
+      #AC-REPNAME := EX-NRM-REPNAME
+      #AC-REPRNB := EX-NRM-REPRNB
+      #EX-RTOP-B4 := EX-RTOP
+      #READ-NEXT-AC-BLOCK := TRUE
+      RESET #COUNTER
+      READ-LOOP. REPEAT WHILE #READ-NEXT-AC-BLOCK
+        ADD 1 TO #REPEAT-COUNT
+        PERFORM READ-REPORT-CONTENTS
+        IF #N-ISN-AC = 0
+          ESCAPE BOTTOM (READ-LOOP.)
+        END-IF
+        FOR #I-AC = 1 TO #N-ISN-AC
+          GET REPORT-CONTENTS #ISN-AC-A(#I-AC)
+          ADD 1 TO #COUNTER
+*
+          RESET #K
+          #SEQNO := REPORT-CONTENTS.AC-SEQNO
+*
+          IF #COUNTER = 1
+            #F := AC-SEQNO
+            ADD 1 TO #F
+            IF C*AC-INSERTED-LINE > 0
+              #F := #F - C*AC-INSERTED-LINE
+            ELSE
+              FOR W C*AC-CONTENTS-N9  TO 1 STEP -1
+                #T := #F - 1
+                #F := #F - (AC-TO-LINE-N9(W) - AC-FROM-LINE-N9(W) + 1)
+              END-FOR
+            END-IF
+          END-IF
+          #BASE-LINE := #F
+*
+          IF C*AC-INSERTED-LINE > 0
+            #BASE-LINE := #SEQNO - C*AC-INSERTED-LINE
+            #T := #F + C*AC-INSERTED-LINE - 1
+            IF #EX-RTOP = #F THRU #T
+              ADD 1 TO #K
+              #FR(#K) := #EX-RTOP - #F + 1
+*
+              IF #NUMREC > #T
+                #TR(#K) := C*AC-INSERTED-LINE
+                PERFORM GET-INSERTED-LINES
+                IF EX-REQ = 'S'
+                  IF  #STRING-FOUND OR #SCAN-LIMIT-REACHED
+                    ESCAPE BOTTOM (READ-LOOP.)
+                  END-IF
+                  IF #TIMEOUT-CONTROL AND #TIMEOUT-OCCURS
+                    ESCAPE BOTTOM(READ-LOOP.)
+                  END-IF
+                END-IF
+                #REST := #REST - (C*AC-INSERTED-LINE - #FR(#K) + 1)
+              ELSE                  /* #NUMREC LE #T
+                #BASE-LINE := #SEQNO - C*AC-INSERTED-LINE
+                PERFORM GET-INSERTED-LINES
+                IF  EX-REQ = 'S'
+                  IF #STRING-FOUND OR #SCAN-LIMIT-REACHED
+                    ESCAPE BOTTOM (READ-LOOP.)
+                  END-IF
+                  IF #TIMEOUT-CONTROL AND #TIMEOUT-OCCURS
+                    ESCAPE BOTTOM(READ-LOOP.)
+                  END-IF
+                END-IF
+                ESCAPE BOTTOM (READ-LOOP.)
+              END-IF
+            ELSE                  /* #EX-RTOP NE #F THRU #T
+              IF #K > 0 OR #COUNTER GT 1
+                ADD 1 TO #K
+                #FR(#K) := 1
+*
+                IF #NUMREC > #T
+                  #TR(#K) := C*AC-INSERTED-LINE
+                  #BASE-LINE := #SEQNO - C*AC-INSERTED-LINE
+                  PERFORM GET-INSERTED-LINES
+                  IF  EX-REQ = 'S'
+                    IF #STRING-FOUND OR #SCAN-LIMIT-REACHED
+                      ESCAPE BOTTOM (READ-LOOP.)
+                    END-IF
+                    IF #TIMEOUT-CONTROL AND #TIMEOUT-OCCURS
+                      ESCAPE BOTTOM(READ-LOOP.)
+                    END-IF
+                  END-IF
+                  #REST := #REST - C*AC-INSERTED-LINE
+                ELSE     /* IF #NUMREC <= #K
+                  #TR(#K) := #REST
+                  #BASE-LINE := #SEQNO - C*AC-INSERTED-LINE
+                  PERFORM GET-INSERTED-LINES
+                  IF  EX-REQ = 'S'
+                    IF #STRING-FOUND OR #SCAN-LIMIT-REACHED
+                      ESCAPE BOTTOM (READ-LOOP.)
+                    END-IF
+                    IF #TIMEOUT-CONTROL AND #TIMEOUT-OCCURS
+                      ESCAPE BOTTOM(READ-LOOP.)
+                    END-IF
+                  END-IF
+                  ESCAPE BOTTOM (READ-LOOP.)
+                END-IF
+              END-IF
+            END-IF
+            #F := #T + 1
+          ELSE               /* C*AC-INSERTED-LINE = 0
+            #BASE-LINE := 1
+            FORAC. FOR W 1 TO C*AC-CONTENTS-N9
+              #BASE-LINE := #F
+              #AC-FROM-LINE := AC-FROM-LINE-N9(W)
+              #T := #F + (AC-TO-LINE-N9(W) - AC-FROM-LINE-N9(W))
+              IF #EX-RTOP = #F THRU #T
+                ADD 1 TO #K
+                #FR(#K) := AC-FROM-LINE-N9(W) + (#EX-RTOP - #F)
+                IF #NUMREC > #T
+                  #TR(#K) := AC-TO-LINE-N9(W)
+                  PERFORM GET-SYSOUT-LINES
+                  IF  EX-REQ = 'S'
+                    IF #STRING-FOUND OR #SCAN-LIMIT-REACHED
+                      ESCAPE BOTTOM (READ-LOOP.)
+                    END-IF
+                    IF #TIMEOUT-CONTROL AND #TIMEOUT-OCCURS
+                      ESCAPE BOTTOM (FORAC.)
+                    END-IF
+                  END-IF
+                  IF EX-ECODE > 0
+                    ESCAPE BOTTOM (READ-LOOP.)
+                  END-IF
+                  #REST := #REST - (AC-TO-LINE-N9(W) - #FR(#K) + 1)
+                ELSE           /* if #numrrec <= #t
+                  #TR(#K) := AC-FROM-LINE-N9(W) + (#NUMREC - #F)
+                  PERFORM GET-SYSOUT-LINES
+                  IF  EX-REQ = 'S'
+                    IF #STRING-FOUND OR #SCAN-LIMIT-REACHED
+                      ESCAPE BOTTOM (READ-LOOP.)
+                    END-IF
+                    IF #TIMEOUT-CONTROL AND #TIMEOUT-OCCURS
+                      ESCAPE BOTTOM(FORAC.)
+                    END-IF
+                  END-IF
+                  ESCAPE BOTTOM (READ-LOOP.)
+                END-IF
+*
+              ELSE                /* if #ex-rtop ne #f thru #t
+                IF #K > 0 OR #COUNTER GT 1
+                  ADD 1 TO #K
+                  #FR(#K) := AC-FROM-LINE-N9(W)
+*
+                  IF #NUMREC > #T
+                    #TR(#K) := AC-TO-LINE-N9(W)
+                    PERFORM GET-SYSOUT-LINES
+                    IF  EX-REQ = 'S'
+                      IF #STRING-FOUND OR #SCAN-LIMIT-REACHED
+                        ESCAPE BOTTOM (READ-LOOP.)
+                      END-IF
+                      IF #TIMEOUT-CONTROL AND #TIMEOUT-OCCURS
+                        ESCAPE BOTTOM (READ-LOOP.)
+                      END-IF
+                    END-IF
+                    IF EX-ECODE > 0
+                      ESCAPE BOTTOM (READ-LOOP.)
+                    END-IF
+                    #REST := #REST -
+                      (AC-TO-LINE-N9(W) - AC-FROM-LINE-N9(W) + 1)
+                  ELSE
+                    #TR(#K) := AC-FROM-LINE-N9(W) + #REST - 1
+                    PERFORM GET-SYSOUT-LINES
+                    IF  EX-REQ = 'S'
+                      IF #STRING-FOUND OR #SCAN-LIMIT-REACHED
+                        ESCAPE BOTTOM (READ-LOOP.)
+                      END-IF
+                      IF #TIMEOUT-CONTROL AND #TIMEOUT-OCCURS
+                        ESCAPE BOTTOM(READ-LOOP.)
+                      END-IF
+                    END-IF
+                    ESCAPE BOTTOM (READ-LOOP.)
+                  END-IF
+                END-IF
+              END-IF
+              #F := #T + 1
+            END-FOR
+          END-IF
+*
+        END-FOR
+        IF NOT #READ-NEXT-AC-BLOCK
+          ESCAPE BOTTOM(READ-LOOP.)
+        END-IF
+      END-REPEAT  /* READ-LOOP
+    ELSE          /* ex-nrm-location ne  'S'
+      #K := 1
+      #FR(#K) := #EX-RTOP
+      #TR(#K) := #NUMREC
+      PERFORM GET-SYSOUT-LINES
+    END-IF
+*
+    K := #EX-RTOP
+    ADD I TO K
+    SAV-TOP := K
+    IF EX-REQ = 'G'
+      EX-BNUM := I
+    END-IF
+    IF EX-REQ = 'S'
+      EX-BNUM := #RECORD-NUMBER
+    END-IF
+*
+  NONE VALUE IGNORE
+END-DECIDE
+*
+IF EX-REQ = 'S'
+  IF #STRING-FOUND
+    EX-STYPE := 'S'
+    EX-RTOP := #RECORD-NUMBER
+    IF #TIMEOUT-CONTROL
+      RESET ES-NEXT-KEY-PARM(1:4)
+    END-IF
+  ELSE             /* string not found
+    RESET EX-RMAX EX-RTOP
+    EX-STYPE := ' '
+  END-IF
+  IF P-WORK SPECIFIED
+    P-WORK := ES-WORK
+  END-IF
+END-IF
+P1 := EXIT-CB
+P2 := #P2
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-REPORT-CONTENTS
+************************************************************************
+IF #TIMEOUT-CONTROL AND #REPEAT-CALL AND #REPEAT-COUNT = 1
+  IF ES-NEXT-KEY-PARM(2) > ' '
+    #SEQNO-N  := VAL(ES-NEXT-KEY-PARM(2))
+    IF #SEQNO-N = #EX-RTOP-N /* previously read all records of the seqno
+      #AC-RRS.#AC-SEQNO := #SEQNO-N + 1
+    ELSE
+      #AC-RRS.#AC-SEQNO := #SEQNO-N
+    END-IF
+  END-IF
+ELSE
+  IF *OPSYS = 'LINUX'
+    #AC-RRS.#AC-SEQNO := H'00000000'
+  ELSE
+    #AC-RRS.#AC-SEQNO := #EX-RTOP-B4
+  END-IF
+END-IF
+*
+RESET #N-ISN-AC #AC-SEQNO-A(*) #ISN-AC-A(*) #READ-NEXT-AC-BLOCK
+READ-AC. READ REPORT-CONTENTS BY AC-REP-RNB-SEQ = #AC-RRS
+  IF AC-REPNAME NE #AC-REPNAME OR AC-REPRNB NE #AC-REPRNB
+    RESET #READ-NEXT-AC-BLOCK
+    ESCAPE BOTTOM (READ-AC.)
+  END-IF
+  IF #N-ISN-AC = #MAX-ISN-AC
+    #EX-RTOP-B4 := AC-SEQNO
+    #READ-NEXT-AC-BLOCK := TRUE
+    ESCAPE BOTTOM (READ-AC.)
+  END-IF
+  IF NOT (*OPSYS = 'LINUX') OR AC-SEQNO >= #EX-RTOP-B4
+    #N-ISN-AC := #N-ISN-AC + 1
+    IF *OPSYS = 'LINUX' AND #N-ISN-AC > 1
+      #I-ISN-AC := 1
+      FOR #I-AC = #N-ISN-AC TO 2 STEP -1
+        IF AC-SEQNO < #AC-SEQNO-A(#I-AC - 1)
+          #AC-SEQNO-A(#I-AC) := #AC-SEQNO-A(#I-AC - 1)
+          #ISN-AC-A(#I-AC) := #ISN-AC-A(#I-AC - 1)
+        ELSE
+          #I-ISN-AC := #I-AC
+          ESCAPE BOTTOM
+        END-IF
+      END-FOR
+    ELSE
+      #I-ISN-AC := #N-ISN-AC
+    END-IF
+    #AC-SEQNO-A(#I-ISN-AC) := AC-SEQNO
+    #ISN-AC-A(#I-ISN-AC) := *ISN(READ-AC.)
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* READ-REPORT-CONTENTS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SYSOUT-LINES
+************************************************************************
+IF EX-REQ = 'S'
+  #SCAN-LIMIT := #TR (#K) - #FR (#K) + 1
+  IF #SCAN-LIMIT < 1
+    #SCAN-LIMIT := 1
+  ELSE
+    IF #SCAN-LIMIT GT 9999999
+      #SCAN-LIMIT:= 9999999
+    END-IF
+  END-IF
+ELSE
+  RESET #SCAN-LIMIT
+END-IF
+*
+DECIDE ON FIRST SOURCE.SR-TYPE
+  VALUE JES2, JES3           PERFORM GET-SYSOUT-LINES-JES
+/*SU9 VALUE POWER                PERFORM GET-SYSOUT-LINES-POWER
+/*SU9 VALUE SEQUENTIAL-FILE-VSE  PERFORM GET-SYSOUT-LINES-FVSE
+  VALUE SEQUENTIAL-FILE-MVS  PERFORM GET-SYSOUT-LINES-FMVS
+  VALUE SEQUENTIAL-FILE-BS2  PERFORM GET-SYSOUT-LINES-FBS2
+  VALUE NOM-DATA-BASE        PERFORM GET-SYSOUT-LINES-NOMDB
+  NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* GET-SYSOUT-LINES
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SYSOUT-LINES-JES
+************************************************************************
+PERFORM BUILD-SEARCH
+*
+FIND READ-SPOOL WITH JOB-NAME = #JES-JOB-NAME
+AND JOB-NUMBER = #JES-JOB-NUMBER AND NODE = #JES-NODE                 /*
+AND TYPE       = #JES-TYPE AND DATA-SET-KEY = #JES-DATA-SET-KEY       /*
+AND RECORD = #SEARCH-STRING AND SCAN = #SCAN                          /*
+AND SCAN-TYPE = #SCAN-TYPE AND SCAN-LIMIT = #SCAN-LIMIT               /*
+    AND RECORD-NUMBER >= #FR(#K)
+*
+  IF ERROR-CODE NE 0
+    IF #SCAN-LIMIT > 0 AND ERROR-CODE = 533  /* ex-req = 's'
+      I := #SEQNO
+      #RECORD-NUMBER := I
+      IF #TIMEOUT-CONTROL
+        PERFORM CHECK-TIMEOUT
+      END-IF
+    ELSE
+      EX-RMAX := 0
+      EX-ECODE := ERROR-CODE
+      EX-UDATA := ERROR-TEXT
+    END-IF
+    ESCAPE BOTTOM
+  END-IF
+  IF RECORD-NUMBER > #TR(#K)
+    ESCAPE BOTTOM
+  END-IF
+  ADD 1 TO I
+  O-RECORD := RECORD
+  IF EX-REQ = 'S'
+    #RECORD-NUMBER :=
+      #BASE-LINE + (READ-SPOOL.RECORD-NUMBER - #AC-FROM-LINE)
+  END-IF
+  IF #TIMEOUT-CONTROL
+    PERFORM CHECK-TIMEOUT
+    IF #TIMEOUT-OCCURS
+      ESCAPE BOTTOM
+    END-IF
+  END-IF
+*
+  PERFORM BUILD-RECORD
+*
+  IF EX-REQ = 'G' OR (EX-REQ = 'S' AND #STRING-FOUND)
+    RECORD := O-RECORD
+    ADD 1 TO #LINE-NUMBER
+    P-LINES(#LINE-NUMBER):= RECORD
+    K := R-DISP
+    L := R-LEN
+    ADD L TO K
+    R-DISP := K
+  END-IF
+  IF EX-REQ = 'S' AND #STRING-FOUND OR I >= #EX-BNUM
+    ESCAPE BOTTOM
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* GET-SYSOUT-LINES-JES
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SYSOUT-LINES-FMVS
+************************************************************************
+PERFORM BUILD-SEARCH
+*
+FIND READ-FILE WITH NODE = #FMVS-NODE AND DSNAME = #FMVS-DSNAME
+AND RECFM = #FMVS-RECFM AND LRECL = #FMVS-LRECL                       /*
+AND BLKSIZE = #FMVS-BLKSIZE AND RECORD  = #SEARCH-STRING              /*
+AND SCAN = #SCAN AND SCAN-LIMIT = #SCAN-LIMIT                         /*
+AND SCAN-TYPE  = #SCAN-TYPE AND RECORD-NUMBER >= #FR(#K)              /*
+AND SEGMENT-LENGTH = 251                                              /*
+  IF ERROR-CODE NE 0
+    IF #SCAN-LIMIT > 0 AND ERROR-CODE = 533
+      I := #SEQNO
+      #RECORD-NUMBER := I
+      IF #TIMEOUT-CONTROL
+        PERFORM CHECK-TIMEOUT
+      END-IF
+    ELSE
+      EX-RMAX := 0
+      EX-ECODE := ERROR-CODE
+      EX-UDATA := ERROR-TEXT
+    END-IF
+    ESCAPE BOTTOM
+  END-IF
+*
+  IF RECORD-NUMBER > #TR(#K)
+    ESCAPE BOTTOM
+  END-IF
+*
+  ADD 1 TO I
+  O-RECORD := RECORD
+*
+  IF SEGMENT-NUMBER > 1 AND SEGMENT-LENGTH < 251
+    COMPRESS '§' O-RECORD TO O-RECORD LEAVING NO /*first byte is cc-char
+    EXAMINE SUBSTRING (O-RECORD,1,1) FOR '§' REPLACE WITH ' '
+  END-IF
+  IF EX-REQ = 'S'
+    #RECORD-NUMBER :=
+      #BASE-LINE + (READ-FILE.RECORD-NUMBER - #AC-FROM-LINE)
+  END-IF
+*
+  IF #TIMEOUT-CONTROL
+    PERFORM CHECK-TIMEOUT
+    IF #TIMEOUT-OCCURS
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+*
+  PERFORM BUILD-RECORD
+*
+  IF EX-REQ = 'G' OR (EX-REQ = 'S' AND #STRING-FOUND)
+    RECORD := O-RECORD
+    ADD 1 TO #LINE-NUMBER
+    P-LINES(#LINE-NUMBER):= RECORD
+    K := R-DISP
+    L := R-LEN
+    ADD L TO K
+    R-DISP := K
+  END-IF
+*
+  IF EX-REQ = 'S ' AND #STRING-FOUND
+    ESCAPE ROUTINE
+  END-IF
+*
+  IF I >= #EX-BNUM
+    ESCAPE BOTTOM
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* GET-SYSOUT-LINES-FMVS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SYSOUT-LINES-FBS2
+************************************************************************
+PERFORM BUILD-SEARCH
+*
+FIND READ-FILE WITH NODE = #FBS2-NODE AND DSNAME = #FBS2-DSNAME
+AND RECORD        = #SEARCH-STRING AND SCAN       = #SCAN             /*
+AND SCAN-LIMIT    = #SCAN-LIMIT AND SCAN-TYPE     = #SCAN-TYPE        /*
+AND RECORD-NUMBER >= #FR(#K)                                          /*
+AND SEGMENT-LENGTH = 251                                              /*
+*
+  IF ERROR-CODE NE 0
+    IF #SCAN-LIMIT > 0 AND ERROR-CODE = 533
+      I := #SEQNO
+      #RECORD-NUMBER :=  I
+      IF #TIMEOUT-CONTROL
+        PERFORM CHECK-TIMEOUT
+      END-IF
+    ELSE
+      EX-RMAX := 0
+      EX-ECODE := ERROR-CODE
+      EX-UDATA := ERROR-TEXT
+    END-IF
+    ESCAPE BOTTOM
+  END-IF
+*
+  IF RECORD-NUMBER > #TR(#K)
+    ESCAPE BOTTOM
+  END-IF
+*
+  ADD 1 TO I
+  O-RECORD := RECORD
+  IF SEGMENT-NUMBER > 1 AND SEGMENT-LENGTH < 251
+    COMPRESS '§' O-RECORD TO O-RECORD LEAVING NO /*first byte is cc-char
+    EXAMINE SUBSTRING (O-RECORD,1,1) FOR '§' REPLACE WITH ' '
+  END-IF
+  IF EX-REQ = 'S'
+    #RECORD-NUMBER :=
+      #BASE-LINE + (READ-FILE.RECORD-NUMBER - #AC-FROM-LINE)
+  END-IF
+*
+  IF #TIMEOUT-CONTROL
+    PERFORM CHECK-TIMEOUT
+    IF #TIMEOUT-OCCURS
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+*
+  PERFORM BUILD-RECORD
+*
+  IF EX-REQ = 'G' OR (EX-REQ = 'S' AND #STRING-FOUND)
+    RECORD := O-RECORD
+    ADD 1 TO #LINE-NUMBER
+    P-LINES(#LINE-NUMBER):= RECORD
+    K := R-DISP
+    L := R-LEN
+    ADD L TO K
+    R-DISP := K
+  END-IF
+  IF EX-REQ = 'S ' AND #STRING-FOUND
+    ESCAPE ROUTINE
+  END-IF
+  IF I >= #EX-BNUM
+    ESCAPE BOTTOM
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* GET-SYSOUT-LINES-FBS2
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SYSOUT-LINES-NOMDB
+************************************************************************
+#SOURCE-ATTRIBUTES     := SOURCE.SR-ATTRIBUTES-IDENT
+#NSMCOMP-BUFFER-LENGTH := 16381 - 7
+#NSMCOMP-CODE          := 'N' /* 'N' - NEW PARM LIST
+#NSMCOMP-COMMAND       := 'D'
+*
+#ST-ID   := #NOMDB-ID
+#ST-LINE := #ST-START-LINE := #FR (#K)
+RESET LINE-FOUND
+*
+IF SOURCE-TEXT.ST-LINE-START > 0
+AND #FR (#K) = SOURCE-TEXT.ST-LINE-START THRU SOURCE-TEXT.ST-LINE-END /*
+  READ-BUFFER := FALSE
+ELSE
+  READ-BUFFER := TRUE
+END-IF
+*
+REAST. REPEAT
+  IF READ-BUFFER
+    READ-SOURCE. READ (1) SOURCE-TEXT BY ST-ID-LINE = #ST-ID-LINE
+      IF ST-ID NE #ST-ID
+        IF NOT LINE-FOUND
+          EX-ECODE := 9999
+          EX-UDATA := 'Start Line not found'
+        END-IF
+        ESCAPE BOTTOM (REAST.)
+      END-IF
+    END-READ
+    IF *COUNTER (READ-SOURCE.) = 0
+      IF NOT LINE-FOUND
+        EX-ECODE := 9999
+        EX-UDATA := 'Start Line not found'
+      END-IF
+      ESCAPE BOTTOM (REAST.)
+    END-IF
+  END-IF
+*
+  READ-BUFFER := TRUE
+  RESET #NSMCOMP-WORK
+  #ST-RECORD-NUMBER := SOURCE-TEXT.ST-LINE-START
+  SUBTRACT 1 FROM #ST-RECORD-NUMBER
+*
+  REP. REPEAT
+    RESET #NSMCOMP-LINE
+    INCLUDE C-NSMCMP '#ST-TEXT-BUFFER-LOB'
+    DECIDE ON FIRST #NSMCOMP-RC
+      VALUE 0
+        IGNORE
+      VALUE 4
+        IF NOT LINE-FOUND
+          EX-ECODE := 9999
+          EX-UDATA := 'Start Line not found'
+          ESCAPE BOTTOM (REAST.)
+        END-IF
+        #ST-LINE := #ST-RECORD-NUMBER + 1
+        ESCAPE BOTTOM (REP.)
+      NONE
+        EX-ECODE := 9999
+        COMPRESS 'Decompression Error rc=' #NSMCOMP-RC TO EX-UDATA
+        ESCAPE BOTTOM (REAST.)
+    END-DECIDE
+*
+    ADD 1 TO #ST-RECORD-NUMBER
+    IF NOT LINE-FOUND
+      IF #ST-RECORD-NUMBER < #ST-START-LINE
+        ESCAPE TOP
+      END-IF
+      LINE-FOUND := TRUE
+    END-IF
+*
+    IF #ST-RECORD-NUMBER > #TR(#K)
+      ESCAPE BOTTOM (REAST.)
+    END-IF
+*
+    ADD 1 TO I
+    O-RECORD := #NSMCOMP-LINE
+*
+    IF EX-REQ = 'S'
+      #RECORD-NUMBER := #BASE-LINE + (#ST-RECORD-NUMBER - #AC-FROM-LINE)
+    END-IF
+*
+    IF #TIMEOUT-CONTROL
+      PERFORM CHECK-TIMEOUT
+      IF #TIMEOUT-OCCURS
+        ESCAPE BOTTOM (REAST.)
+      END-IF
+    END-IF
+*
+    PERFORM BUILD-RECORD
+*
+    IF EX-REQ = 'G' OR (EX-REQ = 'S' AND #STRING-FOUND)
+      #NSMCOMP-LINE := O-RECORD
+      ADD 1 TO #LINE-NUMBER
+      IF #LINE-NUMBER LE #LINES-IN-TABLE
+        P-LINES(#LINE-NUMBER):= #NSMCOMP-LINE
+      END-IF
+      K := R-DISP
+      L := R-LEN
+      ADD L TO K
+      R-DISP := K
+    END-IF
+*
+    IF EX-REQ = 'S ' AND #STRING-FOUND
+      ESCAPE ROUTINE
+    END-IF
+*
+    IF I >= #EX-BNUM
+      ESCAPE BOTTOM (REAST.)
+    END-IF
+  END-REPEAT
+END-REPEAT
+*
+END-SUBROUTINE /* GET-SYSOUT-LINES-NOMDB
+*
+************************************************************************
+DEFINE SUBROUTINE GET-INSERTED-LINES
+************************************************************************
+IF #FR(#K) = 0
+  #FR(#K) := 1
+END-IF
+*
+FOR #W = #FR(#K)  TO #TR(#K)
+  IF #TIMEOUT-CONTROL
+    PERFORM CHECK-TIMEOUT
+    IF #TIMEOUT-OCCURS
+      ESCAPE BOTTOM
+    END-IF
+  END-IF
+*
+  ADD 1 TO I
+  ADD 1 TO #RECORD-NUMBER
+  O-RECORD := REPORT-CONTENTS.AC-INSERTED-LINE(#W)
+*
+  PERFORM BUILD-RECORD
+  IF EX-REQ = 'G' OR (EX-REQ = 'S' AND #STRING-FOUND)
+    REPORT-CONTENTS.AC-INSERTED-LINE(#W) := O-RECORD
+    ADD 1 TO #LINE-NUMBER
+    P-LINES(#LINE-NUMBER):= REPORT-CONTENTS.AC-INSERTED-LINE(#W)
+    K := R-DISP
+    L := R-LEN
+    ADD L TO K
+    R-DISP := K
+  END-IF
+*
+  IF EX-REQ = 'S' AND #STRING-FOUND
+    ESCAPE ROUTINE
+  END-IF
+*
+  IF I >= #EX-BNUM
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* GET-INSERTED-LINES
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-TIMEOUT
+************************************************************************
+RESET #TIMEOUT-OCCURS
+*
+IF *TIMX > #TIMEOUT
+  #TIMEOUT-OCCURS     := TRUE
+  RESET P-CLIENT-TIMEOUT            /* to call browser repeateedly
+  #BREAK-LINE-NUMBER  := #RECORD-NUMBER
+  ES-NEXT-KEY-PARM(1) := #BREAK-LINE-NUMBER-A
+  #BREAK-SEQNO        := #SEQNO
+  ES-NEXT-KEY-PARM(2) := #BREAK-SEQNO-A
+  #EX-UDATA           := EX-UDATA
+  ES-NEXT-KEY-PARM(3) := #EX-UDATA1
+  IF #EX-UDATA2 > ' '
+    ES-NEXT-KEY-PARM(4) := #EX-UDATA2
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CHECK-TIMEOUT
+*
+************************************************************************
+DEFINE SUBROUTINE BUILD-RECORD
+************************************************************************
+#LEN1 := 251 - #EX-SCOL + 1
+IF (O-RECORD-V (1) = '1'   AND SOURCE.SR-CC-TYPE = ASA-CODE)
+OR (O-RECORD-V (1) = H'89' AND SOURCE.SR-CC-TYPE = MACHINE-CODE)      /*
+OR (O-RECORD-V (1) = H'8B' AND SOURCE.SR-CC-TYPE = MACHINE-CODE)      /*
+OR (O-RECORD-V (1) = H'81' AND SOURCE.SR-CC-TYPE = BS2000-CC)         /*
+OR (O-RECORD-V (1) = 'A'   AND SOURCE.SR-CC-TYPE = BS2000-CC)         /*
+  #HEADNO := 1
+  SW-NP := TRUE
+ELSE
+  IF SW-NP
+    ADD 1 TO #HEADNO
+  END-IF
+END-IF
+IF EX-NRM-ASA-CODE-ON = 'N'
+  RESET O-RECORD-V (1)
+END-IF
+*
+IF EX-NRM-FCOL (1) = H'00'
+OR (EX-NRM-HEAD NE 0 AND #HEADNO = 1 THRU EX-NRM-HEAD)                /*
+  IF EX-NRM-ASA-CODE-ON NE 'F' OR EX-NRM-SOURCE-CC-TYPE = NO-CC
+    I-RECORD := O-RECORD
+  ELSE
+    I-RECORD-V (2:251) := O-RECORD-V (1:250)
+    RESET I-RECORD-V (1)
+  END-IF
+  RESET O-RECORD
+  O-RECORD-V (1 : #LEN1) := I-RECORD-V (#EX-SCOL : 251)
+  PERFORM SCAN-CHECK
+  ESCAPE ROUTINE
+END-IF
+IF EX-NRM-SOURCE-CC-TYPE = NO-CC
+  #OPOS := 1
+ELSE
+  #OPOS := 2
+END-IF
+IF EX-NRM-ASA-CODE-ON NE 'F'
+  I-RECORD-V (1:250) := O-RECORD-V (2:251)
+  RESET I-RECORD-V (251) O-RECORD-V (2:251)
+ELSE
+  I-RECORD := O-RECORD
+  RESET  O-RECORD
+END-IF
+*
+FOR #N 1 TO 10
+  IF EX-NRM-FCOL (#N) = H'00'
+    ESCAPE BOTTOM
+  END-IF
+  #FROM-COL := EX-NRM-FCOL (#N)
+  #TO-COL := EX-NRM-TCOL (#N)
+  #LEN := #TO-COL - #FROM-COL
+  O-RECORD-V (#OPOS:#OPOS + #LEN) := I-RECORD-V (#FROM-COL:#TO-COL)
+  #OPOS := #OPOS + #LEN + 2
+END-FOR
+I-RECORD := O-RECORD
+RESET O-RECORD
+O-RECORD-V (1:#LEN1) := I-RECORD-V (#EX-SCOL:251)
+PERFORM SCAN-CHECK
+*
+END-SUBROUTINE /* BUILD-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE SCAN-CHECK
+************************************************************************
+IF EX-REQ = 'S'
+  EXAMINE O-RECORD TRANSLATE INTO UPPER CASE
+  EXAMINE O-RECORD FOR EX-UDATA GIVING NUMBER IN #NUM
+  IF #NUM > 0
+    #STRING-FOUND := TRUE
+    EX-RTOP := #RECORD-NUMBER
+  ELSE
+    IF #RECORD-NUMBER >= #EX-RMAX-R
+      EX-STYPE := 'L'
+      #SCAN-LIMIT-REACHED := TRUE
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SCAN-CHECK
+*
+************************************************************************
+DEFINE SUBROUTINE BUILD-SEARCH
+************************************************************************
+#SOURCE-ATTRIBUTES := SOURCE.SR-ATTRIBUTES-IDENT
+CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES SR-TYPE
+IF EX-REQ = 'S'
+  #SEARCH-STRING := EX-UDATA
+  #SCAN-TYPE     := 'A'
+  #SCAN          := 'YES'
+ELSE
+  #SEARCH-STRING := '*'
+  #SCAN          := 'NO'
+  RESET #SCAN-TYPE
+END-IF
+IF #SCAN-LIMIT GT 9999999
+  #SCAN-LIMIT:= 0
+END-IF
+*
+END-SUBROUTINE /* BUILD-SEARCH
+*
+END

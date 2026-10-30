@@ -1,0 +1,88 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RCTPRPXR
+* Function:  xref of related objects of a report
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 91-11-04           xref of related users/dist lists corrected
+* mrs 93-10-11 s(999999) translate some texts
+* xsiszha 2000-08-02 (CE7267) More than 5 printers
+* xsiszha 2000-08-02 (CE7461) Extend Report and Bundle Names
+* SU1     2021-01-08 NOMALL-2443 recat VMREP-L
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #P-MSG            (N4)
+1 #PARMS
+  2 #P-REPORT       (A25)
+  2 #P-USER         (10)
+    3 #P-USERID     (A8)
+    3 #P-USER-MSG   (A4)
+  2 #P-PRINTER      (20)
+    3 #P-PRINTER-ID (A8)
+    3 #P-PRINTER-MSG(A4)
+1 #LAN-TEXT         (A70/1:6)
+* ----------------------------------------------------------------------
+LOCAL USING VMREP-L
+LOCAL
+1 MIGRATE-USERS             VIEW OF NRM-MIGRATE-USERS
+1 MIGRATE-DISTRIBUTION-LIST VIEW OF NRM-MIGRATE-DISTRIBUTION-LIST
+1 MIGRATE-PRINTERS          VIEW OF NRM-MIGRATE-PRINTERS
+*
+1 #I                (P2)
+1 #PRINTER-ID       (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #P-MSG
+FNDS. FIND REPORTS WITH R-REPNAME = #P-REPORT
+  IF NO RECORDS FOUND
+    #P-MSG := 4009
+    ESCAPE BOTTOM (FNDS.)
+  END-NOREC
+  PERFORM CHECK-RELATED-OBJECTS
+END-FIND
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-RELATED-OBJECTS
+************************************************************************
+FOR #I = 1 TO REPORTS.C*R-NATRPT-DIST
+  #P-USERID (#I) := REPORTS.R-NATRPT-DIST (#I)
+  FNDU. FIND NUMBER MIGRATE-USERS WITH USER-ID=REPORTS.R-NATRPT-DIST(#I)
+  IF *NUMBER (FNDU.) = 0
+    FNDDL. FIND NUMBER MIGRATE-DISTRIBUTION-LIST
+      WITH D-LIST-NAME = REPORTS.R-NATRPT-DIST (#I)
+    IF *NUMBER (FNDDL.) = 0
+      #P-USER-MSG (#I) := #LAN-TEXT (2)
+    ELSE
+      #P-USER-MSG (#I) := #LAN-TEXT (1)
+    END-IF
+  END-IF
+END-FOR
+FOR #I = 1 TO REPORTS.C*R-PRINTERS
+  #PRINTER-ID := REPORTS.R-PRINTERS (#I) /*A8=A12
+  #P-PRINTER-ID (#I) := #PRINTER-ID
+  IF NOT(#PRINTER-ID = ' ' OR = 'DUMMY')
+    FNDP. FIND NUMBER MIGRATE-PRINTERS WITH P-ID = #PRINTER-ID
+    IF *NUMBER (FNDP.) = 0
+      #P-PRINTER-MSG (#I) := #LAN-TEXT (2)
+    ELSE
+      #P-PRINTER-MSG (#I) := #LAN-TEXT (1)
+    END-IF
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* CHECK-RELATED-OBJECTS
+*
+END

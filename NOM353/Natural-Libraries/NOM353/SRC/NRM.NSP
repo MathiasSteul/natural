@@ -1,0 +1,752 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NRM - Logon to ENTIRE OUTPUT MANAGEMENT
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ...
+* mrs 94-01-05 s(999999) old version saved
+* mrs 94-01-05 s(999999) cleanup, remove node from logon screen
+* mrs 94-01-18 s(999999) reset password after wrong logon
+* gw  94-03-11 s(999999) no npr-logon for non-external users
+* mrs 94-05-04 s(999999) allow logon if user has no password
+* mrs 94-07-01 s(999999) restrict logon command to external user-id's
+* gw  96-05-07 s(999999) user exit flags
+* mwi 97-01-27 s(999999) new field account-nr for bs2000 logon
+* gw  97-02-07 s(261503) new user type 'O' (operator) for printout queue
+* jwo 97-05-05 p(162286) reset password after undefined userid
+* SJU 97-05-09 p(162286) if user changes userid insist on valid esy pwd
+* jwo 97-11-13 p(167263) add active reports exit
+* jwo 97-12-01           97-10-14 p(163166) y2k dates
+* SJU 97-12-09 P(167730) NO CHANGE OF USERID WITHOUT EXTERNAL SECURITY
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* jvd 99-04-28 p(181592) allow administrator to logon as another user,
+*                        only if user is know to NOM and NATSEC
+* jvd 99-06-29 r(312448) NOM loop at logon in UTM (BS2)
+* XSISWS  2000-06-08  CE 7592  re-cat new profile added VUSERS-L
+* xsisgg  2000-07-31  p(191368) new field in NRM-MONITOR
+* sju 00-11-16 s(999999) Check setting of lfile 131 (SAT log file)
+* sju 01-03-14 s(207107) Exit settings lost
+* sju 02-02-25 NOM221    New lfile for active data
+* fhi 02-06-13 s(225125) Add email notificaton, NOMEX010
+* xsetoba 2002-08-22 (CE7553) Default Profile non-defined users
+* xsetggr 03-07-04 p(240465) add Default profile during logon
+* xsetggr 2003-08-07 p(240465) correct (CE7553) solution
+* fhi     2003-08-11 p(213773) DC solutions not shown
+* fhi     2003-08-12 p(240465) Allow user to get out of logon screen
+*                              Delete all comments before year 2000
+* fhi     2003-11-12 p(202734) Logon without password under BS2000
+* fhi     2003-12-17 p(248647) NAT0954 (0c7) in NOMOO-P
+* fhi     2004-12-06 NOM3101   Make passwords case-sensitive
+* fhi     2005-01-12 NOM3102   Logon screen under Unix
+* LP      2005-03-07 NOM3102   POSITION CURSOR ON PROTECTED FIELDS
+*                              IN UNX ENVIRONMENTS
+* fhi     2005-06-23 p(266530) Make Monitor NPR Mainframe independent
+* xsetggr 2005-06-30 p(248647) correct solution
+* xsetggr 2007-05-07 NOM3201   Support 5 byte node numbers
+* fhi     2008-09-03 p(296314) Edit returns to basic menu
+* xsetggr 2010-01-25 P300184   use g-language  to set NOM language
+* xsetggr 2012-02-01 NOMALL-1100 write language independant msgs to log
+* SU1     2013-01-31 unused    Deactivate unused data areas
+* fhi     2015-03-19 NOMALL-1589 Avoid empty screen on Unix at start
+*                                No customer effect, in test env only
+* fhi     2016-01-22 NOMALL-1812 Check correct monitor settings
+* fhi     2016-04-15 NOMALL-1837 Introduce +DEVICE for testing
+* fhi     2016-08-18 NOMALL-1620 Introduce Multinode Feature
+* fhi     2016-09-26 NOMALL-1620 same.
+* fhi     2016-09-30 NOMALL-1620 same.
+* fhi     2016-10-27 NOMALL-1620 same.
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2018-02-07 NOMALL-1918 Adapt for Unix
+* BLI     2020-04-08 NOMALL-2391 Force Nat9 editor in S-SEPEDT
+* SU2     2020-11-10 NOMALL-2440 recat for VMONIT-L
+* SU3     2021-04-22 NOMALL-2454 recat for VMONIT-L M-NATRPT-DBID/-FNR
+* SU4     2021-06-17 NOMALL-2472 avoid NAT1108 on LOGON SCREEN
+* SU5     2024-03-07 ES-34613    NOM 3.6 Remove power / BS2
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  NRM-GL
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE           (L/1:20)
+1 +G-USER-TYPE                (A1)
+1 +DEVICE                     (A8)
+1 +NOD-LOCAL-NODE             (N5)
+1 +NOD-LOCAL-SYSTEM-TYPE      (A8)
+1 +NOD-LOCAL-SPOOL-TYPE       (A8)
+* *****
+LOCAL USING VMONIT-L
+LOCAL USING PROF-LOC
+LOCAL USING RLOG-L
+LOCAL USING VUSERS-L
+LOCAL USING SATSL03P
+LOCAL USING SATSL--E
+LOCAL USING SATLGV1P
+LOCAL USING RACTLF-A
+LOCAL
+1 USER-EXITS VIEW OF NRM-MONITOR
+  2 M-USER-DEFAULTS
+  2 REDEFINE M-USER-DEFAULTS
+    3 M-NOMEXIT-ACTIVE      (A1/1:20)
+1 SYSTEM-INFO VIEW OF SYSTEM-INFO
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 SECURITY
+1 CHK-USERS VIEW OF NRM-USERS
+  2 USER-PROFILE            (A250)
+  2 REDEFINE USER-PROFILE
+    3 TYPE                  (A1)
+*
+1 L-CYPHERED                (A8)
+1 C#ACCOUNT                 (C)
+1 #ACCOUNT-TEXT             (A10) INIT <'Account-#:'>
+1 #ACCOUNT-NR               (A8)
+1 #PASS-RC                  (N1)
+1 I                         (N3)
+1 #TOKEN                    (A60/10)
+1 LOGON-SCREEN              (L)
+1 #USE-SPOOLER              (L)
+1 L-HEADER                  (A78)
+1 #INITIAL-USERID           (A08)
+1 #ESY-LOGON-REQUIRED       (L)
+1 #EXTERNAL-SECURITY        (L)
+1 #CHK-NSC                  (L)
+1 #CHK-USERID-INIT          (A8)
+1 #CHK-APPLID               (A8)   INIT <'SYSNOM'>
+1 #CHK-USERID-LOGON         (A8)
+1 #CHK-RC                   (N4)
+1 #CHK-PARM1                (A250)
+1 #AUTODEF                  (A1)
+1 #DEF-USER                 (L)
+1 #READ-MONITOR             (L)
+1 #LANGUAGE                 (I1)
+1 #CONFIRM                  (A8)
+1 #BUNDLE-DEFAULTS          (A250)
+1 REDEFINE #BUNDLE-DEFAULTS
+  2 #BUNDDEF
+    3 B-CHAR-FIELDS1        (A40)
+    3 B-FLUSH-TIME          (T)
+    3 REDEFINE B-FLUSH-TIME
+      4 B-FLUSH-TIME-A      (A7)
+    3 B-CHAR-FIELDS2        (A197)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE WINDOW CONFIRM SIZE 5 * 40 BASE 8 / 15 TITLE 'Confirm Logon'
+*
+IF +DEVICE = ' ' /* not set by RMINIONL for testing purposes
+  +DEVICE := *DEVICE
+END-IF
+FETCH RETURN 'NRMGETGL'
+*
+FETCH RETURN 'N-EDTVER'
+CALLNAT 'SATLGFVN' SATLGV-PARMS
+IF SATLGV-RC NE 0
+  WRITE *PROGRAM SATLGV-ERROR-TEXT
+  IF SATLGV-LOG-DBID NE 0 OR SATLGV-LOG-FNR NE 0
+    WRITE *PROGRAM 'Dbid:' SATLGV-LOG-DBID 'Fnr:' SATLGV-LOG-FNR
+  END-IF
+  STACK TOP COMMAND 'RETURN'
+  STOP
+END-IF
+RESET RACTLF-LOGGING RACTLF-ERROR-LOGGING
+RACTLF-LFILE-1:= 91
+RACTLF-LFILE-2:= 206
+CALLNAT 'RACTLF-N' RACTLF-PARMS
+IF RACTLF-ERROR-CODE NE 0
+  WRITE *PROGRAM RACTLF-ERROR-CODE RACTLF-ERROR-TEXT
+  WRITE *PROGRAM 'Dbid1:' RACTLF-DBID-1 'Fnr1:' RACTLF-FNR-1
+  WRITE *PROGRAM 'Dbid2:' RACTLF-DBID-2 'Fnr2:' RACTLF-FNR-2
+  STACK TOP COMMAND 'RETURN'
+  STOP
+END-IF
+*ERROR-TA := 'NRMERRTA'
+G-FLIP-STATUS := 'P'
+RESET G-DIRECT-COMMAND G-NATRP-ERC G-NATRP-ERT
+IF *DATA > 0
+  INPUT #TOKEN (1:10)
+  IF #TOKEN(1) = '*'
+    LOGON-SCREEN := TRUE
+/*SU5 -> IF G-SYSTEM-TYPE = SCAN 'BS2'
+/* G-USERID := #CHK-USERID-LOGON := #TOKEN (2) #ACCOUNT-NR := #TOKEN (3)
+/* G-PASSWORD:=#TOKEN (4) STACK TOP DATA G-USERID #ACCOUNT-NR G-PASSWORD
+/*SU4 <-  ELSE
+    G-USERID := #CHK-USERID-LOGON := #TOKEN (2)
+    G-PASSWORD := #TOKEN (3)
+    STACK TOP DATA G-USERID G-PASSWORD
+/*SU4    END-IF
+  ELSE
+    FOR I 1 TO 10
+      IF #TOKEN(I) = ' '
+        ESCAPE BOTTOM
+      END-IF
+      COMPRESS G-DIRECT-COMMAND #TOKEN(I) TO G-DIRECT-COMMAND
+    END-FOR
+  END-IF
+ELSE
+  IF G-NATRP-INDICATOR = H'0807060504030201' OR = H'0807060504030200'
+    PERFORM SET-INDEPENDENT
+    IF G-DIRECT-COMMAND = ' '
+      G-DIRECT-COMMAND := '>0'
+    END-IF
+    FETCH 'NRMCPR'
+  END-IF
+END-IF
+SET CONTROL 'WB'
+SET CONTROL 'M21'
+PERFORM SET-PFKEYS
+PERFORM SET-DEFAULTS
+IF *MACHINE-CLASS NE 'MAINFRAME' AND G-MONITOR-NODE NE 0 /*MF node used
+  LOGON-SCREEN := TRUE
+  SET CONTROL 'T+'
+END-IF
+IF NOT LOGON-SCREEN
+  IF G-USERID = ' '
+    G-USERID := #CHK-USERID-LOGON := *USER
+  END-IF
+  PERFORM SET-USER-DEFAULTS
+  IF #AUTODEF = 'P' AND #DEF-USER
+    SET WINDOW 'CONFIRM'
+    IF G-LANGUAGE = 2
+      INPUT (AD=MILT'_')
+        'Benutzer ' G-USERID (AD=OL) ' ist nicht' /
+        'angelegt. Wollen Sie mit Profil' /
+        '"Default" starten (Y/N)?' #CONFIRM (AL=1)
+    ELSE
+      INPUT (AD=MILT'_')
+        'User ID ' G-USERID (AD=OL) ' is not defined' /
+        'Do you want it to be defined with' /
+        'default profile (Y/N)?' #CONFIRM (AL=1)
+    END-IF
+    IF #CONFIRM NE 'Y' OR *PF-KEY NE 'ENTR'
+      STACK TOP COMMAND 'RETURN'
+      STOP
+    END-IF
+  END-IF
+  IF G-NATRP-ERC = 0
+    PERFORM LOG-RECORD
+    IF G-NPR-USERID NE ' ' AND G-MONITOR-NODE NE 0 /*MF node used
+      PERFORM LOGON-TO-ESY
+    END-IF
+/*SU4 ->  IF *MACHINE-CLASS NE 'MAINFRAME' AND *HOSTNAME = 'susvmesm01'
+/* happens in dev environment only ...
+/*SU3 <- SET CONTROL 'N' END-IF
+    IF G-DIRECT-COMMAND NE ' '
+      FETCH 'RMENU' G-DIRECT-COMMAND
+    ELSE
+      FETCH 'RMENU'
+    END-IF
+  END-IF
+END-IF
+IF G-PASSWORD NE ' '
+  L-CYPHERED := G-PASSWORD
+  RESET G-PASSWORD
+  CALLNAT 'N-CHKPSW' G-PASSWORD L-CYPHERED 'D' #PASS-RC
+END-IF
+/*SU4 IF G-SYSTEM-TYPE NE SCAN 'BS2'
+#ACCOUNT-TEXT := ' '
+C#ACCOUNT := (AD=NP)
+/*SU4 END-IF
+#INITIAL-USERID:= G-USERID
+IF *MACHINE-CLASS NE 'MAINFRAME' AND G-MONITOR-NODE = 0
+  FETCH 'RMENU' /*MF node not used, no logon screen
+END-IF
+REPEAT
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'NRMLOGM&'
+  RESET #CONFIRM
+  SET CONTROL 'L'
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'NRMLOGM&'
+  IF *PF-KEY = 'PF3'
+    STACK TOP COMMAND 'RETURN'
+    STOP
+  END-IF
+  IF G-NATRP-ERC = 0028
+    IF #CHK-RC NE 0
+      WRITE *PROGRAM 'Reason for 0028 is => ' #CHK-RC #CHK-PARM1 (AL=60)
+      STACK TOP COMMAND 'RETURN'
+      STOP
+    END-IF
+  ELSE
+    IF G-USERID NE *USER AND G-USERID = 'DEFAULT'
+      G-NATRP-ERC := 0028
+      #CHK-RC := 50
+      #CHK-PARM1 := 'USERID "DEFAULT" IS ONLY LOGICAL USERID.'
+      ESCAPE TOP
+    END-IF
+    IF G-USERID NE *USER AND NOT #EXTERNAL-SECURITY
+      PERFORM CHK-USERID
+      IF #CHK-RC NE 0
+        G-NATRP-ERC:= 0028
+        ESCAPE TOP
+      END-IF
+      RESET G-NATRP-ERC
+    END-IF /* If G-USERID NE *USER
+  END-IF /* If G-NATRP-ERC = 0028
+  IF G-USERID NE #INITIAL-USERID /* AND G-PASSWORD = ' '
+    #ESY-LOGON-REQUIRED:= TRUE
+    IF G-PASSWORD = ' ' /*SU4 AND G-SYSTEM-TYPE NE SCAN 'BS2'
+      G-NATRP-ERC:= 0004
+      REINPUT *0508 MARK *G-PASSWORD
+    END-IF
+  END-IF
+  RESET G-NATRP-ERC G-NATRP-ERT
+  IF *PF-KEY = 'PF3' OR = 'PF15'
+    PERFORM RETURN-TO-CALLER
+  END-IF
+  IF G-USERID = ' '
+/*SU  G-NATRP-ERC := 0003
+    REINPUT *0504  MARK *G-PASSWORD
+  END-IF
+  PERFORM SET-USER-DEFAULTS
+  IF G-NATRP-ERC NE 0
+    ESCAPE TOP
+  END-IF
+  IF PROFILE-STRING.PROF-EXTERNAL NE 'Y' AND G-USERID NE *USER
+    G-NATRP-ERC := 20 /*Funktion not allowed. SU4
+    ESCAPE TOP
+/*SU4 REINPUT *0020 MARK *G-USERID
+  END-IF
+  IF #AUTODEF = 'P' AND #DEF-USER AND #CONFIRM NE G-USERID
+    G-NATRP-ERC := 37 /*User ID undefined. Confirm logon SU4
+    ESCAPE TOP
+/*SU4 #CONFIRM := G-USERID
+/*SU4  REINPUT FULL *0037 MARK *G-USERID
+  END-IF
+  IF #ESY-LOGON-REQUIRED
+    G-NPR-USERID:= G-USERID
+  END-IF
+  IF G-NPR-USERID NE ' '
+    PERFORM LOGON-TO-ESY
+  END-IF
+  IF G-NATRP-ERC NE 0
+    RESET G-PASSWORD
+    ESCAPE TOP
+  END-IF
+  CALLNAT 'N-CHKPSW' G-PASSWORD L-CYPHERED 'C' #PASS-RC
+  G-PASSWORD := L-CYPHERED
+  G-DIRECT-COMMAND := '0'
+  PERFORM LOG-RECORD
+  FETCH 'RMENU'              /* EOM Main Menu
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE LOGON-TO-ESY
+************************************************************************
+RESET SATSL-PARMS-03 (*)
+SATSL-NODE-N5  := G-MONITOR-NODE
+SATSL-USER     := G-NPR-USERID
+SATSL-PASSWORD := G-PASSWORD
+SATSL-ACCOUNT  := #ACCOUNT-NR
+IF LOGON-SCREEN OR #ESY-LOGON-REQUIRED
+  SATSL-FUNCTION := SATSL-LOGON
+ELSE
+  SATSL-FUNCTION := SATSL-SPECIAL-LOGON
+END-IF
+SATSL-SATVERS := 21
+CALLNAT 'RMSATSLN' SATSL-SATVERS SATSL-PARMS-03 (*)
+IF #DEF-USER
+  SATSL-ERROR-CODE := 0
+END-IF
+IF SATSL-ERROR-CODE NE 0
+  G-NATRP-ERC := 0005
+  G-NATRP-ERT := SATSL-ERROR-TEXT
+ELSE
+  G-NPR-USERID-CURRENT := G-NPR-USERID
+END-IF
+*
+END-SUBROUTINE /* LOGON-TO-ESY
+*
+************************************************************************
+DEFINE SUBROUTINE LOG-RECORD
+************************************************************************
+LG-USERID := G-USERID
+LG-CODE := 'UI'
+COMPRESS '0078' G-USERID TO LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+*
+END-SUBROUTINE /* LOG-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LANGUAGE
+************************************************************************
+IF USERS.PROF-LANGUAGE = '1' THRU '2'
+  *LANGUAGE := USERS.PROF-LANGUAGE-N
+  G-LANGUAGE := USERS.PROF-LANGUAGE-N
+ELSE
+  MOVE 1 TO *LANGUAGE G-LANGUAGE
+END-IF
+*
+END-SUBROUTINE /* SET-LANGUAGE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-EDITOR-PROFILE
+************************************************************************
+IF USERS.PROF-EDT-PREFIX = 'Y'
+  G-EDT-PREFIX-IS-ON := TRUE
+END-IF
+IF USERS.PROF-EDT-KEYS = 'Y'
+  G-EDT-KEYS-ARE-ON         := TRUE
+END-IF
+*
+END-SUBROUTINE /* SET-EDITOR-PROFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-DEFAULTS
+************************************************************************
+NRM-MONITOR.M-MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+FIND (1) NRM-MONITOR WITH M-MONITOR-ID = NRM-MONITOR.M-MONITOR-ID
+  IF NO RECORDS FOUND
+    PERFORM INSTALLATION-ERROR
+  END-NOREC
+  CALLNAT 'RMSWNODE'  'L' 1 0 0 FALSE /* Get local monitor node
+  IF M-LAST-ACTIVE-CK = ' '
+    RESET M-LAST-ACTIVE
+  END-IF
+  IF M-ARCHIVE-TIME-CK = ' '
+    RESET M-ARCHIVE-TIME
+  END-IF
+  #BUNDLE-DEFAULTS := M-BUNDLE-DEFAULTS
+  IF B-FLUSH-TIME-A = ' '
+    RESET B-FLUSH-TIME
+    M-BUNDLE-DEFAULTS := #BUNDLE-DEFAULTS
+  END-IF
+*
+  IF NOT #READ-MONITOR
+    #AUTODEF := M-USER-AUTODEF
+    #READ-MONITOR := TRUE
+  END-IF
+  IF M-USE-OWNER = 'Y'
+    G-USE-OWNER := TRUE
+  ELSE
+    RESET G-USE-OWNER
+  END-IF
+  G-DATE-FORMAT     := M-DATE-FORMAT
+  G-SYS-RETENTION   := M-RETENTION-PERIOD
+  G-MONITOR-JOBNAME := M-XCOM-JOBNAME
+  IF M-SUPPORT-LONG-NAMES = 'Y'
+    G-SUPPORT-LONG-NAMES := TRUE
+  ELSE
+    RESET G-SUPPORT-LONG-NAMES G-DISPLAY-LONG-NAMES
+  END-IF
+  DECIDE FOR FIRST CONDITION
+    WHEN M-NATRPT-DBID-N5 > 0
+      G-NATRP-DBID := M-NATRPT-DBID-N5
+      G-NATRP-FNR  := M-NATRPT-FNR-N5
+/*SU3  WHEN M-NATRPT-DBID > 0
+/*SU3      G-NATRP-DBID := M-NATRPT-DBID
+/*SU3      G-NATRP-FNR  := M-NATRPT-FNR
+    WHEN NONE IGNORE
+  END-DECIDE
+  G-TARGET-DBID := G-TARGET-FNR := 0
+  RESET G-LCB G-PFB G-OTB G-TXB G-CAPPL-CHECKED G-CAPPL-NUMBER
+    G-CAPPL-TAB (*) G-DCAPPL-CHECKED G-DCAPPL-NUMBER
+    G-DCAPPL-TAB (*)
+  G-NTDB-PROCESS := M-NTDB-PROCESS
+  G-MONITOR-NODE := +NOD-LOCAL-NODE
+  G-DATE-FORMAT    := M-DATE-FORMAT
+  G-WAIT-MINIMUM   := M-WAIT-MINIMUM
+  G-WAIT-MAXIMUM   := M-WAIT-MAXIMUM
+  G-WAIT-INCREMENT := M-WAIT-INCREMENT
+  G-SYSTEM-TYPE    := +NOD-LOCAL-SYSTEM-TYPE
+  G-SPOOL-TYPE     := +NOD-LOCAL-SPOOL-TYPE
+  FOR I 1 TO C*M-LOG-TYPES
+    DECIDE ON FIRST VALUE OF M-LOG-TYPES (I)
+      VALUE 'R' G-LOG-REP := TRUE
+      VALUE 'B' G-LOG-BUN := TRUE
+      VALUE 'P' G-LOG-PRT := TRUE
+      VALUE 'D' G-LOG-LIST := TRUE
+      VALUE 'L' G-LOG-LOGON := TRUE
+      NONE IGNORE
+    END-DECIDE
+  END-FOR
+END-FIND
+FIND (1) USER-EXITS WITH M-MONITOR-ID = 'API-DEFS'
+  FOR I 1 20
+    IF M-NOMEXIT-ACTIVE (I) = 'Y'
+      +G-NOMEXIT-ACTIVE (I) := TRUE
+    ELSE
+      +G-NOMEXIT-ACTIVE (I) := FALSE
+    END-IF
+  END-FOR
+END-FIND
+IF G-MONITOR-NODE NE 0
+  FIND (1) SYSTEM-INFO WITH NODE = G-MONITOR-NODE
+    IF NO RECORDS FOUND
+      WRITE *PROGRAM '**********************************************' /
+        '     Unable to get security info from SYSTEM INFO ' /
+        '     reason NODE ID > ' G-MONITOR-NODE
+        '< not know to Entire System Server' /
+        '     Error code = ' ERROR-CODE ERROR-TEXT /
+        *PROGRAM '**********************************************' /
+      STACK TOP COMMAND 'RETURN'
+      STOP
+    END-NOREC
+    IF ERROR-CODE NE 0 OR SECURITY = 'NONE'
+      RESET #EXTERNAL-SECURITY
+    ELSE
+      #EXTERNAL-SECURITY:= TRUE
+    END-IF
+  END-FIND
+ELSE
+  RESET #EXTERNAL-SECURITY
+END-IF
+*
+END-SUBROUTINE /* SET-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE SET-USER-DEFAULTS
+************************************************************************
+FIND (1) USERS WITH USER-ID = G-USERID WHERE USER-ID NE 'DEFAULT'
+  IF NO RECORDS FOUND
+    IF #AUTODEF = 'P' OR #AUTODEF = 'Y'
+      #DEF-USER := TRUE
+      CALLNAT 'RDEFUS-N' G-USERID #LANGUAGE PROFILE-STRING G-USERID
+    ELSE
+      IF NOT #EXTERNAL-SECURITY
+        G-NATRP-ERC := 0028
+      ELSE
+        G-NATRP-ERC := 0002
+      END-IF
+    END-IF
+    ESCAPE BOTTOM
+  END-NOREC
+  RESET #DEF-USER
+  PROFILE-STRING := USERS.USER-PROFILE
+END-FIND
+PERFORM SET-LANGUAGE
+PERFORM SET-EDITOR-PROFILE
+G-USER-PROFILE := PROFILE-STRING
+IF USERS.PROF-DISPLAY-LONG-NAMES = 'Y' AND G-SUPPORT-LONG-NAMES
+  G-DISPLAY-LONG-NAMES := TRUE
+ELSE
+  RESET G-DISPLAY-LONG-NAMES
+END-IF
+G-USER-TYPE := PROFILE-STRING.PROF-TYPE
+IF G-USER-TYPE = 'O'
+  G-USER-TYPE  := 'G'
+  +G-USER-TYPE := 'O'
+END-IF
+G-AUTOCOMMIT := PROFILE-STRING.PROF-AUTOCOMMIT
+IF PROFILE-STRING.PROF-CONFIRM = 'N'
+  RESET G-CONFIRM
+ELSE
+  G-CONFIRM := TRUE
+END-IF
+IF #USE-SPOOLER
+  G-NATRP-INDICATOR := H'0807060504030200'
+ELSE
+  G-NATRP-INDICATOR := H'0807060504030201'
+END-IF
+DECIDE FOR FIRST CONDITION
+  WHEN G-USE-OWNER AND PROFILE-STRING.PROF-EXTERNAL = 'N'
+    RESET G-NPR-USERID
+  WHEN NOT G-USE-OWNER AND PROFILE-STRING.PROF-EXTERNAL = 'N'
+    RESET  G-NPR-USERID          /* ?????
+  WHEN PROFILE-STRING.PROF-EXTERNAL = 'Y'
+    G-NPR-USERID := G-USERID
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* SET-USER-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE SET-PFKEYS
+************************************************************************
+SET KEY PF1  = PGM NAMED OFF
+SET KEY PF2  = PGM NAMED OFF
+SET KEY PF3  = PGM NAMED 'End'
+SET KEY PF4  = PGM NAMED OFF
+SET KEY PF5  = PGM NAMED OFF
+SET KEY PF6  = PGM NAMED OFF
+SET KEY PF7  = PGM NAMED OFF
+SET KEY PF8  = PGM NAMED OFF
+SET KEY PF9  = PGM NAMED OFF
+SET KEY PF10 = PGM NAMED OFF
+SET KEY PF11 = PGM NAMED OFF
+SET KEY PF12 = PGM NAMED OFF
+SET KEY PF13 = PGM NAMED OFF
+SET KEY PF14 = PGM NAMED OFF
+SET KEY PF15 = PGM NAMED 'End'
+SET KEY PF16 = PGM NAMED OFF
+SET KEY PF17 = PGM NAMED OFF
+SET KEY PF18 = PGM NAMED OFF
+SET KEY PF19 = PGM NAMED OFF
+SET KEY PF20 = PGM NAMED OFF
+SET KEY PF21 = PGM NAMED OFF
+SET KEY PF22 = PGM NAMED OFF
+SET KEY PF23 = PGM NAMED OFF
+SET KEY PF24 = PGM NAMED OFF
+SET KEY CLR = '%R'
+*
+END-SUBROUTINE /* SET-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE INSTALLATION-ERROR
+************************************************************************
+REPEAT
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'NRM---2&'
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'NRM---2&'
+  IF G-DIRECT-COMMAND = 'INSTALL'
+    RELEASE STACK
+    RELEASE VARIABLES
+    FETCH 'INSTALL'
+  END-IF
+  UNTIL *PF-KEY = 'PF3' OR = 'PF15'
+END-REPEAT
+PERFORM RETURN-TO-CALLER
+*
+END-SUBROUTINE /* INSTALLATION-ERROR
+*
+************************************************************************
+DEFINE SUBROUTINE INVALID-NOM-FILE
+************************************************************************
+REPEAT
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'NRM---3&'
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'NRM---3&'
+  IF G-DIRECT-COMMAND = 'INSTALL'
+    FETCH 'INSTALL'
+  END-IF
+  UNTIL *PF-KEY = 'PF3' OR = 'PF15'
+END-REPEAT
+PERFORM RETURN-TO-CALLER
+*
+END-SUBROUTINE /* INVALID-NOM-FILE
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-BASE-NOT-ACTIVE
+************************************************************************
+REPEAT
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'NRM---4&'
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'NRM---4&'
+  UNTIL *PF-KEY = 'PF3' OR = 'PF15'
+END-REPEAT
+PERFORM RETURN-TO-CALLER
+*
+END-SUBROUTINE /* DATA-BASE-NOT-ACTIVE
+*
+************************************************************************
+DEFINE SUBROUTINE RETURN-TO-CALLER
+************************************************************************
+RELEASE STACK
+STACK TOP COMMAND 'RETURN'
+STOP
+*
+END-SUBROUTINE /* RETURN-TO-CALLER
+*
+************************************************************************
+DEFINE SUBROUTINE CHK-USERID
+************************************************************************
+RESET #CHK-RC #CHK-NSC
+* check for NAT Security
+CALLNAT 'NSC-ACT' #CHK-NSC
+IF NOT #CHK-NSC
+  #CHK-RC := 10
+  #CHK-PARM1 := 'NATURAL SECURITY REQUIRED '
+  ESCAPE ROUTINE
+END-IF
+* check if administartor of NOM
+#CHK-USERID-INIT := *INIT-USER
+FIND (1) CHK-USERS WITH USER-ID = #CHK-USERID-INIT
+  IF NO RECORDS FOUND
+    #CHK-RC := 20
+    COMPRESS 'INIT USER ' #CHK-USERID-INIT 'IS NOT DEFINE TO NOM '
+      TO #CHK-PARM1
+    ESCAPE ROUTINE
+  END-NOREC
+  IF CHK-USERS.TYPE NE 'A'
+    #CHK-RC := 30
+    COMPRESS 'INIT USER ' #CHK-USERID-INIT 'IS NOT ADMINSTRATOR IN NOM'
+      TO #CHK-PARM1
+    ESCAPE ROUTINE
+  END-IF
+END-FIND
+* check if valid NOM user
+FIND (1) CHK-USERS WITH USER-ID = #CHK-USERID-LOGON
+  IF NO RECORDS FOUND
+    #CHK-RC := 40
+    COMPRESS 'LOGON USER' #CHK-USERID-LOGON  'IS NOT DEFINE TO NOM '
+      TO #CHK-PARM1
+    ESCAPE ROUTINE
+  END-NOREC
+END-FIND
+RESET #CHK-PARM1
+* check if allowed to logon on to application
+CALLNAT 'NSC---L' #CHK-APPLID #CHK-USERID-LOGON #CHK-RC #CHK-PARM1
+IF #CHK-RC NE 0
+  #CHK-RC := 50
+  COMPRESS 'USER' #CHK-USERID-LOGON 'IS NOT LINKED TO LIBRARY - NATSEC '
+    TO #CHK-PARM1
+END-IF
+*
+END-SUBROUTINE /* CHK-USERID
+*
+************************************************************************
+DEFINE SUBROUTINE SET-INDEPENDENT
+************************************************************************
+NRM-MONITOR.M-MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+FIND (1) NRM-MONITOR WITH M-MONITOR-ID = NRM-MONITOR.M-MONITOR-ID
+  IF NO RECORDS FOUND
+    PERFORM INSTALLATION-ERROR
+  END-NOREC
+  #AUTODEF := M-USER-AUTODEF
+END-FIND
+#READ-MONITOR := TRUE
+FIND (1) USER-EXITS WITH M-MONITOR-ID = 'API-DEFS'
+  FOR I 1 20
+    IF M-NOMEXIT-ACTIVE (I) = 'Y'
+      +G-NOMEXIT-ACTIVE (I) := TRUE
+    ELSE
+      +G-NOMEXIT-ACTIVE (I) := FALSE
+    END-IF
+  END-FOR
+END-FIND
+FIND (1) USERS WITH USER-ID = G-USERID
+  IF NO RECORDS FOUND                          /* userid not defined
+    IF #AUTODEF = 'P' OR #AUTODEF = 'Y'
+      FIND (1) USERS WITH USER-ID = 'DEFAULT'
+        PERFORM GET-USER-TYPE
+      END-FIND
+      ESCAPE BOTTOM
+    END-IF
+    ESCAPE BOTTOM
+  END-NOREC
+  PERFORM GET-USER-TYPE
+END-FIND
+*
+END-SUBROUTINE /* SET-INDEPENDENT
+*
+************************************************************************
+DEFINE SUBROUTINE GET-USER-TYPE
+************************************************************************
+PROFILE-STRING:= USERS.USER-PROFILE
+IF PROFILE-STRING.PROF-TYPE = 'O'
+  +G-USER-TYPE := 'O'
+END-IF
+*
+END-SUBROUTINE /* GET-USER-TYPE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  DECIDE ON FIRST *ERROR-NR
+    VALUE 3017, 3061
+      PERFORM INVALID-NOM-FILE
+    VALUE 3148
+      PERFORM DATA-BASE-NOT-ACTIVE
+    NONE VALUE
+      IGNORE
+  END-DECIDE
+*
+END-ERROR
+*
+END

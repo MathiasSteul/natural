@@ -1,0 +1,268 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMPHATN * - Check Special Printer Attributes
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  94-10-24           created
+* gw  95-12-20 s(999999) various attributes WINPM, OS2PM, ECL, VTAM
+* gw  96-09-06 s(999999) WINPM32
+* fhi 02-06-13 s(225125) Add printer type EMAIL
+* xsetggr 02-10-30 QE1  translate checking variable names in upper case
+* xsetggr 2008-07-22 p(302947) check bs2 printer attributes
+* xsetggr 2010-09-29 NOMALL-865 add printer of type ##PHYS-WRTSPOOL
+* xsetggr 2012-06-20 NOMALL-1162 check length of attribute value
+* SU1     2013-06-05 NOMALL-1262 remove OS2PM,HPSPOOL,WINPM,WINPM32
+* fhi     2014-04-17 NOMALL-1390 Avoid wrong error message NOM0125
+* fhi     2014-08-26 NOMALL-1475 Validate DISKUNIX special attr
+* fhi     2014-09-11 NOMALL-1475 same
+* SU2     2017-10-09 NOMALL-1823 NOM 3.5: remove CONNECT,ECL,XML
+* SU3     2021-08-11 NOMALL-2482 WRTSPOOL:check node for numeric
+* SU4     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER USING EOMPHATP
+PARAMETER USING EOMMSG-P
+* ----------------------------------------------------------------------
+LOCAL USING EOMPHTYE
+LOCAL
+1 #I                (I4)
+1 #ATTRIBUTES       (A95/1:25)
+1 REDEFINE #ATTRIBUTES
+  2 #ATTR           (1:25)
+    3 #ATTR-IDENT   (I1)
+    3 #ATTR-LENGTH  (N2)
+    3 #ATTR-PROMPT  (N4)
+    3 #ATTR-VAR     (A16)
+    3 #ATTR-VALUE   (A72)
+1 #LEN              (N2)
+1 #J                (I4)
+1 #FONT             (A50)
+1 #HEADER-FONT      (A50)
+1 #N5               (N5)
+1 #YES              (A3) CONST <'YES'>
+1 #NO               (A3) CONST <'NO '>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET EOMMSG-NR EOMMSG-FIELD-NAME
+*
+#ATTRIBUTES(*) := EOMPHAT-ATTRIBUTES(*)
+EXAMINE #ATTRIBUTES(*) TRANSLATE INTO UPPER CASE
+*
+FOR #I 1 EOMPHAT-ATTRIBUTES-OCC
+  PERFORM CHECK-LENGTH
+  IF EOMMSG-NR NE 0
+    ESCAPE BOTTOM
+  END-IF
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN EOMPHAT-PRINTER-TYPE = ##PHYS-DISK-MVS   IGNORE
+    WHEN EOMPHAT-PRINTER-TYPE = ##PHYS-SYSPR-JES  IGNORE
+/*SU4 WHEN EOMPHAT-PRINTER-TYPE = ##PHYS-SYSPR-PWR  IGNORE
+    WHEN EOMPHAT-PRINTER-TYPE = ##PHYS-TAPE-MVS   IGNORE
+    WHEN EOMPHAT-PRINTER-TYPE = ##PHYS-NAF        IGNORE
+    WHEN EOMPHAT-PRINTER-TYPE = ##PHYS-VTAM       PERFORM CHECK-VTAM
+/*SU4 WHEN EOMPHAT-PRINTER-TYPE = ##PHYS-TAPE-VSE  PERFORM CHECK-TAPEVSE
+    WHEN EOMPHAT-PRINTER-TYPE = ##PHYS-CMASPOOL   PERFORM CHECK-CMASPOOL
+    WHEN EOMPHAT-PRINTER-TYPE = ##PHYS-EMAIL      PERFORM CHECK-EMAIL
+/*SU4 WHEN EOMPHAT-PRINTER-TYPE = ##PHYS-BS2        PERFORM CHECK-BS2
+    WHEN EOMPHAT-PRINTER-TYPE = ##PHYS-DISKUNIX   PERFORM CHECK-DISKUNIX
+    WHEN EOMPHAT-PRINTER-TYPE = ##PHYS-WRTSPOOL   PERFORM CHECK-WRTSPOOL
+    WHEN NONE IGNORE
+  END-DECIDE
+END-FOR
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-LENGTH
+************************************************************************
+RESET #LEN
+EXAMINE EOMPHAT-ATTR-DEFAULT(#I) FOR ' ' GIVING LENGTH IN #LEN
+IF #LEN > EOMPHAT-ATTR-LENGTH(#I)
+  EOMMSG-NR := 132
+  EOMMSG-TOKEN(1) := EOMPHAT-ATTR-VAR(#I)
+  PERFORM ASSIGN-EOMMSG
+END-IF
+*
+END-SUBROUTINE /* CHECK-LENGTH
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-VTAM
+************************************************************************
+DECIDE ON FIRST VALUE EOMPHAT-ATTR-VAR (#I)
+  VALUE 'CONTROL' , 'TRACE'
+    EXAMINE EOMPHAT-ATTR-DEFAULT (#I) TRANSLATE INTO UPPER
+    IF NOT (EOMPHAT-ATTR-DEFAULT (#I) = #YES OR = #NO)
+      PERFORM SET-PARM-TRACE
+    END-IF
+  VALUE 'FEED-AFTER' , 'FEED-BEFORE'
+    IF NOT (EOMPHAT-ATTR-DEFAULT (#I) IS (N1)
+    OR  EOMPHAT-ATTR-DEFAULT (#I) = ' ' )                             /*
+      PERFORM ASSIGN-EOMMSG
+    END-IF
+  VALUE 'MAXWAIT'
+    IF NOT (EOMPHAT-ATTR-DEFAULT (#I) IS (N4)
+    OR  EOMPHAT-ATTR-DEFAULT (#I) = ' ' )                             /*
+      PERFORM ASSIGN-EOMMSG
+    END-IF
+  NONE  IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-VTAM
+*
+/*SU4 DEFINE SUBROUTINE CHECK-TAPEVSE
+/*SU4 DEFINE SUBROUTINE CHECK-BS2
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-CMASPOOL
+************************************************************************
+DECIDE ON FIRST VALUE EOMPHAT-ATTR-VAR (#I)
+  VALUE 'LCT'
+    IF NOT (EOMPHAT-ATTR-DEFAULT (#I) IS (N3)
+    OR  EOMPHAT-ATTR-DEFAULT (#I) = ' ' )                             /*
+      PERFORM ASSIGN-EOMMSG
+    END-IF
+  VALUE 'TRC'
+    IF NOT (EOMPHAT-ATTR-DEFAULT (#I) = #YES OR = #NO OR = ' ')
+      PERFORM ASSIGN-EOMMSG
+    END-IF
+  VALUE 'LIM'
+    IF NOT (EOMPHAT-ATTR-DEFAULT (#I) IS (N8)
+    OR  EOMPHAT-ATTR-DEFAULT (#I) = ' ' )                             /*
+      PERFORM ASSIGN-EOMMSG
+    END-IF
+  NONE  IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-CMASPOOL
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-EMAIL
+************************************************************************
+DECIDE ON FIRST VALUE #ATTR-VAR (#I)
+  VALUE 'ENCRYPT'
+    EXAMINE EOMPHAT-ATTR-DEFAULT (#I) TRANSLATE INTO UPPER
+    IF NOT (EOMPHAT-ATTR-DEFAULT (#I) = #YES OR = #NO OR = ' ')
+      PERFORM ASSIGN-EOMMSG
+    END-IF
+  VALUE 'NODE'
+    IF NOT EOMPHAT-ATTR-DEFAULT (#I) IS (N5)
+    AND EOMPHAT-ATTR-DEFAULT (#I) NE ' '                              /*
+      PERFORM ASSIGN-EOMMSG
+    END-IF
+  NONE  IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-EMAIL
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-DISKUNIX
+************************************************************************
+DECIDE ON FIRST VALUE #ATTR-VAR (#I)
+  VALUE 'FORMATTER'
+    FOR #J 1 EOMPHAT-ATTRIBUTES-OCC
+      DECIDE ON FIRST VALUE #ATTR-VAR (#I)
+        VALUE 'FONT'
+          #FONT := EOMPHAT-ATTR-DEFAULT (#I)
+        VALUE 'HEADER-FONT'
+          #HEADER-FONT := EOMPHAT-ATTR-DEFAULT (#I)
+        NONE
+          IGNORE
+      END-DECIDE
+    END-FOR
+    EXAMINE EOMPHAT-ATTR-DEFAULT (#I) TRANSLATE INTO UPPER
+    IF NOT (EOMPHAT-ATTR-DEFAULT (#I) =
+        'AUTO' OR = 'ENSCRIPT' OR = 'UNIPRINT' OR = ' ')
+      PERFORM ASSIGN-EOMMSG
+    END-IF
+    IF NOT (EOMPHAT-ATTR-DEFAULT (#I) = 'ENSCRIPT' OR = 'UNIPRINT')
+    AND (#FONT NE ' ' OR #HEADER-FONT NE ' ')                         /*
+      EOMMSG-NR := 135
+      PERFORM ASSIGN-EOMMSG
+    END-IF
+  VALUE 'TRACE'
+    IF NOT (EOMPHAT-ATTR-DEFAULT (#I) ='0' OR='1' OR='Y' OR='N' OR=' ')
+      PERFORM ASSIGN-EOMMSG
+    END-IF
+  NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-DISKUNIX
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-EOMMSG
+************************************************************************
+IF NOT (EOMMSG-NR =132 OR=135 OR=641) /*132,135 - no msg SU3
+  EOMMSG-NR := 125 /*Attribute :1: has incorrect value.
+END-IF
+EOMMSG-IND1       := #I
+EOMMSG-FIELD-NAME := EOMMSG-TOKEN (1)  := EOMPHAT-ATTR-VAR (#I)
+*
+END-SUBROUTINE /*ASSIGN-EOMMSG
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-WRTSPOOL
+************************************************************************
+DECIDE ON FIRST VALUE #ATTR-VAR (#I)
+  VALUE 'BURST'
+    EXAMINE EOMPHAT-ATTR-DEFAULT (#I) TRANSLATE INTO UPPER
+    IF NOT (EOMPHAT-ATTR-DEFAULT (#I) = #YES OR = #NO)
+      PERFORM SET-PARM-TRACE
+    END-IF
+  VALUE 'HOLD'
+    EXAMINE EOMPHAT-ATTR-DEFAULT (#I) TRANSLATE INTO UPPER
+    IF NOT (EOMPHAT-ATTR-DEFAULT (#I) = #YES OR = #NO OR = ' ' )
+      PERFORM ASSIGN-EOMMSG
+    END-IF
+  VALUE 'SEPPAGESCOPIES'
+    EXAMINE EOMPHAT-ATTR-DEFAULT (#I) TRANSLATE INTO UPPER
+    IF NOT (EOMPHAT-ATTR-DEFAULT (#I) = #YES OR = #NO)
+      PERFORM SET-PARM-TRACE
+    END-IF
+  VALUE 'UCSOPTIONS'
+    EXAMINE EOMPHAT-ATTR-DEFAULT (#I) TRANSLATE INTO UPPER
+    IF NOT (EOMPHAT-ATTR-DEFAULT (#I) = 'B' OR = 'F' OR = ' ')
+      PERFORM ASSIGN-EOMMSG
+    END-IF
+  VALUE 'NODE' /*SU3
+    IF EOMPHAT-ATTR-DEFAULT (#I) IS (N5)
+      #N5 := VAL(EOMPHAT-ATTR-DEFAULT (#I))
+    ELSE
+      IF EOMPHAT-ATTR-DEFAULT (#I) NE ' '
+        #N5 := -1 /*invalid
+      END-IF
+    END-IF
+    IF NOT(#N5=0 THRU 65535)
+      EOMMSG-NR := 0641 /*Enter a node number between 1 and 65535.
+      PERFORM ASSIGN-EOMMSG
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-WRTSPOOL
+*
+************************************************************************
+DEFINE SUBROUTINE SET-PARM-TRACE
+************************************************************************
+IF EOMPHAT-ATTR-DEFAULT (#I) = MASK ('Y')
+  EOMPHAT-ATTR-DEFAULT (#I) := #YES
+ELSE
+  EOMPHAT-ATTR-DEFAULT (#I) := #NO
+END-IF
+*
+END-SUBROUTINE /* SET-PARM-TRACE
+*
+END

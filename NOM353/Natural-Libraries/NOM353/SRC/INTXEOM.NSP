@@ -1,0 +1,99 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member     INTXEOM
+* Function   Sets flag in control Record and creates PRODINFO for dev.
+*
+* Note FHI:  The template was 'INTXEOR' which tells SYSPROD that EOR
+*            is installed. We update the development environment by
+*            inserting the current version and cat date into SYSPROD.
+*
+* NOTES:
+* 04.11.11          NOM 331 CF 2   Adapt for NOM purposes, no tags
+* SU1     2016-08-05 NOM 3.5: remove unused code
+* ---------------------------------------------------------------------
+DEFINE DATA
+LOCAL USING INTSAT-L
+LOCAL
+1 NEW-PRODUCTNAME (A3)   INIT <'EOM'>
+1 #NOMVERS        (A6)   /* NOM Version
+1 #VAL            (A2)
+1 #MSG            (A78)
+1 #LEN            (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE PRINTER (11) OUTPUT 'SOURCE'
+SET CONTROL 'Z'
+INPUT '=' #NOMVERS              /* Format: vnnn, vnnnn, vnnnnn (Unix)
+*                               /* where nnn - nnnnn is the version
+*
+EXAMINE #NOMVERS FOR 'x' GIVING LENGTH IN #LEN
+#VAL        := SUBSTR(#NOMVERS,2,1)
+INT-VERSION := VAL (#VAL)
+#VAL        := SUBSTR(#NOMVERS,3,1)
+INT-RELEASE := VAL (#VAL)
+DECIDE ON FIRST VALUE OF #LEN
+  VALUE 4
+    #VAL          := SUBSTR(#NOMVERS,4,1)
+    INT-SMLEVEL   := VAL (#VAL)
+    INT-IUPDLEVEL := 0
+  VALUE 5
+    #VAL          := SUBSTR(#NOMVERS,4,2)
+    INT-SMLEVEL   := VAL (#VAL)
+    #VAL          := SUBSTR(#NOMVERS,5,1)
+    INT-IUPDLEVEL := VAL (#VAL)
+  VALUE 6
+    #VAL          := SUBSTR(#NOMVERS,4,2)
+    INT-SMLEVEL   := VAL (#VAL)
+    #VAL          := SUBSTR(#NOMVERS,6,1)
+    INT-IUPDLEVEL := VAL (#VAL)
+  NONE
+    COMPRESS NEW-PRODUCTNAME 'Wrong version number:' #NOMVERS INTO #MSG
+    WRITE #MSG
+    ESCAPE ROUTINE
+END-DECIDE
+*
+PERFORM INSTALLATION
+COMPRESS NEW-PRODUCTNAME #NOMVERS 'updated sucessfully' TO #MSG
+WRITE #MSG
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+/*SU1 DEFINE SUBROUTINE MAKE-PRODINFO
+*
+************************************************************************
+DEFINE SUBROUTINE INSTALLATION
+************************************************************************
+INT-FUNCTION    := 'N'                     /* Vers/SM Change
+INT-PRODUCTNAME := NEW-PRODUCTNAME
+PERFORM CALL-INTSUB2
+IF INT-RESP NE  0
+  WRITE 'Installation Error' INT-RESP INT-FUNCTION / INT-TEXT
+  STOP
+END-IF
+*
+END-SUBROUTINE /* INSTALLATION
+*
+* ---------------------------------------------- call it ---------------
+/*SU1 INCLUDE INTSAT-C /*SU1 move coding from CC into pgm
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-INTSUB2 /*SU1 from INTSAT-C
+************************************************************************
+CALLNAT 'INTSUB2' INT-FUNCTION INT-RESP INT-TEXT INT-PRODUCTNAME
+  INT-ACTIVE INT-EXTENT INT-VERSION INT-RELEASE INT-SMLEVEL
+  INT-IUPDLEVEL INT-DATE INT-TIME INT-USER INT-REM INT-SAG (*)
+  INT-PRODS (*)
+*
+END-SUBROUTINE /* CALL-INTSUB2
+*
+END

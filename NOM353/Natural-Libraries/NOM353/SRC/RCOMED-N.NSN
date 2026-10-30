@@ -1,0 +1,184 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RCOMED-N - compute Expiration depending on retention period
+*              A = absolute days
+*              W = working days
+*              V = weeks
+*              M = month
+*              Y = years
+* Maintenance
+* UID DATE     MARK      COMMENT
+* ----------------------------------------------------------------------
+* fhi 02-10-30 fhi101    switch on optimizer compiler
+* sju 05-10-05 p(270257) If no unit provided, treat unit as A
+* sju 06-06-28 p(280697) If num is 0, ignore
+* SU1     2016-07-29 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #P-IN-DATE                   (D)
+1 #P-PERIOD                    (A12)
+1 REDEFINE #P-PERIOD
+  2 #P-NUM                     (N3)
+  2 REDEFINE #P-NUM
+    3 #P-NUM-A                 (A3)
+  2 #P-UNIT                    (A1)
+  2 #P-CALENDAR                (A8)
+1 #P-OUT-DATE                  (D)
+************************************************************************
+LOCAL
+1 CALENDAR VIEW OF NRM-CALENDARS
+  2 CA-CALENDAR-ID
+  2 CA-WORKING-DAYS (1:12)
+  2 REDEFINE CA-WORKING-DAYS
+    3 #DAYS1 (12)
+      4 #DAYS                  (A1/31)
+*
+1 #CA-KEY                      (A12)
+1 REDEFINE #CA-KEY
+  2 #CA-CALENDAR               (A8)
+  2 #CA-YEAR                   (N4)
+*
+1 #VALUE                       (N5)
+1 ERROR                        (L)
+1 #DATE-A                      (A8)
+1 REDEFINE #DATE-A
+  2 #YYYY                      (N4)
+  2 #MM                        (N2)
+  2 #DD                        (N2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET  #P-OUT-DATE
+PERFORM VALIDATE-INPUT
+DECIDE FOR FIRST CONDITION
+  WHEN ERROR
+    IGNORE
+  WHEN #P-UNIT = 'A' OR = ' '
+    PERFORM INCREASE-BY-ABSOLUTE-DAYS
+  WHEN #P-UNIT = 'W'
+    PERFORM INCREASE-BY-WORKING-DAYS
+  WHEN #P-UNIT = 'V'
+    PERFORM INCREASE-BY-WEEKS
+  WHEN #P-UNIT = 'M'
+    PERFORM INCREASE-BY-MONTH
+  WHEN #P-UNIT = 'Y'
+    PERFORM INCREASE-BY-YEAR
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+IF #P-UNIT = 'A' OR = 'W' OR = 'V' OR = 'M' OR = 'Y' OR = ' '
+  IF #P-NUM-A IS (N3)
+    #VALUE := #P-NUM
+    IF #VALUE = 0 AND #P-UNIT = ' '
+      ERROR := TRUE
+    END-IF
+  ELSE
+    ERROR := TRUE
+  END-IF
+ELSE
+  ERROR := TRUE
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE INCREASE-BY-ABSOLUTE-DAYS
+************************************************************************
+#P-OUT-DATE := #P-IN-DATE + #VALUE
+*
+END-SUBROUTINE /* INCREASE-BY-ABSOLUTE-DAYS
+*
+************************************************************************
+DEFINE SUBROUTINE INCREASE-BY-WORKING-DAYS
+************************************************************************
+#P-OUT-DATE := #P-IN-DATE
+REPEAT
+  UNTIL #VALUE = 0
+  #P-OUT-DATE := #P-OUT-DATE + 1
+  MOVE EDITED #P-OUT-DATE (EM=YYYYMMDD) TO #DATE-A
+  IF #YYYY NE #CA-YEAR
+    #CA-YEAR     := #YYYY
+    #CA-CALENDAR := #P-CALENDAR
+    FIND (1) CALENDAR WITH CA-CALENDAR-ID = #CA-KEY
+      IF NO RECORDS FOUND
+        ENTER
+      END-NOREC
+    END-FIND
+  END-IF
+  IF #DAYS (#MM, #DD) NE 'H'
+    SUBTRACT 1 FROM #VALUE
+  END-IF
+END-REPEAT
+*
+END-SUBROUTINE /* INCREASE-BY-WORKING-DAYS
+*
+************************************************************************
+DEFINE SUBROUTINE INCREASE-BY-WEEKS
+************************************************************************
+#VALUE := #VALUE * 7
+PERFORM INCREASE-BY-ABSOLUTE-DAYS
+*
+END-SUBROUTINE /* INCREASE-BY-WEEKS
+*
+************************************************************************
+DEFINE SUBROUTINE INCREASE-BY-MONTH
+************************************************************************
+MOVE EDITED #P-IN-DATE (EM=YYYYMMDD) TO #DATE-A
+REPEAT
+  UNTIL #VALUE = 0
+  ADD 1 TO #MM
+  IF #MM > 12
+    ADD 1 TO #YYYY
+    #MM := 1
+  END-IF
+  SUBTRACT 1 FROM #VALUE
+END-REPEAT
+PERFORM VALID-DAY
+MOVE EDITED #DATE-A TO #P-OUT-DATE (EM=YYYYMMDD)
+*
+END-SUBROUTINE /* INCREASE-BY-MONTH
+*
+************************************************************************
+DEFINE SUBROUTINE INCREASE-BY-YEAR
+************************************************************************
+MOVE EDITED #P-IN-DATE (EM=YYYYMMDD) TO #DATE-A
+#YYYY := #YYYY + #VALUE
+PERFORM VALID-DAY
+MOVE EDITED #DATE-A TO #P-OUT-DATE (EM=YYYYMMDD)
+*
+END-SUBROUTINE /* INCREASE-BY-YEAR
+*
+************************************************************************
+DEFINE SUBROUTINE VALID-DAY
+************************************************************************
+REPEAT
+  UNTIL #DATE-A = MASK (YYYYMMDD)
+  #DD := #DD - 1
+  IF #DD < 1
+    #DD := 31
+    #MM := #MM - 1
+    IF #MM < 1
+      #MM := 12
+      #YYYY := #YYYY - 1
+    END-IF
+  END-IF
+END-REPEAT
+*
+END-SUBROUTINE /* VALID-DAY
+*
+END

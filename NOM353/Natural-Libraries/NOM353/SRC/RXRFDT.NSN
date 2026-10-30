@@ -1,0 +1,217 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RXRFDT
+* Function:  List User/list related to a report via distribute to ....
+*
+* Maintenance
+* mrs 91-12-27           display Report description
+* xsiszha 2000-08-04 (CE7461) Extend Report and Bundle Names
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #P-USERID            (A8)
+1 G-SUPPORT-LONG-NAMES (L)
+1 G-DISPLAY-LONG-NAMES (L)
+LOCAL
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-DESC
+LOCAL
+1 #I                   (P2)
+1 #NOFLINES            (I2)   CONST <12>
+1 L-SCREEN (1:#NOFLINES)
+  2 L-LINE             (A75)
+  2 REDEFINE L-LINE
+    3 L-REPNAME-1      (A25)
+    3 L-FILL-1         (A1)
+    3 L-DESC-1         (A49)
+  2 REDEFINE L-LINE
+    3 L-REPNAME-2      (A17)
+    3 L-FILL-2         (A1)
+    3 L-DESC-2         (A57)
+1 #UEBER               (A75) INIT FULL LENGTH <'_'>
+1 REDEFINE #UEBER
+  2 #UEBER-A           (A1/75)
+1 END-OF-PROCESSING    (L)
+1 END-OF-DISPLAY       (L)
+1 END-OF-DATA          (L)
+1 SORTED               (L)
+1 NEW-SEARCH           (L)
+1 #RETAIN-SET          (A8) INIT <'RXRFDT'>
+1 #MAX-REC             (P4) INIT <200>
+1 #ERC                 (N4)
+1 #PAGE                (P2)  INIT <1>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM PF-KEYS
+FNDS. FIND NUMBER REPORTS WITH R-NATRPT-DIST = #P-USERID
+  RETAIN AS #RETAIN-SET
+IF *NUMBER (FNDS.) > #MAX-REC
+  SORTED := FALSE
+ELSE
+  SORTED := TRUE
+END-IF
+*
+MAIN. REPEAT UNTIL END-OF-PROCESSING
+  RESET #I
+  RESET INITIAL END-OF-DATA #PAGE NEW-SEARCH
+  IF SORTED
+    PERFORM FIND-SORTED
+  ELSE
+    PERFORM FIND-NORMAL
+  END-IF
+END-REPEAT
+RELEASE SET #RETAIN-SET
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE FIND-SORTED
+************************************************************************
+FND. FIND REPORTS WITH #RETAIN-SET SORTED BY R-REPNAME
+  IF #I = #NOFLINES
+    PERFORM SCREEN-IO
+    IF END-OF-PROCESSING OR NEW-SEARCH
+      ESCAPE BOTTOM (FND.)
+    END-IF
+  END-IF
+  ADD 1 TO #I
+  PERFORM REPORT-TO-SCREEN
+END-FIND
+DECIDE FOR FIRST CONDITION
+  WHEN #I > 0
+    END-OF-DATA := TRUE
+  WHEN *NUMBER (FND.) = 0
+    END-OF-DATA := TRUE
+  WHEN ANY
+    PERFORM SCREEN-IO
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* FIND-SORTED
+*
+************************************************************************
+DEFINE SUBROUTINE FIND-NORMAL
+************************************************************************
+FNDN. FIND REPORTS WITH #RETAIN-SET
+  IF #I = #NOFLINES
+    PERFORM SCREEN-IO
+    IF END-OF-PROCESSING OR NEW-SEARCH
+      ESCAPE BOTTOM (FNDN.)
+    END-IF
+  END-IF
+  #I := #I + 1
+  PERFORM REPORT-TO-SCREEN
+END-FIND
+DECIDE FOR FIRST CONDITION
+  WHEN #I > 0
+    END-OF-DATA := TRUE
+  WHEN *NUMBER (FNDN.) = 0
+    END-OF-DATA := TRUE
+  WHEN ANY
+    PERFORM SCREEN-IO
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* FIND-NORMAL
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+RESET END-OF-DISPLAY
+REPEAT
+  DECIDE FOR FIRST CONDITION
+    WHEN #ERC NE 0
+      IGNORE
+    WHEN END-OF-DATA AND #PAGE > 1
+      #ERC := 12                   /* bottom of data
+    WHEN END-OF-DATA AND #PAGE = 1
+      #ERC := 14                   /* all
+    WHEN NOT END-OF-DATA AND #PAGE = 1
+      #ERC := 11                   /* top of data
+    WHEN NONE
+      #ERC := 13                   /* more
+  END-DECIDE
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'Y41'
+  SET CONTROL 'WFL79C19B02/01'
+  SET CONTROL 'M16'
+  INPUT WITH TEXT *#ERC USING MAP 'RXRFDTM&'
+  SET CONTROL 'WMB'
+  SET CONTROL 'YB'
+  RESET #ERC
+  PERFORM COMMAND-PF-KEY
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+RESET #I L-SCREEN (*)
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE REPORT-TO-SCREEN
+************************************************************************
+IF G-DISPLAY-LONG-NAMES
+  L-REPNAME-1 (#I) := REPORTS.R-REPNAME
+  L-DESC-1    (#I) := REPORTS.R-DESC
+  L-FILL-1    (#I) := ' '
+ELSE
+  L-REPNAME-2 (#I) := REPORTS.R-REPNAME
+  L-DESC-2    (#I) := REPORTS.R-DESC
+  L-FILL-2    (#I) := ' '
+END-IF
+*
+END-SUBROUTINE /* REPORT-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+DECIDE ON FIRST *PF-KEY
+  VALUE 'PF3'
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+  VALUE 'PF7'
+    IF #PAGE > 1
+      END-OF-DISPLAY := NEW-SEARCH := TRUE
+    END-IF
+  VALUE 'PF8'
+    IF NOT END-OF-DATA
+      END-OF-DISPLAY := TRUE
+      ADD 1 TO #PAGE
+    END-IF
+  VALUE 'PF11'
+    IF NOT SORTED
+      NEW-SEARCH := END-OF-DISPLAY := SORTED := TRUE
+    END-IF
+  VALUE 'PF9'
+    IF G-SUPPORT-LONG-NAMES
+      IF G-DISPLAY-LONG-NAMES
+        G-DISPLAY-LONG-NAMES := FALSE
+      ELSE
+        G-DISPLAY-LONG-NAMES := TRUE
+      END-IF
+      NEW-SEARCH := END-OF-DISPLAY := TRUE
+    END-IF
+  NONE           IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+*
+END-SUBROUTINE
+*
+END

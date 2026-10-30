@@ -1,0 +1,283 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPDOCFN - Dieses Programm erzeugt den Document-Format Teil eines
+*           PRINT-DOCUMENT Kommandos
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* mrs     1995-11-01 s(999999) created
+* gw      1996-06-11 s(999999) correct line-spacing
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* xsetggr 2007-05-14 NOM3201   convert node number to 5 digit  format
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-05-05 p(304350) restow due to changes in RMSPL--L
+* fhi     2009-06-24 N3463     Extend metadata for OPO
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-10-08 NOMALL-97 Use dynamic memory handling
+* ---------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 RMPDOCFN-SPOOL-ATTRIBUTES     (A250)
+1 RMPDOCFN-SPOOL-ATTRIBUTES-ADD (A750)
+1 RMPDOCFN-CMD                  (16)
+  2 RMPDOCFN-CMD-LINE           (A72)
+  2 REDEFINE RMPDOCFN-CMD-LINE
+    3 RMPDOCFN-FILLER           (A71)
+    3 RMPDOCFN-CONTINUATION     (A1)
+  2 REDEFINE RMPDOCFN-CMD-LINE
+    3 RMPDOCFN-C                (A1/1:72)
+1 RMPDOCFN-CMD-OCC              (I4)
+1 RMPDOCFN-ERROR-CODE           (N4)
+1 RMPDOCFN-ERROR-TEXT           (A250)
+************************************************************************
+LOCAL USING RMSPL--L
+LOCAL USING RMSPLA-L
+*
+LOCAL
+1 #LENGTH                       (I2)
+1 #LINE-LENGTH                  (I2)
+1 #TLEN                         (I2)
+1 #TOKEN                        (A250)
+1 CONTROL-CHAR-POS-POSSIBLE     (L) INIT <FALSE>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=81
+*
+RESET RMPDOCFN-ERROR-CODE RMPDOCFN-ERROR-TEXT
+*
+IF RMPDOCFN-CMD-OCC = 0
+  RMPDOCFN-CMD-OCC := 1
+END-IF
+*
+EXAMINE RMPDOCFN-CMD-LINE (RMPDOCFN-CMD-OCC)
+  FOR 'x' GIVING LENGTH #LINE-LENGTH
+*
+#SPOOL-ATTRIBUTES := RMPDOCFN-SPOOL-ATTRIBUTES
+CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+#SPOOL-ATTRIBUTES-EXT         := RMPDOCFN-SPOOL-ATTRIBUTES-ADD
+*
+DECIDE FOR FIRST CONDITION
+  WHEN #SPOOL-BS2-DOC-FORMAT = '*TEXT'
+    PERFORM DOC-FORMAT-IS-TEXT
+  WHEN #SPOOL-BS2-DOC-FORMAT = '*PAGE-FORMAT'
+    PERFORM DOC-FORMAT-IS-PAGE
+  WHEN #SPOOL-BS2-DOC-FORMAT = '*SPECIAL-FORMAT'
+    PERFORM DOC-FORMAT-IS-SPECIAL
+  WHEN NONE
+    RMPDOCFN-ERROR-CODE := 5
+    RMPDOCFN-ERROR-TEXT := 'Unbekanntes Dokumentformat'
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DOC-FORMAT-IS-TEXT
+************************************************************************
+#TOKEN := ',DOCUMENT-FORMAT=*TEXT('
+PERFORM TOKEN-TO-COMMAND
+*
+PERFORM LINES-PER-PAGE-SPECIFIED
+*
+CONTROL-CHAR-POS-POSSIBLE := TRUE
+PERFORM LINE-SPACING-SPECIFIED
+*
+COMPRESS #TOKEN ')' INTO #TOKEN LEAVING NO
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE /* DOC-FORMAT-IS-TEXT
+*
+************************************************************************
+DEFINE SUBROUTINE DOC-FORMAT-IS-PAGE
+************************************************************************
+DECIDE ON FIRST VALUE OF #SPOOL-BS2-CONTROL-MODE
+  VALUE '*PAGE-MODE'
+    PERFORM CONTROL-MODE-IS-PAGE
+  VALUE '*LOGICAL'
+    PERFORM CONTROL-MODE-IS-LOGICAL
+  VALUE '*APA'
+    PERFORM CONTROL-MODE-IS-APA
+  VALUE '*PHYSICAL'
+    PERFORM CONTROL-MODE-IS-PHYSICAL
+  VALUE '*LINE-MODE'
+    PERFORM CONTROL-MODE-IS-LINE
+  NONE VALUE
+    RMPDOCFN-ERROR-CODE := 5
+    COMPRESS 'Unbekannter control-mode=' #SPOOL-BS2-CONTROL-MODE
+      TO RMPDOCFN-ERROR-TEXT LEAVING NO
+END-DECIDE
+*
+END-SUBROUTINE /* DOC-FORMAT-IS-PAGE
+*
+************************************************************************
+DEFINE SUBROUTINE CONTROL-MODE-IS-PAGE
+************************************************************************
+#TOKEN := ',CONTROL-MODE=*PAGE-MODE('
+PERFORM TOKEN-TO-COMMAND
+*
+IF #SPOOL-BS2-PAGE-CONTROL-CHAR NE ' '
+  COMPRESS ',PAGE-CONTROL-CHAR=' #SPOOL-BS2-PAGE-CONTROL-CHAR
+    TO #TOKEN LEAVING NO
+  PERFORM TOKEN-TO-COMMAND
+END-IF
+*
+IF #SPOOL-BS2-CONTROL-TYPE NE ' '
+  COMPRESS ',CONTROL-TYPE=' #SPOOL-BS2-CONTROL-TYPE
+    TO #TOKEN LEAVING NO
+  PERFORM TOKEN-TO-COMMAND
+END-IF
+*
+PERFORM LINE-SPACING-SPECIFIED
+*
+COMPRESS #TOKEN ')' TO #TOKEN LEAVING NO
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE /* CONTROL-MODE-IS-PAGE
+*
+************************************************************************
+DEFINE SUBROUTINE CONTROL-MODE-IS-LOGICAL
+************************************************************************
+#TOKEN := ',CONTROL-MODE=*LOGICAL('
+PERFORM TOKEN-TO-COMMAND
+*
+PERFORM LINES-PER-PAGE-SPECIFIED
+*
+CONTROL-CHAR-POS-POSSIBLE := TRUE
+PERFORM LINE-SPACING-SPECIFIED
+*
+COMPRESS #TOKEN ')' TO #TOKEN LEAVING NO
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE /* CONTROL-MODE-IS-LOGICAL
+*
+************************************************************************
+DEFINE SUBROUTINE CONTROL-MODE-IS-PHYSICAL
+************************************************************************
+#TOKEN := ',CONTROL-MODE=*PHYSICAL('
+PERFORM TOKEN-TO-COMMAND
+*
+PERFORM LINE-SPACING-SPECIFIED
+*
+COMPRESS #TOKEN ')' TO #TOKEN LEAVING NO
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE /* CONTROL-MODE-IS-PHYSICAL
+*
+************************************************************************
+DEFINE SUBROUTINE CONTROL-MODE-IS-APA
+************************************************************************
+#TOKEN := ',CONTROL-MODE=*APA('
+PERFORM TOKEN-TO-COMMAND
+*
+PERFORM LINE-SPACING-SPECIFIED
+*
+COMPRESS #TOKEN ')' TO #TOKEN LEAVING NO
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE /* CONTROL-MODE-IS-APA
+*
+************************************************************************
+DEFINE SUBROUTINE CONTROL-MODE-IS-LINE
+************************************************************************
+#TOKEN := ',CONTROL-MODE=*LINE-MODE'
+PERFORM TOKEN-TO-COMMAND
+/*PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE /* CONTROL-MODE-IS-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE DOC-FORMAT-IS-SPECIAL
+************************************************************************
+#TOKEN := ',DOCUMENT-FORMAT=*SPECIAL-FORMAT('
+PERFORM TOKEN-TO-COMMAND
+*
+IF #SPOOL-BS2-FORMAT-NAME NE ' '
+  COMPRESS ',FORMAT-NAME=' #SPOOL-BS2-FORMAT-NAME TO #TOKEN LEAVING NO
+  PERFORM TOKEN-TO-COMMAND
+END-IF
+*
+PERFORM LINE-SPACING-SPECIFIED
+COMPRESS #TOKEN ')' TO #TOKEN LEAVING NO
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE /* DOC-FORMAT-IS-SPECIAL
+*
+************************************************************************
+DEFINE SUBROUTINE LINES-PER-PAGE-SPECIFIED
+************************************************************************
+IF #SPOOL-BS2-LINES-PER-PAGE NE ' '
+  MOVE LEFT JUSTIFIED #SPOOL-BS2-LINES-PER-PAGE
+    TO #SPOOL-BS2-LINES-PER-PAGE
+  COMPRESS ',LINE-PER-PAGE=' #SPOOL-BS2-LINES-PER-PAGE
+    TO #TOKEN LEAVING NO
+  PERFORM TOKEN-TO-COMMAND
+END-IF
+*
+END-SUBROUTINE /* LINES-PER-PAGE-SPECIFIED
+*
+************************************************************************
+DEFINE SUBROUTINE LINE-SPACING-SPECIFIED
+************************************************************************
+IF #SPOOL-BS2-LINE-SPACING NE ' '
+  DECIDE ON FIRST #SPOOL-BS2-LINE-SPACING
+    VALUE 'A'  #TOKEN := '*BY-ASA-CONTROL'
+    VALUE 'I'  #TOKEN := '*BY-IBM-CONTROL'
+    VALUE 'E'  #TOKEN := '*BY-EBC-CONTROL'
+    NONE VALUE #TOKEN := #SPOOL-BS2-LINE-SPACING
+      RESET CONTROL-CHAR-POS-POSSIBLE
+  END-DECIDE
+  IF CONTROL-CHAR-POS-POSSIBLE
+    COMPRESS #TOKEN '(CONTROL-CHAR-POS=1)' TO #TOKEN LEAVING NO
+  END-IF
+  COMPRESS ',LINE-SPACING=' #TOKEN TO #TOKEN LEAVING NO
+  PERFORM TOKEN-TO-COMMAND
+END-IF
+*
+END-SUBROUTINE /* LINE-SPACING-SPECIFIED
+*
+************************************************************************
+DEFINE SUBROUTINE TOKEN-TO-COMMAND
+************************************************************************
+IF #TOKEN = ' '
+  ESCAPE ROUTINE
+END-IF
+*
+EXAMINE #TOKEN FOR 'x' GIVING LENGTH IN #TLEN
+#LENGTH := #LINE-LENGTH + #TLEN
+IF #LENGTH > 71
+  RMPDOCFN-CONTINUATION (RMPDOCFN-CMD-OCC) := '-'
+  ADD 1 TO RMPDOCFN-CMD-OCC
+  #LINE-LENGTH := 2
+END-IF
+*
+IF #LINE-LENGTH > 2
+  COMPRESS RMPDOCFN-CMD-LINE(RMPDOCFN-CMD-OCC) #TOKEN
+    TO RMPDOCFN-CMD-LINE(RMPDOCFN-CMD-OCC) LEAVING NO
+ELSE
+  COMPRESS '/' #TOKEN TO RMPDOCFN-CMD-LINE(RMPDOCFN-CMD-OCC)
+END-IF
+*
+ADD #TLEN TO #LINE-LENGTH
+*
+RESET #TOKEN
+*
+END-SUBROUTINE /* TOKEN-TO-COMMAND
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  CALLNAT 'C-NATERN' RMPDOCFN-ERROR-TEXT
+  RMPDOCFN-ERROR-CODE := 21
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

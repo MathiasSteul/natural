@@ -1,0 +1,698 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMDLM-N - Maintenance of EOM Object >>>Distribution list<<<
+*
+* Maintenance:
+* uuu    yyyy-mm-dd s(999999) ...
+* xsiszha 2000-04-03           created
+* xsiszha 2000-07-27 (CE7461) Extend Report and Bundle Names
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* xsetggr 2002-10-02 P(229817) correct validation check for members
+* xsetggr 2002-10-21 P(229817) delete relations in list members
+*                              use right library to read msg from SYSERR
+* xsetggr 2005-06-30 p(265613) read default user profile for security
+*                           check when automatic user definition allowed
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-12 NOMALL-1058 Log delete from NOM API online
+* xsetggr 2012-02-02 NOMALL-1100 do not extract msg text before writing
+*                                in log
+* xsetggr 2012-09-25 NOMALL-89 user EOMGRM-N to maintain authorization
+*                              add authorizaton check
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2018-12-03 NOMALL-2182 Reject reserved names 'ADMIN'+'PUBLIC'
+* -------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING EOM----P
+PARAMETER USING EOMDLM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL USING EOM----E
+LOCAL USING RLOG-L
+LOCAL USING VDISTS-L
+LOCAL USING VUSERS-L
+LOCAL USING VGRANT-L
+LOCAL USING EOMGRM-P
+*
+LOCAL
+1 #NOF             (I2) CONST <4>
+1 #FUNCT           (A1/1:#NOF) INIT <'O','P','M','D'>
+1 #SECURITY-OPTION (A3)
+1 #I               (I2)
+1 #J               (I2)
+1 #CNT             (I2)
+1 ALLOWED          (L)
+1 OJ               (I2)
+1 OT               (I2)
+1 #GRANTS          (A1/1:6)
+1 #USER-ID         (A8)
+1 #OBJECT-NAME     (A25)
+1 NEXT-LIST-NAME   (A8)
+1 REDEFINE NEXT-LIST-NAME
+  2 LIST-NAME-7    (A7)
+  2 LIST-NAME-1    (I1)
+1 #NUM-OF-MEMBERS  (I4)
+1 #GR-START        (A34)
+1 REDEFINE #GR-START
+  2  #GRS-TYPE     (A1)
+  2  #GRS-USERID   (A8)
+  2  #GRS-OBJECT   (A25)
+1 REDEFINE #GR-START
+  2  #FILLER       (A1)
+  2  #GRS-NAME     (A8)
+1 #GR-END          (A34)
+1 REDEFINE #GR-END
+  2  #GRE-TYPE     (A1)
+  2  #GRE-USERID   (A8)
+  2  #GRE-OBJECT   (A25)
+1 REDEFINE #GR-END
+  2  #FILLER2      (A1)
+  2  #GRE-NAME     (A8)
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+  2  R-NATRPT-DIST (10)
+  2  C*R-NATRPT-DIST
+1 NOG              (I2)       CONST <4>
+1 #GRANT-TYPE      (A1/1:NOG) INIT <'R','B','P','F'>
+1 #OBJ             (A50)
+1 #USER            (A8)
+1 #APPL            (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET EOMMSG-PARMS
+LG-USERID := EOM-USER
+LG-CODE := 'LM'
+*
+PERFORM SECURITY-CHECK
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+PERFORM LOGGING-CHECK
+*
+PERFORM FUNCTION-SECURITY
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+* ---------------------------------------------------------------
+DECIDE ON FIRST EOM-FUNCTION
+* ---------------------------------------------------------------
+  VALUE EOM-ADD
+    PERFORM VALIDATE-NAME
+    IF EOMMSG-NR = 0
+      IF EOMDLM-MEMB-FUNCTION > 0
+        IF EOMDLM-MEMB-FUNCTION = EOM-ADD
+          PERFORM VALIDATE-MEMB-NAME-ADD
+        ELSE
+          EOMMSG-NR := 0020
+          EOMMSG-FIELD-NAME := 'EOMDLM-MEMB-FUNCTION'
+        END-IF
+      END-IF
+    END-IF
+    IF EOMMSG-NR = 0
+      D-LIST-NAME := EOMDLM-LIST-NAME
+      D-LIST-DESC := EOMDLM-LIST-DESC
+      IF EOMDLM-MEMB-FUNCTION = EOM-ADD
+        D-USER-LIST(1) := EOMDLM-MEMB-NAME
+      END-IF
+      STORE DISTRIBUTION-LIST
+* add authorization
+      EOMGRM-I-USER    := EOM-USER
+      EOMGRM-I-TYPE    := 'L'
+      EOMGRM-I-NAME    := EOMDLM-LIST-NAME
+      EOMGRM-OPTION(*) := 'Y'
+      CALLNAT 'EOMGRM-N' EOM-ADD EOMGRM-PARMS EOMMSG-PARMS
+      EOMGRM-I-USER    := 'PUBLIC'
+      EOMGRM-OPTION(*) := 'N'
+      EOMGRM-OPTION(4) := 'Y'
+      CALLNAT 'EOMGRM-N' EOM-ADD EOMGRM-PARMS EOMMSG-PARMS
+      PERFORM WRITE-LOG-RECORD
+    END-IF
+* ---------------------------------------------------------------
+  VALUE EOM-MODIFY
+    PERFORM VALIDATE-NAME
+    IF EOMMSG-NR = 0
+      DECIDE ON FIRST VALUE OF EOMDLM-MEMB-FUNCTION
+        VALUE 0
+          IGNORE
+        VALUE EOM-ADD
+          PERFORM VALIDATE-MEMB-NAME-ADD
+        VALUE EOM-DELETE
+          PERFORM VALIDATE-MEMB-NAME-DEL
+        NONE VALUE
+          EOMMSG-NR := 0020
+          EOMMSG-FIELD-NAME := 'EOMDLM-MEMB-FUNCTION'
+      END-DECIDE
+    END-IF
+    IF EOMMSG-NR = 0
+      FDM. FIND DISTRIBUTION-LIST WITH D-LIST-NAME = EOMDLM-LIST-NAME
+        #NUM-OF-MEMBERS := C*D-USER-LIST
+        GEM. GET DISTRIBUTION-LIST *ISN(FDM.)
+        IF EOMDLM-MEMB-FUNCTION = 0 OR EOMDLM-LIST-DESC NE ' '
+          D-LIST-DESC := EOMDLM-LIST-DESC
+        END-IF
+        IF EOMDLM-MEMB-FUNCTION = EOM-ADD
+          ADD 1 TO #NUM-OF-MEMBERS
+          #I := #NUM-OF-MEMBERS
+          REPEAT
+            WHILE #I > 1 AND D-USER-LIST(#I - 1) > EOMDLM-MEMB-NAME
+            D-USER-LIST(#I) := D-USER-LIST(#I - 1)
+            SUBTRACT 1 FROM #I
+          END-REPEAT
+          D-USER-LIST(#I) := EOMDLM-MEMB-NAME
+        ELSE
+          IF EOMDLM-MEMB-FUNCTION = EOM-DELETE
+            EXAMINE FULL D-USER-LIST(*) FOR FULL EOMDLM-MEMB-NAME
+              GIVING INDEX #I
+            IF #I > 0
+              RESET D-USER-LIST(#I)
+            END-IF
+          END-IF
+        END-IF
+        UPDATE (GEM.)
+        PERFORM WRITE-LOG-RECORD
+      END-FIND
+    END-IF
+* ---------------------------------------------------------------
+  VALUE EOM-READ, EOM-READHOLD, EOM-READ-NEXT, EOM-READHOLD-NEXT
+    IF NOT ((EOM-FUNCTION = EOM-READ OR = EOM-READ-NEXT)
+    AND (EOMDLM-MEMB-FUNCTION = 0 OR = EOM-READ OR = EOM-READ-NEXT)   /*
+    OR EOM-FUNCTION = EOM-READHOLD AND EOMDLM-MEMB-FUNCTION = 0)      /*
+      EOMMSG-NR := 0020
+      EOMMSG-FIELD-NAME := 'EOMDLM-MEMB-FUNCTION'
+    END-IF
+*
+    IF EOMMSG-NR = 0
+      EOMDLM-EOF := EOMDLM-MEMB-EOF := 'X'
+      FND. READ (1) DISTRIBUTION-LIST WITH D-LIST-NAME =EOMDLM-LIST-NAME
+        RESET EOMDLM-EOF
+        #NUM-OF-MEMBERS := C*D-USER-LIST
+        EOMDLM-LIST-NAME := D-LIST-NAME
+        EOMDLM-LIST-DESC := D-LIST-DESC
+        IF EOMDLM-MEMB-FUNCTION > 0
+          IF EOMDLM-MEMB-FUNCTION = EOM-READ
+            FOR EOMDLM-MEMB-INDEX = 1 TO #NUM-OF-MEMBERS
+              IF D-USER-LIST(EOMDLM-MEMB-INDEX) >= EOMDLM-MEMB-NAME
+                RESET  EOMDLM-MEMB-EOF
+                ESCAPE BOTTOM
+              END-IF
+            END-FOR
+          ELSE
+            EOMDLM-MEMB-INDEX := EOMDLM-MEMB-INDEX + 1
+            IF EOMDLM-MEMB-INDEX <= #NUM-OF-MEMBERS
+              RESET EOMDLM-MEMB-EOF
+            END-IF
+          END-IF
+          IF EOMDLM-MEMB-EOF = ' '
+            EOMDLM-MEMB-NAME := D-USER-LIST(EOMDLM-MEMB-INDEX)
+            PERFORM ASSIGN-EOMDLM-MEMB-DESC
+          END-IF
+        END-IF
+        IF EOM-FUNCTION = EOM-READHOLD OR = EOM-READHOLD-NEXT
+          GER1. GET DISTRIBUTION-LIST *ISN(FND.)
+          IF EOMDLM-LIST-NAME NE EOMDLM-LIST-NAME
+            UPDATE(GER1.)
+          END-IF
+        END-IF
+      END-READ
+    END-IF
+* ---------------------------------------------------------------
+  VALUE EOM-RENAME
+    PERFORM VALIDATE-NAME
+    IF EOMMSG-NR = 0
+      FDR. FIND DISTRIBUTION-LIST WITH D-LIST-NAME = EOMDLM-LIST-NAME
+        GER. GET DISTRIBUTION-LIST *ISN(FDR.)
+        D-LIST-NAME := EOMDLM-LIST-NEWNAME
+        UPDATE (GER.)
+*
+        EOMGRM-I-NAME    := EOMDLM-LIST-NAME
+        EOMGRM-I-NEWNAME := EOMDLM-LIST-NEWNAME
+        EOMGRM-I-TYPE    := 'L'
+        EOMGRM-I-AUTO-COMMIT := 100
+        CALLNAT 'EOMGRM-N' EOM-RENAME EOMGRM-PARMS EOMMSG-PARMS
+        #GRS-USERID := #GRE-USERID := EOMDLM-LIST-NAME
+        #GRS-OBJECT := H'00'
+        #GRE-OBJECT := H'FF'
+        FOR #I = 1 TO NOG
+          #GRS-TYPE := #GRE-TYPE := #GRANT-TYPE (#I)
+          FIND GRANTS WITH GR-SUPER = #GR-START THRU #GR-END
+            GR-USERID := EOMDLM-LIST-NEWNAME
+            UPDATE
+            #CNT := #CNT + 1
+            IF #CNT > 100
+              END TRANSACTION
+              RESET #CNT
+            END-IF
+          END-FIND
+        END-FOR
+        FIND DISTRIBUTION-LIST WITH D-USER-LIST = EOMDLM-LIST-NAME
+          #I := C*D-USER-LIST
+          EXAMINE FULL D-USER-LIST(1:#I) FOR FULL EOMDLM-LIST-NAME
+            GIVING INDEX #J
+          IF #J > 0
+            D-USER-LIST(#J) := EOMDLM-LIST-NEWNAME
+            UPDATE
+            IF #CNT > 100
+              END TRANSACTION
+              RESET #CNT
+            END-IF
+          END-IF
+        END-FIND
+        RESET #J #I
+        FIND REPORTS WITH R-NATRPT-DIST = EOMDLM-LIST-NAME
+          #I := C*R-NATRPT-DIST
+          EXAMINE FULL VALUE OF R-NATRPT-DIST (1:#I)
+            FOR FULL VALUE OF EOMDLM-LIST-NAME
+            GIVING INDEX IN #J
+          IF #J > 0
+            R-NATRPT-DIST (#J) := EOMDLM-LIST-NEWNAME
+            UPDATE
+            IF #CNT > 100
+              END TRANSACTION
+              RESET #CNT
+            END-IF
+          END-IF
+        END-FIND
+        PERFORM WRITE-LOG-RECORD
+      END-FIND
+    END-IF
+* ---------------------------------------------------------------
+  VALUE EOM-DELETE
+    PERFORM VALIDATE-NAME
+    IF EOMMSG-NR = 0
+      FDD. FIND DISTRIBUTION-LIST WITH D-LIST-NAME = EOMDLM-LIST-NAME
+        GED. GET DISTRIBUTION-LIST *ISN(FDD.)
+        DELETE (GED.)
+        #OBJ := EOMDLM-LIST-NAME
+        #USER := EOM-USER
+        #APPL := EOM-LIBRARY
+        PERFORM RMLOGDEL #OBJ 'DISTR-LIST' #USER #APPL
+        RESET EOMGRM-I-NAME /* all grants for user= del list
+        EOMGRM-I-USER := EOMDLM-LIST-NAME
+        CALLNAT 'EOMGRM-N' EOM-DELETE-ALL EOMGRM-PARMS EOMMSG-PARMS
+*
+        EOMGRM-I-NAME := EOMDLM-LIST-NAME
+        EOMGRM-I-TYPE := 'L'
+        RESET EOMGRM-I-USER                    /* all grants for list
+        EOMGRM-I-AUTO-COMMIT := 100
+        CALLNAT 'EOMGRM-N' EOM-DELETE-ALL EOMGRM-PARMS EOMMSG-PARMS
+*
+        FIND DISTRIBUTION-LIST WITH D-USER-LIST = EOMDLM-LIST-NAME
+          #I := C*D-USER-LIST
+          EXAMINE FULL D-USER-LIST(1:#I) FOR FULL EOMDLM-LIST-NAME
+            GIVING INDEX #J
+          IF #J > 0
+            RESET D-USER-LIST(#J)
+            UPDATE
+            IF #CNT > 100
+              END TRANSACTION
+              RESET #CNT
+            END-IF
+          END-IF
+        END-FIND
+        RESET #J #I
+        FIND REPORTS WITH R-NATRPT-DIST = EOMDLM-LIST-NAME
+          #I := C*R-NATRPT-DIST
+          EXAMINE FULL VALUE OF R-NATRPT-DIST (1:#I)
+            FOR FULL VALUE OF EOMDLM-LIST-NAME GIVING INDEX IN #J
+          IF #J > 0
+            RESET R-NATRPT-DIST (#J)
+            UPDATE
+            IF #CNT > 100
+              END TRANSACTION
+              RESET #CNT
+            END-IF
+          END-IF
+        END-FIND
+        PERFORM WRITE-LOG-RECORD
+      END-FIND
+    END-IF
+* ---------------------------------------------------------------
+  VALUE EOM-COMMIT
+    END TRANSACTION
+* ---------------------------------------------------------------
+  VALUE EOM-BACKOUT
+    BACKOUT TRANSACTION
+* ---------------------------------------------------------------
+  NONE  IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE LOGGING-CHECK
+************************************************************************
+IF EOM-LOG-OBJTYP = 'L'
+  ESCAPE ROUTINE
+END-IF
+*
+RESET  EOM-LOGGING
+EOM-LOG-OBJTYP := 'L'
+*
+IF EOM-LOG-TYPES(*) = 'L'
+  EOM-LOG := TRUE
+END-IF
+*
+END-SUBROUTINE /* LOGGING-CHECK
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+IF EOM-LOG-FUNCTION = EOM-FUNCTION
+AND EOM-LOG-OBJECT-NAME = EOMDLM-LIST-NAME                            /*
+  ESCAPE ROUTINE
+END-IF
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-ADD
+    COMPRESS '0761' EOMDLM-LIST-NAME  TO LG-MSG
+    RESET EOM-LOG-OBJECT-NAME
+  VALUE EOM-MODIFY
+    COMPRESS '0762' EOMDLM-LIST-NAME  TO LG-MSG
+    EOM-LOG-OBJECT-NAME := EOMDLM-LIST-NAME
+  VALUE EOM-RENAME
+    COMPRESS '0763' EOMDLM-LIST-NAME EOMDLM-LIST-NEWNAME TO LG-MSG
+    RESET EOM-LOG-OBJECT-NAME
+  VALUE EOM-DELETE
+    COMPRESS '0764' EOMDLM-LIST-NAME  TO LG-MSG
+    RESET EOM-LOG-OBJECT-NAME
+  ANY VALUE
+    EOM-LOG-FUNCTION := EOM-FUNCTION
+    LG-OBJECT-NAME   := EOMDLM-LIST-NAME
+    CALLNAT 'RLOG' PL-PARMS
+  NONE VALUE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE SECURITY-CHECK
+************************************************************************
+IF EOM-OBJTYP NE 'L'
+  IF EOM-USER = ' ' AND EOM-USER-TYPE NE 'A'
+    EOMMSG-NR := 48
+    EOMMSG-FIELD-NAME := 'EOM-USER'
+    ESCAPE ROUTINE
+  END-IF
+  IF EOM-USER-TYPE NE 'A'
+    FNDUS. FIND USERS WITH USER-ID = EOM-USER
+      IF NO RECORDS FOUND
+        IF EOM-DEF-USER NE 'Y'
+          EOMMSG-NR := 2
+          EOMMSG-TOKEN(1) := EOM-USER
+          EOMMSG-FIELD-NAME := 'EOM-USER'
+          ESCAPE ROUTINE
+        END-IF
+        FIND USERS WITH USER-ID = 'DEFAULT'
+          EOM-USER-PROFILE := USER-PROFILE
+          EOM-USER-TYPE := PROF-TYPE
+        END-FIND
+        ESCAPE BOTTOM(FNDUS.)
+      END-NOREC
+      EOM-USER-PROFILE := USER-PROFILE
+      EOM-USER-TYPE := PROF-TYPE
+    END-FIND
+  END-IF
+  IF EOM-USER-TYPE = 'A'
+    EOM-OBJTYP-SECURITY (*) := 'Y'
+  ELSE
+    EOM-OBJTYP-SECURITY (*) := 'N'
+    FOR #I = 2 TO 4
+      COMPRESS #FUNCT (#I) 'DL' INTO #SECURITY-OPTION LEAVING NO
+      RESET ALLOWED
+      CALLNAT 'NARPSEC' EOM-USER-PROFILE #SECURITY-OPTION ALLOWED
+      IF ALLOWED
+        EOM-OBJTYP-SECURITY (#I:6) := 'Y'
+        ESCAPE BOTTOM
+      END-IF
+    END-FOR
+  END-IF
+  RESET EOM-OBJECT-NAME EOM-OBJECT-SECURITY(*)
+  EOM-OBJTYP := 'L'
+END-IF
+*
+IF NOT (EOM-OBJTYP-SECURITY (*) = 'Y')
+  EOMMSG-NR := 0020
+  EOMMSG-FIELD-NAME := 'EOM-FUNCTION'
+  ESCAPE ROUTINE
+END-IF
+*
+IF EOM-FUNCTION = EOM-ADD
+  EOM-OBJECT-NAME := EOMDLM-LIST-NAME
+  EOM-OBJECT-SECURITY(*) := EOM-OBJTYP-SECURITY(*)
+  IF EOM-OBJTYP-SECURITY(2) = 'Y' OR EOM-OBJTYP-SECURITY(3) = 'Y'
+    EOM-OBJECT-SECURITY (1) := 'Y'
+  ELSE
+    EOM-OBJECT-SECURITY(1) := 'N'
+  END-IF
+END-IF
+*
+RESET EOMDLM-EOF
+IF EOM-FUNCTION = EOM-READ-NEXT OR = EOM-READHOLD-NEXT
+  IF EOM-FUNCTION = EOM-READ-NEXT AND
+  NOT (EOM-OBJTYP-SECURITY(1:4) = 'Y')                                /*
+  OR EOM-FUNCTION = EOM-READHOLD-NEXT                                 /*
+  AND NOT (EOM-OBJTYP-SECURITY(1:3) = 'Y')                            /*
+    EOMMSG-NR := 0020
+    ESCAPE ROUTINE
+  END-IF
+*
+  RESET EOM-OBJECT-NAME EOMDLM-EOF
+  EOMDLM-EOF := 'X'
+  NEXT-LIST-NAME := EOMDLM-LIST-NAME
+  ADD 1 TO LIST-NAME-1
+  READ DISTRIBUTION-LIST WITH D-LIST-NAME = NEXT-LIST-NAME
+    IF EOM-USER-TYPE = 'A'
+      EOM-OBJECT-SECURITY (*) := 'Y'
+      RESET EOMDLM-EOF
+    ELSE
+      #USER-ID := EOM-USER
+      #OBJECT-NAME := D-LIST-NAME
+      CALLNAT 'RGRANT-N' #USER-ID 'L' #OBJECT-NAME ALLOWED #GRANTS (*)
+      IF ALLOWED AND (EOM-FUNCTION = EOM-READ-NEXT AND #GRANTS(1:4) ='Y'
+          OR EOM-FUNCTION = EOM-READHOLD-NEXT AND #GRANTS(1:3) = 'Y')
+        EOM-OBJECT-SECURITY (1)   := #GRANTS (1)     /* owner
+        EOM-OBJECT-SECURITY (2)   := #GRANTS (3)     /* purge
+        EOM-OBJECT-SECURITY (3)   := #GRANTS (2)     /* modify
+        EOM-OBJECT-SECURITY (4:6) := #GRANTS (4:6)   /* display
+        RESET EOMDLM-EOF
+      END-IF
+    END-IF
+    IF EOMDLM-EOF = ' '
+      EOM-OBJECT-NAME := EOMDLM-LIST-NAME := D-LIST-NAME
+      ESCAPE BOTTOM
+    END-IF
+  END-READ
+END-IF
+*
+IF EOM-OBJECT-NAME NE EOMDLM-LIST-NAME AND EOMDLM-EOF = ' '
+  EOM-OBJECT-NAME := EOMDLM-LIST-NAME
+  IF EOM-USER-TYPE = 'A'
+    EOM-OBJECT-SECURITY(*) := 'Y'
+  ELSE
+    EOM-OBJECT-SECURITY (*) := 'N'
+    #USER-ID := EOM-USER
+    #OBJECT-NAME := EOMDLM-LIST-NAME
+    CALLNAT 'RGRANT-N' #USER-ID 'L' #OBJECT-NAME ALLOWED #GRANTS (*)
+    EOM-OBJECT-SECURITY (1)   := #GRANTS (1)     /* owner
+    EOM-OBJECT-SECURITY (2)   := #GRANTS (3)     /* purge
+    EOM-OBJECT-SECURITY (3)   := #GRANTS (2)     /* modify
+    EOM-OBJECT-SECURITY (4:6) := #GRANTS (4:6)   /* display ...
+  END-IF
+END-IF
+*
+IF NOT (EOM-OBJECT-SECURITY (*) = 'Y') AND EOMDLM-EOF = ' '
+AND EOMDLM-LIST-NAME NE ' '                                           /*
+  EOMMSG-NR := 0020
+END-IF
+*
+END-SUBROUTINE /* SECURITY-CHECK
+*
+************************************************************************
+DEFINE SUBROUTINE FUNCTION-SECURITY
+************************************************************************
+EXAMINE EOM-OBJECT-SECURITY(*) FOR 'Y' INDEX OJ
+EXAMINE EOM-OBJTYP-SECURITY(*) FOR 'Y' INDEX OT
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-COMMIT,EOM-BACKOUT
+    IGNORE
+  VALUE EOM-ADD,EOM-MODIFY,EOM-RENAME, EOM-READHOLD, EOM-READHOLD-NEXT
+    IF OJ > 3 OR OT > 3
+      EOMMSG-NR := 0020
+      EOMMSG-FIELD-NAME := 'EOM-FUNCTION'
+    END-IF
+  VALUE EOM-READ, EOM-READ-NEXT
+    IF OJ > 4 OR OT > 4
+      EOMMSG-NR := 0020
+      EOMMSG-FIELD-NAME := 'EOM-FUNCTION'
+    END-IF
+  VALUE EOM-DELETE
+    IF OJ > 2 OR OT > 2
+      EOMMSG-NR := 0020
+      EOMMSG-FIELD-NAME := 'EOM-FUNCTION'
+    END-IF
+  NONE VALUE
+    EOMMSG-NR := 0020
+    EOMMSG-FIELD-NAME := 'EOM-FUNCTION'
+END-DECIDE
+*
+END-SUBROUTINE /* FUNCTION-SECURITY
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-NAME
+************************************************************************
+DECIDE ON FIRST EOMDLM-LIST-NAME
+  VALUE ' '      EOMMSG-NR := 44
+  VALUE 'ADMIN'  EOMMSG-NR := 0517 /*SU2
+  VALUE 'PUBLIC' EOMMSG-NR := 0518 /*SU2
+  ANY
+    EOMMSG-FIELD-NAME := 'EOMDLM-LIST-NAME'
+    ESCAPE ROUTINE
+  NONE IGNORE
+END-DECIDE
+FNL1. FIND NUMBER DISTRIBUTION-LIST WITH D-LIST-NAME = EOMDLM-LIST-NAME
+IF EOM-FUNCTION = EOM-ADD
+  IF *NUMBER(FNL1.) > 0
+    EOMMSG-NR := 751
+    EOMMSG-TOKEN(1) := EOMDLM-LIST-NAME
+    EOMMSG-FIELD-NAME := 'EOMDLM-LIST-NAME'
+  ELSE
+    FNU1. FIND NUMBER USERS WITH USER-ID = EOMDLM-LIST-NAME
+    IF *NUMBER(FNU1.) > 0
+      EOMMSG-NR := 752
+      EOMMSG-TOKEN(1) := EOMDLM-LIST-NAME
+      EOMMSG-FIELD-NAME := 'EOMDLM-LIST-NAME'
+    END-IF
+  END-IF
+ELSE
+  IF *NUMBER(FNL1.) = 0
+    EOMMSG-NR := 753
+    EOMMSG-TOKEN(1) := EOMDLM-LIST-NAME
+    EOMMSG-FIELD-NAME := 'EOMDLM-LIST-NAME'
+  ELSE
+    IF EOM-FUNCTION = EOM-RENAME
+      FNL3. FIND NUMBER DISTRIBUTION-LIST
+        WITH D-LIST-NAME = EOMDLM-LIST-NEWNAME
+      IF *NUMBER(FNL3.) > 0
+        EOMMSG-NR := 751
+        EOMMSG-TOKEN(1) := EOMDLM-LIST-NEWNAME
+        EOMMSG-FIELD-NAME := 'EOMDLM-LIST-NEWNAME'
+      ELSE
+        FNU3. FIND NUMBER USERS
+          WITH USER-ID = EOMDLM-LIST-NEWNAME
+        IF *NUMBER(FNU3.) > 0
+          EOMMSG-NR := 752
+          EOMMSG-TOKEN(1) := EOMDLM-LIST-NEWNAME
+          EOMMSG-FIELD-NAME := 'EOMDLM-LIST-NEWNAME'
+        END-IF
+      END-IF
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-NAME
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-MEMB-NAME-ADD
+************************************************************************
+DECIDE ON FIRST EOMDLM-MEMB-NAME
+  VALUE ' '
+    EOMMSG-NR := 754
+  VALUE EOMDLM-LIST-NAME
+    EOMMSG-NR := 755
+    EOMMSG-TOKEN(1) := EOMDLM-MEMB-NAME
+  ANY
+    EOMMSG-FIELD-NAME := 'EOMDLM-MEMB-NAME'
+    ESCAPE ROUTINE
+  NONE IGNORE
+END-DECIDE
+*
+FNU2. FIND NUMBER USERS WITH USER-ID = EOMDLM-MEMB-NAME
+IF *NUMBER(FNU2.) = 0
+  FNL2. FIND NUMBER DISTRIBUTION-LIST WITH D-LIST-NAME =EOMDLM-MEMB-NAME
+  IF *NUMBER(FNL2.) = 0
+    IF EOM-DEF-USER NE 'Y'
+      EOMMSG-NR := 756
+      EOMMSG-TOKEN(1) := EOMDLM-MEMB-NAME
+      EOMMSG-FIELD-NAME := 'EOMDLM-MEMB-NAME'
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+END-IF
+*
+FNL5. FIND NUMBER DISTRIBUTION-LIST WITH D-LIST-NAME = EOMDLM-MEMB-NAME
+AND D-USER-LIST = EOMDLM-LIST-NAME                                    /*
+IF *NUMBER(FNL5.) > 0
+  EOMMSG-NR := 755
+  EOMMSG-TOKEN(1) := EOMDLM-MEMB-NAME
+  EOMMSG-FIELD-NAME := 'EOMDLM-MEMB-NAME'
+  ESCAPE ROUTINE
+END-IF
+FIND DISTRIBUTION-LIST WITH D-LIST-NAME = EOMDLM-LIST-NAME
+  #NUM-OF-MEMBERS := C*D-USER-LIST
+END-FIND
+IF #NUM-OF-MEMBERS > 0
+AND D-USER-LIST(1:#NUM-OF-MEMBERS) = EOMDLM-MEMB-NAME                 /*
+  EOMMSG-NR := 757
+  EOMMSG-TOKEN(1) := EOMDLM-MEMB-NAME
+  EOMMSG-TOKEN(2) := EOMDLM-LIST-NAME
+  EOMMSG-FIELD-NAME := 'EOMDLM-MEMB-NAME'
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-MEMB-NAME-ADD
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-MEMB-NAME-DEL
+************************************************************************
+IF EOMDLM-MEMB-NAME = ' '
+  EOMMSG-NR := 754
+  EOMMSG-FIELD-NAME := 'EOMDLM-MEMB-NAME'
+  ESCAPE ROUTINE
+END-IF
+*
+FIND DISTRIBUTION-LIST WITH D-LIST-NAME = EOMDLM-LIST-NAME
+  #NUM-OF-MEMBERS := C*D-USER-LIST
+END-FIND
+*
+IF #NUM-OF-MEMBERS = 0 OR #NUM-OF-MEMBERS > 0
+AND NOT (D-USER-LIST(1:#NUM-OF-MEMBERS) = EOMDLM-MEMB-NAME)           /*
+  EOMMSG-NR := 758
+  EOMMSG-TOKEN(1) := EOMDLM-MEMB-NAME
+  EOMMSG-TOKEN(2) := EOMDLM-LIST-NAME
+  EOMMSG-FIELD-NAME := 'EOMDLM-MEMB-NAME'
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-MEMB-NAME-DEL
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-EOMDLM-MEMB-DESC
+************************************************************************
+FIND USERS WITH USER-ID = EOMDLM-MEMB-NAME
+  IF NO RECORDS FOUND
+    FIND DISTRIBUTION-LIST WITH D-LIST-NAME = EOMDLM-MEMB-NAME
+      EOMDLM-MEMB-DESC := D-LIST-DESC
+    END-FIND
+    ESCAPE BOTTOM
+  END-NOREC
+  COMPRESS LAST-NAME ',' TO EOMDLM-MEMB-DESC LEAVING NO
+  COMPRESS EOMDLM-MEMB-DESC FIRST-NAME TO EOMDLM-MEMB-DESC
+END-FIND
+*
+END-SUBROUTINE /* ASSIGN-EOMDLM-MEMB-DESC
+*
+INCLUDE C-EOMERR /*ON ERROR
+*
+END

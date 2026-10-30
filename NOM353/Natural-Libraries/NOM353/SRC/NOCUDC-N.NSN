@@ -1,0 +1,115 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOCUDC-N - NOM API Display Users connected to an active Report
+*
+* Maintenance:
+* XSETHZ  2001-03-22 created
+* XSETGGR 2001-07-10 developed
+* XSETHZ  2002-01-12 created
+* XSETGGR 2002-04-02 read headers from SYSERR
+* XSETGGR 2002-11-14 new parameter in ESMCNT-A
+* XSETGGR 2003-01-31 rep rnb wraps round
+* xsetggr 2007-07-04 NOM3201 Support P11 format run numbers
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOCUDC-A
+************************************************************************
+LOCAL USING ESMCONSL
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL
+1 MA VIEW OF NRM-MAIL
+  2 MA-USERID
+  2 MA-REPRNB
+  2 MA-STATUS
+  2 MA-REPNAME
+1 US VIEW OF NRM-USERS
+  2 LAST-NAME
+  2 FIRST-NAME
+1 #I2                      (I4)
+1 #IMAX                    (I4)
+1 #MA-RNB-USER             (A14)
+1 REDEFINE #MA-RNB-USER
+  2 #MA-RNB                (P11)
+  2 #MA-USER               (A8)
+1 #MA-REPNAME              (A25)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-NUMBER
+ES-EOF := 'X'
+ES-OPTION-COUNT := ES-SORTKEY := ES-SORTORDER := 0
+#IMAX := 346
+ES-FIELD-COUNT := 3
+NOCU-FIELD-LENGTH(1) := 8
+NOCU-FIELD-LENGTH(2) := 64
+NOCU-FIELD-LENGTH(3) := 1
+#MA-RNB := VAL(ES-KEY-PARM(ES-KEY-PARM-COUNT))
+IF ES-NEXT-KEY-PARM(1) NE ' '
+  #MA-USER := ES-NEXT-KEY-PARM(1)
+ELSE
+  RESET #MA-USER
+END-IF
+#MA-REPNAME := ES-KEY-PARM(ES-KEY-PARM-COUNT - 1)
+ES-STARTINDEX := 2
+#I2 := 1
+PERFORM GET-TEXT
+COMPRESS LONG-MSG(1) C-HEADER-DELIMITER LONG-MSG(2) C-HEADER-DELIMITER
+  LONG-MSG(3) TO NOCU-HEADER(1) LEAVING NO
+READ MA BY MA-RNB-USER STARTING FROM #MA-RNB-USER
+  IF MA-REPRNB NE #MA-RNB
+    ESCAPE BOTTOM
+  END-IF
+  IF MA-REPNAME = #MA-REPNAME
+    ADD 1 TO #I2
+    IF #I2 > #IMAX
+      ES-NEXT-KEY-PARM(1) := MA-USERID
+      ES-NUMBER := #IMAX
+      RESET  ES-EOF
+      ESCAPE BOTTOM
+    END-IF
+    NOCU-USER-ID(#I2) := MA-USERID
+    NOCU-MESSAGE(#I2) := MA-STATUS
+    FIND US WITH USER-ID = MA-USERID
+      IF NO RECORDS FOUND
+        RESET NOCU-NAME(#I2)
+        ESCAPE BOTTOM
+      END-NOREC
+      COMPRESS LAST-NAME ',' TO NOCU-NAME(#I2) LEAVING NO
+      COMPRESS NOCU-NAME(#I2) FIRST-NAME TO NOCU-NAME(#I2)
+      ES-NUMBER := #I2
+    END-FIND
+  END-IF
+END-READ
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-TEXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := 6108
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+*
+END-SUBROUTINE /* GET-TEXT
+*
+END

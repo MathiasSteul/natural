@@ -1,0 +1,111 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+************************************************************************
+* RMIMPGR - Import GRantings
+*
+* Maintenance
+* User  yyyy-mm-dd Issue       Remark
+* ----- ---------------------- -----------------------------------------
+*       2019-02-22 generated   Created for RMIMPORT from RMXML2LD
+* fhi   2019-02-20 NOMALL-2215 Add object type MF Node: NO /rewritten
+* SU3   2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU4   2021-01-08 NOMALL-2443 avoid dup. entries
+* SU5   2021-04-22 NOMALL-2460 show actions
+* SU6   2021-08-18 NOMALL-2467 recat (RMIMP-A/RMIMP-C/RMIMP-C1)+RMIMPGRL
+************************************************************************
+DEFINE DATA
+PARAMETER USING RMIMP-A
+PARAMETER
+1 GR-FILL
+  2 GR-OBJECT-TYPE        (A1)
+  2 GR-USERID             (A8)
+  2 GR-OBJECT-NAME        (A25)
+  2 GR-OPTION             (A1/1:6)
+  2 GR-SYSTEM-OBJECT-TYPE (A10)
+  2 GR-SYSTEM-OBJECT-TIME (T)
+************************************************************************
+LOCAL USING RMIMP-L /*SU5
+LOCAL USING RMBAS64P
+/*SU6 LOCAL USING RMIMPGRL
+*
+LOCAL
+1 GR VIEW OF NRM-GRANTS /*SU6 was RMIMPGRL
+  2 GR-SYSTEM-OBJECT-TYPE (A10)
+  2 GR-SYSTEM-OBJECT-TIME (T)
+  2 GR-OBJECT-TYPE        (A1)
+  2 GR-USERID             (A8)
+  2 GR-OBJECT-NAME        (A25)
+  2 GR-OPTION             (A1/1:6)
+*
+1 ##GR-TYPE-OBJ-USER      (A34)
+1 REDEFINE ##GR-TYPE-OBJ-USER
+  2 ##GR-OBJECT-TYPE      (A1)
+  2 ##GR-OBJECT-NAME      (A25)
+  2 ##GR-USERID           (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *OCC(B64-TEXT-ARRAY) = 0
+  EXPAND ARRAY B64-TEXT-ARRAY TO (1:5)
+END-IF
+IF NOT #SAVE
+  IF #TAG-CURRENT = #TAG-OLD
+    ADD 1 TO #IND
+  ELSE
+    #IND := 1
+  END-IF
+  IF #VALUE-CURRENT = ' '
+    ESCAPE MODULE
+  END-IF
+  DECIDE ON FIRST VALUE OF #TAG-CURRENT
+    VALUE 'GR-SYSTEM-OBJECT-TYPE'
+      GR-FILL.GR-SYSTEM-OBJECT-TYPE := #VALUE-CURRENT
+    VALUE 'GR-SYSTEM-OBJECT-TIME'
+      MOVE EDITED #VALUE-CURRENT TO GR-FILL.GR-SYSTEM-OBJECT-TIME
+        (EM=YYYY'-'MM'-'DD'-'HH':'II':'SS'.'T)
+    VALUE 'GR-OBJECT-TYPE'
+      GR-FILL.GR-OBJECT-TYPE := #VALUE-CURRENT
+    VALUE 'GR-USERID'
+      GR-FILL.GR-USERID := #VALUE-CURRENT
+    VALUE 'GR-OBJECT-NAME'
+      GR-FILL.GR-OBJECT-NAME := #VALUE-CURRENT
+    VALUE 'GR-OPTION'
+      GR-FILL.GR-OPTION (#IND) := #VALUE-CURRENT
+    NONE IGNORE
+  END-DECIDE
+ELSE
+  ##GR-OBJECT-TYPE := GR-FILL.GR-OBJECT-TYPE
+  ##GR-OBJECT-NAME := GR-FILL.GR-OBJECT-NAME
+  ##GR-USERID      := GR-FILL.GR-USERID
+  COMPRESS ##GR-USERID '/' ##GR-OBJECT-TYPE '/' ##GR-OBJECT-NAME
+    TO #OBJ-NAME
+  OBJ. FIND (1) GR WITH GR-TYPE-OBJ-USER = ##GR-TYPE-OBJ-USER /*SU4:#KEY
+    IF NO RECORDS FOUND
+      MOVE BY NAME GR-FILL TO GR
+      STORE GR
+      PERFORM ADD-LOADED
+      ESCAPE BOTTOM (OBJ.)
+    END-NOREC
+    MOVE BY NAME GR-FILL TO GR
+    IF #REPL = 'Y'
+      UPDATE (OBJ.)
+      PERFORM ADD-REPLACED
+    ELSE
+      COMPRESS ##GR-TYPE-OBJ-USER 'not replaced for GR' TO #MSG /*SU4
+      PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+      PERFORM ADD-NOT-REPLACED
+    END-IF
+  END-FIND
+  END TRANSACTION
+END-IF
+*
+INCLUDE RMIMP-C1
+*
+END

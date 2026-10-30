@@ -1,0 +1,495 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOBNFF-N - NOM API Bundle Maintenance
+*            Functions rename, copy, delete, mass-delete
+*            Input keys :
+*            ES-KEY-PARM(1)     repname for found
+*            ES-NEWNAME         new repname for functions copy rename
+*            ES-KEY-PARM(2)     copy authorization
+*
+*           For mass-delete (ES-ORIG-FUNCTION = 'DE')
+*            Input keys :
+*            ES-KEY-PARM(1) -
+*              search-criteria for objects, which will be deleted-
+*               simple -  ABC*,
+*               mask - A?B*CCCB
+*            ES-KEY-PARM(2) - start searching from this object
+*            ES-KEY-PARM(3) -
+*              answer from client:
+*               'N' - don`t delete first object ES-KEY-PARM(2)
+*            ES-KEY-PARM(4) - prefix for mask
+*              if  ES-KEY-PARM(4) is H'FF' then no mask is being used
+*              and simple search-criteria(e.g. ABC*)is in ES-KEY-PARM(1)
+*              otherwise  mask is in ES-KEY-PARM(1) and prefix is in
+*              ES-KEY-PARM(4).
+*            ES-KEY-PARM(5) -  search to this object(if it is specified)
+*              it is being used to name object, which shouldn`t be
+*              deleted, because it is open by client in NGC.
+*            ES-NUMBER      -  count of already deleted objects.
+************************************************************************
+* Maintenance:
+* XSETGGR  2002-05-15  created
+* XSETGGR  2002-06-03  changes in pda ESMINP-A
+* XSETGGR  2002-12-30  change writing in log
+* XSETGGR  2007-03-22  replace call of ES...-N to direct call of module
+* XSETHZ   2008-07-23  p(307577) use full name of ES-APP-SERVER-LIBRARY
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* Splildav 10-02-17 N3246  Leave bundle status as is
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-20 NOMALL-901 correct writing delete operations in log
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msg into log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* XKO     2012-10-09 NOMALL-860 Direct comand DELETE with *
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-06-04 NOMALL-1281 show last update user+date
+** --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL USING VMBUN-L
+LOCAL USING NOMODE-A
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RLOG-L
+LOCAL
+1 BUNDLE-REPORT VIEW OF NRM-BUNDLE-REPORT
+  2 BR-BUNDLE
+1 GET-BR VIEW OF NRM-BUNDLE-REPORT
+  2 BR-BUNDLE
+  2 BR-REPNAME
+  2 BR-PRINTER
+  2 BR-GROUP
+  2 BR-SEQNO
+  2 BR-SEPNO
+  2 BR-REPNO
+  2 BR-PAGEDEF
+  2 BR-FORMDEF
+1 WRT-BR VIEW OF NRM-BUNDLE-REPORT
+  2 BR-BUNDLE
+  2 BR-REPNAME
+  2 BR-PRINTER
+  2 BR-GROUP
+  2 BR-SEQNO
+  2 BR-SEPNO
+  2 BR-REPNO
+  2 BR-PAGEDEF
+  2 BR-FORMDEF
+1 GRANTS VIEW OF NRM-GRANTS
+* *****
+1 #ES-CONTROL              (A253)
+1 #ES-INPUT-AREA           (A253/1:3)
+1 #GR-TYPE-NAME            (A26) INIT <'B'>
+1 REDEFINE #GR-TYPE-NAME
+  2 #GR-TYPE               (A1)
+  2 #GR-NAME               (A25)
+1 #ES-MSG-PREF             (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM            (A3)
+  2 #ES-MSG-NR             (N4)
+1 #APPLIB                  (A8)
+1 #GRANTS                  (A1/6)
+1 #GR-USER                 (A8)
+1 #BUNDLE                  (A25)
+1 #ES-SELECT               (A6)
+1 #USER-LIB                (A8)
+1 #BUN                     (A132)
+1 REDEFINE #BUN
+  2 #BUNNAME               (A25)
+  2 #BUNNAME-FR            (A25)
+  2 #BUNNAME-TO            (A25)
+  2 #FIRST-BUN             (A25)
+  2 #LAST-BUN              (A25)
+  2 #TIMEOUT               (T)
+1 #FOR-MASK-CHECK          (A130)
+1 REDEFINE #FOR-MASK-CHECK
+  2 #I                     (I4)
+  2 #J                     (I4)
+  2 #LEN                   (I4)
+  2 #C                     (I4)
+  2 #POS                   (I4)
+  2 #POS2                  (I4)
+  2 #FIN                   (L)
+  2 #W-CARD-PREV           (L)
+  2 #MASK-CORRECT          (L)
+  2 #STRING                (A50)
+  2 REDEFINE #STRING
+    3 #STRING-A1           (A1/1:50)
+  2 #WILDCARD              (A1)
+  2 #MASK-CHAR             (A1)
+  2 #USE-MASK              (L)
+  2 #MASK                  (A50)
+  2 REDEFINE #MASK
+    3 #MASK-A1             (A1/1:50)
+1 #FOR-LOG-AND-REFRESH     (A11)
+1 REDEFINE #FOR-LOG-AND-REFRESH
+  2 #LOG-DELETIONS         (A1)
+  2 #NUM-A                 (A5)
+  2 REDEFINE #NUM-A
+    3 #LOG-DEL-CNT         (N5)
+  2 #REFRESH-COUNT         (N5)
+1 #LOG-DELETIONS-INIT      (A1) INIT <'N'>
+1 #REFRESH-COUNT-INIT      (N5) INIT <1000>
+1 #WILDCARD-INIT           (A1) INIT <'*'>
+1 #MASK-CHAR-INIT          (A1) INIT <'?'>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-MSG-NR ES-MSG-FIELD ES-MSG-TXT
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA (*) := ES-INPUT-AREA(*)
+NOMOD-PARMS := ES-SELECT
+#APPLIB     := ES-APP-SERVER-LIBRARY
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+  VALUE 'RN'
+    PERFORM RENAME-BUNDLE
+  VALUE 'CP'
+    PERFORM COPY-BUNDLE
+  VALUE 'DL'
+    PERFORM DELETE-BUNDLE
+  VALUE 'DE'
+    PERFORM DELETE-MANY-BUNDLES
+  ANY VALUE
+    IF ES-RC = 0
+      PERFORM WRITE-LOG-RECORD
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE RENAME-BUNDLE
+************************************************************************
+PERFORM VALIDATION
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+FNDREN.
+FIND BUNDLES WITH B-BUNDLE = ES-KEY-PARM(1)
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0408                      /* bundle not defined
+    ESCAPE BOTTOM (FNDREN.)
+  END-NOREC
+  B-BUNDLE := ES-NEWNAME
+  B-LAST-UPDATE      := *TIMX /*SU2
+  B-LAST-UPDATE-USER := *USER /*SU2
+  UPDATE(FNDREN.)
+/* rename bundle in bundle-report file
+  FNBR. FIND BUNDLE-REPORT WITH BR-BUNDLE = ES-KEY-PARM(1)
+    BR-BUNDLE := ES-NEWNAME
+    UPDATE(FNBR.)
+  END-FIND
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+/* rename bundle in grant records
+ES-ORIG-FUNCTION := 'RN'
+PERFORM CHANGE-GRANTS
+*
+END-SUBROUTINE /* RENAME-BUNDLE
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-BUNDLE
+************************************************************************
+PERFORM VALIDATION
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+FNDCOP. FIND BUNDLES WITH B-BUNDLE = ES-KEY-PARM(1)
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0408                      /* bundle not defined
+    ESCAPE BOTTOM (FNDCOP.)
+  END-NOREC
+  B-BUNDLE           := ES-NEWNAME
+  B-LAST-MODIFIED    := *TIMX
+  B-LAST-UPDATE      := *TIMX /*SU2
+  B-LAST-UPDATE-USER := *USER /*SU2
+  STORE BUNDLES
+  RESET ES-SELECT
+  GC-BR. FIND GET-BR WITH BR-BUNDLE = ES-KEY-PARM(1)
+    IF NO RECORDS FOUND
+      #ES-SELECT := 'LRSS'
+      #ES-INPUT-AREA (*) := ES-INPUT-AREA(*)
+      ESCAPE BOTTOM (GC-BR.)
+    END-NOREC
+    RESET WRT-BR
+    MOVE BY NAME GET-BR TO WRT-BR
+    WRT-BR.BR-BUNDLE := ES-NEWNAME
+    STORE WRT-BR
+    END TRANSACTION
+    RESET GET-BR
+  END-FIND
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+/* copy or add grant record
+IF ES-KEY-PARM(2) = 'Y'
+  ES-ORIG-FUNCTION := 'CP'
+  IF ES-USER-TYPE NE 'A'
+    #BUNDLE := ES-KEY-PARM(1)
+    CALLNAT 'NOGROU-N' 'B' #BUNDLE ES-USER #GR-USER #GRANTS(*)
+    IF #GRANTS(1) NE 'Y' AND #GRANTS(3) NE 'Y'
+      MOVE 'DL' TO SUBSTRING(#ES-SELECT,5,2)
+    END-IF
+  END-IF
+ELSE
+  ES-KEY-PARM(1) := ES-NEWNAME
+  ES-ORIG-FUNCTION := 'NW'
+  ES-KEY-PARM(2) := ES-USER
+  ES-KEY-PARM(3) := 'YYYYYY'
+END-IF
+PERFORM CHANGE-GRANTS
+ES-SELECT := #ES-SELECT
+*
+END-SUBROUTINE /* COPY-BUNDLE
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-BUNDLE
+************************************************************************
+PERFORM VALIDATION
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+*
+FNDDEL.
+FIND BUNDLES WITH B-BUNDLE = ES-KEY-PARM(1)
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0408
+    ESCAPE BOTTOM (FNDDEL.)
+  END-NOREC
+  DELBR.
+  FIND BUNDLE-REPORT WITH BR-BUNDLE = BUNDLES.B-BUNDLE
+    IF NO RECORDS FOUND
+      ESCAPE BOTTOM (DELBR.)
+    END-NOREC
+    DELETE(DELBR.)
+  END-FIND
+  DELETE(FNDDEL.)
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+/* delete grant records for specified report
+ES-ORIG-FUNCTION := 'DL'
+ES-EXTEND-FUNCTION := 'DEL'
+PERFORM CHANGE-GRANTS
+*
+END-SUBROUTINE /* DELETE-BUNDLE
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-MANY-BUNDLES
+************************************************************************
+IF ES-CLIENT-TIMEOUT > 10 AND ES-CLIENT-TIMEOUT < 9999
+  #TIMEOUT := *TIMX + (ES-CLIENT-TIMEOUT - 10) * 10
+ELSE
+  #TIMEOUT := *TIMX + 450
+END-IF
+#WILDCARD := #WILDCARD-INIT
+#MASK-CHAR := #MASK-CHAR-INIT
+#LOG-DELETIONS := #LOG-DELETIONS-INIT
+#REFRESH-COUNT := #REFRESH-COUNT-INIT
+DIVIDE #REFRESH-COUNT INTO ES-NUMBER
+  GIVING #I REMAINDER #LOG-DEL-CNT /* sets correct #LOG-DEL-CNT
+#BUNNAME := ES-KEY-PARM(1)
+IF ES-KEY-PARM(3) = 'N'
+  ES-KEY-PARM(3) := ' '
+  #FIRST-BUN := ES-KEY-PARM(2)
+END-IF
+IF ES-KEY-PARM(4) =  H'FF'
+  #USE-MASK := FALSE
+  EXAMINE #BUNNAME FOR #WILDCARD DELETE
+ELSE
+  #USE-MASK := TRUE
+  #MASK := ES-KEY-PARM(1)
+  #BUNNAME := ES-KEY-PARM(4)
+END-IF
+IF ES-KEY-PARM(2) = ' '
+  #BUNNAME-FR := #BUNNAME
+ELSE
+  #BUNNAME-FR := ES-KEY-PARM(2)
+END-IF
+IF ES-KEY-PARM(5) NE ' '
+  #LAST-BUN := ES-KEY-PARM(5)
+  COMPRESS ES-KEY-PARM(5) H'FF' TO #BUNNAME-TO LEAVING NO
+ELSE
+  COMPRESS #BUNNAME H'FF' TO #BUNNAME-TO LEAVING NO
+END-IF
+FNDMDEL. FIND BUNDLES WITH B-BUNDLE = #BUNNAME-FR THRU #BUNNAME-TO
+  IF *TIMX > #TIMEOUT
+    ES-RC := 5
+    ES-KEY-PARM(2) := B-BUNDLE
+    END TRANSACTION
+    ESCAPE MODULE
+  END-IF
+  IF #USE-MASK
+    #STRING := B-BUNDLE
+    PERFORM COMPARE_WITH_MASK
+    IF #MASK-CORRECT = FALSE
+      ESCAPE TOP
+    END-IF
+  END-IF
+  ACCEPT IF B-BUNDLE NE #FIRST-BUN
+  IF  B-BUNDLE = #LAST-BUN
+    ES-RC := 4
+    END TRANSACTION
+    ESCAPE ROUTINE
+  END-IF
+  DELMBR.
+  FIND BUNDLE-REPORT WITH BR-BUNDLE = BUNDLES.B-BUNDLE
+    IF NO RECORDS FOUND
+      ESCAPE BOTTOM (DELMBR.)
+    END-NOREC
+    DELETE(DELMBR.)
+  END-FIND
+  DELETE(FNDMDEL.)
+  #GR-NAME := BUNDLES.B-BUNDLE
+  FIND GRANTS WITH GR-TYPE-NAME = #GR-TYPE-NAME
+    DELETE
+  END-FIND
+  ES-NUMBER := ES-NUMBER + 1
+  #LOG-DEL-CNT := #LOG-DEL-CNT + 1
+  IF #LOG-DELETIONS = 'Y'
+    COMPRESS '0075' B-BUNDLE 'BUNDLE' TO LG-MSG
+    LG-FUNCTION    := 'W'
+    LG-USERID      := ES-USER
+    LG-OBJECT-NAME := B-BUNDLE
+    LG-CODE        := 'MO'
+    CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+    COMPRESS '2509' B-BUNDLE TO LG-MSG
+    LG-USERID      := ES-USER
+    LG-CODE        := 'BM'
+    LG-BUNDLE      := B-BUNDLE
+    LG-OBJECT-NAME := B-BUNDLE
+    CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+  END-IF
+  IF #LOG-DEL-CNT EQ #REFRESH-COUNT
+    PERFORM WRITE-LOG-RECORD
+    #LOG-DEL-CNT := 0
+    END TRANSACTION
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* DELETE-MANY-BUNDLES
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+IF ES-ORIG-FUNCTION = 'RN' OR = 'CP'
+  IF ES-NEWNAME = ' '
+    #ES-MSG-NR := 0042                      /* enter bundle name
+    ESCAPE ROUTINE
+  END-IF
+  FNDRP1.
+  FIND NUMBER BUNDLES WITH B-BUNDLE = ES-NEWNAME
+  IF *NUMBER(FNDRP1.) > 0
+    #ES-MSG-NR := 0404                      /* bundle already defined
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE CHANGE-GRANTS
+************************************************************************
+ES-OBJECT        := 'GR'
+ES-FUNCTION      := 'FF'
+CALLNAT 'NOGRFF-N' ES-CONTROL ES-INPUT-AREA(*)
+IF ES-RC = 1
+  #ES-MSG-NR := ES-MSG-NR
+END-IF
+ES-CONTROL := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+*
+END-SUBROUTINE /* CHANGE-GRANTS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #APPLIB
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+EXAMINE ES-MSG-TXT FOR ':2:' REPLACE ' '
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+IF ES-ORIG-FUNCTION = 'DL'
+  COMPRESS '0075' ES-KEY-PARM(1) 'BUNDLE' TO LG-MSG
+  LG-FUNCTION    := 'W'
+  LG-USERID      := ES-USER
+  LG-OBJECT-NAME := ES-KEY-PARM(1)
+  LG-CODE        := 'MO'
+  CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+END-IF
+IF ES-ORIG-FUNCTION = 'DE' /* log delete function for many bundles
+  #NUM-A := #LOG-DEL-CNT
+  COMPRESS '0073' 'BU' #NUM-A TO LG-MSG
+  LG-USERID      := ES-USER
+  LG-FUNCTION    := 'W'
+  LG-CODE        := 'MO'
+  CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+ELSE
+  IF NOMOD-LOG-TYPES (*) = 'B'
+    DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+      VALUE 'CP'
+        COMPRESS '2508' ES-KEY-PARM(1) ES-NEWNAME TO LG-MSG
+      VALUE 'RN'
+        COMPRESS '2507' ES-KEY-PARM(1) ES-NEWNAME TO LG-MSG
+      VALUE 'DL'
+        COMPRESS '2509' ES-KEY-PARM(1) TO LG-MSG
+      ANY VALUE
+        LG-USERID      := ES-USER
+        LG-CODE        := 'BM'
+        LG-BUNDLE      := ES-KEY-PARM(1)
+        LG-OBJECT-NAME := ES-KEY-PARM(1)
+        CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+      NONE VALUE
+        IGNORE
+    END-DECIDE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+************************************************************************
+* copycode defines SUBROUTINE COMPARE_WITH_MASK
+INCLUDE NOXXCM-C '#STRING' '#STRING-A1' '#MASK' '#MASK-A1'
+  '#WILDCARD' '#MASK-CHAR' '#MASK-CORRECT' '#I' '#J' '#LEN'
+  '#C' '#POS' '#POS2' '#FIN' '#W-CARD-PREV'
+*
+END

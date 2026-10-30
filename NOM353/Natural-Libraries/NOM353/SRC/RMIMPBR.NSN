@@ -1,0 +1,138 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+************************************************************************
+* RMIMPBR - Import Bundle_Report
+*
+* Maintenance
+* User  yyyy-mm-dd Issue       Remark
+* ----- ---------------------- -----------------------------------------
+*       2019-02-22 generated   Created for RMIMPORT from RMXML2LD
+* fhi   2019-02-20 NOMALL-2215 Add object type MF Node: NO /rewritten
+* SU3   2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU4   2021-01-08 NOMALL-2443 avoid dup. entries
+* SU5   2021-04-22 NOMALL-2460 show actions
+* SU6   2021-08-18 NOMALL-2467 recat (RMIMP-A/RMIMP-C/RMIMP-C1)+RMIMPBRL
+************************************************************************
+DEFINE DATA
+PARAMETER USING RMIMP-A
+PARAMETER
+1 BR-FILL
+  2 BR-BUNDLE           (A25)
+  2 BR-REPNAME          (A25)
+  2 BR-PRINTER          (A8)
+  2 BR-GROUP            (A8)
+  2 BR-SEQNO            (P3)
+  2 BR-SEPNO            (P3)
+  2 BR-REPNO            (P3)
+  2 BR-PAGEDEF          (A8)
+  2 BR-FORMDEF          (A8)
+  2 BR-OBJECT-TYPE      (A10)
+  2 BR-OBJECT-TIME      (T)
+************************************************************************
+LOCAL USING RMIMP-L /*SU5
+LOCAL USING RMBAS64P
+/*SU6 LOCAL USING RMIMPBRL
+*
+LOCAL
+1 BR VIEW OF NRM-BUNDLE-REPORT /*SU6 was RMIMPBRL
+  2 BR-OBJECT-TYPE       (A10)
+  2 BR-OBJECT-TIME       (T)
+  2 BR-BUNDLE            (A25)
+  2 BR-REPNAME           (A25)
+  2 BR-PRINTER           (A8)
+  2 BR-GROUP             (A8)
+  2 BR-SEQNO             (P3)
+  2 BR-SEPNO             (P3)
+  2 BR-REPNO             (P3)
+  2 BR-PAGEDEF           (A8)
+  2 BR-FORMDEF           (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *OCC(B64-TEXT-ARRAY) = 0
+  EXPAND ARRAY B64-TEXT-ARRAY TO (1:5)
+END-IF
+IF NOT #SAVE
+  IF #TAG-CURRENT = #TAG-OLD
+    ADD 1 TO #IND
+  ELSE
+    #IND := 1
+  END-IF
+  IF #VALUE-CURRENT = ' '
+    ESCAPE MODULE
+  END-IF
+  DECIDE ON FIRST VALUE OF #TAG-CURRENT
+    VALUE 'BR-OBJECT-TYPE'
+      BR-FILL.BR-OBJECT-TYPE := #VALUE-CURRENT
+    VALUE 'BR-OBJECT-TIME'
+      MOVE EDITED #VALUE-CURRENT TO BR-FILL.BR-OBJECT-TIME
+        (EM=YYYY'-'MM'-'DD'-'HH':'II':'SS'.'T)
+    VALUE 'BR-BUNDLE'
+      BR-FILL.BR-BUNDLE := #VALUE-CURRENT
+    VALUE 'BR-REPNAME'
+      BR-FILL.BR-REPNAME := #VALUE-CURRENT
+    VALUE 'BR-PRINTER'
+      BR-FILL.BR-PRINTER := #VALUE-CURRENT
+    VALUE 'BR-GROUP'
+      BR-FILL.BR-GROUP := #VALUE-CURRENT
+    VALUE 'BR-SEQNO'
+      IF #VALUE-CURRENT IS (P3)
+        BR-FILL.BR-SEQNO := VAL (#VALUE-CURRENT)
+      ELSE
+        #MSG := 'BR-SEQNO'
+        PERFORM FIELD-IGNORED /*RMIMP-C
+      END-IF
+    VALUE 'BR-SEPNO'
+      IF #VALUE-CURRENT IS (P3)
+        BR-FILL.BR-SEPNO := VAL (#VALUE-CURRENT)
+      ELSE
+        #MSG := 'BR-SEPNO'
+        PERFORM FIELD-IGNORED /*RMIMP-C
+      END-IF
+    VALUE 'BR-REPNO'
+      IF #VALUE-CURRENT IS (P3)
+        BR-FILL.BR-REPNO := VAL (#VALUE-CURRENT)
+      ELSE
+        #MSG := 'BR-REPNO'
+        PERFORM FIELD-IGNORED /*RMIMP-C
+      END-IF
+    VALUE 'BR-PAGEDEF'
+      BR-FILL.BR-PAGEDEF := #VALUE-CURRENT
+    VALUE 'BR-FORMDEF'
+      BR-FILL.BR-FORMDEF := #VALUE-CURRENT
+    NONE IGNORE
+  END-DECIDE
+ELSE
+  ##BR-BU := BR-FILL.BR-BUNDLE
+  ##BR-RP := BR-FILL.BR-REPNAME
+  COMPRESS ##BR-BU '/' ##BR-RP TO #OBJ-NAME
+  OBJ. FIND (1) BR WITH BR-BUNDLE-REPORT = ##BR-BU-RP /*SU4 was #KEY
+    IF NO RECORDS FOUND
+      MOVE BY NAME BR-FILL TO BR
+      STORE BR
+      PERFORM ADD-LOADED
+      ESCAPE BOTTOM (OBJ.)
+    END-NOREC
+    MOVE BY NAME BR-FILL TO BR
+    IF #REPL = 'Y'
+      UPDATE (OBJ.)
+      PERFORM ADD-REPLACED
+    ELSE
+      COMPRESS ##BR-BU-RP 'not replaced for BR' TO #MSG /*SU4 was #KEY
+      PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+      PERFORM ADD-NOT-REPLACED
+    END-IF
+  END-FIND
+  END TRANSACTION
+END-IF
+*
+INCLUDE RMIMP-C1
+*
+END

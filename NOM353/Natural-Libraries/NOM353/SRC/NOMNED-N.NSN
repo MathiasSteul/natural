@@ -1,0 +1,747 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMNED-N - Handling routine for Source Editor in NGC:
+*             Natural Library Member edit (Natural types TXT and PGM)
+*
+*             ES-EXTEND-FUNCTION codes:
+*               RFU   = Read data from server for editing
+*               SAC   = Pass data to server and store the data
+*                       and cancel server session
+*               SAV   = Pass data to server and store the data
+*               SA    = Same as SAV, but from Context Menu
+*               CH    = Check current source
+*               CA    = Cataloge current source
+*               ST    = Stow current source
+*               CAN   = Cancel server session
+*
+* Modifications:
+* CF     2017-03-08  NOMALL-2089  Created (basing on OPMNED-N of EOR)
+* fhi    2018-07-11  NOMALL-2008  do check/cat/stow asynchronously
+* SU1     2024-05-02 NOM 3.6     remove unused
+* ---------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOMNEDWA
+PARAMETER
+1 OMJ-PARM              (A253/1:100)
+1 REDEFINE OMJ-PARM
+  2 OMJP-25300          (A25300)
+************************************************************************
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING NADA2000
+LOCAL USING EDIT4-CB
+LOCAL USING RMCTOD-P          /* New Monitor Command Handler
+LOCAL USING RLOG-L
+LOCAL
+1 NADA1400
+  2 OBJECT-KEY
+    3 DBID              (N5)
+    3 FNR               (N5)
+    3 PASSWORD          (A8)
+    3 CIPHERCODE        (N8)
+    3 OBJECT-CLASS      (I1)
+    3 LIBRARY           (A8)
+    3 OBJECT-NAME       (A32)
+    3 OBJECT-TYPE       (A2)
+    3 OBJECT-KIND       (A1)
+  2 INPUTS
+    3 OPT-ACCESS        (A1)
+    3 OPT-ET            (L)
+    3 OPT-REPLACE       (A1)
+    3 OPT-SESNUM        (B2)
+    3 OPT-BUFFNAME      (A8)
+  2 OUTPUTS
+    3 EDIT-MODE         (A1)
+1 NATA1400
+  2 VERSION             (I1) INIT< 1 >   /* max for X/W Nat
+  2 V1-NSC-CHECK        (A1)
+  2 V2-RENUMBER         (A1)
+1 REDEFINE NATA1400
+  2 EXTENDED-PARMS-V1
+    3 EXTENDED-DATA-V1  (A1/1:2)
+1 REDEFINE NATA1400
+  2 EXTENDED-PARMS-V2
+    3 EXTENDED-DATA-V2  (A1/1:3)
+*
+1 K-ED-NEWCB-4          (A1) CONST<'4'>  /* For EDIT4-CB
+1 K-LS-NAT              (I2) CONST<88>   /* Length of editor line
+1 K-API-20              (I2) CONST<20>   /* Max. index for NAT API
+1 NADA1100
+  2 OBJECT-KEY
+    3 DBID              (N5)
+    3 FNR               (N5)
+    3 PASSWORD          (A8)
+    3 CIPHERCODE        (N8)
+    3 OBJECT-CLASS      (I1)
+    3 LIBRARY           (A8)
+    3 OBJECT-NAME       (A32)
+    3 OBJECT-TYPE       (A2)
+    3 OBJECT-KIND       (A1)
+  2 INPUTS
+    3 OPT-ACCESS        (A1)
+    3 OPT-ET            (L)
+    3 OPT-REPLACE       (A1)
+    3 OPT-LINE-NUM      (A1)
+    3 OPT-STEPLIBS      (L)
+    3 OPT-REDEF-DIR     (L)
+    3 OPT-STREAM        (A1)
+    3 OPT-AMOUNT        (I2)
+    3 OPT-LINESIZE      (I2)
+  2 INPUT-OUTPUTS
+    3 INT-HANDLE        (I4)
+    3 NEXT-SEQ          (I4)
+    3 NEXT-NUM          (I2)
+  2 OUTPUTS
+    3 RETURNED          (I2)
+    3 SRC-NUM           (I2/1:K-API-20)
+    3 SRC-TEXT          (A1/1:K-API-20,K-LS-NAT)
+    3 REDEFINE SRC-TEXT
+      4 SRC-GROUP       (1:K-API-20)
+        5 SRC-LINE      (A88)            /* Length of K-LS-NAT
+    3 SRC-SEQ           (I4/1:K-API-20)
+    3 SRC-LONG          (A1/1:K-API-20)
+/*SU1 1 NATA1100 2 VERSION (I1) INIT< 0 >   /* Max for X/W Nat
+/*SU1  2 V1-NSC-CHECK (A1) 1 REDEFINE NATA1100
+/*SU1  2 EXTENDED-PARMS-V0 3 EXTENDED-DATA-V0  (A1/1:1)
+/*SU1 1 CMACCSYS-PARM 2 #FUNC (I4) 2 #RET  (I4) 2 #ACT  (I4) 2 #REPL(A1)
+/*SU1  2 #LIB  (A8) 2 #OBJ  (A32) 2 #TYP  (A2) 2 #DBID (I4) 2 #FNR  (I4)
+/*SU1 1 #RC-I4                (I4)
+1 #ERROR-NR             (N4)
+1 #SHORT-TEXT           (A79)
+1 #RC-N1                (N1)
+1 NAT00001-PARMS
+  2 KEYWORD             (A11)
+  2 INT-OBJ-TYPE        (A01)
+  2 EXT-OBJ-TYPE        (A01)
+  2 TYPE-TEXT           (A11)
+1 K-NAT-INIT-3          (I2) CONST< 3 >
+1 K-NAT-INIT-TXT        (A72/1:K-NAT-INIT-3) CONST<
+  '* ----------------------------------------------------------------',
+  '* Enter the control sequence or the Natural coding here.',
+  '* ----------------------------------------------------------------' >
+1 E-SESNUM              (I2) CONST< 1 >
+1 E-PREF                (A6/1:287)
+1 E-ALIN                (A1/1:287)
+1 E-ADAT                (A1/1:287)
+/* Upper index of E-ADAT = 25300 / K-LS-NAT
+/*SU1 1 E-LINES (A1760) * Length of E-LINES=K-API-20 * K-LS-NAT
+/*SU1 1 #SOURCE-REPORT        (A)   DYNAMIC
+/*SU1 1 #J (I4) 1 #LOCKED (L) 1 #IS-LOCKED-BY-ME (L) 1 #KILLED (L)
+/*SU1 1 #ERROR-NR-LOCK        (N04) 1 #ERROR-TEXT-LOCK      (A75)
+* Variables for XXTABLE
+1 #SOURCE-FUNCTION      (A1)
+1 #SOURCE-CURRENT-IX    (I4)
+1 #SOURCE-TEMP1         (I4)
+1 #SOURCE-TEMP2         (I4)
+1 #SOURCE-TEMP8         (N4)
+1 E-LINE                (A250/1)
+1 #I                    (I4)
+1 #K                    (I4)
+1 #L                    (I4)
+1 #NSC-ACTIVE           (L)
+1 #LANGUAGE             (I1)
+1 #ES-KEYS              (A10)
+1 REDEFINE #ES-KEYS
+  2 #ES-KEY-CODE        (A2/1:5)
+1 #A1                   (A1)
+*
+1 CMSLFT-PARM           (A52)            /* Get Lfile of FNAT/FUSER
+1 REDEFINE CMSLFT-PARM
+  2 CMSLFT-FCT          (I4)
+  2 CMSLFT-DUMMY        (A12)
+  2 CMSLFT-LFILE        (I4)
+  2 CMSLFT-DBID         (I4)
+  2 CMSLFT-FNR          (I4)
+  2 CMSLFT-PASSW        (A8)
+  2 CMSLFT-CIPH         (N8)
+1 #OBJTYPE-INTERNAL     (A1)
+1 #SYSTEM-DB-B2         (I4)
+1 #SYSTEM-FNR-B2        (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-MSG-NR ES-MSG-TXT       /* Assume OK
+*
+#LANGUAGE := ES-LANGUAGE
+*LANGUAGE := ES-LANGUAGE
+/*
+/* Parameter OMNW-SOURCE-TYPE contains the information of what
+/* kind of source has to be handled:
+/*   - Separator Page    (TXT, Natural Text)
+/*   - Separator Routine (PGM, Natural Subprogram)
+/*
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+  VALUE 'RFU'
+    IF OMNED-WORK = ' '      /* First call ?
+      OMNED-WORK := ES-LINE
+    END-IF
+    PERFORM DO-RFU
+    IF ES-RC NE 0 OR ES-EOF NE ' '
+      PERFORM EDITOR-CLSS
+      RESET OMNW-RECORDS
+    END-IF
+  VALUE 'SA', 'SAV', 'SAC', 'CA', 'ST', 'CH'
+    PERFORM DO-SRC
+    IF ES-RC NE 0 OR ES-EOF NE ' '
+      PERFORM EDITOR-CLSS
+      RESET OMNW-RECORDS
+    END-IF
+  VALUE 'CAN'
+    RESET OMNW-RECORDS
+  NONE VALUE
+    ES-RC     := 1
+    ES-MSG-NR := 9991
+    COMPRESS *PROGRAM *LINE 'Extended function' ES-EXTEND-FUNCTION
+      'invalid' INTO ES-MSG-TXT
+END-DECIDE
+/*
+DECIDE ON FIRST VALUE ES-MSG-NR
+  VALUE 0, 1599, 1600, 1601, 1602, 1606, 1607
+    IGNORE                   /* Return codes from RMCTOD-N
+  VALUE 9988 : 9998
+    IGNORE                   /* Internal error flagging
+  NONE
+    PERFORM GET-MSG-TXT
+END-DECIDE
+/*
+END TRANSACTION              /* For log output
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DO-RFU
+************************************************************************
+/* Standard function: Read data from source for editing
+IF OMNW-RECORDS = 0
+  PERFORM HANDLE-PARMS
+  IF ES-RC NE 0
+    ESCAPE ROUTINE
+  END-IF
+  /*
+  /* Number of lines to be read in one chunk for each type
+  ES-LINE-NUMBER := K-LS-NAT
+  /*
+  PERFORM EDITOR-CLSS
+  /*
+  RESET OMJ-PARM (*) ES-EOF ES-NUMBER
+  PERFORM READ-NAT
+  IF ES-RC NE 0
+    ESCAPE ROUTINE
+  END-IF
+ELSE
+  PERFORM EDITOR-STAT
+  IF ES-RC NE 0
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+/*
+PERFORM EDITOR-GETL
+IF ES-RC NE 0
+  ESCAPE ROUTINE
+END-IF
+#I := ED-NEW-RECNUM
+IF OMNW-RECORDS > #I
+  ES-EOF := 'X'
+  PERFORM EDITOR-CLSS
+  RESET OMNW-RECORDS
+END-IF
+*
+END-SUBROUTINE /* DO-RFU
+*
+************************************************************************
+DEFINE SUBROUTINE DO-SRC
+************************************************************************
+/* Standard function: Save data to source after editing
+IF *SERVER-TYPE = 'RPC'
+  IF ES-READONLY NE ' ' AND ES-EXTEND-FUNCTION NE 'CH'
+    ES-RC     := 1
+    ES-MSG-NR := 4600        /* Source granted for reading only
+    ESCAPE ROUTINE
+  END-IF
+  /*
+  IF ES-NUMBER = 0 AND OMNW-RECORDS = 0 AND ES-EOF NE ' '
+      OR ES-NUMBER = 1 AND OMJP-25300 = ' '
+      AND OMNW-RECORDS = 0 AND ES-EOF NE ' '
+    ES-RC     := 1
+    ES-MSG-NR := 4601        /* Source empty, no function applicable
+    ESCAPE ROUTINE
+  END-IF
+  /*
+  IF OMNW-TRUNCATED NE ' '
+    ES-RC     := 1
+    ES-MSG-NR := 4602        /* Source lines are truncated
+    RESET OMNW-TRUNCATED
+    ESCAPE ROUTINE
+  END-IF
+  /*
+  IF OMNW-RECORDS = 0        /* First call ?
+    PERFORM EDITOR-CLSS
+    SET CONTROL 'Z'
+    #L := ES-LINE-NUMBER
+    PERFORM EDITOR-OPEN
+    IF ES-RC NE 0
+      ESCAPE ROUTINE
+    END-IF
+  ELSE
+    PERFORM EDITOR-STAT
+    IF ES-RC NE 0
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+  /*
+  IF ES-NUMBER > 0
+    ED-NEWNUM     := 'Y'
+    ED-NEW-RECTOP := OMNW-RECORDS
+    PERFORM EDITOR-ADDL
+    IF ES-RC NE 0
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+  /*
+  IF ES-EOF = ' '  AND  ES-NUMBER = 25300 / ES-LINE-NUMBER
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+/*
+/* Data collection in source area completed.
+/*
+CALLNAT 'NONSCHKN' #NSC-ACTIVE              /* Check if NSC is active
+/*
+PERFORM DO-SAVE-CAT-STOW
+/*
+END-SUBROUTINE /* DO-SRC
+*
+************************************************************************
+DEFINE SUBROUTINE DO-SAVE-CAT-STOW
+************************************************************************
+* Perform Natural commands on Mf platforms: * Save, Cat, Stow and Check
+IF *SERVER-TYPE = 'RPC'
+  ED-MCMND := 'REN 10'
+  PERFORM EDITOR-RENUM
+  IF ES-RC NE 0
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+/*
+DECIDE ON EVERY VALUE OF ES-EXTEND-FUNCTION
+  VALUE 'SA', 'SAV', 'SAC'
+    PERFORM WRITE-NAT
+    IF ES-RC NE 0
+      ESCAPE ROUTINE
+    END-IF
+    PERFORM LOG-AFTER-EDIT
+  VALUE 'CA'
+    RMCTOD-COMMAND := 'CAT'
+  VALUE 'CH'
+    RMCTOD-COMMAND := 'CHECK'
+  VALUE 'ST'
+    RMCTOD-COMMAND := 'STOW'
+  VALUE 'CA', 'CH', 'ST'
+    PERFORM SOURCE-2-ORDER
+  NONE VALUE
+    IGNORE
+END-DECIDE
+/*
+END-SUBROUTINE /* DO-SAVE-CAT-STOW
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-PARMS
+************************************************************************
+FP. FOR #I = 1 TO 5
+  DECIDE FOR EVERY CONDITION
+    WHEN ES-KEY-CODE(#I) = 'FN' OR = 'MN' AND ES-KEY-PARM(#I) NE ' '
+        AND SUBSTR(ES-KEY-PARM(#I),9) = ' '
+      IGNORE
+    WHEN ES-KEY-CODE(#I) = ' ' AND ES-KEY-PARM(#I) = ' '
+      IGNORE
+    WHEN NONE
+      ES-RC     := 1
+      ES-MSG-NR := 9993
+      COMPRESS *PROGRAM *LINE 'Position:' #I 'Key:' ES-KEY-CODE(#I)
+        'Value:' ES-KEY-PARM(#I) '- invalid' INTO ES-MSG-TXT
+      ESCAPE ROUTINE
+  END-DECIDE
+END-FOR
+*
+#ES-KEY-CODE(*) := ES-KEY-CODE(*)
+DECIDE ON FIRST VALUE #ES-KEYS
+  VALUE 'FNMN'
+    OMNW-LIBRARY := ES-KEY-PARM(1)
+    OMNW-MEMBER      := ES-KEY-PARM(2)
+    OMNW-MEMBER-TYPE := ES-KEY-PARM(3)
+  NONE VALUE
+    ES-RC     := 1
+    ES-MSG-NR := 9994
+    COMPRESS *PROGRAM *LINE
+      'Keys:' ES-KEY-CODE(1) ';' 'invalid' INTO ES-MSG-TXT
+    ESCAPE ROUTINE
+END-DECIDE
+*
+END-SUBROUTINE /* HANDLE-PARMS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-NAT
+************************************************************************
+SET CONTROL 'Z'                        /* Clear source area
+NADA1400.LIBRARY      := OMNW-LIBRARY
+NADA1400.OBJECT-NAME  := OMNW-MEMBER
+NADA1400.OPT-ACCESS   := 'R'           /* Read
+NADA1400.OPT-REPLACE  := 'N'
+NATA1400.VERSION      := 1
+NATA1400.V1-NSC-CHECK := 'Y'
+*
+CALLNAT 'NATA1400' NADA1400  NATA1400.EXTENDED-PARMS-V1 NAD-MSG NAD-FLD
+*
+IF NAD-MSG.MSG-NR=-82 OR=1006 AND ES-READONLY=' '/*NAT0082 Src not found
+  /* If the requested source doesn't exist,
+  /* assume a new Natural member is to be created
+  /* and provide it with standard coding.
+  #L := 250                              /* Use full width
+  DEFINE PRINTER (1) OUTPUT 'SOURCE'
+  EJECT OFF (1)
+  RN10. FOR #I = 1 TO K-NAT-INIT-3
+    PRINT (1) NOTITLE K-NAT-INIT-TXT (#I)
+  END-FOR
+  IF OMNW-SOURCE-TYPE = 'TXT'
+    OMNW-MEMBER-TYPE := RMCTOD-TYPE := 'T'
+  ELSE
+    OMNW-MEMBER-TYPE := RMCTOD-TYPE := 'N'
+  END-IF
+  PERFORM EDITOR-OPEN
+  ESCAPE ROUTINE
+END-IF
+*
+DECIDE FOR FIRST CONDITION
+  WHEN NAD-MSG.MSG-NR < 0
+    #ERROR-NR := ABS(NAD-MSG.MSG-NR)
+    CALLNAT 'NAT00020' #ERROR-NR #LANGUAGE #SHORT-TEXT #RC-N1
+    ES-RC     := 1
+    ES-MSG-NR := 0
+    MOVE EDITED #ERROR-NR (EM=' NAT'9999) TO ES-MSG-TXT
+    COMPRESS ES-MSG-TXT #SHORT-TEXT INTO ES-MSG-TXT
+  WHEN NAD-MSG.MSG-NR >  0
+    /* Code moved to internal subroutine
+    PERFORM CHECK-NAD-MSG-NR
+  WHEN ANY; ESCAPE ROUTINE
+  WHEN NONE; IGNORE
+END-DECIDE
+*
+OMNW-MEMBER-TYPE := NADA1400.OBJECT-TYPE
+#L := 250                              /* Use full width
+PERFORM EDITOR-OPEN
+IF ES-RC NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+IF *MACHINE-CLASS = 'MAINFRAME'
+  #A1 := H'5F'                         /* 'Not sign' in EBCDIC
+ELSE
+  #A1 := H'5E'                         /* 'Circumflex' in ASCII
+END-IF
+#I := ES-LINE-NUMBER + 1               /* Next to last column
+COMPRESS 'find p''X''' #I '255 first' INTO ED-MCMND
+EXAMINE ED-MCMND FOR 'X' REPLACE #A1
+ED-REQUEST := 'FIND'                   /* Search non blank
+CALL 'EDITOR' EDIT-CB
+*
+DECIDE ON FIRST VALUE ED-ERRNUM
+  VALUE 40    OMNW-TRUNCATED := 'Y'    /* Char :1:':2:' found
+  VALUE 22    IGNORE                   /* *bottom of data reached*
+  VALUE 41    IGNORE                   /* Char :1:':2:' not found
+  NONE VALUE  PERFORM EDITOR-ERROR
+END-DECIDE
+*
+END-SUBROUTINE /* READ-NAT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-NAT
+************************************************************************
+/* Write Natural source on Mainframe platforms
+/*
+IF OMNW-MEMBER-TYPE = ' '
+  OMNW-MEMBER-TYPE := 'T'
+END-IF
+NADA1400.LIBRARY      := OMNW-LIBRARY
+NADA1400.OBJECT-NAME  := OMNW-MEMBER
+NADA1400.OBJECT-TYPE  := OMNW-MEMBER-TYPE
+NADA1400.OPT-ACCESS   := 'W'           /* Write
+NADA1400.OPT-REPLACE  := 'Y'
+NADA1400.OPT-ET       := TRUE
+NADA1400.EDIT-MODE    := 'S'
+/*
+NATA1400.VERSION      := 2
+NATA1400.V1-NSC-CHECK := 'Y'
+NATA1400.V2-RENUMBER  := 'Y'
+/*
+CALLNAT 'NATA1400'   /* save NAT source from source area
+  NADA1400  NATA1400.EXTENDED-PARMS-V2 NAD-MSG  NAD-FLD
+/*
+/* Code moved to internal subroutine
+/*
+PERFORM CHECK-NAD-MSG-NR
+*
+END-SUBROUTINE /* WRITE-NAT
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-NAD-MSG-NR
+************************************************************************
+IF NAD-MSG.MSG-NR NE 0
+  ES-RC      := 1
+  ES-MSG-NR  := 9995
+  COMPRESS NUMERIC '<' NAD-MSG.MSG-NR '>' INTO ES-MSG-TXT LEAVING NO
+  COMPRESS ES-MSG-TXT NAD-MSG.MSG INTO ES-MSG-TXT
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE WITH FULL ' :1: '
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE MSG-DATA (1)
+  EXAMINE ES-MSG-TXT FOR ':2:' REPLACE MSG-DATA (2)
+  EXAMINE ES-MSG-TXT FOR ':3:' REPLACE MSG-DATA (3)
+END-IF
+*
+END-SUBROUTINE /* CHECK-NAD-MSG-NR
+*
+************************************************************************
+DEFINE SUBROUTINE SOURCE-2-ORDER
+************************************************************************
+PERFORM EDITOR-STAT
+IF ES-RC NE 0
+  ESCAPE ROUTINE
+END-IF
+/*
+ED-RECTOP := 1
+ED-SCRLEN := 250
+ED-PRFENT := 5
+ED-SCRNUM := 1
+RESET E-LINE(1)
+#SOURCE-FUNCTION := 'K' /* Reset array
+INCLUDE XXTABLE '#SOURCE-FUNCTION' 'RMCTOD-SOURCE'
+  'E-LINE(1)' '#SOURCE-CURRENT-IX' 'RMCTOD-LAST-IX'
+  '#SOURCE-TEMP1' '#SOURCE-TEMP2' '#SOURCE-TEMP8'
+/*
+REPEAT
+  RESET E-LINE(1)
+  ED-REQUEST := 'GETL'
+  CALL 'EDITOR' EDIT-CB E-ALIN(*) E-PREF(*) E-ADAT(*) E-LINE(1)
+  /*
+  IF ED-RECTOP > ED-RECNUM
+    ESCAPE BOTTOM
+  END-IF
+  PERFORM EDITOR-ERROR
+  IF ES-RC NE 0
+    ESCAPE ROUTINE
+  END-IF
+  #SOURCE-FUNCTION := 'W' /* Add source line to array sequentially
+  INCLUDE XXTABLE '#SOURCE-FUNCTION' 'RMCTOD-SOURCE'
+    'E-LINE(1)' '#SOURCE-CURRENT-IX' 'RMCTOD-LAST-IX'
+    '#SOURCE-TEMP1' '#SOURCE-TEMP2' '#SOURCE-TEMP8'
+END-REPEAT
+/*
+RMCTOD-LIBRARY    := OMNW-LIBRARY      /* Natural Library
+RMCTOD-PROGRAM    := OMNW-MEMBER       /* Natural object name
+INT-OBJ-TYPE      := OMNW-MEMBER-TYPE  /* NATURAL OBJECT TYPE
+CALLNAT 'NAT00001' NAT00001-PARMS      /* Conv. intern to extern
+RMCTOD-TYPE       := EXT-OBJ-TYPE
+/*
+RMCTOD-SHORTMSG   := TRUE
+RMCTOD-ORDER-ID   := 0   /* Return : P10  - Generated Order Number
+RMCTOD-ERROR-CODE := 0   /* Return : N4   - Error Number
+RMCTOD-ERROR-TEXT := ' ' /* Return : A250 - Error Text
+* RMCTOD-TRACING    := TRUE   /* Trace to log file - on demand
+/*
+CALLNAT 'RMCTOD-N' RMCTOD
+/*
+ES-MSG-TXT := RMCTOD-ERROR-TEXT
+IF RMCTOD-ERROR-CODE GE 0
+  ES-MSG-NR  := RMCTOD-ERROR-CODE
+ELSE
+  ES-MSG-NR  := 9988
+  COMPRESS RMCTOD-ERROR-CODE '::' ES-MSG-TXT INTO ES-MSG-TXT
+END-IF
+/*
+DECIDE ON FIRST VALUE RMCTOD-ERROR-CODE
+  VALUE  -1     ES-RC := 4   /* Waiting for result
+  VALUE  -2     ES-RC := 5   /* Order number not found
+  VALUE  -3     ES-RC := 5   /* Invalid command
+  NONE          ES-RC := 0
+END-DECIDE
+OMNW-CB-CMD-ISN := RMCTOD-ORDER-ID /* Return : Generated Order Number
+*
+END-SUBROUTINE /*  SOURCE-2-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE EDITOR-ADDL
+************************************************************************
+ED-NEWNUM  := 'Y'
+ED-SCRNUM  := ES-NUMBER
+*
+/* Check if a trailing empty line exists for Check, Cat or Stow
+/* (to handle a SAG Editor problem with losing last line)
+IF ES-EOF NE ' ' AND ES-EXTEND-FUNCTION = 'CH' OR= 'CA' OR= 'ST'
+  #K := (ES-NUMBER - 1) * ES-LINE-NUMBER
+  IF SUBSTR(OMJP-25300,#K,ES-LINE-NUMBER) NE ' '
+    /*                            /* Add one source line more
+    ED-SCRNUM  := ES-NUMBER + 1   /* with the last bunch to get
+  END-IF                          /* the last line with GETL again
+END-IF
+*
+ED-REQUEST := 'ADDL'
+CALL 'EDITOR' EDIT-CB E-ALIN(*) E-PREF(*) E-ADAT(*) OMJP-25300
+PERFORM EDITOR-ERROR
+ADD ES-NUMBER TO OMNW-RECORDS
+*
+END-SUBROUTINE /* EDITOR-ADDL
+*
+************************************************************************
+DEFINE SUBROUTINE EDITOR-STAT
+************************************************************************
+ED-SESNUM  := E-SESNUM
+ED-REQUEST := 'STAT'
+CALL 'EDITOR' EDIT-CB
+PERFORM EDITOR-ERROR
+*
+END-SUBROUTINE /* EDITOR-STAT
+*
+************************************************************************
+DEFINE SUBROUTINE EDITOR-OPEN
+************************************************************************
+ED-NEWCB      := K-ED-NEWCB-4
+ED-SESNUM     := E-SESNUM
+ED-LINENTL    := ED-SCRLEN     := ED-RECLEN     := #L
+*
+ED-NEWNUM     := 'Y'
+ED-BPUSE      := 1
+ED-DTPLACE    := 1
+ED-PRFLEN     := 6
+ED-PRFENT     := 6
+ED-LINETYPE   := H'02'
+* ED-SCRNUM     := 1
+PROF-LANGUAGE := ES-LANGUAGE
+PROF-RECOVERY := 'N'
+PROF-PHSCHR   := 05
+ED-USER       := ES-USER
+ED-DSTYPE   := 'NAT'
+*
+RESET ED-ERRNUM ED-MSGNUM
+*
+ED-REQUEST := 'OPEN'
+CALL 'EDITOR' EDIT-CB
+PERFORM EDITOR-ERROR
+*
+END-SUBROUTINE /* EDITOR-OPEN
+*
+************************************************************************
+DEFINE SUBROUTINE EDITOR-GETL
+************************************************************************
+RESET OMJ-PARM(*) ES-NUMBER
+ED-NEWNUM     := 'Y'
+ED-NEW-RECTOP := OMNW-RECORDS          /* From record
+ED-LINENTL    := ES-LINE-NUMBER
+ED-SCRNUM     := 25300 / ES-LINE-NUMBER
+ED-REQUEST    := 'GETL'
+CALL 'EDITOR' EDIT-CB E-ALIN(*) E-PREF(*) E-ADAT(*) OMJP-25300
+PERFORM EDITOR-ERROR
+IF ES-RC NE 0
+  ESCAPE ROUTINE
+END-IF
+OMNW-RECORDS := ED-NEW-RECTOP
+ES-NUMBER    := ED-SCRNUM
+*
+END-SUBROUTINE /* EDITOR-GETL
+*
+************************************************************************
+DEFINE SUBROUTINE EDITOR-RENUM
+************************************************************************
+ED-SESNUM  := E-SESNUM
+ED-REQUEST := 'UPDM'
+CALL 'EDITOR' EDIT-CB E-ALIN(*) E-PREF(*) E-ADAT(*) OMJP-25300
+PERFORM EDITOR-ERROR
+*
+END-SUBROUTINE /* EDITOR-RENUM
+*
+************************************************************************
+DEFINE SUBROUTINE EDITOR-CLSS
+************************************************************************
+ED-SESNUM  := E-SESNUM
+ED-REQUEST := 'CLSS'
+CALL 'EDITOR' EDIT-CB
+RESET ED-SESNUM ED-ERRNUM
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE EDITOR-ERROR
+************************************************************************
+IF ED-ERRNUM NE 0
+  #I := ED-ERRNUM
+  ES-RC     := 1
+  ES-MSG-NR := 9990
+  COMPRESS ED-REQUEST #I ED-FLINE INTO ES-MSG-TXT
+  PERFORM EDITOR-CLSS
+END-IF
+*
+END-SUBROUTINE /* EDITOR-ERROR
+*
+************************************************************************
+DEFINE SUBROUTINE LOG-AFTER-EDIT
+************************************************************************
+IF ES-RC = 0 AND ES-EOF NE ' '
+  COMPRESS '4604' 'SAVE'     /* Set parameters for NOM log
+    TO LG-MSG
+  PERFORM DO-LOG
+END-IF
+*
+END-SUBROUTINE /* LOG-AFTER-EDIT
+*
+************************************************************************
+DEFINE SUBROUTINE DO-LOG /* Call logging routine of NOM
+************************************************************************
+LG-USERID      := ES-USER
+LG-CODE        := 'UM'
+LG-OBJECT-NAME := OMNW-MEMBER
+/*
+CALLNAT 'NOLG---N' PL-PARMS OMNW-LIBRARY
+/*
+END-SUBROUTINE /* DO-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SYSTEM-FILE
+************************************************************************
+MOVE 5 TO CMSLFT-FCT
+IF OMNW-LIBRARY = MASK ('SYS') AND OMNW-LIBRARY NE 'SYSTEM'
+  MOVE 255 TO CMSLFT-LFILE            /* info of Lfile FNAT
+ELSE
+  MOVE 0 TO CMSLFT-LFILE              /* info of Lfile FUSER
+END-IF
+CALL 'CMSLFT' CMSLFT-PARM
+#SYSTEM-DB-B2 := CMSLFT-DBID
+#SYSTEM-FNR-B2 := CMSLFT-FNR
+#OBJTYPE-INTERNAL := 'N'
+*
+END-SUBROUTINE /* GET-SYSTEM-FILE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := OMNW-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+/*
+ES-MSG-TXT   := SHORT-MSG
+/*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+END

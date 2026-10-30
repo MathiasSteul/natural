@@ -1,0 +1,720 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMSCNP - Scan NOMPUT Queue and Create Source and Orders
+* Note: WH (wait on hold) must be off
+*
+* Maintenance
+* uuu yy-mm-dd s(999999)  ...
+* mrs 93-10-13 s(999999) created
+* mrs 94-02-28 s(999999) printer profile name added
+* gw  94-08-02 s(999999) read nomput-queue only type naf
+* gw  96-11-11 s(255001) call user exit #2 (modify spool attributes)
+* jwo 97-11-13 p(167263) add active reports exit
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* sju 00-03-27 p(191368) monitor multitasking
+* wcd 00-04-01 CE 7267   re-cat as changes made to EOMRPM-E
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* SJU 00-11-03 p(202756) AND identification not working
+* sju     2000-11-30 p(202436) reset idle indicator if work to do
+* fhi 02-06-13 s(225125) Add email notificaton, NOMEX010
+* fhi     2002-09-25 p(218246) Monitor error recovery
+* sju     2003-06-26 p(230407) Correct setting of retry info in orders
+* sju     2004-11-29 nom31     restow for changed NRM-ORDER
+* sju 04-12-06 NOM31     Add date and time (tenths of second) to trace
+* sju 05-03-16 NOM31     NAT AM=NOM
+* fhi     2005-06-23 p(266530) Make Monitor NPR Mainframe independent
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2007-09-26 NOM3203   Source Type 17 not processed.
+* fhi     2007-12-21 P301191   Accept new Direct Input structure
+*                              No tags marked, routines rewritten
+*                              Search for 'DIRECT INPUT' to get changes
+* fhi     2007-02-28 P301191   NAT1316 in binary reports.
+* fhi     2008-03-18 P302587   Improve trace output for lfile check
+* fhi     2008-04-11 P303844   Module only recatalogued.
+* xsetggr 2008-07-03 P304350   restow due to changes in rmspl--l
+* splildav 2008-10-23 P303783  bypass rsp 113 (Isn not found)
+* fhi     2009-05-19 N3461     Support large blocks
+* fhi     2009-05-19 N3463     Extend metadata for OPO
+* fhi     2009-05-26 N3463     Extend metadata, correct 120 occurr.
+* fhi     2010-06-14 NOMALL-815  User RMSETTIM instead of *TIMD for Ux
+* xsetggr 2010-07-02 NOMALL-825  honoured '*' for primary identification
+*                                attributes of report
+* fhi     2010-07-26 NOMALL-825  Avoid NAT1316 in 5720, old comments del
+* xsetggr 2010-08-06 NOMALL-825  correction
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* fhi     2010-12-14 NOMALL-921 Introduce DEST field for NAT/NAF
+* xsetggr 2011-08-05 NOMALL-980 refresh lfile after processing NAF,
+*                 before processing NAT to honour different cont.files
+* splildav 2011-12-28 NOMALL-921 If tracing, display values correctly
+* fhi     2012-11-09 NOMALL-1143 Add cpu time output
+* raya     2012-11-29 NOMALL-1214 check cat date of nomex*
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* fhi     2013-04-18 NOMALL-1004 Add report formatting not finished
+* raya    2013-05-12 NOMALL-1214 backout check cat date of nomex*
+* SU2     2014-01-27 NOMALL-1341 remove LA-fields
+* fhi     2014-08-29 NOMALL-1454 Restowed due to changes in XXUX---P
+* fhi     2014-11-13 NOMALL-1500 Avoid NAT1316 in 3750 (new: --> 3765)
+* SU3     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* fhi     2016-08-01 NOMALL-1748 Backout Report Formatting
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-01-11 NOMALL-1916 Store codepage in source record
+* fhi     2017-01-26 NOMALL-1961 Wake correct monitor task
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi     2018-03-13 NOMALL-1918 Correct multinode behavior, no tags
+* fhi     2018-08-06 NOMALL-2135 Use internal node id in orders
+* bli     2018-10-10 NOMALL-2061 no codepage for local nat/naf
+* fhi     2018-12-14 NOM 3.5     Add CPU measure
+* SU4     2019-01-31             avoid 'Defaul' in output
+* SU5     2019-08-22             some code beautifications
+* SU6     2020-01-03 NOMALL-2370 new field:NAF: OUTPUT -store as attr.
+* SU7     2022-09-19 NOMALL-2578 check trigger DBID/FNR.DB err. in REAQ
+* ---------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE           (L/1:20)
+1 +G-SCAN-NP-TIME-LIMIT       (N3)
+1 +CMRDC                      (A1)
+1 +NOD-CURRENT-INTERNAL-ID    (P11)
+************************************************************************
+LOCAL  USING RMSCNP-P
+LOCAL  USING RMSR---L
+LOCAL  USING RMSR---E
+LOCAL  USING RMSPL--L
+LOCAL  USING RMODTY-E
+LOCAL  USING EOMRPM-E
+LOCAL  USING RLOG-L
+LOCAL
+1 QUEUE-ENTRY VIEW OF NRM-NOMPUT-QUEUE
+  2 NP-STATUS
+  2 NP-TYPE
+  2 NP-ATTRIBUTES-IDENT
+  2 NP-SPOOL-ATTRIBUTES
+  2 NP-SPOOL-ATTRIBUTES-EXTENDED (1:120)
+  2 NP-CC-TYPE
+  2 NP-RECORD-LENGTH
+  2 NP-NUMBER-OF-LINES
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-TYPE
+  2 SR-CC-TYPE
+  2 SR-MONITOR-ID
+  2 SR-NUMBER-OF-LINES
+  2 SR-RECORD-LENGTH
+  2 SR-CONTROL-FLAG
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-SPOOL-ATTRIBUTES
+  2 SR-SPOOL-ATTR-EXTENDED (1:120)
+  2 SR-OBJECT-TYPE /*SU3
+  2 SR-OBJECT-TIME /*SU3
+1 ORDER    VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-TYPE
+  2 OD-MONITOR-ID
+  2 OD-USER-ID
+  2 OD-PARAMETER (1:1)           /* NOMALL-1748 was (3)
+  2 REDEFINE OD-PARAMETER
+    3 OD-MASTER            (A25)
+  2 REDEFINE OD-PARAMETER
+    3 OD-IDENT             (A8)
+  2 OD-TIME-CREATED
+  2 OD-TIME-SCHEDULED
+  2 OD-SOURCE-ID             (P10)
+  2 OD-MAX-RETRIES           (N3)
+  2 OD-RETRY-INTERVAL        (N5)
+  2 OD-INTERNAL-NODE-ID      (P15)
+1 INUM                         (I2) CONST <14>
+1 REPORT VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-USERID
+  2 R-IDENT (1:INUM)
+  2 REDEFINE R-IDENT
+    3 R-IDENT-TAB (1:INUM)
+      4 R-IDENT-TYPE   (I2)
+      4 R-IDENT-VALUE  (A8)
+      4 R-IDENT-FILLER (A72)
+  2 C*R-IDENT
+  2 R-INTERNAL-NODE-ID
+  2 R-IDENT-FILES                (1:10)
+  2 C*R-IDENT-FILES
+*
+1 #NP-QUEUE                  (A67)
+1 REDEFINE #NP-QUEUE
+  2 #NP-STATUS               (I2)
+  2 #NP-TYPE                 (I2)
+  2 #NP-IDENT                (A63)
+*
+1 #ADA-RC                    (N4)
+1 #ISN                       (P10)
+1 #ISN1                      (P10)
+1 E                          (P2)
+1 #LFILE-OLDDBID             (N5)
+1 #LFILE-OLDFILE             (N5)
+1 #TARGET-DBID               (N5)
+1 #TARGET-FNR                (N5)
+1 #ST-ID                     (P10)
+1 #IDENT                     (A11/1:12)
+1 REDEFINE #IDENT
+  2 #IDENT-TAB (1:12)
+    3 #IDENT-RTYPE           (A1)
+    3 #IDENT-TYPE            (I2)
+    3 #IDENT-VALUE           (A8)
+1 #NATLIB                    (A8)
+1 REDEFINE #NATLIB
+  2 #NL                      (A1/1:8)
+1 #TI                        (I2)
+1 #TJ                        (I2)
+1 #TL                        (I2)
+1 #COUNT                     (P10)
+1 #LAST-ORDER-ISN            (P10)
+1 ACCEPTED                   (L)
+1 #I                         (I2)
+1 #I1                        (I2)
+1 #S-KEYS
+  2 #S-LISTNAME              (A25) INIT <'*'>
+  2 #S-FORMS                 (A25) INIT <'*'>
+  2 #S-PROGRAM               (A25) INIT <'*'>
+1 #F-KEYS
+  2 #F-LISTNAME              (A25)
+  2 #F-FORMS                 (A25)
+  2 #F-PROGRAM               (A25)
+1 #T-KEYS
+  2 #T-LISTNAME              (A25)
+  2 #T-FORMS                 (A25)
+  2 #T-PROGRAM               (A25)
+1 #LEN                       (N3)
+1 #TIMD                      (N7)
+1 #NOMPUT-SOURCE-TYPE        (I2)
+1 #USER-ID                   (A8)
+1 REDEFINE #USER-ID
+  2 #NU                      (A1/1:8)
+1 #TRACING                   (L)
+1 #TYPE                      (A7) /*SU4 was A6
+1 #TYPE1                     (A15)
+1 #CHECK-NODE                (L) CONST <FALSE>
+1 DATASET-FOUND              (L)
+1 PROCESSED-BY-NOM           (L)
+1 #DEFINED-NUMBER            (P2)
+1 #SOURCE-TYPE               (I2)
+1 #IDENT-FILE                (A54)
+1 #SPOOL                     (A12) CONST <'NOMPUT Queue'>
+1 #CATDATE                   (A19)
+1 #MAX-RETRIES               (N3)
+1 #RETRY-INTERVAL            (N5)
+1 #OD-TYPE                   (B2)
+1 #ESYUSER                   (A8)
+1 RMSETTIM
+  2 FUNCTION                 (A1)
+  2 ERC                      (N4)
+  2 MSG                      (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT (0) LS=133 PS=60
+*
+RESET G-NATRP-ERC G-NATRP-ERT
+*
+IF G-TRACE GE *LEVEL AND G-TRACE-SET = SCAN ('SCAN')
+  #TRACING := TRUE
+  RMSETTIM.FUNCTION := 'S'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+END-IF
+INCLUDE CMRDC
+IF #TRACING
+  COMPRESS 'Start Scanning' #SPOOL TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS *PROGRAM 'cataloged at' #CATDATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+CALLNAT 'N-MONERR' #MAX-RETRIES #RETRY-INTERVAL /*get monitor defaults
+* Get old DBID/FNR:
+CALLNAT 'N-LF158' 2X #LFILE-OLDDBID #LFILE-OLDFILE
+  G-NATRP-ERC G-NATRP-ERT
+IF G-NATRP-ERC NE 0
+  ESCAPE ROUTINE
+END-IF
+* *****
+* 1: NAF
+* *****
+#TYPE1 := 'NAF'
+#NOMPUT-SOURCE-TYPE:= NAF
+FOR E = 1 TO G-NP-ENTRIES
+  #TARGET-DBID := G-NP-DBID (E)
+  #TARGET-FNR  := G-NP-FNR (E)
+  PERFORM SET-LFILE
+  IF G-NATRP-ERC NE 0
+    ESCAPE BOTTOM
+  END-IF
+  PERFORM PROCESS-CLOSED-OUTPUT
+END-FOR
+*
+IF G-SCAN-TRIGGER = 'Y'
+  IF G-SCAN-TRIGGER-DBID < 1 OR G-SCAN-TRIGGER-FNR < 1 /*SU7
+   COMPRESS '--> Trigger dbid/fnr incorrect - dbid:' G-SCAN-TRIGGER-DBID
+      'fnr:' G-SCAN-TRIGGER-FNR TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+  ELSE
+    #TARGET-DBID        := G-SCAN-TRIGGER-DBID
+    #TARGET-FNR         := G-SCAN-TRIGGER-FNR
+    PERFORM SET-LFILE
+    IF G-NATRP-ERC NE 0
+      ESCAPE BOTTOM
+    END-IF
+* *****
+* 2: NAT
+* *****
+    #TYPE1 := 'NAT'
+    #NOMPUT-SOURCE-TYPE := NAT
+    PERFORM PROCESS-CLOSED-OUTPUT
+* *****
+* 3: DIRECT INPUT:
+* *****
+    #TYPE1 := 'DIRECT INPUT'
+    #NOMPUT-SOURCE-TYPE := DIRECT-INPUT
+    PERFORM PROCESS-CLOSED-OUTPUT
+  END-IF
+END-IF
+IF G-NATRP-ERC NE 0
+  PERFORM WRITE-ERROR-LOG
+END-IF
+*
+PERFORM REFRESH-LFILE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-CLOSED-OUTPUT
+************************************************************************
+#NP-STATUS := 2
+#NP-TYPE   := #NOMPUT-SOURCE-TYPE
+MOVE ALL H'00' TO #NP-IDENT
+IF #TRACING
+  COMPRESS 'Processing closed output for' #TYPE1
+    ': DBID=' #TARGET-DBID ',FNR=' #TARGET-FNR TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+REAQ. READ QUEUE-ENTRY BY NP-QUEUE = #NP-QUEUE
+  IF NP-STATUS NE #NP-STATUS OR NP-TYPE NE #NP-TYPE
+    ESCAPE BOTTOM (REAQ.)
+  END-IF
+  IF #TRACING
+    COMPRESS 'Got queue-entry with status:' NP-STATUS
+      '- type:' NP-TYPE
+      '- attributes:' SUBSTR(NP-ATTRIBUTES-IDENT,1,63) TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  END-IF
+  #ISN1 := *ISN (REAQ.)
+  CALLNAT 'GETHOLD' #TARGET-DBID #TARGET-FNR #ISN1 'AA' #ADA-RC
+  BACKOUT TRANSACTION
+  IF #ADA-RC NE 145
+    PERFORM PROCESS-QUEUE-ENTRY
+  END-IF
+  IF +G-SCAN-NP-TIME-LIMIT NE 0
+    RMSETTIM.FUNCTION := 'G'
+    PERFORM RMSETTIM-SETTIME RMSETTIM
+    IF #TRACING
+      PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+      END TRANSACTION
+    END-IF
+    IF #TIMD > +G-SCAN-NP-TIME-LIMIT
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* PROCESS-CLOSED-OUTPUT
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-QUEUE-ENTRY
+************************************************************************
+#SPOOL-ATTRIBUTES := QUEUE-ENTRY.NP-SPOOL-ATTRIBUTES
+IF #TRACING
+  IF #NP-TYPE NE DIRECT-INPUT
+    COMPRESS 'Processing queue entry' 'Isn:'     #ISN1
+      'User ID:' #SPOOL-NAF-USER-ID 'Natlib:'  #SPOOL-NAF-NATLIB
+      'Natpgm:'  #SPOOL-NAF-NATPGM 'Form:'    #SPOOL-NAF-FORM
+      'Name:'    #SPOOL-NAF-NAME 'Profile:' #SPOOL-NAF-PROFILE
+      'Dest:'    #SPOOL-NAF-DEST
+      'Output:'  #SPOOL-NAF-OUTPUT TO G-TRACE-MSG /*SU6
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  ELSE
+    COMPRESS 'Processing queue entry' '=' #ISN1 '=' #SPOOL-DI-ST-ID
+      'RPC Server:' #SPOOL-DI-RPC-SERVER
+      'User ID:' #SPOOL-DI-USERID
+      'Path:'          #SPOOL-DI-PATH 'File Name:'   #SPOOL-DI-FILENAME
+      'File Type:'     #SPOOL-DI-FILETYPE
+      'Container DB:'  #SPOOL-DI-CONTAINER-DBID
+      'Container FNR:' #SPOOL-DI-CONTAINER-FNR TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+END-IF
+*
+IF #NP-TYPE NE DIRECT-INPUT
+  EXAMINE #SPOOL-NAF-USER-ID   FOR H'00' REPLACE ' '
+  EXAMINE #SPOOL-NAF-NATLIB    FOR H'00' REPLACE ' '
+  EXAMINE #SPOOL-NAF-NATPGM    FOR H'00' REPLACE ' '
+  EXAMINE #SPOOL-NAF-FORM      FOR H'00' REPLACE ' '
+  EXAMINE #SPOOL-NAF-NAME      FOR H'00' REPLACE ' '
+  EXAMINE #SPOOL-NAF-PROFILE   FOR H'00' REPLACE ' '
+  EXAMINE #SPOOL-NAF-DEST      FOR H'00' REPLACE ' '
+  EXAMINE #SPOOL-NAF-OUTPUT    FOR H'00' REPLACE ' ' /*SU6
+  IF #SPOOL-NAF-ST-ID = 0
+    PERFORM GET-SOURCE-TEXT-ID
+    IF G-NATRP-ERC NE 0
+      ESCAPE ROUTINE
+    END-IF
+    #SPOOL-NAF-ST-ID := #ST-ID
+    GETUPD. GET QUEUE-ENTRY #ISN1
+    QUEUE-ENTRY.NP-SPOOL-ATTRIBUTES := #SPOOL-ATTRIBUTES
+    UPDATE (GETUPD.)
+    END OF TRANSACTION
+  ELSE
+    #ST-ID := #SPOOL-NAF-ST-ID
+  END-IF
+ELSE
+  EXAMINE #SPOOL-DI-RPC-SERVER FOR H'00' REPLACE ' '
+  EXAMINE #SPOOL-DI-USERID     FOR H'00' REPLACE ' '
+  EXAMINE #SPOOL-DI-PATH       FOR H'00' REPLACE ' '
+  EXAMINE #SPOOL-DI-FILENAME   FOR H'00' REPLACE ' '
+  EXAMINE #SPOOL-DI-FILETYPE   FOR H'00' REPLACE ' '
+  IF #SPOOL-DI-ST-ID = 0
+    PERFORM GET-SOURCE-TEXT-ID
+    IF G-NATRP-ERC NE 0
+      ESCAPE ROUTINE
+    END-IF
+    #SPOOL-DI-ST-ID := #ST-ID
+    GETUPD2. GET QUEUE-ENTRY #ISN1
+    QUEUE-ENTRY.NP-SPOOL-ATTRIBUTES := #SPOOL-ATTRIBUTES
+    UPDATE (GETUPD2.)
+    END OF TRANSACTION
+  ELSE
+    #ST-ID := #SPOOL-DI-ST-ID
+  END-IF
+END-IF
+*
+PERFORM UPDATE-TEXT-RECORDS
+IF G-NATRP-ERC NE 0
+  IF #TRACING
+    COMPRESS 'After UPDATE-TEXT-RECORDS:' G-NATRP-ERC G-NATRP-ERT
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  ESCAPE ROUTINE
+END-IF
+*
+PERFORM CREATE-SOURCE-RECORD
+IF G-NATRP-ERC NE 0
+  IF #TRACING
+    COMPRESS 'After CREATE-SOURCE-RECORDS:' G-NATRP-ERC G-NATRP-ERT
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  ESCAPE ROUTINE
+END-IF
+*
+PERFORM CREATE-ORDER-RECORDS
+IF G-NATRP-ERC NE 0
+  IF #TRACING
+    COMPRESS 'After CREATE-ORDER-RECORDS:' G-NATRP-ERC G-NATRP-ERT
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  ESCAPE ROUTINE
+END-IF
+*
+GETD. READ (1) QUEUE-ENTRY BY ISN STARTING FROM #ISN1
+  IF *ISN = #ISN1
+    IF #TRACING
+      COMPRESS *LINE 'delete QUEUE-ENTRY with ISN' #ISN1 TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+    DELETE (GETD.)
+  END-IF
+END-READ
+END OF TRANSACTION
+*
+END-SUBROUTINE /* PROCESS-QUEUE-ENTRY
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-TEXT-RECORDS
+************************************************************************
+IF #TRACING
+  COMPRESS 'update text records' #ST-ID TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+RMSCNP-SOURCE-TYPE  := QUEUE-ENTRY.NP-TYPE
+RMSCNP-SOURCE-IDENT := QUEUE-ENTRY.NP-ATTRIBUTES-IDENT
+RMSCNP-ST-ID        := #ST-ID
+*
+CALLNAT 'RMSCNP-N' RMSCNP-PARMS G-NATRP-ERC G-NATRP-ERT
+*
+END-SUBROUTINE /* UPDATE-TEXT-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SOURCE-TEXT-ID
+************************************************************************
+REPEAT
+  RESET G-NATRP-ERC G-NATRP-ERT
+  CALLNAT 'RMSTID-N' #ST-ID G-NATRP-ERC G-NATRP-ERT
+  UNTIL G-NATRP-ERC NE 3145
+END-REPEAT
+*
+END-SUBROUTINE /* GET-SOURCE-TEXT-ID
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-SOURCE-RECORD
+************************************************************************
+REPEAT
+  CALLNAT 'RMSRID-N' SOURCE.SR-ID G-NATRP-ERC G-NATRP-ERT
+  UNTIL G-NATRP-ERC NE 3145
+END-REPEAT
+*
+IF G-NATRP-ERC NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+RESET  #SOURCE-ATTRIBUTES
+#NOMDB-DBID       := #TARGET-DBID
+#NOMDB-FNR        := #TARGET-FNR
+#NOMDB-FILE-IDENT := G-NP-IDENT (E)
+IF #NOMDB-FILE-IDENT = ' '
+  IF #NP-TYPE NE DIRECT-INPUT
+    COMPRESS 'FU=(' #SPOOL-NAF-DBID ',' #SPOOL-NAF-FNR ')'
+      TO #NOMDB-FILE-IDENT LEAVING NO
+  ELSE
+    COMPRESS 'FU=(' #SPOOL-DI-CONTAINER-DBID ',' #SPOOL-DI-CONTAINER-FNR ')'
+      TO #NOMDB-FILE-IDENT LEAVING NO
+  END-IF
+END-IF
+#NOMDB-ID := #ST-ID
+*
+IF +G-NOMEXIT-ACTIVE (2)
+  PERFORM CALL-NOM-EXIT-002
+END-IF
+*
+SOURCE.SR-CONTROL-FLAG             := 'X'
+SOURCE.SR-TYPE                     := NOM-DATA-BASE
+SOURCE.SR-ATTRIBUTES-IDENT         := #SOURCE-ATTRIBUTES
+SOURCE.SR-SPOOL-ATTRIBUTES         := #SPOOL-ATTRIBUTES
+SOURCE.SR-SPOOL-ATTR-EXTENDED (*) :=
+  QUEUE-ENTRY.NP-SPOOL-ATTRIBUTES-EXTENDED (*)
+SOURCE.SR-CC-TYPE                  := QUEUE-ENTRY.NP-CC-TYPE
+SOURCE.SR-RECORD-LENGTH            := QUEUE-ENTRY.NP-RECORD-LENGTH
+SOURCE.SR-NUMBER-OF-LINES          := QUEUE-ENTRY.NP-NUMBER-OF-LINES
+*
+IF  #TRACING
+  COMPRESS '----> source' SOURCE.SR-CONTROL-FLAG
+    SOURCE.SR-TYPE SOURCE.SR-ATTRIBUTES-IDENT TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+SR-OBJECT-TYPE := 'SR' /*SU3
+SR-OBJECT-TIME := *TIMX /*SU3
+STORE SOURCE
+END OF TRANSACTION
+*
+END-SUBROUTINE /* CREATE-SOURCE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-ORDER-RECORDS
+************************************************************************
+IF #TRACING
+  COMPRESS '----> create order records for' #TYPE1 TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+RESET #COUNT #IDENT (*)
+IF #NP-TYPE NE DIRECT-INPUT
+  DECIDE ON EVERY VALUE OF #COUNT
+    VALUE 0
+      #TJ := 1
+      #IDENT-VALUE (#TJ) := #SPOOL-NAF-PROFILE
+      #IDENT-TYPE  (#TJ) := REPORT-IDENT-NAF-PROFILE
+      CALLNAT 'N-IDENT' #SPOOL-NAF-USER-ID #TJ REPORT-IDENT-NAF-USER-ID
+        #IDENT-TYPE  (*) #IDENT-VALUE (*) #TRACING G-TRACE-MSG
+      IF #TRACING
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+      #IDENT-RTYPE (1:#TJ) := 'M'
+      PERFORM MASTER-DEFINITIONS-GEN
+    VALUE 0
+      #IDENT-RTYPE (1:#TJ) := 'D'
+      PERFORM DEFAULT-DEFINITIONS-GEN
+    VALUE 0
+      RESET #IDENT (2:12)
+      #TJ := 1 /*first entry stays
+      CALLNAT 'N-IDENT' #SPOOL-NAF-NATLIB #TJ REPORT-IDENT-NAF-NATLIB
+        #IDENT-TYPE  (*) #IDENT-VALUE (*) #TRACING G-TRACE-MSG
+      /*handle it after END-IF
+    NONE IGNORE
+  END-DECIDE
+ELSE
+  RESET #TJ
+  CALLNAT 'N-IDENT' #SPOOL-DI-USERID #TJ REPORT-IDENT-NAF-USER-ID
+    #IDENT-TYPE  (*) #IDENT-VALUE (*) #TRACING G-TRACE-MSG
+  /*handle it after END-IF
+END-IF
+*
+DECIDE ON EVERY VALUE OF #COUNT
+  VALUE 0
+    #IDENT-RTYPE (1:#TJ) := 'M'
+    PERFORM MASTER-DEFINITIONS-GEN
+  VALUE 0
+    #IDENT-RTYPE (1:#TJ) := 'D'
+    PERFORM DEFAULT-DEFINITIONS-GEN
+  VALUE 0
+    PERFORM WRITE-LOG-RECORD
+  NONE IGNORE
+END-DECIDE
+IF #COUNT NE 0
+  PERFORM START-FIRST-ORDER-GEN /*RMSC-C
+END-IF
+*
+END-SUBROUTINE /* CREATE-ORDER-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-IT-SPEC /*special
+************************************************************************
+PERFORM INIT-SELECTION-KEYS
+PERFORM SELECT-RECORD
+IF #TRACING
+  COMPRESS #TYPE 'report=' REPORT.R-REPNAME TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+IF NOT ACCEPTED
+  ESCAPE TOP
+END-IF
+ADD 1 TO #COUNT
+PERFORM WRITE-ORDER-RECORD
+*
+END-SUBROUTINE /* HANDLE-IT-SPEC
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-SELECTION-KEYS
+************************************************************************
+RESET INITIAL #S-KEYS #F-KEYS #T-KEYS
+*
+FOR #I1 = 1 TO REPORT.C*R-IDENT
+  IF R-IDENT (#I1) = ' '
+    ESCAPE TOP
+  END-IF
+  DECIDE ON FIRST R-IDENT-TYPE (#I1)
+    VALUE REPORT-IDENT-NAF-NATPGM
+      #S-PROGRAM := R-IDENT-VALUE (#I1)
+    VALUE REPORT-IDENT-NAF-FORM
+      #S-FORMS   := R-IDENT-VALUE (#I1)
+    VALUE REPORT-IDENT-NAF-REPORT-NAME
+      #S-LISTNAME := R-IDENT-VALUE (#I1)
+    NONE VALUE
+      IGNORE
+  END-DECIDE
+END-FOR
+*
+#LEN := 8
+CALLNAT 'SELALPHA' #S-PROGRAM #F-PROGRAM #T-PROGRAM #LEN
+*
+#LEN := 8
+CALLNAT 'SELALPHA' #S-FORMS #F-FORMS #T-FORMS #LEN
+*
+#LEN := 8
+CALLNAT 'SELALPHA' #S-LISTNAME #F-LISTNAME #T-LISTNAME #LEN
+*
+END-SUBROUTINE /* INIT-SELECTION-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE SELECT-RECORD
+************************************************************************
+IF #NP-TYPE NE DIRECT-INPUT
+AND (NOT (#SPOOL-NAF-NATPGM = #F-PROGRAM THRU #T-PROGRAM)             /*
+OR NOT (#SPOOL-NAF-FORM = #F-FORMS THRU #T-FORMS)                     /*
+OR NOT (#SPOOL-NAF-NAME = #F-LISTNAME THRU #T-LISTNAME))              /*
+  RESET ACCEPTED
+ELSE
+  ACCEPTED := TRUE
+END-IF
+*
+END-SUBROUTINE /* SELECT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-ORDER-RECORD
+************************************************************************
+REPEAT
+  CALLNAT 'RMODID-N' ORDER.OD-ID G-NATRP-ERC G-NATRP-ERT
+  UNTIL G-NATRP-ERC NE 3145
+END-REPEAT
+*
+IF G-NATRP-ERC NE 0
+  RESET LG-OBJECT-NAME
+  PERFORM WRITE-ERROR-LOG
+  ESCAPE ROUTINE
+END-IF
+#OD-TYPE := OD-CREATE-AR
+PERFORM WRITE-ORDER-RECORD-GEN /*RMSC-C
+#LAST-ORDER-ISN := #ISN
+*
+END-SUBROUTINE /* WRITE-ORDER-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+CALLNAT 'N-LF158' #TARGET-DBID #TARGET-FNR 2X G-NATRP-ERC G-NATRP-ERT
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE REFRESH-LFILE
+************************************************************************
+CALLNAT 'N-LF158' #LFILE-OLDDBID #LFILE-OLDFILE 2X
+  G-NATRP-ERC G-NATRP-ERT
+*
+END-SUBROUTINE /* REFRESH-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+IF #NP-TYPE NE DIRECT-INPUT
+  COMPRESS #SPOOL-NAF-DBID '/' #SPOOL-NAF-FNR '/'
+    #SPOOL-NAF-USER-ID '/' #SPOOL-NAF-NATLIB  '/'
+    #SPOOL-NAF-NATPGM TO LG-OBJECT-NAME LEAVING NO
+ELSE
+  COMPRESS #SPOOL-DI-CONTAINER-DBID '/' #SPOOL-DI-CONTAINER-FNR '/'
+    #SPOOL-DI-USERID '/' SUBSTR(#SPOOL-DI-FILENAME,1,12)  '.'
+    SUBSTR(#SPOOL-DI-FILETYPE,1,4) TO LG-OBJECT-NAME LEAVING NO
+END-IF
+LG-MSG := LG-OBJECT-NAME
+COMPRESS '1100' LG-MSG TO LG-MSG
+LG-USERID := G-LG-USERID
+LG-CODE   := 'NP'
+CALLNAT 'RLOG' PL-PARMS
+END OF TRANSACTION
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  PERFORM REFRESH-LFILE
+  G-NATRP-ERC := 0021
+  CALLNAT 'C-NATERN' G-NATRP-ERT
+  IF *ERROR-NR NE 3148
+    PERFORM WRITE-ERROR-LOG
+  END-IF
+END-ERROR
+*
+INCLUDE RMSC-C ' ' ' ' 'PERFORM HANDLE-IT-SPEC'
+*
+END

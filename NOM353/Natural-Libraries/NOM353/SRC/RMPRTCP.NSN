@@ -1,0 +1,583 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPRTCP - Print Object with C program ESMLPR to TCP printer
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) Action
+* ----------------------------------------------------------------------
+* fhi     2005-03-01 initial   Created from template RMPRSPL
+* fhi     2005-05-18 S(264674) Abend because of too many copies
+* fhi     2005-05-20 S(264881) Copies handling duplicate
+* fhi     2005-07-07 S(266999) Default of Listname should be report name
+* fhi     2005-07-21 S(267180) Omit spoolfile-name
+* fhi     2005-08-10 S(268281) Formfeed suppression as parameter
+* fhi     2005-08-12 S(267180) SPOOLFILE name not RFC1179 compliant
+* sju     2005-07-29 p(267884) Long lines (250 bytes) truncated - ZDF
+* sju     2005-09-06 p(269111) ASCII § characters (X'40') lost  - ZDF
+* sju     2005-10-19 p(270534) Too much cpu used by COMPRESS
+* sju     2005-10-19 p(271620) Correct 268281
+* fhi     2005-11-01 FHI204    Spoolnumber to be generated if empty
+* fhi     2005-12-07 P272458   Use new ESMLPR interface
+* fhi     2006-01-19 P271759   ESMLPR call fails under Unix
+* sju     2006-02-22 p(275210) Correct 268281
+* fhi 06-10-23 p(285662) Correct 268281,275210, 1st formfeed not deleted
+* fhi     2006-10-23 p(286421) Generated spoolnumber not unique.
+* fhi 07-01-31 FHI206    Use new random generator 'RANDOM' for 286421
+* fhi 07-02-07 FHI207    Adapt suppression of first newpage
+* xsetggr 2007-05-02 NOM3201 Support 5 byte node numbers
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2007-07-17 NRT2422   print binary documents
+* xsetggr 2007-11-05 NRT2768   show size of binary documnets in bytes
+* xsetggr 2008-01-15 p(300297) record length of flush-parms is N5
+* fhi     2008-02-04 p(300676) Binary records are printed as '@'
+*                              for this solution corresponding ESMLPR
+*                              is needed!
+* fhi 08-04-18 P299224   Negative response codes of ESMLPR not handled
+* xsetggr 2008-06-10 p(292935) fill po-printed only after successfull
+*                              end of printing
+* fhi 08-07-07 P306962   Solution of 299224 did not solve the problem.
+* fhi 09-07-09 P318783   ESY5661 when printing on slow servers
+* fhi 09-11-12 P321483   Change temporary status 'X' to '-'
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-11-12 NOMALL-586 Use symbol replacement
+* fhi     2010-12-20 NOMALL-97 Save File Handle for NPR Unix
+* xsetggr 2010-12-21 NOMALL-865 restow due to changes in RMFL---P
+* fhi     2011-04-20 NOMALL-957 Correct Formfeed AFTER, old tags deleted
+* fhi     2011-04-26 NOMALL-966 Do not suppress last line with Pr-Exit
+* fhi     2011-05-17 NOMALL-957 Edit masks 'X?' changed in 'X.' ...
+* fhi     2011-05-24 NOMALL-957 Correct FLUSH-BRACKET
+* fhi     2011-06-06 NOMALL-957 Correct FLUSH-BRACKET
+* xsetggr 2011-07-06 NOMALL-1015 Correct bracketing
+* raya    2011-07-18 NOMALL-981 add END TRANSACTION for log when tracing
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* fhi     2012-11-14 NOMALL-1143 Add occurrence for Base64
+* fhi     2014-08-29 NOMALL-1454 Restowed due to changes in XXUX---P
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2015-02-27 NOMALL-1569 USR0620N (SYSEXT) => RMASCEBN (SYSNOM)
+* fhi     2015-03-26 NOMALL-1594 Add trace to find out error in exit
+* fhi     2015-05-18 NOMALL-1552 Show real size, not base64 size
+* SU3     2015-06-01 NOMALL-1552 Show size 1 (instead 0)
+* SU4     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* SU5     2016-03-08 NOMALL-1847 PDA RMPRAPIP -> PDA P-PEXIT
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU6     2024-07-25 NOM 353     Recataloged due to changes of RMPR-C
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER USING RMFL---P
+PARAMETER
+1 LINE-PARMS
+  2 LINE-CURRENT          (P3)
+  2 LINE-TAB              (1:100)
+    3 LINE                (A251)
+    3 REDEFINE    LINE
+      4  LINE-L           (A1/1:251)
+    3 LINE-NUMBER         (P10)
+PARAMETER USING XXUX---P
+PARAMETER
+1 P-ERROR-CODE            (N4)
+1 P-ERROR-TEXT            (A250)
+************************************************************************
+INDEPENDENT
+1 +ESMLPR_DATA            (A) DYNAMIC
+1 +ESMLPR_OPEN            (L)
+************************************************************************
+LOCAL USING P-PEXIT
+LOCAL USING RCCTYP-E
+LOCAL USING RMASAC-E
+LOCAL USING RMMCASAP
+LOCAL USING RMASAASP   /* parameter for ASA -> ASCII
+LOCAL USING RMBAS64P   /* parameter for BASE64 conversion
+*
+LOCAL
+1 ORDER-STATUS VIEW OF NRM-PRINTOUTS
+  2 PO-STATUS
+  2 PO-USERID
+  2 PO-MSG
+  2 PO-PRINTED
+  2 PO-LAST-PRINTED-RECNO
+*
+1 I                       (P3)
+1 #STATUS                 (A1)
+1 #RANDOM                 (F8)
+1 #UPD-COUNTER            (N8) INIT <10>
+1 #SAVE-LINE              (A251)
+1 #OLD-RECORD-LENGTH      (P5)
+1 LAST-BUFFER             (L)
+1 REDEFINE LAST-BUFFER
+  2 #LAST-BUFFER-B        (B1)
+1 #FLUSH-LINE             (A251)
+1 REDEFINE #FLUSH-LINE
+  2 #FLUSH-CC             (A1)
+  2 #FLUSH-TEXT           (A250)
+1 #IND                    (I4)
+1 ESMLPR_CB               (B1/540)
+1 REDEFINE ESMLPR_CB
+  2 CB_EYE                (A6) /* 'LPDPA'
+  2 CB_VERS               (A2) /* '02'
+  2 CB_DEBUG              (I4) /* 0/1
+  2 CB_RC                 (I4) /* 0/4/8/12
+  2 CB_NUMBER_COPIES      (I4) /* 0 = one printout
+  2 CB_IS_ASCII_DATA      (L) /* data and escape1/2 is ascii
+  2 CB_FREE               (B3) /* must be h'00' for future use
+  2 CB_HOST_NAME          (A64) /* hostname or IP address
+  2 CB_LOCAL_HOST_NAME    (A64) /* optional local hostname or IP address
+  2 CB_QUEUE_NAME         (A16) /* the printer name on the host
+  2 CB_PORT               (I4)
+  2 CB_JOBNUMBER          (I4) /* Max 999
+  2 CB_TIMEOUT            (I4) /* timeout in seconds
+  2 CB_LIST_NAME          (A16)
+  2 CB_USER_ID            (A16)
+  2 CB_ESCAPE_1           (A128)
+  2 CB_ESCAPE_2           (A128)
+  2 CB_ERROR_TXT          (A72) /* error text if CB_RC NE 0
+1 #PO-USERID              (A8)
+1 ESMLPR_LEN              (I4)
+1 ESMLPR_RC               (I4)
+1 #FORMFEED-SUPPRESSED    (L)
+1 #BYTES                  (P11)
+1 #LINE-IN                (A250)
+1 #LINE-OUT               (A132)
+1 #POS                    (I4)
+1 #LEN                    (I4)
+1 #TRACING                (L)
+1 #TRACE-MSG              (A250)
+1 REDEFINE #TRACE-MSG
+  2 #TRACE-MSG-A          (A84)
+1 #BIN-ALLOWED            (L) CONST <TRUE>
+1 #BS2-ALLOWED            (L) CONST <FALSE>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT (0) PS=0 LS=250
+*
+IF FLUSH-PARMS.UNIXLP-TRACE = '1'
+  #TRACING := TRUE
+END-IF
+*
+ADD 1 TO FLUSH-BUFFERS
+ADD 1 TO FLUSH-COUNTER
+EXAMINE UNIXLP-FORMFEED TRANSLATE INTO UPPER
+DECIDE ON FIRST VALUE OF  UNIXLP-FORMFEED
+  VALUE ' '
+    UNIXLP-FORMFEED := 'BEFORE' /* take Natural's leading form feed
+  VALUES 'AFTER','BEFORE','NONE','BOTH'
+    IGNORE
+  NONE
+    UNIXLP-FORMFEED := 'BEFORE' /* take Natural's leading form feed
+END-DECIDE
+IF #TRACING
+  COMPRESS 'TCP printing called with' 'serv:'    UNIXLP-SERVER
+    ', dest:'  UNIXLP-DEST ', port:' UNIXLP-PORT ', ff:' UNIXLP-FORMFEED
+    ' ,list:'  UNIXLP-LISTNAME ', esc1:'  UNIXLP-ESCAPE-BEFORE-1
+    ', esc2:'  UNIXLP-ESCAPE-BEFORE-2 ', esc3:'  UNIXLP-ESCAPE-BEFORE-3
+    ', after:' UNIXLP-ESCAPE-AFTER-1 ', user:' UNIXLP-USER TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+IF FLUSH-SEGMENT = 'L' OR = 'A' AND FLUSH-SEG-BRACKET = 'L' OR = 'A'
+  LAST-BUFFER := TRUE
+END-IF
+*
+IF FLUSH-SEG-BRACKET = 'F' OR = 'A'
+  PERFORM ESMLPR-OPEN
+  IF P-ERROR-CODE NE 0
+    ESCAPE ROUTINE
+  END-IF
+  #OLD-RECORD-LENGTH := FLUSH-RECORD-LENGTH
+END-IF
+*
+FOR I = 1 TO LINE-CURRENT
+  IF FLUSH-SEG-BRACKET = 'F' OR = 'A' AND I = 1
+    FLUSH-BRACKET := 'F'
+  END-IF
+  IF FLUSH-SEG-BRACKET = 'L' OR = 'A' AND I = LINE-CURRENT
+    FLUSH-BRACKET := 'L'
+  END-IF
+  IF #TRACING
+    COMPRESS 'Bracketing:' 'flush-bracket:' FLUSH-BRACKET
+      'flush-seg-bracket:' FLUSH-SEG-BRACKET
+      'last buffer:'       #LAST-BUFFER-B TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+  PERFORM CALL-PRINTER-EXIT
+  IF P-ERROR-CODE NE 0
+    ESCAPE ROUTINE
+  END-IF
+  IF FLUSH-SEG-BRACKET = 'L' OR = 'A' AND I = LINE-CURRENT
+      AND UNIXLP-FORMFEED NE 'BEFORE' AND UNIXLP-FORMFEED NE 'NONE'
+    FLUSH-CC-TYPE := ASA-CODE
+    LINE(I) := '1' /* form feed after printing
+    IF UNIXLP-TRACE = '1'
+      #TRACE-MSG := 'Added trailing formfeed.'
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END TRANSACTION
+    END-IF
+    #FORMFEED-SUPPRESSED:= TRUE
+* let this formfeed be suppressed even if it's the first
+    PERFORM CALL-PRINTER-EXIT
+    IF P-ERROR-CODE NE 0
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+  IF FLUSH-BRACKET = 'L'
+    PERFORM ESMLPR-CLOSE
+  END-IF
+  IF P-ERROR-CODE NE 0
+    ESCAPE BOTTOM
+  END-IF
+  FLUSH-BRACKET := 'M'
+END-FOR
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-STATUS
+************************************************************************
+IF FLUSH-POID = 0
+  ESCAPE ROUTINE
+END-IF
+*
+FNDOS. FIND ORDER-STATUS WITH PO-ID = FLUSH-POID
+  PO-STATUS := #STATUS
+  IF FLUSH-CC-TYPE = BINARY
+    PO-LAST-PRINTED-RECNO := (FLUSH-LINES / 1024) * 3 / 4 + 1
+  ELSE
+    PO-LAST-PRINTED-RECNO := FLUSH-LINES
+  END-IF
+  #PO-USERID     := PO-USERID
+  UPDATE (FNDOS.)
+  END OF TRANSACTION
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE ESMLPR-OPEN
+************************************************************************
+IF +ESMLPR_OPEN
+  PERFORM ESMLPR-CLOSE
+END-IF
+RESET  +ESMLPR_DATA +ESMLPR_OPEN
+RESIZE DYNAMIC +ESMLPR_DATA TO 0
+IF UNIXLP-TRACE = '1'
+  COMPRESS
+    'Virtual Printer for' UNIXLP-SERVER 'queue' UNIXLP-DEST 'opened.'
+    'Using POID' FLUSH-POID 'with copies' FLUSH-COPIES 'where'
+    'Report =' FLUSH-REPNAME 'Bundle =' FLUSH-BUNDLE TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
++ESMLPR_OPEN := TRUE
+*
+END-SUBROUTINE /* ESMLPR-OPEN
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-IT
+************************************************************************
+IF FLUSH-TYPE-AL = 'Y'
+  #FLUSH-LINE  := LINE(I)
+  EXAMINE FULL RMASAC-ASA-CODES(*) FOR #FLUSH-CC GIVING INDEX #IND
+  IF #IND = 0                            /* not ASA
+    IF #FLUSH-CC = MASK(P) AND #FLUSH-CC NE H'89'
+        AND #FLUSH-CC NE H'8B'
+      RESET #FLUSH-CC
+      #FLUSH-TEXT:= LINE(I)
+      LINE(I):= #FLUSH-LINE
+      RESET FLUSH-SAVE-CC
+    ELSE
+      RMMCASA-PARMS.P-RECORD := LINE (I)
+      RMMCASA-PARMS.P-PREV-CC := FLUSH-SAVE-CC
+      CALLNAT 'RMMCASAN' RMMCASA-PARMS
+      FLUSH-SAVE-CC := RMMCASA-PARMS.P-PREV-CC
+      IF RMMCASA-PARMS.P-PRINT-NUMBER > 0
+        LINE (I) := RMMCASA-PARMS.P-RECORD
+      ELSE
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+  ELSE
+    RESET FLUSH-SAVE-CC
+  END-IF
+ELSE
+  DECIDE ON  FIRST VALUE OF FLUSH-CC-TYPE
+    VALUE MACHINE-CODE
+      PERFORM MACHINE-TO-ASA
+    VALUE NO-CC
+      PERFORM NO-CC-TO-ASA
+    VALUE BINARY
+      PERFORM BASE64-TO-BIN
+      IF P-ERROR-CODE NE 0
+        ESCAPE ROUTINE
+      END-IF
+    NONE
+      IGNORE
+  END-DECIDE
+END-IF
+IF FLUSH-BRACKET = 'F'              /* first line of first/only segment
+    AND NOT #FORMFEED-SUPPRESSED           /* not already suppressed one
+    AND SUBSTR(LINE(I),1,1) = '1' /* form feed to be done
+    AND UNIXLP-FORMFEED = 'AFTER' OR = 'NONE'
+  #FORMFEED-SUPPRESSED:= TRUE
+  MOVE '&' TO SUBSTR(LINE(I),1,1) /* do nothing, take care in RMASAAS*
+  IF UNIXLP-TRACE = '1'
+    COMPRESS 'Suppressed formfeed in' LINE(I) '...' TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+END-IF
+IF FLUSH-CC-TYPE NE BINARY
+  PERFORM ASA-TO-ASCII
+  IF P-ERROR-CODE NE 0
+    ESCAPE ROUTINE
+  END-IF
+  ADD 1 TO FLUSH-LINES
+ELSE
+  EXAMINE LINE (I) FOR ' ' GIVING LENGTH #BYTES
+  ADD #BYTES TO FLUSH-LINES
+  #RECORD-LENGTH := #BYTES
+  #REC-A256 := LINE (I)
+END-IF
+IF FLUSH-COUNTER > #UPD-COUNTER OR FLUSH-BRACKET = 'L'
+  #STATUS := 'P'
+  PERFORM UPDATE-STATUS
+  RESET FLUSH-COUNTER
+END-IF
+*
+ESMLPR_LEN:= *LENGTH(+ESMLPR_DATA) + 1
+MOVE SUBSTR (#REC-A256,1,#RECORD-LENGTH)
+  TO SUBSTR(+ESMLPR_DATA,ESMLPR_LEN,#RECORD-LENGTH)
+*
+END-SUBROUTINE /* PRINT-IT
+*
+************************************************************************
+DEFINE SUBROUTINE ESMLPR-CLOSE
+************************************************************************
+PERFORM CALL-ESMLPR
+RESET  +ESMLPR_DATA +ESMLPR_OPEN
+RESIZE DYNAMIC +ESMLPR_DATA TO 0
+*
+END-SUBROUTINE /* ESMLPR-CLOSE
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-ESMLPR
+************************************************************************
+CB_EYE             := 'LPDPA'
+CB_VERS            := '02'
+CB_HOST_NAME       := UNIXLP-SERVER
+CB_QUEUE_NAME      := UNIXLP-DEST
+CB_TIMEOUT         := UNIXLP-TIMEOUT
+IF UNIXLP-TIMEOUT = 0
+  CB_TIMEOUT := 60
+END-IF
+IF UNIXLP-PORT IS (N5)
+  CB_PORT := VAL(UNIXLP-PORT)
+END-IF
+CB_DEBUG := 0
+IF UNIXLP-TRACE = '1'
+  CB_DEBUG := 1
+END-IF
+IF FLUSH-CC-TYPE NE BINARY
+  CB_IS_ASCII_DATA := TRUE     /* data and escape1/2 is ascii
+ELSE
+  CB_IS_ASCII_DATA := FALSE
+END-IF
+IF UNIXLP-SPOOLHOST = ' '
+  UNIXLP-SPOOLHOST := 'NOMHOST'
+END-IF
+IF UNIXLP-SPOOLNUMBER = ' '
+  REPEAT
+    CALLNAT 'XXRANDOM' #RANDOM /* Get random no between 0 and 1
+    #RANDOM := #RANDOM * 1000
+    #RANDOM := INT(#RANDOM)
+    UNTIL #RANDOM NE 0
+  END-REPEAT
+  MOVE EDITED #RANDOM (EM=999) TO UNIXLP-SPOOLNUMBER
+END-IF
+IF UNIXLP-SPOOLNUMBER IS (N3)
+  CB_JOBNUMBER := VAL(UNIXLP-SPOOLNUMBER)
+END-IF
+CB_LOCAL_HOST_NAME := UNIXLP-SPOOLHOST
+CB_LIST_NAME := UNIXLP-LISTNAME
+IF CB_LIST_NAME = ' '
+  CB_LIST_NAME := FLUSH-BUNDLE
+END-IF
+IF CB_LIST_NAME = ' '
+  CB_LIST_NAME := FLUSH-REPNAME
+END-IF
+IF UNIXLP-USER = ' '
+  CB_USER_ID := #PO-USERID /* set during UPDATE-STATUS
+ELSE
+  CB_USER_ID := UNIXLP-USER
+END-IF
+CB_ESCAPE_2 := UNIXLP-ESCAPE-AFTER-1
+COMPRESS UNIXLP-ESCAPE-BEFORE-1 UNIXLP-ESCAPE-BEFORE-2
+  UNIXLP-ESCAPE-BEFORE-3 TO CB_ESCAPE_1 LEAVING NO
+ESMLPR_LEN         := *LENGTH(+ESMLPR_DATA)
+IF UNIXLP-TRACE = '1'
+  #TRACE-MSG := 'Begin/end of printout:'
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  DECIDE FOR FIRST CONDITION
+    WHEN ESMLPR_LEN > 20
+      #POS := ESMLPR_LEN - 19
+      IF #POS < 21
+        #POS := 21
+      END-IF
+      #LEN := ESMLPR_LEN - #POS + 1
+      RESET #TRACE-MSG #LINE-OUT
+      MOVE ALL '.' TO #TRACE-MSG-A
+      MOVE SUBSTR(+ESMLPR_DATA,1,19) TO #LINE-IN
+      CALLNAT 'RMASCEBN' 'A' #LINE-IN /* ASCII -> EBCDIC
+      MOVE EDITED #LINE-IN
+        (EM=X.X.X.X.X.X.X.X.X.X.X.X.X.X.X.X.X.X.X.)
+        TO #LINE-OUT
+      MOVE #LINE-OUT TO SUBSTR(#TRACE-MSG,1,38)
+      MOVE '...' TO SUBSTR(#TRACE-MSG,40,3)
+      #LINE-IN := SUBSTR(+ESMLPR_DATA,#POS,#LEN)
+      CALLNAT 'RMASCEBN' 'A' #LINE-IN /* ASCII -> EBCDIC
+      MOVE EDITED #LINE-IN
+        (EM=X.X.X.X.X.X.X.X.X.X.X.X.X.X.X.X.X.X.X.X.) TO #LINE-OUT
+      MOVE #LINE-OUT TO SUBSTR(#TRACE-MSG,44)
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      RESET #TRACE-MSG #LINE-OUT
+      MOVE ALL '.' TO #TRACE-MSG-A
+      #LINE-IN := SUBSTR(+ESMLPR_DATA,1,19)
+      MOVE EDITED #LINE-IN (EM=H(19)) TO #LINE-OUT
+      MOVE #LINE-OUT TO SUBSTR(#TRACE-MSG,1,38)
+      #LINE-IN := SUBSTR(+ESMLPR_DATA,#POS,#LEN)
+      MOVE EDITED #LINE-IN (EM=H(20)) TO #LINE-OUT
+      MOVE #LINE-OUT TO SUBSTR(#TRACE-MSG,44)
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    WHEN ESMLPR_LEN > 0
+      RESET #TRACE-MSG
+      MOVE ALL '.' TO #TRACE-MSG-A
+      MOVE EDITED +ESMLPR_DATA
+        (EM=X.X.X.X.X.X.X.X.X.X.X.X.X.X.X.X.X.X.X.X.) TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      MOVE EDITED +ESMLPR_DATA (EM=H(20)) TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    WHEN NONE
+      #TRACE-MSG := '--- No output ---'
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-DECIDE
+  IF ESMLPR_LEN   NE 0
+    COMPRESS 'Closing and transferring' ESMLPR_LEN 'bytes to ESMLPR.'
+      TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  ELSE
+    COMPRESS 'Nothing to print, ESMLPR not called.' TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+END-IF
+IF ESMLPR_LEN   = 0
+  ESCAPE ROUTINE
+END-IF
+CALL 'ESMLPR' ESMLPR_CB(*) ESMLPR_LEN +ESMLPR_DATA
+IF CB_RC = 0
+  ESMLPR_RC  := RET('ESMLPR')
+  IF ESMLPR_RC NE 0
+    P-ERROR-TEXT := "INVALID PARAMETER BLOCK SPECIFIED"
+    P-ERROR-CODE := 0005
+    FLUSH-ERROR := TRUE
+  END-IF
+ELSE
+  ESMLPR_RC  := CB_RC
+  P-ERROR-CODE := ABS(CB_RC)
+  COMPRESS CB_RC CB_ERROR_TXT TO P-ERROR-TEXT
+  P-ERROR-CODE := 5
+  FLUSH-ERROR := TRUE
+END-IF
+IF ESMLPR_RC < 0 /* too late, print data already sent
+  #STATUS := '-' /* Error, but no retry possible.
+  PERFORM UPDATE-STATUS
+END-IF
+IF UNIXLP-TRACE = '1'
+  COMPRESS 'Got return code' ESMLPR_RC  'from ESMLPR. Message contents:'
+    P-ERROR-TEXT '/ Printer status set to' #STATUS TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* CALL-ESMLPR
+*
+************************************************************************
+DEFINE SUBROUTINE MACHINE-TO-ASA
+************************************************************************
+RMMCASA-PARMS.P-RECORD := LINE (I)
+RMMCASA-PARMS.P-PREV-CC := FLUSH-SAVE-CC
+CALLNAT 'RMMCASAN' RMMCASA-PARMS
+FLUSH-SAVE-CC := RMMCASA-PARMS.P-PREV-CC
+IF RMMCASA-PARMS.P-PRINT-NUMBER > 0
+  LINE (I) := RMMCASA-PARMS.P-RECORD
+ELSE
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* MACHINE-TO-ASA
+*
+************************************************************************
+DEFINE SUBROUTINE ASA-TO-ASCII
+************************************************************************
+RMASAAS-PARMS.P-RECORD     := LINE (I)
+RMASAAS-PARMS.P-TABLE-NAME := UNIXLP-TABLE
+RESET RMASAAS-PARMS.#REC-A256 RMASAAS-PARMS.#RECORD-LENGTH /* for safety
+CALLNAT 'RMASAASN' RMASAAS-PARMS
+IF P-ASA-ERROR-CODE NE 0
+  P-ERROR-CODE := 5
+  FLUSH-ERROR := TRUE
+  P-ERROR-TEXT := P-ASA-ERROR-TEXT
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* ASA-TO-ASCII
+*
+************************************************************************
+DEFINE SUBROUTINE NO-CC-TO-ASA
+************************************************************************
+COMPRESS '&' LINE(I) TO LINE(I) LEAVING NO
+EXAMINE LINE(I) FOR '&' AND REPLACE FIRST WITH ' '
+*
+END-SUBROUTINE /* NO-CC-TO-ASA
+*
+************************************************************************
+DEFINE SUBROUTINE BASE64-TO-BIN
+************************************************************************
+B64-FUNCTION := 'AB'                  /* convert base64 to bin
+RESET B64-BRACKET B64-B
+REDUCE ARRAY B64-TEXT-ARRAY TO (1:1)
+B64-TEXT-ARRAY (1) := LINE (I)
+CALLNAT 'RMBAS64N' B64-PARMS
+P-ERROR-CODE := B64-RC
+P-ERROR-TEXT := B64-ERRTXT
+IF P-ERROR-CODE = 0
+  LINE (I) := B64-B
+END-IF
+*
+END-SUBROUTINE /* BASE64-TO-BIN
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  FLUSH-ERROR := TRUE
+  P-ERROR-CODE := 21
+  CALLNAT 'C-NATERN' P-ERROR-TEXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+INCLUDE RMPR-C /*V12-PRINTER-API,CALL-PRINTER-EXIT
+*
+END

@@ -1,0 +1,178 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOTSLS-N - NOM GUI: Start program for NGC
+* Function : catch Today Screen / my desktop
+*        G : get
+*        S : delete + save
+*
+* Maintenance:
+* XSETHZ  2010-12-06  N175     created
+* XSETHZ  2011-01-25  N175.2   my desktop (view, filter, tree)
+* XSETHZ  2011-03-07  N175.3   my desktop (view, filter, tree)
+* CF      2014-10-28           return error to client
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+************************************************************************
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER
+1 ES-WORK (A253)
+1 REDEFINE ES-WORK
+  2 ESWK-TYP           (A2)   /* TS - Today screen
+  2 ESWK-SEQUENCE      (N4)   /* sequence from which to continue
+1 NOTSLS
+  2 NOTSLS-AREA        (A253/1:100)
+  2 REDEFINE NOTSLS-AREA
+    3 NOTSLS-A         (1:100)
+      4 NOTSLS-SEQ-KEY (A6)   /* '$TYPE$'
+      4 NOTSLS-SEQ-TYP (A2)   /* 'VW','FI','TR'
+      4 NOTSLS-SEQ     (N4)
+      4 NOTSLS-NUMBER  (N2)
+      4 NOTSLS-FIL     (A239)
+************************************************************************
+LOCAL
+1 USER-SES VIEW OF NRM-SESSIONS
+  2 SESSION-USER
+  2 SERVERTIME
+  2 SEQ-NUMBER
+  2 DATATYP
+  2 C*DATA
+  2 DATA (1:100)
+  2 SE-OBJECT-TYPE /*SU1
+  2 SE-OBJECT-TIME /*SU1
+1 #USER-ID-SEQ-START (A12)
+1 REDEFINE #USER-ID-SEQ-START
+  2 #USER-ID-START (A8)
+  2 #SEQ-START (N4)
+1 #USER-ID-SEQ-END (A12)
+1 REDEFINE #USER-ID-SEQ-END
+  2 #USER-ID-END (A8)
+  2 #SEQ-END (N4)
+1 P-CLEAR-DATA    (A3)
+1 REDEFINE P-CLEAR-DATA
+  2 P-CLEAR-VIEW  (A1)     /* 'Y' = CLEAR
+  2 P-CLEAR-FILTER(A1)     /* 'Y' = CLEAR
+  2 P-CLEAR-TREE  (A1)     /* 'Y' = CLEAR
+1 #I (I4)
+1 #J (I4)
+1 #K (I4)
+1 #L (I4)
+1 #MSG-TEXT (A79)
+1 #ERRORNUMBER (N4)
+1 #LANGCODE (I1)
+1 #RESPCODE (N1)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#USER-ID-START := #USER-ID-END   := ES-USER
+IF ES-WORK = ' '
+  DECIDE ON FIRST VALUE OF ES-KEY-PARM(1)
+    VALUE 'VW','FI','TR','MD'
+      #SEQ-START := 1
+      #SEQ-END := 9999
+    NONE VALUE IGNORE
+  END-DECIDE
+  IF ES-EXTEND-FUNCTION = 'S'
+    P-CLEAR-DATA := ES-KEY-PARM(3)
+    FD. FIND USER-SES
+        WITH USER-ID-SEQ = #USER-ID-SEQ-START THRU #USER-ID-SEQ-END
+      IF DATATYP = 'VW' AND P-CLEAR-VIEW = 'Y' OR
+          DATATYP = 'FI' AND P-CLEAR-FILTER = 'Y' OR
+          DATATYP = 'TR' AND P-CLEAR-TREE = 'Y' OR
+          DATATYP = 'TS'
+        GD. GET USER-SES *ISN(FD.)
+        DELETE (GD.)
+      END-IF
+    END-FIND
+  END-IF
+ELSE
+  DECIDE ON FIRST VALUE OF ESWK-TYP
+    VALUE 'VW','FI','TR'
+      #SEQ-START := ESWK-SEQUENCE
+      #SEQ-END := 9999
+    NONE VALUE IGNORE
+  END-DECIDE
+END-IF
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+  VALUE 'S'
+    #J := 1
+    FOR #I = 1 TO ES-NUMBER
+      SESSION-USER := ES-USER
+      SERVERTIME := ES-KEY-PARM(2)
+      SEQ-NUMBER := NOTSLS-SEQ(#J)
+      DATATYP := NOTSLS-SEQ-TYP(#J)
+      #K := NOTSLS-NUMBER(#J)
+      ADD 1 TO #J
+      RESET DATA(*)
+      FOR #L = 1 TO #K
+        IF NOTSLS-AREA(#J) = ' '
+          DATA(#L) := '$B$'
+        ELSE
+          DATA(#L) := NOTSLS-AREA(#J)
+        END-IF
+        ADD 1 TO #J
+      END-FOR
+      SE-OBJECT-TYPE := 'SE' /*SU1
+      SE-OBJECT-TIME := *TIMX /*SU1
+      STORE USER-SES
+    END-FOR
+    END TRANSACTION
+  VALUE 'G'
+    ES-EOF := 'X'
+    RESET #I #J
+    READ USER-SES WITH USER-ID-SEQ = #USER-ID-SEQ-START
+      IF SESSION-USER NE ES-USER
+        ESCAPE BOTTOM
+      END-IF
+      ACCEPT IF DATATYP = ES-KEY-PARM(1) OR
+        ES-KEY-PARM(1) = 'MD' AND
+        (DATATYP = 'VW' OR =  'FI' OR =  'TR')
+      ES-KEY-PARM(2) := SERVERTIME
+      IF (#J + C*DATA) > 99
+        ESWK-TYP := DATATYP
+        ESWK-SEQUENCE := SEQ-NUMBER
+        RESET ES-EOF
+        ESCAPE BOTTOM
+      ELSE
+        ADD 1 TO #I
+        ADD 1 TO #J
+        NOTSLS-SEQ-KEY(#J) := '$TYPE$'
+        NOTSLS-SEQ-TYP(#J) := DATATYP
+        NOTSLS-SEQ(#J) := SEQ-NUMBER
+        NOTSLS-NUMBER(#J) := C*DATA
+        FOR #L = 1 TO C*DATA
+          ADD 1 TO #J
+          IF DATA(#L) = '$B$'
+            NOTSLS-AREA(#J) := ' '
+          ELSE
+            NOTSLS-AREA(#J) := DATA(#L)
+          END-IF
+        END-FOR
+      END-IF
+    END-READ
+    ES-NUMBER := #I
+  NONE VALUE IGNORE
+END-DECIDE
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  #ERRORNUMBER := *ERROR-NR
+  CALLNAT 'NAT00020' #ERRORNUMBER #LANGCODE #MSG-TEXT #RESPCODE
+  IF #RESPCODE NE 0
+    COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ELSE
+    COMPRESS *PROGRAM '/' *ERROR-LINE ':' #ERRORNUMBER #MSG-TEXT
+      TO ES-MSG-TXT
+  END-IF
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

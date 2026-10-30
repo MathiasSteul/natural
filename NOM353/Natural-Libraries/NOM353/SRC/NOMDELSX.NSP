@@ -1,0 +1,74 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Delete Source Pointers of a given JES output to reread it by NOM
+* Q&D by FHI/SAG 11/2012
+*
+DEFINE DATA
+LOCAL USING RMSPL--L
+LOCAL
+1 SRC VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-CONTROL
+  2 REDEFINE SR-CONTROL
+    3 TYPE (I2)
+    3 NODE (N5)
+    3 JOB     (A8)
+    3 JOBNO (N7)
+  2 SR-RELATED-ID
+  2 SR-CONTROL-FLAG
+  2 SR-TYPE
+  2 SR-MONITOR-ID
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-SPOOL-ATTRIBUTES
+  2 SR-CC-TYPE
+  2 SR-RECORD-LENGTH
+  2 SR-NUMBER-OF-LINES
+1 #JOB      (A8)
+1 #JOBNO    (N7)
+1 #YESNO    (A1)
+1 #MSG      (A70)
+END-DEFINE
+SET KEY ALL
+REP. REPEAT
+  INPUT WITH TEXT #MSG
+    '**************************************************************' /
+    '             DELETE SOURCE POINTER OF A JES OUTPUT            ' /
+    '**************************************************************' //
+    'Please enter Job Name:' #JOB 'Job number (optional): ' #JOBNO   /
+    'Exit: PF3'
+  IF *PF-KEY NE 'ENTR'
+    ESCAPE ROUTINE
+  END-IF
+  RD. READ SRC BY SR-ID
+    IF SR-ID = 9999999999
+      ESCAPE BOTTOM (RD.)
+    END-IF
+    IF TYPE NE 12 OR JOB NE #JOB
+        OR (#JOBNO NE 0 AND JOBNO NE #JOBNO)
+      ESCAPE TOP
+    END-IF
+    MOVE SR-SPOOL-ATTRIBUTES TO #SPOOL-ATTRIBUTES
+    INPUT (AL=20 AD=OL) WITH TEXT #MSG
+      '=' NODE
+      '=' JOB
+      '=' JOBNO
+      'Delete (Y/N,blank=Next, PF3=Exit)?' #YESNO (AD=MILT'_')
+    DECIDE FOR FIRST CONDITION
+      WHEN #YESNO = 'Y'
+        DELETE
+        END TRANSACTION
+        #MSG := 'Deleted.'
+        ESCAPE BOTTOM (RD.)
+      WHEN *PF-KEY = 'ENTR'
+        #MSG := 'Next record.'
+      WHEN NONE
+        ESCAPE BOTTOM (REP.)
+    END-DECIDE
+    RESET #YESNO
+  END-READ
+END-REPEAT
+*
+END

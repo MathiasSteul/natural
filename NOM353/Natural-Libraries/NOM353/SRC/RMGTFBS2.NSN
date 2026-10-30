@@ -1,0 +1,139 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMGTFBS2 - Get Top of Current Page (sequential File BS2 Interface)
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 94-03-01 s(999999) created
+* mrs 94-05-09 s(999999) h'81' is a valid ff (write and skip) in BS2
+* xsetggr 2007-05-14 NOM3201 Convert node number to 5 digit format
+* fhi     2017-01-18 NOMALL-1916 Use binary NPR RECORD* fields
+* fhi     2017-01-27 NOMALL-1961 Show node name in errors
+* fhi     2017-07-11 NOMALL-2021 NPR error: use RECORD temporarily ÜÜÜ
+* SU1/BLI 2021-10-15 ES-31134    Unix:BS2:use ESA transl/no hex
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING RMGT---P
+************************************************************************
+INDEPENDENT
+1 +NOD-CURRENT-NAME      (A16)
+*
+LOCAL USING RCCTYP-E             /* supported cc Types
+LOCAL USING RMSR---L             /* supported cc Types
+LOCAL
+1 READ-FILE VIEW OF READ-FILE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD-NUMBER
+  2 RECORD /*not used, but must defined to get HEX fields filled
+  2 RECORD-HEX1
+  2 REDEFINE RECORD-HEX1
+    3 RECORD-CC          (A1)
+  2 RECORD-HEX2
+  2 RECORD-HEX3
+1 READ-FILE-ESA VIEW OF READ-FILE /*SU1
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD-NUMBER
+  2 RECORD
+*
+1 #RECORD-FROM           (P10)
+1 #RECORD-TO             (P10)
+1 #SOURCE-TYPE-B2        (B2)
+1 #ESC                   (L)   /*SU1
+1 #USE-ESA               (L)   /*SU1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-ERROR-CODE P-ERROR-TEXT P-TOP-RECORD
+*
+#SOURCE-ATTRIBUTES := P-SOURCE-ATTRIBUTES
+#SOURCE-TYPE-B2 := P-SOURCE-TYPE
+CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES #SOURCE-TYPE-B2
+*
+IF *MACHINE-CLASS NE 'MAINFRAME' /*SU6
+  IF F#ESA (<#FBS2-NODE>) /*must be separate IF ÜÜ
+   CALLNAT 'NOMESA' #FBS2-NODE(AD=O) +NOD-CURRENT-NAME(AD=O) 1X #USE-ESA
+  END-IF
+END-IF
+*
+#RECORD-FROM := P-RECORD-NUMBER
+FIND-TOP. REPEAT
+  #RECORD-TO := #RECORD-FROM
+  SUBTRACT 70 FROM #RECORD-FROM
+  IF #RECORD-FROM < 1
+    #RECORD-FROM := 1
+  END-IF
+  IF #USE-ESA /*SU1
+    #ESA. FIND READ-FILE-ESA WITH DSNAME =#FBS2-DSNAME
+    AND NODE=#FBS2-NODE AND RECORD-NUMBER >= #RECORD-FROM             /*
+      MOVE BY NAME READ-FILE-ESA TO READ-FILE
+      PERFORM HANDLE-IT_READ-FILE
+    END-FIND
+  ELSE /*NPR
+    FNDFBS2. FIND READ-FILE WITH DSNAME=#FBS2-DSNAME AND NODE=#FBS2-NODE
+    AND RECORD-NUMBER >= #RECORD-FROM                                 /*
+      PERFORM HANDLE-IT_READ-FILE
+    END-FIND
+  END-IF
+  IF #ESC
+    ESCAPE BOTTOM (FIND-TOP.)
+  END-IF
+  IF *NUMBER (#ESA.)=0 AND *NUMBER(FNDFBS2.)=0
+    P-ERROR-CODE := 0005
+    P-ERROR-TEXT := 'Invalid Line Number'
+    ESCAPE BOTTOM (FIND-TOP.)
+  END-IF
+END-REPEAT /*(FIND-TOP.)
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-IT_READ-FILE
+************************************************************************
+IF READ-FILE.ERROR-CODE NE 0
+  P-ERROR-CODE := READ-FILE.ERROR-CODE
+  COMPRESS READ-FILE.ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM
+    '/' *LINE TO P-ERROR-TEXT
+  #ESC := TRUE /*ESCAPE BOTTOM (FIND-TOP.)
+  ESCAPE BOTTOM
+END-IF
+*   only first byte is used:
+IF #USE-ESA /*SU1
+  READ-FILE.RECORD-HEX1 := READ-FILE.RECORD
+ELSE
+  READ-FILE.RECORD-HEX1 := F#CONVERT-RECORD-HEX (<READ-FILE.RECORD-HEX1,
+    READ-FILE.RECORD-HEX2,READ-FILE.RECORD-HEX3,1X,P-CODEPAGE>)
+END-IF
+IF (RECORD-CC = '1'   AND P-CC-TYPE = ASA-CODE)
+OR (RECORD-CC = 'A'   AND P-CC-TYPE = BS2000-CC)                      /*
+OR (RECORD-CC = H'89' AND P-CC-TYPE = MACHINE-CODE)                   /*
+OR (RECORD-CC = H'8B' AND P-CC-TYPE = MACHINE-CODE)                   /*
+OR (RECORD-CC = H'81' AND P-CC-TYPE = BS2000-CC)                      /*
+OR READ-FILE.RECORD-NUMBER =1                                         /*
+  IF RECORD-CC = H'89' AND P-CC-TYPE = MACHINE-CODE
+  OR (RECORD-CC = H'81' AND P-CC-TYPE = BS2000-CC)                    /*
+    P-TOP-RECORD := READ-FILE.RECORD-NUMBER + 1
+  ELSE
+    P-TOP-RECORD := READ-FILE.RECORD-NUMBER
+  END-IF
+END-IF
+IF READ-FILE.RECORD-NUMBER >= #RECORD-TO
+  IF P-TOP-RECORD > 0
+    #ESC := TRUE /*ESCAPE BOTTOM (FIND-TOP.)
+  END-IF
+  ESCAPE BOTTOM
+END-IF
+*
+END-SUBROUTINE /* HANDLE-IT_READ-FILE
+*
+END

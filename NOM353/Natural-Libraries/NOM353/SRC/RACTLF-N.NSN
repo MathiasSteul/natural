@@ -1,0 +1,167 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member       RACTLF-N
+* Function     Checks if a given lfile is set and if not sets it to
+*              the same value as a second given lfile.
+*              Used for setting lfile 91 (NOM active data)
+* Version      2.2
+*
+* Parameters:
+*
+* Version      Not used
+* Error code   Output - should be 0
+* Error text   Output - error message if error code not 0
+* Logging      Input  - whether to log actions or not
+* Error log    Input  - whether to log errors or not
+* Log code     Input  - log message code
+* Log userid   Input  - userid of log message
+* Lfile-1      Input  - lfile to be checked
+* Dbid-1       Output - dbid of lfile-1
+* Fnr-1        Output - fnr of lfile-1
+* Lfile-2      Input  - optional lfile to be used for setting Lfile-1
+* Dbid-2       Output - dbid of lfile-2
+* Fnr-2        Output - fnr of lfile-2
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* sju      2002-02-25 NOM221      Created
+* fhi      2016-04-15 NOMALL-1837 Introduce +DEVICE for testing
+* fhi      2016-11-15 NOMALL-1961 Use new task IDs
+* SU1     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING RACTLF-A
+* *****
+INDEPENDENT
+1 +DEVICE              (A8)
+* *****
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+LOCAL USING RLOG-L
+LOCAL USING RMTASK-P            /* NOMALL-1961 fhi in
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET RACTLF-ERROR-CODE RACTLF-ERROR-TEXT
+DECIDE FOR EVERY CONDITION
+  WHEN RACTLF-ERROR-CODE = 0
+    PERFORM INITIALISATION
+  WHEN RACTLF-ERROR-CODE = 0
+    PERFORM CHECK-LFILE-1
+  WHEN RACTLF-ERROR-CODE = 0
+    IF RACTLF-DBID-1 = 0 AND RACTLF-FNR-1 = 0 AND RACTLF-LFILE-2 NE 0
+      PERFORM SET-LFILE-1
+    END-IF
+  WHEN RACTLF-ERROR-CODE = 0
+    PERFORM LOG-LFILE-1
+  WHEN NONE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INITIALISATION
+************************************************************************
+RESET RACTLF-DBID-1 RACTLF-FNR-1 RACTLF-DBID-2 RACTLF-FNR-2
+SATLF-SATVERS := 21
+LG-CODE       := RACTLF-LOG-CODE
+LG-USERID     := RACTLF-LOG-USERID
+IF +DEVICE = 'BATCH'
+  IF LG-CODE = ' '
+    LG-CODE  := 'MO'
+  END-IF
+  IF LG-USERID = ' '
+    RMTASK-P.FUNCTION       := 'L'
+    RMTASK-P.SUBTASK-NUMBER := 1
+    CALLNAT 'RMTASKID' RMTASK-P
+    LG-USERID:= RMTASK-P.TASK-ID
+  END-IF
+ELSE
+  IF LG-CODE = ' '
+    LG-CODE  := 'US'
+  END-IF
+  IF LG-USERID = ' '
+    LG-USERID:= *USER
+  END-IF
+END-IF
+IF RACTLF-LFILE-1 = 0
+  RACTLF-ERROR-CODE := 1
+  RACTLF-ERROR-TEXT := 'No lfile 1 given'
+END-IF
+*
+END-SUBROUTINE /* INITIALISATION
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-LFILE-1
+************************************************************************
+SATLF-LFILE    := RACTLF-LFILE-1
+SATLF-FUNCTION := 'GET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+IF SATLF-ERROR-CODE NE 0
+  RACTLF-ERROR-CODE := SATLF-ERROR-CODE
+  RACTLF-ERROR-TEXT := SATLF-ERROR-TEXT
+  IF RACTLF-ERROR-LOGGING
+    COMPRESS 1535 SATLF-ERROR-CODE SATLF-LFILE INTO LG-MSG
+    CALLNAT 'RLOG' PL-PARMS
+  END-IF
+ELSE
+  RACTLF-DBID-1 := SATLF-DBID-N5
+  RACTLF-FNR-1  := SATLF-FNR-N5
+END-IF
+*
+END-SUBROUTINE /* CHECK-LFILE-1
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE-1
+************************************************************************
+SATLF-LFILE    := RACTLF-LFILE-2
+SATLF-FUNCTION := 'GET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+IF SATLF-ERROR-CODE NE 0
+  RACTLF-ERROR-CODE := SATLF-ERROR-CODE
+  RACTLF-ERROR-TEXT := SATLF-ERROR-TEXT
+  IF RACTLF-ERROR-LOGGING
+    COMPRESS 1535 SATLF-ERROR-CODE SATLF-LFILE INTO LG-MSG
+    CALLNAT 'RLOG' PL-PARMS
+  END-IF
+ELSE
+  RACTLF-DBID-2  := SATLF-DBID-N5
+  RACTLF-FNR-2   := SATLF-FNR-N5
+  SATLF-LFILE    := RACTLF-LFILE-1
+  SATLF-FUNCTION := 'SET'
+  CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+  IF SATLF-ERROR-CODE NE 0
+    RACTLF-ERROR-CODE := SATLF-ERROR-CODE
+    RACTLF-ERROR-TEXT := SATLF-ERROR-TEXT
+    IF RACTLF-ERROR-LOGGING
+      COMPRESS 1536 SATLF-ERROR-CODE SATLF-LFILE INTO LG-MSG
+      CALLNAT 'RLOG' PL-PARMS
+    END-IF
+  ELSE
+    RACTLF-DBID-1 := SATLF-DBID-N5
+    RACTLF-FNR-1  := SATLF-FNR-N5
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SET-LFILE-1
+*
+************************************************************************
+DEFINE SUBROUTINE LOG-LFILE-1
+************************************************************************
+IF RACTLF-LOGGING
+  COMPRESS 1537 SATLF-DBID-N5 SATLF-FNR-N5 INTO LG-MSG
+  CALLNAT 'RLOG' PL-PARMS
+END-IF
+*
+END-SUBROUTINE /* LOG-LFILE-1
+*
+END

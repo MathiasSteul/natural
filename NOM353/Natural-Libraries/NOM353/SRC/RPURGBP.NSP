@@ -1,0 +1,139 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RPURGBP - Purge Monitor NATURAL Bufferpool
+*
+* Maintenance
+* UUU YY-MM-DD Sagsis Desciption
+* gw  93-08-12        rewritten
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* sju 00-03-20 p(191368) monitor multitaskiing
+* sju 00-05-17 p(191368) NAT-USER first 5 chars unique, for BS2000
+* sju 00-09-21 p(191368) Use eventing instead of NATURAL-SUB-TASK
+*                        (NATURAL-SUB-TASK doesn't work for BATCH task)
+* sju 03-06-27 p(242018) Purge individual object doesn't work
+* fhi 05-06-23 p(266530) Monitor must be NPR Mainframe independent
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2016-09-15 NOMALL-1621 Use +NOD-LOCAL-NODE as monitor node
+* fhi     2017-01-04 NOMALL-1961 Comments deleted.
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+*
+INDEPENDENT
+1 +NOD-LOCAL-NODE  (N5)
+* *****
+LOCAL
+1 RMBPOD-OBJ-LIB              (A8)
+1 RMBPOD-OBJ-NAME             (A40)
+1 RMBPOD-OBJ-DBID             (N5)
+1 RMBPOD-OBJ-FNR              (N5)
+*
+1 RMBPOD-ERROR-CODE           (N4)
+1 RMBPOD-ERROR-TEXT           (A250)
+1 #ONE-OR-ALL                 (A3)
+1 #TASK-NUMBER                (N3)     INIT <001>
+1 EVENTING VIEW OF EVENTING
+  2 ERROR-CODE
+  2 EVENT-NAME
+1 #EVENT-NAME                 (A8)
+1 REDEFINE #EVENT-NAME
+  2 #EVENT-PREFIX             (A3)
+  2 #EVENT-TASK               (I1)
+  2 #EVENT-DBID               (I2)
+  2 #EVENT-FNR                (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *DATA = 1
+  INPUT #ONE-OR-ALL
+ELSE
+  IF *DATA = 2
+    INPUT #ONE-OR-ALL #TASK-NUMBER
+  END-IF
+END-IF
+*
+IF #ONE-OR-ALL = 'ALL'
+  RMBPOD-OBJ-LIB  := RMBPOD-OBJ-NAME := '*'
+ELSE
+  PERFORM INPUT-PURGE-PARMS
+  IF RMBPOD-OBJ-LIB = ' '             /* shouldn't be possible
+    CALLNAT 'RGETLIB' RMBPOD-OBJ-LIB
+  END-IF
+END-IF
+*
+IF *PF-KEY = 'PF3'
+  ESCAPE ROUTINE
+END-IF
+*
+IF #TASK-NUMBER = 999                  /* ALL ACTIVE TASKS
+  IF +NOD-LOCAL-NODE = 0
+    G-NATRP-ERC := 2603 /* Function only possible with Mainframe NPR
+    ESCAPE ROUTINE
+  END-IF
+  FIND EVENTING WITH NODE = +NOD-LOCAL-NODE AND FUNCTION = 'LIST'
+      AND EVENT-NAME = 'NOM*'
+    IF ERROR-CODE NE 0
+      ESCAPE BOTTOM
+    END-IF
+    #EVENT-NAME:= EVENT-NAME
+    IF #EVENT-DBID = G-NATRP-DBID AND #EVENT-FNR = G-NATRP-FNR
+      IF #EVENT-TASK = 1
+        #TASK-NUMBER:= 1
+        PERFORM CALL-RMBPOD
+      ELSE
+        #TASK-NUMBER:= #EVENT-TASK
+        PERFORM CALL-RMBPOD
+*         END-IF
+      END-IF
+    END-IF
+  END-FIND
+ELSE
+  PERFORM CALL-RMBPOD
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-RMBPOD
+************************************************************************
+CALLNAT 'RMBPOD-N' RMBPOD-OBJ-LIB RMBPOD-OBJ-NAME RMBPOD-OBJ-DBID
+  RMBPOD-OBJ-FNR RMBPOD-ERROR-CODE RMBPOD-ERROR-TEXT #TASK-NUMBER
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE INPUT-PURGE-PARMS
+************************************************************************
+SET CONTROL 'WC11L30B6/22F'
+SET CONTROL 'M8'
+SET CONTROL 'Y41'
+SET KEY PF3
+*
+INPUT USING MAP 'PRGBUFM&'
+*
+IF *PF-KEY = 'PF3'
+  SET CONTROL 'WB'
+  SET CONTROL 'YB'
+  ESCAPE ROUTINE
+END-IF
+DECIDE FOR EVERY CONDITION
+  WHEN RMBPOD-OBJ-LIB = ' '  REINPUT *1530 MARK *RMBPOD-OBJ-LIB
+  WHEN RMBPOD-OBJ-NAME = ' ' REINPUT *1531 MARK *RMBPOD-OBJ-NAME
+  WHEN RMBPOD-OBJ-DBID = 0   REINPUT *1532 MARK *RMBPOD-OBJ-DBID
+  WHEN RMBPOD-OBJ-FNR = 0    REINPUT *1533 MARK *RMBPOD-OBJ-LIB
+  WHEN NONE IGNORE
+END-DECIDE
+SET CONTROL 'WB'
+SET CONTROL 'YB'
+*
+END-SUBROUTINE /* INPUT-PURGE-PARMS
+*
+END

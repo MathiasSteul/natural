@@ -1,0 +1,113 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMPUTFN
+* Version   1.3
+* Function  Evaluate Container File and set lfile 158
+*
+* Maintenance
+* uuu yyyy-mm-dd s(999999) ...
+* mrs 1993-10-13 s(999999) created
+* gw  1994-06-27 s(999999)
+* jvd 1997-09-18 s(164220) Change call 'CMMPP' - NAT23 compatiable
+* jvd 1998-09-18 s(164220) NOM141ÖNAT23
+* gw  1998-10-31 s(999999) NAF dbid / fnr compatibility
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2016-07-29 NOMALL-1518 NOM3.5 deactivate opt.Compiler + remove
+*                                M-COPY-FILES
+* SU2     2020-01-08 NOMALL-2370 recat (NOMPUT-P)
+************************************************************************
+*
+DEFINE DATA PARAMETER USING NOMPUT-P
+* -----------------------------Views------------------------------------
+LOCAL
+1 MONITOR VIEW OF NRM-MONITOR
+  2 C*M-COPY-FILES-V141
+  2 M-COPY-FILES-V141          (1:20)
+  2 REDEFINE M-COPY-FILES-V141
+    3 M-CP-FILE-TAB            (1:20)
+      4 M-CP-DBID              (N5)
+      4 M-CP-FNR               (N5)
+      4 M-CP-DEST              (A16)
+      4 REDEFINE M-CP-DEST
+        5 M-CP-DEST-B          (A1/1:16)
+1 C                            (P2)
+1 L                            (P2)
+1 #ARRAY                       (A16/1:5)
+1 #DBID                        (N5)
+1 #FNR                         (N5)
+1 #RTC                         (I4)
+1 #PARM-DBID       (N5)
+1 #PARM-FNR        (N5)
+1 #PARM-LFILE      (N5)  INIT  <158>
+1 #PARM-PASSWORD   (A8) /* Not use but needed for callnat
+1 #PARM-CIPHER     (A8) /* Not use but needed for callnat
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #NOM-DBID #NOM-FNR
+*
+FNDMO. FIND MONITOR WITH M-MONITOR-ID = 'NAF'
+  IF NO RECORDS FOUND
+    NOMPUT-ERROR-CODE := 0014
+    ESCAPE ROUTINE
+  END-NOREC
+  FOR C = 1 TO C*M-COPY-FILES-V141
+    IF M-CP-DEST (C) NE MASK ('FS=('............)
+      ESCAPE TOP
+    END-IF
+    EXAMINE M-CP-DEST (C) FOR 'x' GIVING LENGTH IN L
+    IF L > 0 AND M-CP-DEST-B (C,L) = ')'
+      SEPARATE M-CP-DEST (C) LEFT INTO #ARRAY (*)
+        IGNORE WITH DELIMITER ' ,()'
+      IF #ARRAY (2) IS (N5) AND  #ARRAY (3) IS (N5)
+        #DBID := VAL (#ARRAY (2))
+        #FNR  := VAL (#ARRAY (3))
+        IF #DBID = NAF-DBID AND #FNR = NAF-FNR
+          #NOM-DBID := M-CP-DBID (C)
+          #NOM-FNR  := M-CP-FNR (C)
+          PERFORM SET-LFILE
+          ESCAPE BOTTOM
+        END-IF
+      END-IF
+    END-IF
+  END-FOR
+END-FIND
+IF #NOM-DBID = 0 OR #NOM-FNR = 0
+  NOMPUT-ERROR-CODE := 0015
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+#PARM-DBID := #NOM-DBID
+#PARM-FNR  := #NOM-FNR
+CALLNAT 'NOMPUTLN' #PARM-DBID #PARM-FNR #PARM-LFILE
+  #PARM-PASSWORD #PARM-CIPHER #RTC
+NOMPUT-ERROR-CODE := #RTC
+*
+IF NOMPUT-ERROR-CODE NE 0
+  NOMPUT-ERROR-CODE := 0016
+END-IF
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  NOMPUT-ERROR-CODE := *ERROR-NR
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

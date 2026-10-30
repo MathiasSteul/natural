@@ -1,0 +1,225 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+************************************************************************
+* RMEXPNO - Export MF NOdes
+*
+* Maintenance
+* User  yyyy-mm-dd Issue       Remark
+* ----- ---------------------- -----------------------------------------
+*       2019-02-22 generated   Created from RMXML2LD
+* SU1   2015-09-15 NOMALL-1693 NAT00059(A80)->NAT41002(A253)
+* fhi   2019-02-19 NOMALL-2215 Export not complete
+* BLI   2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU2   2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU3   2021-02-18 NOMALL-2443 restruct+MSG
+* GGS01 2021-07-06 NOMALL-2474 RECAT since RMEXP-C changed
+* SU4   2021-08-18 NOMALL-2467 RMEXPNOL
+* SU5   2021-08-26 NOMALL-2484 avoid NOM1572 field M-BS2-DEST (H'FF')
+************************************************************************
+DEFINE DATA
+PARAMETER USING XXUX---P
+PARAMETER USING RMEXP-A
+PARAMETER
+1 #TRACING               (L)
+1 #ID                    (A250) BY VALUE OPTIONAL
+************************************************************************
+/*SU4 LOCAL USING RMEXPNOL
+LOCAL USING RMBAS64P
+LOCAL USING VUXDEF-L
+/*SU2 LOCAL USING VMONITUL /* NOMALL-2215 fhi in
+LOCAL USING N-41002L /*SU1
+/***********************************************************************
+LOCAL
+1 WRITE-FILE VIEW OF WRITE-FILE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+1 NO VIEW OF NRM-MF-NODES /*SU4 was RMEXPNOL
+  2 MF-REMOTE-CODEPAGE     (A64)
+  2 MF-PRODUCT-NAME        (A16)
+  2 MF-INTERNAL-NODE-ID    (P11)
+  2 MF-LAST-UPDATE         (T)
+  2 MF-LAST-UPDATE-USER    (A16)
+  2 MF-TYPE                (A1)
+  2 MF-NPR-USERID          (A8)
+  2 MF-TIME-SCHEDULE       (A1)
+  2 MF-MONITOR-DESCRIPTION (A50)
+  2 MF-SPOOL-TYPE          (A8)
+  2 MF-SYSTEM-TYPE         (A8)
+  2 MF-MONITOR-ID          (A20)
+  2 MF-MONITOR-NODE        (N5)
+  2 MF-TEMP-CLASS          (A4)
+  2 MF-PRINT-CLASS         (A1)
+  2 MF-CLASSES             (A1/1:20)
+  2 MF-JES3-OUTPUT-CLASSES (A1/1:20)
+  2 MF-BS2-DEST            (A8/1:4)
+  2 MF-ERR-CLASS           (A1)
+*
+1 #FIELD                 (A32)
+1 #VALUE                 (A300)
+1 #LEN                   (I4)
+1 #WORK-LINE             (A250)
+1 #FUNCTION              (A10)
+1 #I                     (I4)
+1 #J                     (I4)
+1 #K                     (I4)
+1 #L                     (I4)
+1 #PROGRAM               (A8) INIT <*PROGRAM>
+1 REDEFINE #PROGRAM
+  2 FILLER               5X /*RMEXP
+  2 #TYPE                (A2)
+1 #KEY                   (A100)
+1 #KEY-FROM              (A100)
+1 #KEY-TO                (A100) INIT FULL LENGTH <H'FF'>
+1 #KEY-MASK              (A25)
+/*SU4 1 #KEY-LEN               (I2)
+1 #KEY-LEN2              (I2) CONST <20> /*full len MF-MONITOR-ID SU4
+  /*see RMEXP-C:prefixed with 'R-'
+1 #TRACE-MSG             (A250)
+1 #POS                   (I4)
+1 #DEP                   (A5)
+1 #NODE                  (N5)
+1 #MASK                  (A300) INIT FULL LENGTH <'P'>
+1 #PRINTABLE             (A300)
+1 #M-LAST-UPDATE (A21)
+/*SU2 1 #M-STATUS (A) DYNAMIC
+/*SU2 1 #M-OBJECT-TIME (A21)
+1 #A16-FF                (A16) /*SU5
+1 #FF8                   (A8) CONST FULL LENGTH <H'FF'> /*SU5
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+MOVE EDITED #FF8 (EM=H(8)) TO #A16-FF /*SU5
+PERFORM #START
+READ NO BY MF-MONITOR-ID = #KEY-FROM THRU #KEY-TO /*SU2
+  #KEY := MF-MONITOR-ID
+  PERFORM HANDLE-MASK
+  COMPRESS '<NO depending="' #DEP '">' TO #WORK-LINE LEAVING NO
+  PERFORM WRITE-XML
+  IF #OD-LOG = 'Y'
+    #TRACE-MSG := MF-MONITOR-ID
+    IF MF-MONITOR-ID = MASK('R-')
+      #TRACE-MSG := SUBSTR(#TRACE-MSG,3) /*avloid 'R-' SU5
+    END-IF
+    IF #ID SPECIFIED
+      COMPRESS 'Exported: NO */' #TRACE-MSG TO #TRACE-MSG
+    ELSE
+      COMPRESS 'Exported: NO /' #TRACE-MSG TO #TRACE-MSG
+    END-IF
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+  MOVE EDITED NO.MF-LAST-UPDATE(EM=YYYY'-'MM'-'DD'-'HH':'II':'SS'.'T)
+    TO #M-LAST-UPDATE
+/*SU2  B64-FUNCTION := 'BA' B64-B := NO.MF-STATUS
+/*SU2  CALLNAT 'RMBAS64N' B64-PARMS 248
+/*SU2  #M-STATUS  := B64-TEXT-ARRAY (1)
+/*SU2  MOVE EDITED NO.M-OBJECT-TIME
+/*SU2  (EM=YYYY'-'MM'-'DD'-'HH':'II':'SS'.'T) TO #M-OBJECT-TIME
+  #FIELD := 'M-REMOTE-CODEPAGE'
+  #VALUE :=  NO.MF-REMOTE-CODEPAGE
+  PERFORM CONVERT-XML
+  #FIELD := 'M-PRODUCT-NAME'
+  #VALUE :=  NO.MF-PRODUCT-NAME
+  PERFORM CONVERT-XML
+  #FIELD := 'M-INTERNAL-NODE-ID'
+  #VALUE :=  NO.MF-INTERNAL-NODE-ID
+  MOVE LEFT #VALUE TO #VALUE
+  PERFORM CONVERT-XML
+  #FIELD := 'M-LAST-UPDATE'
+  #VALUE :=  #M-LAST-UPDATE
+  PERFORM CONVERT-XML
+  #FIELD := 'M-LAST-UPDATE-USER'
+  #VALUE :=  NO.MF-LAST-UPDATE-USER
+  PERFORM CONVERT-XML
+/*SU2  FOR #L := 2 TO 1 STEP -1
+/*SU2    IF NO.M-EMAIL-RECIPIENTS (#L) NE ' ' ESCAPE BOTTOM END-IF
+/*SU2  END-FOR FOR #I = 1 TO #L #FIELD := 'M-EMAIL-RECIPIENTS'
+/*SU2  #VALUE := NO.M-EMAIL-RECIPIENTS(#I) PERFORM CONVERT-XML END-FOR
+  #FIELD := 'M-TYPE'
+  #VALUE :=  NO.MF-TYPE
+  PERFORM CONVERT-XML
+  #FIELD := 'M-NPR-USERID'
+  #VALUE :=  NO.MF-NPR-USERID
+  PERFORM CONVERT-XML
+  #FIELD := 'M-TIME-SCHEDULE'
+  #VALUE :=  NO.MF-TIME-SCHEDULE /*BS2 rename/copy
+  PERFORM CONVERT-XML
+  #FIELD := 'M-MONITOR-DESCRIPTION'
+  #VALUE :=  NO.MF-MONITOR-DESCRIPTION
+  PERFORM CONVERT-XML
+  #FIELD := 'M-SPOOL-TYPE'
+  #VALUE :=  NO.MF-SPOOL-TYPE
+  PERFORM CONVERT-XML
+  #FIELD := 'M-SYSTEM-TYPE'
+  #VALUE :=  NO.MF-SYSTEM-TYPE
+  PERFORM CONVERT-XML
+  #FIELD := 'M-MONITOR-ID'
+  #VALUE :=  NO.MF-MONITOR-ID
+  PERFORM CONVERT-XML
+/*SU2  #FIELD := 'M-STATUS' #VALUE :=  #M-STATUS PERFORM CONVERT-XML
+  #FIELD := 'M-MONITOR-NODE'
+  #VALUE :=  NO.MF-MONITOR-NODE
+  MOVE LEFT #VALUE TO #VALUE
+  PERFORM CONVERT-XML
+  #FIELD := 'M-TEMP-CLASS'
+  #VALUE :=  NO.MF-TEMP-CLASS
+  PERFORM CONVERT-XML
+  #FIELD := 'M-PRINT-CLASS'
+  #VALUE :=  NO.MF-PRINT-CLASS
+  PERFORM CONVERT-XML
+  FOR #L := 20 TO 1 STEP -1
+    IF NO.MF-CLASSES (#L) NE ' '
+      ESCAPE BOTTOM
+    END-IF
+  END-FOR
+  FOR #I = 1 TO #L
+    #FIELD := 'M-CLASSES'
+    #VALUE :=  NO.MF-CLASSES(#I)
+    PERFORM CONVERT-XML1
+  END-FOR
+  FOR #L := 20 TO 1 STEP -1
+    IF NO.MF-JES3-OUTPUT-CLASSES (#L) NE ' '
+      ESCAPE BOTTOM
+    END-IF
+  END-FOR
+  FOR #I = 1 TO #L
+    #FIELD := 'M-JES3-OUTPUT-CLASSES'
+    #VALUE :=  NO.MF-JES3-OUTPUT-CLASSES(#I)
+    PERFORM CONVERT-XML1
+  END-FOR
+  FOR #L := 4 TO 1 STEP -1
+    IF NO.MF-BS2-DEST (#L) NE ' '
+      ESCAPE BOTTOM
+    END-IF
+  END-FOR
+  FOR #I = 1 TO #L
+    #FIELD := 'M-BS2-DEST'
+    #VALUE :=  NO.MF-BS2-DEST(#I)
+    IF #VALUE = #FF8 /*SU5
+      #VALUE := #A16-FF /*H'FF' -> 'FF' see RMIMPNO
+    END-IF
+    PERFORM CONVERT-XML1
+  END-FOR
+  #FIELD := 'M-ERR-CLASS'
+  #VALUE :=  NO.MF-ERR-CLASS
+  PERFORM CONVERT-XML
+/*SU2  #FIELD := 'M-OBJECT-TYPE' #VALUE :=  NO.M-OBJECT-TYPE
+/*SU2  PERFORM CONVERT-XML
+/*SU2  #FIELD := 'M-OBJECT-TIME' #VALUE :=  #M-OBJECT-TIME
+/*SU2  PERFORM CONVERT-XML
+/*SU2  #FIELD := 'M-NGC-PARMS' #VALUE :=  NO.M-NGC-PARMS
+/*SU2  PERFORM CONVERT-XML
+*
+  PERFORM #END-OBJ
+END-READ
+PERFORM #END
+*
+INCLUDE RMEXP-C /*CALL-NPR, WRITE-XML, OPEN-XML, CLOSE-XML, WRITE-XML
+*
+END

@@ -1,0 +1,154 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    EOMRPMDN
+* Version   1.3
+* Function  DB Interface EOM Object Report (distribution attributes)
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-05-24           created
+* jvd 97-07-08 p(163579) separator page length truncation
+*                        re-cat as change was made to EOMRPM-P
+* wcd 00-04-01 CE 7267   re-cat as changes made to EOMRPM-P, EOMRPM-E
+* xsethz   2000-05-30 s(CE7760) READ-NEXT, READ-HOLD-NEXT added
+* fhi      2000-08-24 QA03      Use NAT23006 for error values
+* fhi      2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi      2013-08-29 FHI285    Enhance error message 406
+* SU1     2013-11-22 NOMALL-1288 correct FHI285 for msg 406
+* SU2     2014-06-02 NOMALL-1281 show last update user+date
+* fhi     2014-08-26 NOMALL-1475 Recat for new field 'FORMATTER'
+* SU3     2018-02-01 NOMALL-1823 NOM 3.5: remove CONNECT
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 EOM-FUNCTION                (I2)
+PARAMETER USING EOMRPM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL     USING EOM----E
+LOCAL
+1 REPORT VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-NATRPT-DIST             (1:10)
+  2 R-LAST-MODIFIED    /*SU2
+  2 R-MODIFIED-BY      /*SU2
+1 REPORT-LAYOUT VIEW OF NRM-REP-TARGET
+  2 RD-REPNAME
+  2 RD-TARGET-ID
+  2 RD-LAYOUT
+    3  RD-FROM                (1:10)
+    3  RD-TO                  (1:10)
+  2 RD-HEADLINES
+*
+1 F                           (P2)
+1 UPDATED                     (L/1:10)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-READ, EOM-READ-NEXT
+    PERFORM READ-DISTRIBUTION-ATTRIBUTES
+  VALUE EOM-READHOLD, EOM-READHOLD-NEXT
+    PERFORM READ-DISTRIBUTION-ATTRIBUTES
+  VALUE EOM-MODIFY
+    PERFORM MODIFY-DISTRIBUTION-ATTRIBUTES
+  NONE  IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-DISTRIBUTION-ATTRIBUTES
+************************************************************************
+FNDRP. FIND REPORT WITH R-REPNAME = EOMRPM-I-NAME
+*
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0406
+    COMPRESS EOMRPM-I-NAME ' (' *PROGRAM ',' *LINE ')'
+      TO EOMMSG-TOKEN(1) LEAVING NO
+    ESCAPE BOTTOM (FNDRP.)
+  END-NOREC
+*
+  RESET  EOMRPM-EOM-DIST (*)
+  EOMRPM-EOM-USER-LIST (*)     := R-NATRPT-DIST (*)
+*
+  FNDRL. FIND REPORT-LAYOUT WITH RD-REPNAME = EOMRPM-I-NAME
+    EXAMINE EOMRPM-EOM-USER-LIST (*) FOR RD-TARGET-ID GIVING INDEX F
+    IF F > 0
+      EOMRPM-LAYOUT-COLFROM (F,*) := RD-FROM (*)
+      EOMRPM-LAYOUT-COLTO   (F,*) := RD-TO   (*)
+      EOMRPM-HEADERLINES    (F)   := RD-HEADLINES
+    END-IF
+  END-FIND
+*
+  IF EOM-FUNCTION = EOM-READHOLD OR = EOM-READHOLD-NEXT
+    UPD. GET REPORT *ISN (FNDRP.)
+    IF R-REPNAME NE R-REPNAME
+      UPDATE (UPD.)
+    END-IF
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* READ-DISTRIBUTION-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-DISTRIBUTION-ATTRIBUTES
+************************************************************************
+FNDMOD. FIND REPORT WITH R-REPNAME = EOMRPM-I-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0406
+    COMPRESS EOMRPM-I-NAME ' (' *PROGRAM ',' *LINE ')'
+      TO EOMMSG-TOKEN(1) LEAVING NO
+    ESCAPE BOTTOM (FNDMOD.)
+  END-NOREC
+  R-NATRPT-DIST (*)     := EOMRPM-EOM-USER-LIST (*)
+  RESET UPDATED (*)
+  FNDRLU. FIND REPORT-LAYOUT WITH RD-REPNAME = EOMRPM-I-NAME
+    EXAMINE EOMRPM-EOM-USER-LIST (*) FOR RD-TARGET-ID GIVING INDEX F
+    IF F > 0
+      UPDATED (F) := TRUE
+    END-IF
+    IF F > 0 AND (EOMRPM-LAYOUT-COLFROM (F,*) NE 0)
+      RD-FROM (*)  := EOMRPM-LAYOUT-COLFROM (F,*)
+      RD-TO   (*)  := EOMRPM-LAYOUT-COLTO  (F,*)
+      RD-HEADLINES := EOMRPM-HEADERLINES          (F)
+      UPDATE (FNDRLU.)
+    ELSE
+      DELETE (FNDRLU.)
+    END-IF
+  END-FIND
+  FOR F = 1 TO 10
+    IF UPDATED (F) OR EOMRPM-EOM-USER-LIST (F) = ' ' OR
+        NOT (EOMRPM-LAYOUT-COLFROM (F,*) NE 0)
+      IGNORE
+    ELSE
+      REPORT-LAYOUT.RD-REPNAME   := EOMRPM-I-NAME
+      REPORT-LAYOUT.RD-TARGET-ID := EOMRPM-EOM-USER-LIST        (F)
+      REPORT-LAYOUT.RD-FROM (*)  := EOMRPM-LAYOUT-COLFROM (F,*)
+      REPORT-LAYOUT.RD-TO   (*)  := EOMRPM-LAYOUT-COLTO  (F,*)
+      REPORT-LAYOUT.RD-HEADLINES := EOMRPM-HEADERLINES   (F)
+      STORE REPORT-LAYOUT
+    END-IF
+  END-FOR
+  R-LAST-MODIFIED := *TIMX    /*SU2
+  R-MODIFIED-BY   := *USER /*EOM-USER /*SU2
+*
+  UPDATE (FNDMOD.)
+*
+END-FIND
+*
+END-SUBROUTINE /* MODIFY-DISTRIBUTION-ATTRIBUTES
+* --------------------------------------- on error ---------------------
+INCLUDE C-EOMERR
+*
+END

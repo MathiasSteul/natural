@@ -1,0 +1,94 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ----------------------------------------------------------------------
+* Subprogram  NOUSUI-N
+* Version    3.4.3
+* Function   NOM API User Profile Maintenance for placeholder intervals
+*
+* Maintenance:
+* SU      2013-08-26   created
+* CF1     2015-04-10 NOMALL-1599 (use LDA now)
+* CF2     2017-04-10 NOMALL-2014 Check data integrity
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOUSUP-A
+************************************************************************
+LOCAL USING VUSERNGL                   /* CF1 +
+* LOCAL
+* 1 US VIEW OF NRM-USERS
+*   2 NGC-DATA (A250/1:1)              /* CF1 -
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+ES-RC := 1
+IF ES-FUNCTION NE 'UI'
+  ESCAPE MODULE
+END-IF
+DECIDE FOR FIRST CONDITION
+  WHEN ES-EXTEND-FUNCTION = ' '
+    PERFORM READ-RECORD
+  WHEN ES-EXTEND-FUNCTION = 'UPD'
+    PERFORM UPDATE-RECORD
+    IF ES-RC = 0
+      END TRANSACTION
+    END-IF
+  WHEN NONE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-RECORD
+************************************************************************
+RESET NOUSP-PARMS
+* FNDR. FIND US WITH USER-ID = ES-KEY-PARM(1)    /* CF1
+FNDR. FIND USERS WITH USER-ID = ES-KEY-PARM(1)   /* CF1
+  IF NO RECORDS FOUND
+    ES-MSG-NR := 0002       /* old 0406 /* CF1
+    ES-MSG-TXT := 'User not found'
+    ESCAPE BOTTOM (FNDR.)
+  END-NOREC
+  /*
+  /* Check data integrity                                  /* CF2 +
+  IF SUBSTRING(NGC-DATA(1),1,1) = 'A' OR= 'U' AND
+      SUBSTRING(NGC-DATA(1),2,6) IS (N6)                    /* CF2 -
+    NOUSP-PARM-AREA (1) := NGC-DATA (1)
+  END-IF                                                   /* CF2
+  /*
+  RESET ES-RC
+END-FIND
+*
+END-SUBROUTINE /* READ-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+ES-RC := 1
+* FNDU. FIND US WITH USER-ID = ES-KEY-PARM(1)    /* CF1
+FNDU. FIND USERS WITH USER-ID = ES-KEY-PARM(1)   /* CF1
+  IF NO RECORDS FOUND
+    ES-MSG-NR := 0002       /* old 0406 /* CF1
+    ES-MSG-TXT := 'User not found'
+    ESCAPE BOTTOM (FNDU.)
+  END-NOREC
+*   GETU. GET US *ISN(FNDU.)                     /* CF1
+  GETU. GET USERS *ISN(FNDU.)                    /* CF1
+  NGC-DATA (1) := NOUSP-PARM-AREA (1)
+  UPDATE (GETU.)
+  RESET ES-RC
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-RECORD
+*
+END

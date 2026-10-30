@@ -1,0 +1,480 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOUSFF-N - NOM API Maintenance of Users
+*            Functions copy,delete
+*            Input keys :
+*            ES-KEY-PARM(1)     userid for found
+*            ES-NEWNAME         new userid for copy
+*            ES-KEY-PARM(2)     copy with folders ('Y'/'N')
+* Maintenance:
+* XSETGGR 2004-09-08 created
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* XSETHZ  2011-01-25 N175.2 : My Desktop (tree, filter, view)
+* XSETHZ  2011-04-29 NOMALL-950
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-20 NOMALL-901 correct writing delete operations in log
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* xsetggr 2012-10-03 NOMALL-89 correct updating grants when delete user
+* xsetggr 2013-06-17 NOMALL-1189 copy maintain auth of copied folders
+* SU1     2013-09-16 NOMALL-1281 last update user+date
+* SU2     2016-01-13 NOMALL-1764 new fct: return nr. of records for del.
+* CF1     2018-12-04 NOMALL-2181 Reject reserved names ADMIN, PUBLIC
+* HEB1    2022-07-12 NOMALL-2558 copy: last update user+date
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL USING VUSERS-L
+LOCAL USING RLOG-L
+LOCAL USING NOUSUP-L
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+*
+LOCAL
+1 DIST-LIST VIEW OF NRM-DISTRIBUTION-LIST
+  2 D-USER-LIST (191)
+  2 C*D-USER-LIST
+1 FOLDER VIEW OF NRM-FOLDER
+  2 FO-ID
+  2 FO-USER-ID
+  2 FO-NAME
+  2 FO-DESC
+  2 FO-LINKED-FO-ID
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER (A8)
+    3 FO-LINKED-ID   (B2)
+  2 FO-MAP-LAYOUT
+  2 FO-DEFAULT-LOCATION
+1 GR VIEW OF NRM-GRANTS
+  2 GR-OBJECT-TYPE
+  2 GR-OBJECT-NAME
+  2 GR-OPTION             (6)
+  2 GR-USERID
+1 MAIL-REPORTS VIEW OF NRM-MAIL
+  2 MA-USERID
+* *****
+1 #ES-CONTROL              (A253)
+1 #ES-INPUT-AREA           (A253/1:3)
+1 #ES-MSG-PREF             (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM            (A3)
+  2 #ES-MSG-NR             (N4)
+1 #LIBRARY-ID              (A8)
+1 #COPY-FOLDER             (A1)
+1 #FOLDER-NAME             (A70)
+1 #FO-USER-FO-ID           (A10)
+1 REDEFINE #FO-USER-FO-ID
+  2 #FO-USER               (A8)
+  2 #FO-ID                 (B2)
+1 #GR-SUPER                (A34)
+1 REDEFINE  #GR-SUPER
+  2 #GR-T                  (A1)
+  2 #GR-U                  (A8)
+  2 #GR-N                  (A25)
+1 #USERID                  (A8)
+1 #I                       (I4)
+1 #OBJ                     (A50)
+1 #OBJ-TYPE                (A16)
+1 #USER-LIB                (A8)
+1 #GRANT-TYPE              (A1/5) INIT<'B','L','F','P','R'>
+1 #FO-ID-N                 (N5)
+1 REDEFINE #FO-ID-N
+  2 #FO-ID-A               (A5)
+1 #NEW-GR-N                (A25)
+1 #ADD-GRANTS              (L)
+1 #USER1                   (A10)
+1 #USER2                   (A10)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+* *****
+ON ERROR
+* *****
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+RESET ES-RC ES-MSG-NR ES-MSG-FIELD ES-MSG-TXT
+*
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA (*) := ES-INPUT-AREA(*)
+*
+#LIBRARY-ID  := ES-APP-SERVER-LIBRARY
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+#USERID      := ES-KEY-PARM(1)
+#COPY-FOLDER := ES-KEY-PARM(2)
+*
+DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+  VALUE 'CP'
+    PERFORM COPY-USER
+  VALUE 'DL'
+    PERFORM DELETE-USER
+  VALUE 'MD'                      /* Get/Set My Desktop options
+    PERFORM MY-DESKTOP-OPT
+    IF ES-RC = 0
+      IF ES-EXTEND-FUNCTION = 'UPD'
+        END TRANSACTION
+      END-IF
+      RESET ES-EXTEND-FUNCTION
+      ESCAPE ROUTINE
+    END-IF
+  VALUE 'NR' /*return nr.records to be deleted  /*SU2
+    PERFORM GET_NR-RECORDS /*SU2
+    ESCAPE ROUTINE /*no log record
+  ANY VALUE
+    IF ES-RC = 0
+      PERFORM WRITE-LOG-RECORD
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-USER
+************************************************************************
+FNDCP. FIND USERS WITH USER-ID = #USERID
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0002       /* userid :1: not defined
+    ESCAPE BOTTOM(FNDCP.)
+  END-NOREC
+  PERFORM VALIDATION
+  IF #ES-MSG-NR NE 0
+    ESCAPE BOTTOM(FNDCP.)
+  END-IF
+  USER-ID := ES-NEWNAME
+  US-LAST-UPDATE      := *TIMX                          /* HEB1
+  US-LAST-UPDATE-USER := ES-USER                        /* HEB1
+  IF #COPY-FOLDER = 'Y'
+    PERFORM COPY-FOLDER
+  ELSE
+    PERFORM ADD-FOLDER
+  END-IF
+  STORE USERS
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* COPY-USER
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-FOLDER
+************************************************************************
+#FO-USER := #USERID
+RESET  #FO-ID
+READFO. READ FOLDER BY FO-USER-FO-ID = #FO-USER-FO-ID
+  IF FO-USER-ID NE #USERID
+    ESCAPE BOTTOM
+  END-IF
+  ACCEPT IF FO-ID NE 1
+*
+  IF FO-LINKED-FO-ID > ' '
+    #FO-ID-N :=  FO-LINKED-ID
+    PERFORM COPY-FOLDER-AUTHORIZATION
+  ELSE
+    #FO-ID-N := FO-ID
+    PERFORM ADD-FOLDER-AUTHORIZATION
+  END-IF
+*
+  FO-USER-ID := ES-NEWNAME
+  STORE FOLDER
+END-READ
+PERFORM ADD-FOLDER
+*
+END-SUBROUTINE /* COPY-FOLDER
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-FOLDER-AUTHORIZATION
+************************************************************************
+COMPRESS #USERID #FO-ID-A TO #GR-N LEAVING NO
+#GR-T := 'F'
+#GR-U := #USERID
+COMPRESS ES-NEWNAME #FO-ID-A TO #NEW-GR-N LEAVING NO
+FIND GR WITH GR-SUPER = #GR-SUPER
+  GR-OBJECT-NAME := #NEW-GR-N
+  GR-USERID      := ES-NEWNAME
+  STORE GR
+END-FIND
+*
+END-SUBROUTINE /* ADD-FOLDER-AUTHORIZATION
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-FOLDER-AUTHORIZATION
+************************************************************************
+RESET #ADD-GRANTS
+COMPRESS FOLDER.FO-LINKED-USER #FO-ID-A TO #GR-N LEAVING NO
+#GR-T := 'F'
+#GR-U := ES-NEWNAME
+FIND GR WITH GR-SUPER = #GR-SUPER
+  IF NO RECORDS FOUND
+    #ADD-GRANTS := TRUE
+    ESCAPE BOTTOM
+  END-NOREC
+  RESET #ADD-GRANTS
+  ESCAPE ROUTINE
+END-FIND
+*
+#GR-U := #USERID
+FNDGR. FIND GR WITH GR-SUPER = #GR-SUPER
+  IF #ADD-GRANTS
+    GR-USERID := ES-NEWNAME
+    STORE GR
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* COPY-FOLDER-AUTHORIZATION
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-FOLDER
+************************************************************************
+IF ES-LANGUAGE = 2
+  #FOLDER-NAME := '#Listeneingang'
+ELSE
+  #FOLDER-NAME := '#Inbasket'
+END-IF
+#FO-USER := ES-NEWNAME
+#FO-ID   := 1
+FNDFO. FIND NUMBER FOLDER WITH FO-USER-FO-ID = #FO-USER-FO-ID
+IF *NUMBER(FNDFO.) = 0
+  FO-USER-ID := ES-NEWNAME
+  FO-ID      := 1
+  FO-NAME    := #FOLDER-NAME
+  RESET FO-LINKED-FO-ID
+  STORE FOLDER
+  #FO-ID-N := FO-ID
+  COMPRESS FO-USER-ID #FO-ID-A TO GR-OBJECT-NAME LEAVING NO
+  GR-USERID      := FO-USER-ID
+  GR-OBJECT-TYPE := 'F'
+  GR-OPTION(*)   := 'Y'
+  STORE GR
+END-IF
+*
+END-SUBROUTINE /* ADD-FOLDER
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-USER
+************************************************************************
+FNDDEL. FIND USERS WITH USER-ID = #USERID
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0002       /* userID :1: not defined
+    ESCAPE BOTTOM (FNDDEL.)
+  END-NOREC
+  PERFORM VALIDATION
+  IF #ES-MSG-NR NE 0
+    ESCAPE BOTTOM(FNDDEL.)
+  END-IF
+  DELETE(FNDDEL.)
+  #OBJ := #USERID
+  #OBJ-TYPE := 'USER'
+  PERFORM WRITE-DELETE-LOG
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+/* update distribution lists
+FIND DIST-LIST WITH D-USER-LIST = #USERID
+  FOR #I 1 TO C*D-USER-LIST
+    IF D-USER-LIST(#I) = #USERID
+      RESET D-USER-LIST(#I)
+    END-IF
+  END-FOR
+  UPDATE
+END-FIND
+/* update authorizations
+#GR-U := #USERID
+FOR #I = 1 TO 5
+  #GR-T := #GRANT-TYPE(#I)
+  RESET #GR-N
+  FNDGR1. READ GR WITH GR-SUPER = #GR-SUPER
+    IF GR-OBJECT-TYPE NE #GR-T OR GR-USERID NE #USERID
+      ESCAPE BOTTOM(FNDGR1.)
+    END-IF
+    DELETE(FNDGR1.)
+  END-READ
+END-FOR
+/* delete folders
+#FO-USER := #USERID
+RESET  #FO-ID
+RDFO. READ FOLDER BY FO-USER-FO-ID = #FO-USER-FO-ID
+  IF FO-USER-ID NE #USERID
+    ESCAPE BOTTOM(RDFO.)
+  END-IF
+  DELETE(RDFO.)
+  COMPRESS FO-USER-ID '/' FO-NAME TO #OBJ LEAVING NO
+  #OBJ-TYPE := 'FOLDER'
+  PERFORM WRITE-DELETE-LOG
+END-READ
+/* update user mail
+RDMA. READ MAIL-REPORTS BY MA-USER-REP-TIME STARTING FROM #USERID
+  IF MA-USERID > #USERID
+    ESCAPE BOTTOM
+  END-IF
+  IF MA-USERID = #USERID
+    DELETE(RDMA.)
+    IF *COUNTER > 100
+      END TRANSACTION
+      RESET *COUNTER
+    END-IF
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* DELETE-USER
+*
+************************************************************************
+DEFINE SUBROUTINE MY-DESKTOP-OPT
+************************************************************************
+FNDMD. FIND USERS WITH USER-ID = #USERID
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0002       /* userid :1: not defined
+    ESCAPE BOTTOM(FNDMD.)
+  END-NOREC
+  PROFILE-STRING := USER-PROFILE
+  DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+    VALUE ' '
+      ES-KEY-PARM(3) := PROF-MY-DESKTOP-OPTIONS
+    VALUE 'UPD'
+      GMD. GET USERS *ISN(FNDMD.)
+      PROF-MY-DESKTOP-OPTIONS := ES-KEY-PARM(3)
+      USER-PROFILE := PROFILE-STRING
+      UPDATE(GMD.)
+    NONE VALUE IGNORE
+  END-DECIDE
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* MY-DESKTOP-OPT
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+  VALUE 'CP'
+    IF ES-NEWNAME = ' '
+      #ES-MSG-NR := 0614          /* please enter userid
+      ESCAPE ROUTINE
+    END-IF
+    /*
+    IF ES-NEWNAME = 'ADMIN' OR= 'PUBLIC'                   /* CF1 ->
+      IF ES-NEWNAME = 'ADMIN'
+        #ES-MSG-NR := 0517   /* reserved name ADMIN is not applicable
+      ELSE
+        #ES-MSG-NR := 0518   /* reserved name PUBLIC is not applicable
+      END-IF
+      ESCAPE ROUTINE
+    END-IF                                                 /* CF1 <-
+    /*
+    IF SUBSTR(ES-NEWNAME,1,1)NE MASK (A) AND
+        SUBSTR(ES-NEWNAME,1,1) NE MASK (0-9)
+      #ES-MSG-NR := 0022 /* User-id must start with a letter or a number
+      ESCAPE ROUTINE
+    END-IF
+    FNDCP1. FIND NUMBER USERS WITH USER-ID = ES-NEWNAME
+    IF *NUMBER(FNDCP1.) > 0
+      #ES-MSG-NR := 0611          /*  User already exists
+      ESCAPE ROUTINE
+    END-IF
+    LIST. FIND NUMBER DIST-LIST WITH D-LIST-NAME = ES-NEWNAME
+    IF *NUMBER (LIST.) NE 0
+      #ES-MSG-NR := 0516          /* List already defined
+      PERFORM GET-MSG-TXT
+      ESCAPE ROUTINE
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-DELETE-LOG
+************************************************************************
+IF ES-ORIG-FUNCTION = 'DL'
+  COMPRESS '0075' #OBJ #OBJ-TYPE TO LG-MSG
+  LG-USERID   := ES-USER
+  LG-CODE     := 'MO'
+  LG-FUNCTION := 'W'
+  CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+END-IF
+*
+END-SUBROUTINE /* WRITE-DELETE-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+LG-CODE        := 'UM'
+LG-USERID      := ES-USER
+LG-OBJECT-NAME := #USERID
+DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+  VALUE 'CP'
+    COMPRESS '0769' #USERID  ES-NEWNAME TO LG-MSG
+    CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+  VALUE 'DL'
+    COMPRESS '0767' #USERID  TO LG-MSG
+    CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+    COMPRESS '0775' #USERID TO LG-MSG
+    CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+    COMPRESS '0774' #USERID TO LG-MSG
+    CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+    COMPRESS '0773' #USERID TO LG-MSG
+    CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER   := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+NADA2000.LIBRARY        := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+IF ES-MSG-NR = 0002
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #USERID
+END-IF
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE GET_NR-RECORDS /*SU2
+************************************************************************
+#USER1 := #USER2 := #USERID
+MOVE H'0000' TO SUBSTR(#USER1,9,2)
+MOVE H'FFFF' TO SUBSTR(#USER2,9,2)
+#NUM. FIND NUMBER MAIL-REPORTS WITH MA-USER-REP-TIME =#USER1 THRU #USER2
+IF *NUMBER (#NUM.) > 10000 /*see RDELUS
+  ES-MSG-TXT := *NUMBER (#NUM.)
+END-IF
+*
+END-SUBROUTINE /* GET_NR-RECORDS
+*
+END

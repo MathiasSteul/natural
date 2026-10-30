@@ -1,0 +1,174 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member       RPHYPRUP
+* Function     Physical Printer Special Attributes check and update.
+*              Program will update Phy.printer and Logical printers
+*              link to Physical printer. You only need to do this
+*              if the entries in EOMPHVRE has being changed or new
+*              entries were added.
+*              Input parameter is the NOM System File DBID and FNR
+*              Program will check if type is valid, then it will
+*              update all Physical Printers that match input value
+*              and then all link Logical Printers.
+*
+*              Program should be run in Batch only.
+*
+* Version      1.4
+*
+* Maintenance
+* UUU YY-MM-DD Sagsis    Desciption
+* --- -------- ------    -----------------------------------------------
+* jvd 99-06-16 created
+* sju 01-01-08 p(204797) Corrected and run on-line as part of migration
+* sju     2003-05-20 p(240452) restow for changed EOMPHVRE
+* SPLIAR  2009-03-02 p(308277) restow for changed EOMPHVRE
+* SPLIAR  2009-08-27 P(308277) RESTOW FOR CHANGED EOMPHVRE
+* Splildav 2009-09-30 P(317741) RESTOW FOR CHANGED EOMPHVRE
+* xsetggr 2010-12-21 NOMALL-865 restow due of changed EOMPHVRE
+* SU1     2014-06-06 NOMALL-1281 restructured - no changes
+* SU2     2016-08-11 NOM 3.5: remove unused code
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+LOCAL USING EOMPHTYE  /* List of valid printer types
+LOCAL
+1 #PRINTER-TYPE  (A8)   INIT <'TAPEMVS'>
+1 #PRINTER-ID    (A8)
+1 #PRT-TYPE-OK   (L)
+1 #PHY-ISN       (P10)
+1 #LOGICAL-ISN   (P10)
+1 #IND           (P3)
+1 #OCC           (P3)
+*
+1 LOGICAL-PRINTER  VIEW  OF  NRM-PRINTERS /* Logical Printers
+  2 P-ID              /* D
+  2 C*P-ATTRIBUTES
+  2 P-ATTRIBUTES                (1:25)
+  2 REDEFINE P-ATTRIBUTES
+    3 P-ATTR                    (25)
+      4 P-ATTR-IDENT            (I1)
+      4 P-ATTR-L-P-V            (A22)
+      4 REDEFINE P-ATTR-L-P-V
+        5 P-ATTR-LENGTH         (N2)
+        5 P-ATTR-PROMPT         (N4)
+        5 P-ATTR-VAR            (A16)
+      4 P-ATTR-DEFAULT          (A72)
+*
+1 PHYSICAL-PRINTER  VIEW  OF  NRM-PHYSICAL-PRINTERS
+  2 PH-VTAMID              /* D A(8)
+  2 PH-PRINTER-TYPE        /* A(8)
+  2 C*PH-ATTRIBUTES
+  2 PH-ATTRIBUTES               (1:25)
+  2 REDEFINE PH-ATTRIBUTES
+    3 PH-ATTR                   (25)
+      4 PH-ATTR-IDENT           (I1)
+      4 PH-ATTR-L-P-V           (A22)
+      4 REDEFINE PH-ATTR-L-P-V
+        5 PH-ATTR-LENGTH        (N2)
+        5 PH-ATTR-PROMPT        (N4)
+        5 PH-ATTR-VAR           (A16)
+      4 PH-ATTR-DEFAULT         (A72)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF #PRINTER-TYPE NE ' '
+  FOR #IND 1 TO ##PHYS-MAX-TYPES
+    IF ##PHYS-TYPES(#IND) = #PRINTER-TYPE
+      #PRT-TYPE-OK := TRUE
+    END-IF
+  END-FOR
+END-IF
+*
+IF NOT #PRT-TYPE-OK
+  WRITE NOTITLE
+    'Invalid Printer Type please correct and re-run job '
+  STOP
+END-IF
+*
+WRITE NOTITLE '>> Start DSNAME/RECFM migration for'
+  'printers of type' #PRINTER-TYPE
+*
+RPHY. READ PHYSICAL-PRINTER  BY PH-VTAMID
+  IF PH-PRINTER-TYPE =  #PRINTER-TYPE
+    #PRINTER-ID := PH-VTAMID
+    #PHY-ISN := *ISN (RPHY.)
+    PERFORM PHY-PRT-UPDATE
+*   Upadte logical printer link to phyiscal printer
+    FLOG. FIND LOGICAL-PRINTER WITH P-PHYSICAL-NAME = #PRINTER-ID
+      IF NO RECORD FOUND
+        WRITE NOTITLE
+          ' No Logical Printer Link to Physical Printer  ' #PRINTER-ID
+        ESCAPE BOTTOM (FLOG.)
+      END-NOREC
+      #LOGICAL-ISN := *ISN (FLOG.)
+      PERFORM LOGICAL-PRT-UPDATE
+    END-FIND /* Logical Printer
+    END TRANSACTION
+  END-IF /* Printer type = TAPEMVS
+END-READ /* Physical Printer
+END TRANSACTION
+WRITE NOTITLE '>> End DSNAME/RECFM migration for'
+  'printers of type' #PRINTER-TYPE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE PHY-PRT-UPDATE
+************************************************************************
+GET PHYSICAL-PRINTER  #PHY-ISN
+#OCC :=  C*PH-ATTRIBUTES
+FOR1. FOR #IND 1 TO  #OCC
+  IF PH-ATTR-VAR(#IND) = 'DSNAME'
+    PH-ATTR-LENGTH (#IND) := 54
+    PH-ATTR-PROMPT (#IND) := 5013
+    WRITE NOTITLE '>> Physical Printer'
+      #PRINTER-ID 'DSNAME length updated to 54 <<' /
+  END-IF
+  IF PH-ATTR-VAR(#IND) = 'RECFM'
+    PH-ATTR-LENGTH (#IND) := 05
+    PH-ATTR-PROMPT (#IND) := 5076
+    WRITE NOTITLE '>> Physical Printer'
+      #PRINTER-ID 'RECFM length updated to 5 <<' //
+  END-IF
+END-FOR
+UPDATE
+END TRANSACTION
+*
+END-SUBROUTINE /* PHY-PRT-UPDATE
+*
+************************************************************************
+DEFINE SUBROUTINE LOGICAL-PRT-UPDATE
+************************************************************************
+GET LOGICAL-PRINTER   #LOGICAL-ISN
+#OCC :=  C*P-ATTRIBUTES
+FOR2. FOR #IND 1 TO  #OCC
+  IF P-ATTR-VAR(#IND) = 'DSNAME'
+    P-ATTR-LENGTH (#IND) := 54
+    P-ATTR-PROMPT (#IND) := 5013
+    WRITE NOTITLE
+      '>>  Logical Printer' P-ID 'DSNAME leng. updated to 54 <<'
+  END-IF
+  IF P-ATTR-VAR   (#IND) = 'RECFM'
+    P-ATTR-LENGTH (#IND) := 05
+    P-ATTR-PROMPT(#IND) := 5076
+    WRITE NOTITLE
+      '>>  Logical Printer' P-ID 'RECFM leng. updated to 5   <<'
+  END-IF
+END-FOR
+UPDATE
+END TRANSACTION
+*
+END-SUBROUTINE /* LOGICAL-PRT-UPDATE
+*
+/*SU2 DEFINE SUBROUTINE SET-LFILE
+*
+END

@@ -1,0 +1,271 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RADMIN - Administation menu
+*
+* Maintenance
+* UUU yy-mm-dd  s(999999) ...
+* GW  93-11-30  s(999999) cleaned up, old version saved
+* gw  93-11-30  s(999999) schedule condense job
+* mrs 93-12-08  s(999999) model 5 support
+* mrs 94-07-13  s(999999) prof-calendar not checked
+* gw  96-05-08  s(999999) fetch main menu if nothing allowed
+* ws  00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* ws  00-06-07 CE 7592   Re-cat PROF-LOC new profile added, change
+*                        menu building for DLOG
+* xsetggr 01-03-29 p(205141) command 6 invoke monitor management screen
+* Splildav 11-02-01      NOMALL-31 add line 'Vtam Options'
+* fhi 16-07-28 NOMALL-1636 Enable 8.6 even if Monitor control disallowd
+* SU1     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  NRM-GL
+*
+LOCAL USING RPFK---L
+LOCAL USING RMT----L
+LOCAL USING PROF-LOC
+*
+LOCAL
+1 #FUNCTION                (N2)
+1 #MENU-ENTRY              (12)
+  2 #MENU-LINE             (A70)
+  2 #MENU-IDENT            (I2)
+  2 #MENU-PROG             (A30)
+  2 #OPTIONS               (L)
+1 #PF-KEY                  (A4)
+*
+1 #LINE                    (A60/17)
+1 I                        (N3)
+1 J                        (N3)
+1 #L                       (N3)
+1 #TLINE                   (A60)
+1 REDEFINE    #TLINE
+  2 #TFIL1                 (A2)
+  2 #TNUM                  (A2)
+  2 #TFIL2                 (A1)
+  2 #TTEXT                 (A55)
+*
+1 L-HEADER                 (A78)
+1 #OL-IDENT                (I2/1:3)
+1 #OTHER-LINES
+  2 #OL-LINES              (1:3)
+    3 #OL-TEXT             (A70)
+1 REDEFINE    #OTHER-LINES
+  2 #M-LINE                (A70)
+  2 #C-LINE                (A70)
+  2 #H-LINE                (A70)
+1 #FATHER-PROG             (A8) INIT <'RMENU'>
+1 SW-CONTROL-LINE          (L)
+1 SW-MAINT-LINE            (L)
+1 #LANGUAGE                (I1)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET CONTROL 'L'
+RESET G-LINECOM(*)
+IF G-FLIP-STATUS = 'L'
+  G-FLIP-STATUS := 'P'
+END-IF
+INCLUDE C-INDIC
+PROFILE-STRING := G-USER-PROFILE
+#OPTIONS(6) := TRUE
+DECIDE FOR EVERY CONDITION
+  WHEN PROF-STARTUP='Y' OR PROF-SHUTDOWN='Y' OR PROF-DISPLAY-MONITOR='Y'
+    #OPTIONS(6) := TRUE
+  WHEN PROF-ARCHIVE =  'Y'
+    #OPTIONS(7) := #OPTIONS(9) := TRUE
+  WHEN PROF-REVIVE =  'Y'
+    #OPTIONS(8) := TRUE
+  WHEN PROF-DEFAULTS NE ' '
+    #OPTIONS(1) := TRUE
+  WHEN PROF-USERS NE ' '
+    #OPTIONS(2) := #OPTIONS(3) := TRUE
+  WHEN PROF-CALENDARS NE ' '
+    #OPTIONS(4) := TRUE
+  WHEN PROF-PHYSICAL NE ' '
+    #OPTIONS(5) := TRUE
+  WHEN G-USER-TYPE = 'A'
+    #OPTIONS(10) := #OPTIONS(11) := #OPTIONS(1:8) := TRUE
+  WHEN NONE IGNORE
+END-DECIDE
+*
+IF #OPTIONS(1:5)
+  SW-MAINT-LINE := TRUE
+END-IF
+SW-CONTROL-LINE := TRUE
+*
+IF NOT (#OPTIONS (1:10) = TRUE)
+  FETCH #FATHER-PROG
+END-IF
+REPEAT
+*
+  IF #LANGUAGE NE *LANGUAGE
+    #LANGUAGE := *LANGUAGE
+    PERFORM INIT-PFKEYS
+    PERFORM SET-PFKEYS
+    PERFORM INIT-MENU-TEXT
+    PERFORM MOVE-TEXT-TO-SCREEN
+  END-IF
+*
+  RESET G-LINECOM (*) G-FLIPLINES (*)
+*
+  SET CONTROL 'WB'
+  PERFORM FLIP-DISPLAY
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RADMINM&'
+  IF G-NATRP-ERC = 0
+    G-NATRP-ERC := 10
+  END-IF
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'RADMINM&'
+  #PF-KEY := *PF-KEY
+  RESET G-NATRP-ERC G-NATRP-ERT
+  MOVE LEFT G-DIRECT-COMMAND TO G-DIRECT-COMMAND
+  DECIDE ON EVERY  VALUE OF G-DIRECT-COMMAND    /* MB 90-08-01
+    VALUE '1','2','3','4','5','6','7','8','10'
+      #FUNCTION := VAL(G-DIRECT-COMMAND)
+      IF #OPTIONS (#FUNCTION) = FALSE
+        REINPUT *7 MARK *G-DIRECT-COMMAND
+      END-IF
+    VALUE '1' FETCH 'RDFMEN'
+    VALUE '2' FETCH 'RLISUS'
+    VALUE '3' FETCH 'RCOPSC'
+    VALUE '4' FETCH 'RLISCA'
+    VALUE '5' FETCH 'RLISPH'
+    VALUE '6' FETCH 'RHANMO'
+    VALUE '7'
+      CALLNAT 'RINIAR-N' 'ARC' G-USERID G-NATRP-ERC G-NATRP-ERT
+      ESCAPE TOP
+    VALUE '8'
+      CALLNAT 'RINIAR-N' 'REV' G-USERID G-NATRP-ERC G-NATRP-ERT
+      ESCAPE TOP
+    VALUE '9' CALLNAT 'RINIAR-N' 'CDN' G-USERID G-NATRP-ERC G-NATRP-ERT
+      ESCAPE TOP
+    VALUE '10' FETCH 'RTRANS'
+    VALUE '11'
+/*SU1 IF *OPSYS = MASK('MVS') OR = MASK('VSE')  /* Only for VTAM
+      IF *OPSYS =MASK('MVS') AND (G-USER-TYPE ='A' OR='O') /*Adm/Oper
+        FETCH RETURN 'RVTMOPT'
+      END-IF
+    NONE IGNORE
+  END-DECIDE
+*
+  INCLUDE C-DIRECT
+  DECIDE ON FIRST VALUE OF #PF-KEY
+    VALUE 'PF1','PF13'
+      REINPUT USING HELP
+    VALUE 'PF3','PF15'
+      INCLUDE C-ESCAPE
+    VALUE 'PF4','PF16'
+      PERFORM FLIP-HANDLE
+      ESCAPE TOP
+    VALUE 'PF12','PF24'
+      INCLUDE C-MENU
+    NONE VALUE IGNORE
+  END-DECIDE
+  IF NOT(#FUNCTION = 1 THRU 10)
+    REINPUT *0007 MARK *#FUNCTION ALARM
+  END-IF
+  IF NOT #OPTIONS(#FUNCTION)
+    REINPUT *0007
+  END-IF
+  IF #FUNCTION = 10
+    INCLUDE C-ESCAPE
+  END-IF
+  G-DIRECT-COMMAND := #MENU-PROG(#FUNCTION)
+  INCLUDE C-DIRECT
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-MENU-TEXT
+************************************************************************
+#MENU-IDENT (01) := ##MTN-MODIFY-MONITOR
+#MENU-IDENT (02) := ##MTN-LIST-USERS
+#MENU-IDENT (03) := ##MTN-COPY-SECURITY
+#MENU-IDENT (04) := ##MTN-LIST-CALENDAR
+#MENU-IDENT (05) := ##MTN-LIST-PHYSICAL
+#MENU-IDENT (06) := ##MTN-START-MONITOR
+#MENU-IDENT (07) := ##MTN-START-ARCHIVER
+#MENU-IDENT (08) := ##MTN-START-REVIVER
+#MENU-IDENT (09) := ##MTN-START-CONDENSE
+#MENU-IDENT (10) := ##MTN-MENU-TRANS
+/*SU1 IF (*OPSYS = MASK('MVS') OR = MASK('VSE'))  /* ONLY FOR VTAM
+IF *OPSYS = MASK('MVS') AND G-USER-TYPE ='A' OR='O' /*Admin/Oper
+  #MENU-IDENT (11) := ##MTN-VTAM-OPTIONS
+ELSE
+  #OPTIONS(11) := FALSE
+END-IF
+*
+#MENU-PROG (01) := ##MTC-MODIFY-MONITOR
+#MENU-PROG (02) := ##MTC-LIST-USERS
+#MENU-PROG (03) := ##MTC-COPY-SECURITY
+#MENU-PROG (04) := ##MTC-LIST-CALENDAR
+#MENU-PROG (05) := ##MTC-LIST-PHYSICAL
+#MENU-PROG (06) := ##MTC-START-MONITOR
+#MENU-PROG (07) := ##MTC-START-ARCHIVER
+#MENU-PROG (08) := ##MTC-START-REVIVER
+#MENU-PROG (09) := ##MTC-START-CONDENSE
+#MENU-PROG (10) := ##MTC-MENU-TRANS
+FOR J = 1 TO 12
+  IF #MENU-IDENT (J) NE 0
+    CALLNAT 'RLTINI-N' #MENU-IDENT (J) #MENU-LINE  (J) G-TXB
+  END-IF
+END-FOR
+#OL-IDENT (02) := ##MTN-CONTRL-FUNC
+#OL-IDENT (01) := ##MTN-MAINT-FUNC
+#OL-IDENT (03) := ##MTN-MISC-FUNC
+FOR J = 1 TO 3
+  IF #OL-IDENT (J) NE 0
+    CALLNAT 'RLTINI-N' #OL-IDENT (J) #OL-TEXT  (J) G-TXB
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* INIT-MENU-TEXT
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE MOVE-TEXT-TO-SCREEN
+************************************************************************
+RESET #L #LINE(*)
+FOR I 1 TO 12
+  IF I = 1 AND SW-MAINT-LINE
+    ADD 2 TO #L
+    #LINE(1) := #M-LINE
+  END-IF
+  IF I = 6 AND SW-CONTROL-LINE
+    ADD 2 TO #L
+    #LINE(#L) := #C-LINE
+    ADD 1 TO #L
+  END-IF
+  IF I = 10
+    ADD 1 TO #L
+  END-IF
+  IF #OPTIONS(I)
+    ADD 1 TO #L
+    #TFIL1 := '< '
+    #TFIL2 := '>'
+    MOVE RIGHT I TO #TNUM
+    #TTEXT := #MENU-LINE(I)
+    #LINE(#L) := #TLINE
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* MOVE-TEXT-TO-SCREEN
+*
+INCLUDE RPFSET-C /*SET-PFKEYS
+*
+END

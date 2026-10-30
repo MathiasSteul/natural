@@ -1,0 +1,92 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ----------------------------------------------------------------------
+* Member    NOMDISMA
+* Version   3.4.
+* Function  Check day difference of mail and create dates               >
+*
+* Maintenance
+* uuuuuuu yyyy-mm-dd Issue
+* fhi     2013-05-21             Created from template MIGMAIL
+* SU1     2016-07-28 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL
+1 MAIL VIEW OF NRM-MAIL
+  2 MA-INV-TIME
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-PROCESS-TIME
+1 #REP-RNB            (A31)
+1 REDEFINE #REP-RNB
+  2 #REPNAME          (A25)
+  2 #REPRNB           (P11)
+1 #CNT-READ           (I4)
+1 #CNT-CHECKED        (I4)
+1 #MSG                (A250)
+1 #TIME               (T)
+1 #TIME1              (T)
+1 #TIME2              (T)
+1 #DIFF               (I2)
+*
+END-DEFINE
+* -------------------------------------------main-----------------------
+*
+/*SU1 OPTIONS MCG=(OVFLW=ON,INDX=ON,ZD=OFF)
+SET KEY ALL
+WRITE TITLE
+  '*** Active Reports with different creation and mail dates ***'
+IF *DEVICE NE 'BATCH'
+  INPUT 14T '* --- NOMDISMA - Check Mail - Creation Date --- *' ///
+    'Start with Report Name (or CR):' #REPNAME /
+    'Start with Run-number.........:' #REPRNB /
+    'Enter difference in seconds...:' #DIFF   /
+    'End with PF3'
+  IF *PF-KEY NE 'ENTR'
+    ESCAPE MODULE
+  END-IF
+ELSE
+  IF *DATA > 0
+    INPUT #REPNAME #REPRNB #DIFF
+  END-IF
+END-IF
+IF #DIFF = 0
+  #DIFF := 3600 /* one hour
+END-IF
+#DIFF := #DIFF * 10
+RDAR. READ AR BY AR-REPORT-RNB = #REP-RNB
+  #REPNAME  := AR-REPNAME
+  #REPRNB   := AR-REPRNB
+  #CNT-READ := #CNT-READ + 1
+  FND. FIND MAIL WITH MA-REP-RNB = #REP-RNB
+    #TIME   := 999999999999 - MA-INV-TIME
+    #TIME1  := 999999999999 - MA-INV-TIME - #DIFF
+    #TIME2  := 999999999999 - MA-INV-TIME + #DIFF
+    IF NOT AR-PROCESS-TIME = #TIME1 THRU #TIME2
+      DISPLAY 'Report' AR-REPNAME 'Run-No' AR-REPRNB
+        'Cre-date' AR-PROCESS-TIME (EM=DD'/'MM'/'YY)
+        'Mail-date' #TIME          (EM=DD'/'MM'/'YY)
+    END-IF
+    ADD 1 TO #CNT-CHECKED
+  END-FIND
+END-READ
+*
+PRINT // #CNT-CHECKED 'records of NRM-MAIL checked,' /
+  #CNT-READ 'records of Active Reports read.'
+PRINT 'Last Report/Runnumber:' #REPNAME '/' #REPRNB
+* -----------------------------------------------------------------
+ON ERROR
+  BACKOUT TRANSACTION
+  PRINT // #CNT-CHECKED 'records of NRM-MAIL checked until now,' /
+    #CNT-READ 'records of Active Reports read.'
+  PRINT 'Last Report/Runnumber:' #REPNAME '/' #REPRNB
+  CALLNAT 'C-NATERN' #MSG
+  PRINT #MSG
+  STOP
+END-ERROR
+* -----------------------------------------------------------------
+END

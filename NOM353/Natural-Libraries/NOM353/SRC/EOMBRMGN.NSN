@@ -1,0 +1,140 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    EOMBRMGN
+* Version   1.3
+* Function  DB Interface EOM Object Report-in-bundle
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  96-07-25           created
+* xsethz  2000-07-27 (CE7461) Extend Report and Bundle Names
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-06-17 p(300323) correct work of read-next function
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 EOM-FUNCTION               (I2)
+PARAMETER USING EOMBRM-P
+PARAMETER USING EOMMSG-P
+* -----------------------------LDAs-------------------------------------
+LOCAL     USING EOM----E
+* -----------------------------Views------------------------------------
+LOCAL
+1 BUNDLE-REPORT VIEW OF NRM-BUNDLE-REPORT
+  2 BR-BUNDLE
+  2 REDEFINE BR-BUNDLE
+    3 BR-BUNDLE-8 (A8)
+  2 BR-REPNAME
+  2 BR-PRINTER
+  2 BR-GROUP
+  2 BR-SEQNO
+  2 BR-SEPNO
+  2 BR-REPNO
+  2 BR-PAGEDEF
+  2 BR-FORMDEF
+* *****
+1 #BUNDLE-REPORT            (A50)
+1 REDEFINE #BUNDLE-REPORT
+  2 #BUNDLE-REP             (A49)
+  2 #BUNDLE-REP-1           (I1)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-READ, EOM-READHOLD, EOM-READ-NEXT, EOM-READHOLD-NEXT
+    PERFORM READ-OBJECT-ATTRIBUTES
+  VALUE EOM-ADD, EOM-MODIFY
+    PERFORM MODIFY-OBJECT-ATTRIBUTES
+  NONE  IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************-
+DEFINE SUBROUTINE READ-OBJECT-ATTRIBUTES
+************************************************************************
+#BUNDLE-REPORT := EOMBRM-I-NAME     /* xsetggr 2008-12-20 p(300323) in
+IF EOM-FUNCTION = EOM-READ-NEXT OR = EOM-READHOLD-NEXT
+  ADD 1 TO #BUNDLE-REP-1
+END-IF
+*
+READOBJ. READ BUNDLE-REPORT BY BR-BUNDLE-REPORT = #BUNDLE-REPORT
+  EOMBRM-BUNDLE           := BR-BUNDLE
+  EOMBRM-REPORT           := BR-REPNAME
+  EOMBRM-PRINTER          := BR-PRINTER
+  EOMBRM-GROUP            := BR-GROUP
+  EOMBRM-SEQUENCE-NUMBER  := BR-SEQNO
+  EOMBRM-SEPARATOR-COPIES := BR-SEPNO
+  EOMBRM-REPORT-COPIES    := BR-REPNO
+  EOMBRM-PAGEDEF          := BR-PAGEDEF
+  EOMBRM-FORMDEF          := BR-FORMDEF
+*
+  IF EOM-FUNCTION = EOM-READHOLD OR = EOM-READHOLD-NEXT
+    UPD. GET BUNDLE-REPORT *ISN (READOBJ.)
+    IF BR-BUNDLE NE BR-BUNDLE
+      UPDATE (UPD.)
+    END-IF
+  END-IF
+*
+  ESCAPE BOTTOM
+*
+END-READ
+IF *COUNTER (READOBJ.) = 0
+  EOMMSG-NR         := 0034
+  EOMMSG-TOKEN (1)  := EOMBRM-I-NAME
+  EOMMSG-FIELD-NAME := 'EOMBRM-I-NAME'
+END-IF
+*
+END-SUBROUTINE /* READ-OBJECT-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-OBJECT-ATTRIBUTES
+************************************************************************
+FNDOBJ. FIND BUNDLE-REPORT WITH BR-BUNDLE-REPORT = EOMBRM-I-NAME
+  IF NO RECORDS FOUND
+    WRITE 'norec' /*???? SU
+  END-NOREC
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN EOM-FUNCTION = EOM-MODIFY AND *NUMBER (FNDOBJ.) = 0
+      EOMMSG-NR := 0034
+      ESCAPE BOTTOM (FNDOBJ.)
+    WHEN *NUMBER (FNDOBJ.) NE 0
+      GETMOD.
+      GET BUNDLE-REPORT *ISN (FNDOBJ.)
+      BR-PRINTER  := EOMBRM-PRINTER
+      IF EOMBRM-GROUP = ' '
+        BR-GROUP := BR-BUNDLE-8
+      ELSE
+        BR-GROUP := EOMBRM-GROUP
+      END-IF
+      IF EOMBRM-SEQUENCE-NUMBER = 0
+        BR-SEQNO := 1
+      ELSE
+        BR-SEQNO := EOMBRM-SEQUENCE-NUMBER
+      END-IF
+      BR-SEPNO    := EOMBRM-SEPARATOR-COPIES
+      BR-REPNO    := EOMBRM-REPORT-COPIES
+      BR-PAGEDEF  := EOMBRM-PAGEDEF
+      BR-FORMDEF  := EOMBRM-PAGEDEF
+      UPDATE (GETMOD.)
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+*
+END-FIND
+*
+END-SUBROUTINE /* MODIFY-OBJECT-ATTRIBUTES
+* --------------------------------------- on error ---------------------
+INCLUDE C-EOMERR
+*
+END

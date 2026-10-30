@@ -1,0 +1,300 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RHANMON - Get Monitor Status
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-12-10 s(999999) cleanup, use rmgetstn to get status
+* gw  93-12-28 p(125389) status sometimes blank
+* gw  94-01-05 s(999999) status in English and German
+* gw  94-01-05 s(999999) cleanup
+* jvd 97-10-09 p(163166) Replace Callnat 'OUTDATE' with 'IODATE-N'
+*                        Y2C and use only one date routine for NOM
+* jwo 97-10-15 p(163166) y2k dates
+* jvd 98-06-26 s(164220) NOM141 - NAT23 changes
+* sju 00-03-13 p(191368) NOM211 - multitasking of monitor
+* sju 00-05-17 p(191368) NAT-USER first 5 chars unique, for BS2000
+* fhi 00-09-05 s(191603) In OSD Monitor status not updated
+* fhi 05-06-23 p(266530) Monitor must be NPR Mainframe independent
+* fhi 05-11-15 P272724   End Transaction for Unix Eventing necessary
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* xsetggr 2007-05-02 NOM3201  support 5 byte node numbers
+* xsetggr 2008-08-21 P(304584) updated monitor status for OSD
+* fhi     2009-01-20 P313495   menu 8.6 does not run under Unix
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2016-08-18 NOMALL-1620 Introduce Multinode Feature
+* fhi     2016-11-08 NOMALL-1620 Same.
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-01-26 NOMALL-1961 same
+* fhi     2018-02-07 NOMALL-1918 Adapt for Unix
+* fhi     2018-04-27 NOMALL-1918 Subroutine ASSIGN-STATUS rewritten
+* SU1     2020-04-23 NOMALL-2349 ON ERROR: show full msg
+* SU2     2020-04-23 NOMALL-2349 error handling (NPR)
+* SU3     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU4     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #RHANMONP
+  2 #STATUS          (A24)
+  2 #LAST-TIME       (A8)
+  2 #FORMATED-DATE   (A10)
+  2 G-MONITOR-NODE   (N5)
+  2 G-MONITOR-JOBNAME(A8)
+  2 G-SPOOL-TYPE     (A8)
+  2 REDEFINE G-SPOOL-TYPE
+    3 #SPOOL-TYPE    (A3)
+  2 G-WAIT-MINIMUM   (N4)
+  2 G-WAIT-MAXIMUM   (N4)
+  2 G-WAIT-INCREMENT (N4)
+  2 G-WAIT-FACTOR    (N4)
+  2 G-DATE-FORMAT    (A1)
+  2 G-LANGUAGE       (I1)
+  2 G-NATRP-ERT      (A250)
+  2 G-NATRP-ERC      (N4)
+1 #MONITISN          (P10)
+1 #TASK-NUMBER       (N3)
+1 #UX-NODE           (A16)
+1 #LINE              (N4)
+************************************************************************
+INDEPENDENT
+/*SU3 1 +NOD-LOCAL-ID      (A20)
+1 +NOD-LOCAL-NODE    (N5) /*SU3
+* *****
+/*SU3 LOCAL USING VMONIT-L
+/*SU3 LOCAL USING VMONITUL
+LOCAL USING RMSETSTE
+LOCAL USING VSUBT-L
+LOCAL USING RMTASK-P
+LOCAL
+1 ACTIVE-JOBS VIEW OF ACTIVE-JOBS
+  2 ERROR-CODE
+  2 ERROR-TEXT
+1 MONITOR-SUB-TASK VIEW OF NATURAL-SUB-TASK
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 NAT-STATUS
+/*SU2  2 NAT-PARMS 2 NAT-MODULE 2 NAT-USER 2 NAT-MESSAGE
+1 NRM-MONITOR VIEW OF NRM-MONITOR
+  2 M-NATRPT-DBID-N5   (N5)
+  2 M-NATRPT-FNR-N5    (N5)
+  2 M-XCOM-JOBNAME     (A8)
+  2 M-BATCH-MODULE     (A8)
+  2 M-WAIT-MINIMUM     (P9)
+  2 M-WAIT-MAXIMUM     (N9)
+  2 M-WAIT-INCREMENT   (N3)
+  2 M-WAIT-CURRENT     (P9)
+  2 M-STATUS           (A1)
+  2 M-LAST-ACTIVE      (T)
+*
+1 #DBID                (N5)
+1 #FNR                 (N5)
+1 #MONITOR-STATUS      (A1)
+1 #MONITOR-TIME        (T)
+*
+/* Please take note if you change the NAME of subtask then you
+/* must also make changes to NOMSAT23 and RHANMO  .... JVD
+/* Also please remember that NPR uses SUB-TASK name for
+/* eventing, so if you make a change here NPR must know
+/* about this change, this value is hard coded in NPR ???
+1 #I                   (I4)
+1 #LAST-DATE           (A8)
+1 #ERROR-CODE          (N4)
+1 #ERROR-TEXT          (A250)
+1 #STATUS-CODE         (A1)
+1 #MONITOR-ID          (A20)
+*
+END-DEFINE
+*
+************************************************************************
+* main line
+************************************************************************
+*
+G-MONITOR-NODE := +NOD-LOCAL-NODE /*SU3
+#MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+FINDMON. FIND NRM-MONITOR WITH M-MONITOR-ID = #MONITOR-ID
+  IF #TASK-NUMBER < 2
+    #MONITISN := *ISN(FINDMON.)
+  END-IF
+END-FIND
+RMTASK-P.FUNCTION       := 'S'
+RMTASK-P.SUBTASK-NUMBER := #TASK-NUMBER
+CALLNAT 'RMTASKID' RMTASK-P
+FINDSUB. FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = RMTASK-P.TASK-ID
+  IF #TASK-NUMBER > 1
+    #MONITISN := *ISN(FINDSUB.)
+  END-IF
+END-FIND
+*
+IF *MACHINE-CLASS NE 'MAINFRAME'
+  NRM-MONITOR.M-BATCH-MODULE := 'UNIX'
+END-IF
+IF #TASK-NUMBER LE 1
+  PERFORM MAIN-TASK-INFO
+ELSE
+  PERFORM SUB-TASK-INFO
+END-IF
+PERFORM ASSIGN-STATUS
+*
+DECIDE ON FIRST VALUE OF NRM-MONITOR.M-BATCH-MODULE
+  VALUE 'BATCHJOB'
+    IF #SPOOL-TYPE NE 'BS2'
+* 'FIND ACTIVE-JOBS' does not work on BS2, because monitor
+* runs under TSOS and cannot be seen in online user id.
+      FIND ACTIVE-JOBS WITH NODE = G-MONITOR-NODE                                           /*
+      AND JOB-NAME = G-MONITOR-JOBNAME                                /*
+        IF NO RECORDS FOUND
+          #STATUS-CODE := #EQU-CLOSED
+          PERFORM ASSIGN-STATUS
+        END-NOREC
+        IF ERROR-CODE NE 0
+          G-NATRP-ERC := 0005
+          COMPRESS ERROR-TEXT 'node=' G-MONITOR-NODE
+            'job-name=' G-MONITOR-JOBNAME TO G-NATRP-ERT
+        END-IF
+      END-FIND
+    ELSE
+      CALLNAT 'RMGETSTN' #MONITOR-STATUS #MONITOR-TIME G-MONITOR-NODE
+        M-NATRPT-DBID-N5 M-NATRPT-FNR-N5 #TASK-NUMBER #UX-NODE #LINE
+      END TRANSACTION
+      #STATUS-CODE := #MONITOR-STATUS
+      PERFORM ASSIGN-STATUS
+    END-IF
+  VALUE 'UNIX'
+    CALLNAT 'RMGETSTN' #MONITOR-STATUS #MONITOR-TIME G-MONITOR-NODE
+      M-NATRPT-DBID-N5 M-NATRPT-FNR-N5 #TASK-NUMBER #UX-NODE #LINE
+    END TRANSACTION
+    #STATUS-CODE := #MONITOR-STATUS
+    PERFORM ASSIGN-STATUS
+  NONE
+    RMTASK-P.FUNCTION       := 'T'
+    RMTASK-P.SUBTASK-NUMBER := #TASK-NUMBER
+    CALLNAT 'RMTASKID' RMTASK-P
+    FIND MONITOR-SUB-TASK WITH NODE = G-MONITOR-NODE
+    AND NAT-USER = RMTASK-P.TASK-ID AND FUNCTION = 'STATUS'           /*
+    AND NAT-MODULE  = NRM-MONITOR.M-BATCH-MODULE                      /*
+      IF ERROR-CODE > 0
+        G-NATRP-ERT := ERROR-TEXT
+        G-NATRP-ERC := 0005
+        #STATUS-CODE := #EQU-NOTACTIVE
+        PERFORM ASSIGN-STATUS
+        ESCAPE BOTTOM
+      END-IF
+      DECIDE ON FIRST VALUE OF NAT-STATUS
+        VALUE 'ACTIVE'
+          IGNORE
+        VALUE 'ABEND'
+          #STATUS-CODE := #EQU-ABENDED
+          PERFORM ASSIGN-STATUS
+        VALUE 'CLOSED'
+          #STATUS-CODE := #EQU-CLOSED
+          PERFORM ASSIGN-STATUS
+        NONE VALUE
+          #STATUS-CODE := #EQU-NOTACTIVE
+          PERFORM ASSIGN-STATUS
+      END-DECIDE
+    END-FIND
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE MAIN-TASK-INFO
+************************************************************************
+#STATUS-CODE := NRM-MONITOR.M-STATUS
+MOVE EDITED M-LAST-ACTIVE(EM=HH':'II':'SS) TO #LAST-TIME
+MOVE EDITED M-LAST-ACTIVE(EM=YYYYMMDD) TO #LAST-DATE
+CALLNAT 'IODATE-N' 'M' 'L' #LAST-DATE #FORMATED-DATE G-DATE-FORMAT
+  #ERROR-CODE #ERROR-TEXT
+CALLNAT 'RMGETSTN' #MONITOR-STATUS #MONITOR-TIME G-MONITOR-NODE
+  M-NATRPT-DBID-N5 M-NATRPT-FNR-N5 #TASK-NUMBER #UX-NODE #LINE
+END TRANSACTION
+IF #MONITOR-STATUS NE ' '
+  #STATUS-CODE := #MONITOR-STATUS
+  M-LAST-ACTIVE := #MONITOR-TIME
+END-IF
+*
+MOVE EDITED M-LAST-ACTIVE(EM=HH':'II':'SS) TO #LAST-TIME
+MOVE EDITED M-LAST-ACTIVE(EM=YYYYMMDD) TO #LAST-DATE
+CALLNAT 'IODATE-N' 'M' 'L' #LAST-DATE #FORMATED-DATE G-DATE-FORMAT
+  #ERROR-CODE #ERROR-TEXT
+*
+/*SU3 IF *MACHINE-CLASS = 'MAINFRAME' /* NOMALL-1918 fhi in
+/*SU3 FNDUPD. FIND NODE-SPOOL-DATA WITH M-MONITOR-ID = +NOD-LOCAL-ID
+/*SU3    G-MONITOR-NODE   := NODE-SPOOL-DATA.M-MONITOR-NODE
+/*SU3  END-FIND
+/*SU3 ELSE
+/*SU3   G-MONITOR-NODE   := 0
+/*SU3 END-IF
+G-WAIT-MINIMUM    := M-WAIT-MINIMUM
+G-WAIT-MAXIMUM    := M-WAIT-MAXIMUM
+G-WAIT-INCREMENT  := M-WAIT-INCREMENT
+G-WAIT-FACTOR     := M-WAIT-CURRENT
+G-MONITOR-JOBNAME := M-XCOM-JOBNAME
+#DBID             := M-NATRPT-DBID-N5
+#FNR              := M-NATRPT-FNR-N5
+*
+END-SUBROUTINE /* MAIN-TASK-INFO
+*
+************************************************************************
+DEFINE SUBROUTINE SUB-TASK-INFO
+************************************************************************
+#STATUS-CODE := ST-STATUS
+MOVE EDITED ST-LAST-ACTIVE(EM=HH':'II':'SS) TO #LAST-TIME
+MOVE EDITED ST-LAST-ACTIVE(EM=YYYYMMDD) TO #LAST-DATE
+CALLNAT 'IODATE-N' 'M' 'L' #LAST-DATE #FORMATED-DATE G-DATE-FORMAT
+  #ERROR-CODE #ERROR-TEXT
+CALLNAT 'RMGETSTN' #MONITOR-STATUS #MONITOR-TIME G-MONITOR-NODE
+  M-NATRPT-DBID-N5 M-NATRPT-FNR-N5 #TASK-NUMBER #UX-NODE #LINE
+END TRANSACTION
+*
+IF #MONITOR-STATUS NE ' '
+  #STATUS-CODE := #MONITOR-STATUS
+  ST-LAST-ACTIVE := #MONITOR-TIME
+END-IF
+MOVE EDITED ST-LAST-ACTIVE(EM=HH':'II':'SS) TO #LAST-TIME
+MOVE EDITED ST-LAST-ACTIVE(EM=YYYYMMDD) TO #LAST-DATE
+CALLNAT 'IODATE-N' 'M' 'L' #LAST-DATE #FORMATED-DATE G-DATE-FORMAT
+  #ERROR-CODE #ERROR-TEXT
+/* Get local monitor node number
+/*SU3 -> FNDUPD2. READ(1) NODE-SPOOL-DATA BY M-TYPE-ID = 'MR-'
+/*  IF NODE-SPOOL-DATA.M-TYPE NE 'M'
+/*  OR NODE-SPOOL-DATA.M-MONITOR-ID NE MASK('R-')
+/*    G-MONITOR-NODE := M-MONITOR-NODE
+/*    ESCAPE BOTTOM (FNDUPD2.)
+/*  END-IF
+/*  G-MONITOR-NODE := NODE-SPOOL-DATA.M-MONITOR-NODE
+/*SU3 <- END-READ
+G-WAIT-MINIMUM    := ST-WAIT-MINIMUM
+G-WAIT-MAXIMUM    := ST-WAIT-MAXIMUM
+G-WAIT-INCREMENT  := ST-WAIT-INCREMENT
+G-WAIT-FACTOR     := ST-WAIT-CURRENT
+G-MONITOR-JOBNAME := M-XCOM-JOBNAME
+#DBID             := M-NATRPT-DBID-N5
+#FNR              := M-NATRPT-FNR-N5
+*
+END-SUBROUTINE /* SUB-TASK-INFO
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-STATUS
+************************************************************************
+IF #STATUS-CODE = 'D'
+  #I := 1
+ELSE
+  EXAMINE #EQU-STATUS-V (*) FOR #STATUS-CODE GIVING INDEX #I
+END-IF
+IF #I NE 0
+  IF G-LANGUAGE = 2
+    COMPRESS '<' #EQ2-STATUS-V (#I) '>' TO #STATUS LEAVING NO
+  ELSE
+    COMPRESS '<' #EQN-STATUS-V (#I) '>' TO #STATUS LEAVING NO
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* ASSIGN-STATUS
+*
+END

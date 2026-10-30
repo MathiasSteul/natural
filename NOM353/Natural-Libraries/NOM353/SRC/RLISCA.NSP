@@ -1,0 +1,304 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RLISCA    LIST CALENDARS
+*
+* MAINTENANCE:
+* GW  91-02-18  CALL LINE COMMAND HELP FOR '*'
+* MRS F(191) 91-05-22 NO 'ENDING AT' WE READ ALWAYS UNTIL END OF DATA
+* MRS F(204) 91-05-22 READ SPECIFICATION FROM NATURAL STACK
+* mrs s(124697) refresh list after add calendar; return to radmin
+* mrs 91-12-29 s(141159) support languages other than english
+* gw  98-03-13 s(278970) save search values in independent variables
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* sju     2003-03-04 QE        year selection
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* fhi     2010-03-05 P307403 Don't use text and binary reports mixed
+* xsetggr 2010-03-16 P307403 restow - RPFKEX-C is changed back
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-11-22 NOMALL-1075 evaluate G-CONFIRM
+* SU1     2016-08-09 NOM 3.5: remove unused code
+* SU2     2022-03-03 NOMALL-2536 restruct
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  NRM-GL
+*
+INDEPENDENT
+1 +G-RLISCA-SEL-CAL       (A8)
+* *****
+LOCAL  USING  RLC----L
+LOCAL  USING  RPFK---L
+LOCAL  USING  ROT----L
+LOCAL  USING  VCALEN-L
+LOCAL
+1 #NOFLINES               (P2) INIT <15>
+1 #NOFPAGES               (P3) INIT <100>
+1 #END-OF-DATA            (L)
+1 #CP                     (P3)
+1 #MAXP                   (P3)
+1 #MAXAP                  (P3)
+1 #BROWSE-FLAGS
+  2 #NEWVAL               (L)
+  2 #BACKWARD             (L)
+  2 #FORWARD              (L)
+  2 #TOP                  (L)
+  2 #BOT                  (L)
+  2 #SCROLL-AMOUNT        (N3)
+1 DISPLAY-IT              (L)
+1 GET-SCREEN              (L)
+1 #START-KEY              (A12)
+1 #RSTART                 (A12)
+1 #REND                   (A12)
+1 REDEFINE    #REND
+  2 #RE-USER              (A8)
+  2 #RE-YEAR              (N4)
+1 #LAST-KEY               (A12)
+1 #TOPKEY                 (A12)
+1 #PAGES                  (A12/100)
+1 #S-CAL                  (A25)
+1 #S-CAL-F                (A25)
+1 #S-CAL-T                (A25)
+1 #LEN                    (N3) INIT <8>
+1 L-SCREEN                (15)
+  2 L-IDENT               (I2)
+  2 L-OPTION              (A1/6)
+  2 L-ID                  (A12)
+  2 REDEFINE    L-ID
+    3 L-CALENDAR          (A8)
+    3 L-YEAR              (N4)
+  2 L-ISN                 (P10)
+*
+1 L-LCMD                  (15) /* LINE COMMANDS
+  2 L-MARK                (A2)
+  2 CV-MARK               (C)
+1 L-HEADER                (A78)
+1 I                       (N5)
+1 #CONFIRM-TEXT           (A32)
+1 LOWER-CASE              (L) CONST <FALSE>
+1 #CONFIRMED              (L)
+1 #ALLOWED                (L)
+1 #UPDATE                 (L)
+1 #DELETE                 (L)
+1 #FATHER-PROG            (A8) INIT <'RADMIN'>
+1 CV-SELECTION            (C/1)
+1 REDEFINE    CV-SELECTION
+  2 CV-SCAL               (C)
+1 CV-LINES                (C)
+1 #ADD-PROGRAM            (A8)
+1 #ACT-MAST               (A8)
+1 F                       (P2)
+1 #LANGUAGE               (I1)
+1 #SEL-YEAR               (N4)
+1 REDEFINE #SEL-YEAR
+  2 #SEL-YEAR-A           (A4)
+1 #CV-YEAR                (C) INIT <(CD=RE)>
+1 #OBJ                    (A50)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#ADD-PROGRAM := 'RDEFCA'
+INCLUDE CVIDEO
+*
+RESET G-COMMIT
+CALLNAT 'NARPSEC' G-USER-PROFILE 'DCA' #ALLOWED
+INCLUDE C-NALLOW
+*
+CALLNAT 'NARPSEC' G-USER-PROFILE 'MCA' #UPDATE
+CALLNAT 'NARPSEC' G-USER-PROFILE 'PCA' #DELETE
+*
+IF *DATA > 0
+  INPUT #S-CAL
+END-IF
+IF #S-CAL = ' '
+  #S-CAL := +G-RLISCA-SEL-CAL
+ELSE
+  +G-RLISCA-SEL-CAL := #S-CAL
+END-IF
+PERFORM INIT-CAL-KEYS
+*
+#NEWVAL := TRUE
+MAIN-LOOP. REPEAT
+  PERFORM GET-SCREEN
+  RESET GET-SCREEN
+  INCLUDE C-TOPBOT
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RLISCAM&'
+  IF #LANGUAGE NE *LANGUAGE
+    #LANGUAGE := *LANGUAGE
+    CALLNAT 'ROTINI-N' ##EQO-CALENDAR G-OBJ-TYPE G-OTB
+    PERFORM INIT-PFKEYS
+    PERFORM INIT-LINECOM
+  END-IF
+  PERFORM SET-PFKEYS
+  INCLUDE RMVHLP-C
+  CALLNAT 'RFLIPG-N' G-LC G-LINECOM (*)
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'WB'
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+    USING MAP 'RLISCAM&'
+  RESET G-NATRP-ERC G-NATRP-ERT
+  INCLUDE RPFKVA-C
+  RESET #BROWSE-FLAGS
+  INCLUDE C-DIRECT
+  INCLUDE C-LOCCMD
+*
+  IF G-PF-FUNC =  ##PFK-ADD
+    G-C-FUNC := 'A'
+    FETCH RETURN 'RDEFCA' G-C-FUNC 'A' 0
+    GET-SCREEN := TRUE
+    ESCAPE TOP
+  END-IF
+  INCLUDE RPFKEX-C
+  PERFORM LINE-COMMANDS
+*
+  IF CV-SELECTION(*) MODIFIED OR #CV-YEAR MODIFIED
+    +G-RLISCA-SEL-CAL := #S-CAL
+    PERFORM INIT-CAL-KEYS
+    #NEWVAL := TRUE
+  END-IF
+*
+END-REPEAT
+*******************
+RESET G-NATRP-ERT G-NATRP-ERC
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SCREEN
+************************************************************************
+RESET L-MARK(*) G-NATRP-ERT
+INCLUDE C-BROWSE
+*
+RESET I L-SCREEN(*) #END-OF-DATA
+CV-MARK(*) := (AD=P)
+*
+READ-LOOP. READ CALENDARS BY CA-CALENDAR-ID = #RSTART ENDING AT #REND
+  AT START OF DATA
+    #PAGES(#CP) := #TOPKEY := CA-CALENDAR-ID
+  END-START
+*
+  IF #SEL-YEAR NE 0 AND CA-YEAR NE #SEL-YEAR
+    ESCAPE TOP
+  END-IF
+  DISPLAY-IT := TRUE
+  REJECT IF NOT DISPLAY-IT
+  ADD 1 TO I
+  IF I > #NOFLINES
+    #LAST-KEY := CA-CALENDAR-ID
+    ESCAPE ROUTINE
+  END-IF
+  IF I = 1
+    #PAGES(#CP) := CA-CALENDAR-ID
+  END-IF
+  RESET CV-MARK(I)
+  #LAST-KEY := L-ID(I) := CA-CALENDAR-ID
+  L-ISN(I) := *ISN(READ-LOOP.)
+  RESET CV-MARK(I)
+*
+END-READ
+#END-OF-DATA := TRUE
+#MAXP := #CP
+*
+END-SUBROUTINE /* GET-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE LINE-COMMANDS
+************************************************************************
+IF L-MARK(*) = '.'
+  INCLUDE C-ESCAPE
+END-IF
+RESET L-IDENT (*)
+INCLUDE RLCMTI-C
+* --- VALIDATE LINE COMMANDS
+FOR I 1 TO #NOFLINES
+  IF L-IDENT (I) = ##EQU-DELETE AND NOT #DELETE
+    REINPUT *0020 MARK *L-MARK(I) ALARM
+  END-IF
+END-FOR
+* --- DELETE LINE COMMANDS
+FOR I 1 TO #NOFLINES
+  IF L-IDENT(I) = ##EQU-DELETE
+    G-NATRP-ERC := 0017
+/*SU2 MOVE EDITED L-ID(I) (EM=X(8)) TO #CONFIRM-TEXT
+    #CONFIRM-TEXT := L-CALENDAR (I) /*SU2
+    IF G-CONFIRM
+      CALLNAT 'N-CNFRM' #CONFIRM-TEXT 'C' G-DISPLAY-LONG-NAMES
+        #CONFIRMED G-NATRP-ERT LOWER-CASE
+    END-IF
+    IF #CONFIRMED
+        OR NOT G-CONFIRM
+      GET CALENDARS L-ISN(I)
+      DELETE RECORD
+      #OBJ := CA-CALENDAR-ID
+      PERFORM RMLOGDEL #OBJ 'CALENDAR'
+      GET-SCREEN := TRUE
+      G-NATRP-ERC := 0018
+      END TRANSACTION
+    END-IF
+  END-IF
+END-FOR
+* --- OTHER LINE COMMANDS
+FOR I 1 TO #NOFLINES
+  DECIDE ON EVERY VALUE OF L-IDENT (I)
+    VALUE ##EQU-COPY
+      PERFORM COMMIT-WORK
+      GET-SCREEN := TRUE
+    VALUE ##EQU-MODIFY
+      IF NOT #UPDATE
+        G-C-FUNC := 'D'
+      ELSE
+        G-C-FUNC := 'M'
+      END-IF
+      FETCH RETURN 'RDEFCA' G-C-FUNC L-CALENDAR(I) L-YEAR(I)
+      GET-SCREEN := TRUE
+    VALUE ##EQU-DISPLAY
+      G-C-FUNC := 'D'
+      FETCH RETURN 'RDEFCA' G-C-FUNC L-CALENDAR(I) L-YEAR(I)
+    NONE VALUE IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* LINE-COMMANDS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-CAL-KEYS
+************************************************************************
+CALLNAT 'SELALPHA' #S-CAL  #S-CAL-F #S-CAL-T #LEN
+#START-KEY := #S-CAL-F
+#RE-USER   := #S-CAL-T
+#RE-YEAR   := 9999
+*
+END-SUBROUTINE /* INIT-CAL-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-LINECOM
+************************************************************************
+G-LC-IDENT (01) := ##EQU-DISPLAY
+G-LC-IDENT (02) := ##EQU-MODIFY
+G-LC-IDENT (03) := ##EQU-DELETE
+G-LC-NUM        := 3
+CALLNAT 'RLCINI-N' G-OBJ-TYPE G-LC G-LCB
+*
+END-SUBROUTINE /* INIT-LINECOM
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFADD-C
+INCLUDE RPFBRW-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+* *****
+INCLUDE RPFSET-C
+*
+END

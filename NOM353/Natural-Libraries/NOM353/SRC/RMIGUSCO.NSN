@@ -1,0 +1,89 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMIGUSCO - copy reports from source to target environment
+*
+* Maintenance
+* gw  95-10-27 s(232973) add default folder #Inbasket
+* xsetggr 2011-03-08 NOMALL-851 restore copy #inbasket as it was
+* xsetggr 2012-11-15 NOMALL-89  add grants for copied default folder
+* ----------------------------------------------------------------------
+DEFINE DATA
+GLOBAL USING NRM-GL
+PARAMETER
+1 #P-MSG     (N4)
+1 #P-USER    (A8)
+************************************************************************
+LOCAL USING VUSERS-L
+LOCAL USING VTUSER-L
+LOCAL USING VTFOLD-L
+LOCAL USING RTXT---L
+LOCAL USING VTGRAN-L
+LOCAL
+1 #FOLDER-NAME   (A70)
+1 #FO-USER-FO-ID (A10)
+1 REDEFINE #FO-USER-FO-ID
+  2 #FO-USER     (A8)
+  2 #FO-ID       (B2)
+1 #FO-ID-N       (N5)
+1 REDEFINE #FO-ID-N
+  2 #FO-ID-A     (A5)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FNDS. FIND USERS WITH USER-ID = #P-USER
+  IF NO RECORDS FOUND
+    #P-MSG := 4010
+    ESCAPE BOTTOM (FNDS.)
+  END-NOREC
+  FNDT.
+  FIND MIGRATE-USERS WITH USER-ID = #P-USER
+    IF NO RECORDS FOUND
+      ENTER
+    END-NOREC
+    MOVE BY NAME USERS TO MIGRATE-USERS
+    IF *NUMBER (FNDT.) = 0
+      STORE MIGRATE-USERS
+    ELSE
+      UPDATE (FNDT.)
+    END-IF
+  END-FIND
+  PERFORM ADD-FOLDER
+END-FIND
+END OF TRANSACTION
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-FOLDER
+************************************************************************
+CALLNAT 'RLTINI-N' ##TXT-INBASKET #FOLDER-NAME G-TXB
+#FO-USER := USERS.USER-ID
+#FO-ID   := 1
+FNDFO. FIND MIGRATE-FOLDER WITH FO-USER-FO-ID = #FO-USER-FO-ID
+  IF NO RECORDS FOUND
+    FO-USER-ID := USERS.USER-ID
+    FO-ID      := 1
+    FO-NAME    := #FOLDER-NAME
+    STORE MIGRATE-FOLDER
+    #FO-ID-N := MIGRATE-FOLDER.FO-ID
+    COMPRESS MIGRATE-FOLDER.FO-USER-ID #FO-ID-A TO
+      GR-OBJECT-NAME LEAVING NO
+    GR-OBJECT-TYPE := 'F'
+    GR-USERID      := MIGRATE-FOLDER.FO-USER-ID
+    GR-OPTION(*)   := 'Y'
+    STORE MIGRATE-GRANTS
+  END-NOREC
+END-FIND
+*
+END-SUBROUTINE /* ADD-FOLDER
+*
+END

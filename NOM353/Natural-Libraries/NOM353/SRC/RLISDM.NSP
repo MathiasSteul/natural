@@ -1,0 +1,358 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RLISDM
+* FUNCTION : DISPLAY MEMBERS OF A DISTRIBUTION LIST
+*
+* Maintenance
+* F (102)
+* mrs 91-06-04 f(203)    commit logic and delete logic changed
+* mrs 9 -12-27 s(141159) support languages other than english
+* jvd 98-02-11 s(169049) add check in program to stop it from
+*                        abending with NAT1316
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsiszha 2000-08-07 (CE7461) Extend Report and Bundle Names
+* fhi     2002-10-30 fhi101   switch on optimizer compiler
+* xsetggr 2003-08-11 p(240465) err msg 0020 when not allowed delete memb
+* xsetggr 2005-10-26 P(270950) ISN fields must be P10, not P8
+* xsetggr 2012-02-01 NOMALL-1100 write language independant msgs to log
+* xsetggr 2012-04-23 NOMALL-1136 corrections of using grants
+* SU1     2013-07-17 remove empty copy code CSTARTLS
+* SU2     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+************************************************************************
+*
+/*SU2 OPTIONS MCG=(INDX=ON,OVFLW=ON,DIGTCHCK=ON) /*fhi101 inserted
+*
+DEFINE DATA
+GLOBAL USING  NRM-GL
+LOCAL  USING  RLC----L
+LOCAL  USING  RPFK---L
+LOCAL  USING  ROT----L
+LOCAL  USING  VDISTS-L
+LOCAL  USING  VUSERS-L
+LOCAL  USING  RLOG-L
+LOCAL
+1 #FATHER-PROG                         (A8) INIT <'RLISDL'>
+1 #NOFLINES                            (P2) INIT <15>
+*
+1 LISTS VIEW OF  NRM-DISTRIBUTION-LIST
+  2 D-LIST-DESC /*SU1 2 D-LIST-NAME
+1 MEMBER-POS                           (P3)
+1 LIST-MEMBER VIEW  OF  NRM-DISTRIBUTION-LIST
+  2 D-USER-LIST                        (MEMBER-POS)
+*
+1 #MF-LIMIT                            (P3) INIT <191>
+1 #OVER-MF                             (P3)
+1 #HOWMANY                             (P3)
+1 #CONFIRMED                           (L)
+1 LOWER-CASE                           (L) CONST <FALSE>
+1 #OBJECT-NAME                         (A32)
+1 #ISN                                 (P10)
+1 #NODR                                (P3)
+1 CV-LIST                              (C)
+1 L-HEADER                             (A78)
+1 I-CMD                                (N7)
+1 J                                    (N7)
+1 K                                    (N7)
+1 #W                                   (N7)
+1 #LIST                                (A8)
+1 #SCREEN
+  2 L-IDENT                            (I2/1:191)
+  2 L-MARK                             (A2/191)
+  2 CV-MARK                            (C/191)
+  2 L-IS-LIST                          (A1/191)
+  2 L-DESC                             (A50/15)
+*
+1 #MEMBER                              (A8)
+1 #NUM-OF-MEMBERS                      (P3)
+1 #ALLOWED                             (L)
+1 #UPDATE                              (L)
+1 #FUNC                                (A1)
+1 F                                    (P2)
+1 #LANGUAGE                            (I1)
+* xsetggr 2012-04-23 NOMALL-1136 insert lines
+1 #LIST-NAME                           (A25)
+1 #GRANTED                             (L)
+1 #GRANTS                              (A1/6)
+1 #USERID                              (A8)
+1 #MODIFY-LIST                         (L)
+* xsetggr 2012-04-23 NOMALL-1136 end
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET G-COMMIT
+CALLNAT 'NARPSEC' G-USER-PROFILE 'DDL' #ALLOWED
+INCLUDE C-NALLOW
+*
+/*SU1 INCLUDE CSTARTLS
+CALLNAT 'NARPSEC' G-USER-PROFILE 'MDL' #UPDATE
+*
+#FUNC := G-C-FUNC
+#LIST := G-C-LIST
+*
+MAIN-LOOP. REPEAT
+  RESET #SCREEN DISTRIBUTION-LIST
+*
+  FIND-LOOP. FIND DISTRIBUTION-LIST WITH D-LIST-NAME = G-C-LIST
+    IF NO RECORDS FOUND
+      G-NATRP-ERC := 0602
+      INCLUDE C-ESCAPE
+    END-NOREC
+    IF D-LIST-NAME NE D-LIST-NAME
+      UPDATE (FIND-LOOP.)
+    END-IF
+    #ISN := *ISN
+    #SCREEN.CV-MARK (*) := (AD=DP)
+    #NUM-OF-MEMBERS := C*D-USER-LIST
+*
+    DECIDE ON EVERY VALUE OF #FUNC
+      VALUE 'V'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'DDL' #ALLOWED
+        INCLUDE C-NALLOW
+      VALUE 'A','M'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'MDL' #ALLOWED
+        #UPDATE := #ALLOWED
+        INCLUDE C-NALLOW
+      NONE IGNORE
+    END-DECIDE
+*
+    I-CMD := 1
+    SCREEN-LOOP. REPEAT
+      RESET L-DESC(*) L-MARK(*) #OVER-MF #HOWMANY
+      #OVER-MF := I-CMD + #NOFLINES
+      IF #OVER-MF > #MF-LIMIT
+        #HOWMANY := #OVER-MF - #MF-LIMIT
+        SUBTRACT #HOWMANY FROM I-CMD
+        ADD 1 TO I-CMD
+      ELSE
+     /* Added this code to stay on last page after PF8 when on last page
+        IF I-CMD > #NUM-OF-MEMBERS  AND #NUM-OF-MEMBERS > 0
+          SUBTRACT #NOFLINES FROM I-CMD GIVING #HOWMANY
+          I-CMD := #HOWMANY
+        END-IF
+      END-IF
+      IF I-CMD < 1
+        I-CMD := 1
+      END-IF
+      K := I-CMD + #NOFLINES - 1
+      IF K > #NUM-OF-MEMBERS
+        K := #NUM-OF-MEMBERS
+      END-IF
+      G-DIST-LIST := #LIST := D-LIST-NAME
+      #NUM-OF-MEMBERS := C*D-USER-LIST
+      RESET #W
+      FOR J I-CMD TO K
+        ADD 1 TO #W
+        IF #W > #NOFLINES
+          ESCAPE BOTTOM
+        END-IF
+        #MEMBER := D-USER-LIST(J)
+        FIND-IS-LIST.
+        FIND (1) LISTS WITH D-LIST-NAME=#MEMBER
+          IF NO RECORDS FOUND
+            FINDUS1.     FIND (1) USERS WITH USER-ID = #MEMBER
+              COMPRESS LAST-NAME ','  INTO L-DESC(#W)LEAVING NO
+              COMPRESS L-DESC(#W)  FIRST-NAME INTO L-DESC(#W)
+            END-FIND
+            ESCAPE BOTTOM
+          END-NOREC
+          L-IS-LIST(J) := '*'
+          L-DESC(#W) := D-LIST-DESC
+        END-FIND
+        #SCREEN.CV-MARK (J) := (AD=D)
+      END-FOR
+      CV-LIST := (AD=P)
+*
+      #W := I-CMD + #NOFLINES - 1
+      IF I-CMD = 1
+        G-NATRP-ERC := 11
+      END-IF
+      IF #W >=#NUM-OF-MEMBERS
+        IF  I-CMD = 1
+          G-NATRP-ERC := 14
+        ELSE
+          G-NATRP-ERC := 12
+        END-IF
+      ELSE
+        G-NATRP-ERC := 13
+      END-IF
+*
+      CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RLISDMM&'
+      IF #LANGUAGE NE *LANGUAGE
+        CALLNAT 'ROTINI-N' ##EQO-MEMBER G-OBJ-TYPE G-OTB
+        PERFORM INIT-PFKEYS
+        PERFORM INIT-LINECOM
+        #LANGUAGE := *LANGUAGE
+      END-IF
+      CALLNAT 'RFLIPG-N' G-LC G-LINECOM (*)
+      PERFORM SET-PFKEYS
+      INCLUDE RMVHLP-C
+      PERFORM FLIP-DISPLAY
+      SET CONTROL 'WB'
+      RESET G-MAP-MODIFIED
+      SET CONTROL 'M21'
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+        MARK *G-DIRECT-COMMAND
+        USING MAP 'RLISDMM&'
+      INCLUDE RPFKVA-C
+      RESET G-NATRP-ERC G-NATRP-ERT
+      INCLUDE C-DIRECT
+      DECIDE ON FIRST VALUE OF G-PF-FUNC
+        VALUE 'HELP' REINPUT USING HELP
+        VALUE 'ADD'
+          FETCH RETURN 'RADDLM'
+          ESCAPE BOTTOM (FIND-LOOP.)
+        VALUE 'EXIT'
+          INCLUDE C-ESCAPE
+        VALUE 'FLIP'
+          PERFORM FLIP-HANDLE
+        VALUE 'MENU'
+          INCLUDE C-MENU
+        NONE IGNORE
+      END-DECIDE
+*
+      RESET G-MAP-MODIFIED
+      PERFORM LINE-COMMANDS
+*
+      IF G-MAP-MODIFIED
+        ESCAPE BOTTOM (FIND-LOOP.)
+      END-IF
+*
+      DECIDE ON FIRST VALUE OF G-PF-FUNC
+        VALUE 'UP'
+          SUBTRACT #NOFLINES  FROM I-CMD
+        VALUE 'DOWN'
+          ADD #NOFLINES TO I-CMD
+        NONE IGNORE
+      END-DECIDE
+    END-REPEAT
+  END-FIND
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+* ******************************************************************
+DEFINE SUBROUTINE LINE-COMMANDS
+* ******************************************************************
+#W := I-CMD + #NOFLINES
+IF #W > #MF-LIMIT
+  #W := #MF-LIMIT
+END-IF
+FOR K = I-CMD TO #W
+  DECIDE ON FIRST VALUE OF L-MARK(K)
+    VALUE '*'
+      RESET L-MARK(K)
+      IF G-LC-NUM > 0
+        G-LCH-NUM := G-LC-NUM
+        G-LCH-CODE (1:G-LC-NUM) := G-LC-CODE  (1:G-LC-NUM)
+        G-LCH-TEXT (1:G-LC-NUM) := G-LC-TEXT  (1:G-LC-NUM)
+        REINPUT USING HELP MARK *L-MARK (K)
+      END-IF
+    VALUE ' '
+      RESET L-IDENT (K)
+    NONE
+      EXAMINE FULL VALUE OF G-LC-CODE (1:G-LC-NUM)
+        FOR FULL VALUE OF L-MARK (K) GIVING INDEX IN F
+      IF F = 0
+        IF G-LC-NUM > 0
+          G-LCH-NUM := G-LC-NUM
+          G-LCH-CODE (1:G-LC-NUM) := G-LC-CODE  (1:G-LC-NUM)
+          G-LCH-TEXT (1:G-LC-NUM) := G-LC-TEXT  (1:G-LC-NUM)
+          REINPUT USING HELP MARK *L-MARK (K)
+        END-IF
+      ELSE
+        L-IDENT (K) := G-LC-IDENT (F)
+      END-IF
+  END-DECIDE
+END-FOR
+RESET #NODR
+*
+PERFORM READ-LIST-GRANTS          /* xsetggr 2012-04-23 NOMALL-1136 in
+*
+FOR K I-CMD TO #W
+  DECIDE ON FIRST VALUE OF L-IDENT (K)
+    VALUE ##EQU-DELETE
+* xsetggr 2003-08-11 p(240465) insert lines
+      IF NOT #UPDATE
+          OR NOT #MODIFY-LIST       /* xsetggr 2012-04-23 NOMALL-1136 in
+        REINPUT *0020 MARK *L-IDENT(K) ALARM
+      END-IF
+* xsetggr 2003-08-11 p(240465) end
+      IF G-CONFIRM
+        #OBJECT-NAME := #MEMBER := DISTRIBUTION-LIST.D-USER-LIST(K)
+        CALLNAT 'N-CNFRM' #OBJECT-NAME 'U' G-DISPLAY-LONG-NAMES
+          #CONFIRMED G-NATRP-ERT LOWER-CASE
+      END-IF
+      IF #CONFIRMED OR NOT G-CONFIRM
+        MEMBER-POS := K - #NODR
+        GETM. GET LIST-MEMBER #ISN
+        RESET D-USER-LIST (MEMBER-POS.1)
+        UPDATE (GETM.)
+        ADD 1 TO #NODR
+* --- LOG RECORD FOR DELETE
+        IF G-LOG-LIST
+          LG-USERID := G-USERID
+          LG-CODE := 'LM'
+          LG-OBJECT-NAME := G-C-LIST
+*           COMPRESS 'MEMBER<' #MEMBER '>DELETED' INTO LG-MSG
+* xsetggr 2012-02-01 NOMALL-1100 line above out, next line in
+          COMPRESS '2113' #MEMBER G-C-LIST TO LG-MSG
+          CALLNAT 'RLOG' PL-PARMS
+        END-IF
+        END OF TRANSACTION
+        G-MAP-MODIFIED := TRUE
+        CV-MARK(K) := (AD=P)
+      END-IF
+    NONE IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* LINE-COMMANDS
+* xsetggr 2012-04-23 NOMALL-1136 insert next lines
+* ******************************************************************
+DEFINE SUBROUTINE READ-LIST-GRANTS
+* ******************************************************************
+RESET #GRANTED #GRANTS(*) #MODIFY-LIST
+IF G-USER-TYPE = 'A'
+  #MODIFY-LIST := TRUE
+  ESCAPE ROUTINE
+END-IF
+*
+#USERID    := G-USERID
+#LIST-NAME := G-C-LIST
+CALLNAT 'RGRANT-N' #USERID 'L' #LIST-NAME #GRANTED #GRANTS(*)
+IF #GRANTED AND (#GRANTS(1) = 'Y' OR #GRANTS(3) = 'Y')
+  #MODIFY-LIST := TRUE
+END-IF
+*
+END-SUBROUTINE /* READ-LIST-GRANTS /* xsetggr 2012-04-23 NOMALL-1136 end
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-LINECOM
+************************************************************************
+G-LC-IDENT (01) := ##EQU-DELETE
+G-LC-NUM        := 1
+CALLNAT 'RLCINI-N' G-OBJ-TYPE G-LC G-LCB
+*
+END-SUBROUTINE /* INIT-LINECOM
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFADD-C
+INCLUDE RPFBRW-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+INCLUDE RPFSET-C
+*
+END

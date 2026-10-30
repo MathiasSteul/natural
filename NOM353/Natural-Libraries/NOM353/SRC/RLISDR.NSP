@@ -1,0 +1,680 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RLISDR    List reports in archive data set
+*
+* MAINTENANCE:
+* mrs 91-10-15   display expiration date of a achrived report
+* mrs 91-10-17   modify expiration date implemented
+* mrs 91-10-18   refresh archive dataset expiration-date
+* mrs 92-01-03   s(141159) support languages other than english
+* mrs 92-02-04   revive -> store mail record only if no record for
+*                g-userid exist
+* mrs 92-02-04   revive -> window size changed
+* mrs 92-04-22   s(148575) set confirm on/off implemented
+* gw  96-10-15 s(231722) TOP doesn't go top
+* gw  98-03-13 s(278970) save search values in independent variables
+* wcd   00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* fhi     2000-08-14 QA01 Could not be cataloged, #REPORT not defined.
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* sju     2000-10-26 p(191368) allow bundle name on revive
+* sju     2002-11-13 p(231843) mail wrong if run number wraps round
+* HH      2004-08-25 FORMATTING T CHANGED;
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* xsetggr 2007-05-04 NOM3201   Support P11 format run numbers
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* splildav 2009-03-29 P304322  For Unix, assume 'revive to DB'          ONTENTS
+* fhi     2010-03-05 P307403 Don't use text and binary reports mixed
+* xsetggr 2010-03-16 P307403 restow - RPFKEX-C is changed back
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* SU1     2013-07-17 remove empty copy code CSTARTLS
+* raya    2013-09-08 NOMALL-1278 get report creation date for mails
+* SU2     2014-07-21 NOMALL-1279 fill fields for Adabas Vista
+* SU3     2014-11-05 NOMALL-1450 fill fields for Adabas Vista
+* SU4     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU5     2016-01-19 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-02-08 NOMALL-1822 Fill MA-CURRENT-LOCATION field
+* BLI     2016-02-26 NOMALL-1829 Check flags A R L
+* fhi     2016-04-23 NOMALL-1838 Prevent maintenance if AR deleted
+* SU6     2018-02-01 NOMALL-1823 NOM 3.5: remove CONNECT
+* BLI1    2022-08-01 NOMALL-2548 Revive: check calendar
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  NRM-GL
+INDEPENDENT
+1 +G-RLISDR-SEL-REPORT            (A25)
+* *****
+LOCAL USING RLC----L
+LOCAL USING RPFK---L
+LOCAL USING ROT----L
+LOCAL USING VDSNRP-L
+LOCAL USING VMAILR-L
+LOCAL USING SUPER-L
+LOCAL USING CONST-L
+*
+LOCAL
+1 ARCHIVE-DATASET VIEW OF NRM-ARCHIVE-DATASET
+  2 AD-ARCHIVE-DSNAME
+  2 AD-EXPIRATION-DATE
+1 BUNDLE-CONTENTS VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-BUNDRNB
+1 ACTIVE-REPORTS VIEW NRM-ACTIVE-REPORTS
+  2 AR-REVIVE
+  2 AR-REVIVE-RETENTION-PERIOD     /* BLI1 in
+  2 REDEFINE AR-REVIVE-RETENTION-PERIOD
+    3 AR-REV-NUMBER      (N3)
+    3 AR-REV-FACTOR      (A1)
+    3 AR-REV-CALENDAR    (A8)
+  2 AR-REPNAME
+  2 AR-STORE-NATRPT
+  2 AR-PROCESS-TIME
+  2 AR-PROCESS-TIME-INV
+  2 AR-CURRENT-LOCATION
+  2 AR-ARCHIVE                    /* NOMALL-1829 BLI in
+* *****
+1 #DSNAME                            (A44)
+1 #NOFLINES                          (P2) CONST <14>
+1 #NOFPAGES                          (P2) CONST <30>
+1 #END-OF-DATA                       (L)
+1 #REPORT                            (A25)
+1 REDEFINE #REPORT
+  2 #REPORT-4                        (A4)
+  2 #REPORT-17                       (A17)
+1 #CP                                (P3)
+1 #MAXP                              (P3)
+1 #MAXAP                             (P3)
+1 #NEWVAL                            (L)
+1 #BACKWARD                          (L)
+1 #FORWARD                           (L)
+1 #TOP                               (L)
+1 #BOT                               (L)
+1 GET-SCREEN                         (L)
+1 #DR-DSNAME-REP-RNB                 (A75)
+1 REDEFINE    #DR-DSNAME-REP-RNB
+  2 #DR-DSNAME                       (A44)
+  2 #DR-REPNAME                      (A25)
+  2 #DR-REPRNB                       (P11)
+1 #E-DSNAME-REP-RNB                  (A75)
+1 REDEFINE    #E-DSNAME-REP-RNB
+  2 #E-DSNAME                        (A44)
+  2 #E-REPNAME                       (A17)
+  2 #E-REPRNB                        (P11)
+1 #S-DSNAME-REP-RNB                  (A75)
+1 REDEFINE    #S-DSNAME-REP-RNB
+  2 #S-DSNAME                        (A44)
+  2 #S-REPNAME                       (A17)
+  2 #S-REPRNB                        (P11)
+1 #RSTART                            (A75)
+1 #LAST-KEY                          (A75)
+1 #PAGES                             (A75/#NOFPAGES)
+1 #S-REPORT                          (A25)
+1 #F-REPORT                          (A25)
+1 #T-REPORT                          (A25)
+1 #FATHER-PROG                       (A8) INIT <'RLISAD'>
+1 L-SCREEN                           (#NOFLINES)
+  2 L-NAME                           (A25)
+  2 L-RNB                            (P11)
+  2 L-STATUS                         (A1)
+  2 L-EXPIRATION-DATE                (A10)
+  2 L-EXPIRATION-DATE-ORIG           (A10)
+  2 L-ISN                            (P10)
+  2 CV-STATUS                        (C)
+1 L-LCMD                             (#NOFLINES) /* LINE COMMANDS
+  2 L-MARK                           (A2)
+  2 L-IDENT                          (I2)
+  2 CV-MARK                          (C)
+1 L-HEADER                           (A78)
+1 #CONFIRMED                         (L)
+1 #ALLOWED                           (L)
+1 #UPDATE                            (L)
+1 CV-SELECTION                       (C/1)
+1 REDEFINE    CV-SELECTION
+  2 CV-REPORT                        (C)
+1 I                                  (N5)
+1 CV-LINES                           (C)
+1 #SCROLL-AMOUNT                     (N3)
+1 #LEN                               (N3)
+1 #LOCATION                          (A1)
+1 #MODIFIED-EXPIRATION-DATE          (A8)
+1 #MODIFIED-DATE-FORMATTED           (A10)
+1 #ACT-DATE                          (D)
+1 #MIN-DATE                          (A8)
+1 SI                                 (N7)
+1 #AD-ISN                            (P10)
+1 EXPIRATION-MODIFIED                (L)
+1 #ADD-PROGRAM                       (A8)
+1 #ACT-MAST                          (A8)
+1 F                                  (P2)
+1 #LANGUAGE                          (I1)
+1 LOWER-CASE                         (L) CONST <FALSE>
+1 #OBJECT-NAME                       (A32)
+1 #REP-RNB                           (A39)
+1 #MA-RNB-USER                       (A14)
+1 REDEFINE    #MA-RNB-USER
+  2 #MA-RNB                          (P11)
+  2 #MA-USER                         (A8)
+1 #TIMX                              (T)
+1 #TIMP                              (P13)
+1 #OLD-FATHER-PROG                   (A8)
+1 #BC-REPORT-RNB                     (A31)
+1 REDEFINE #BC-REPORT-RNB
+  2 #BC-REPNAME                      (A25)
+  2 #BC-REPRNB                       (P11)
+1 #M-BUNDLE                          (A25)
+1 REDEFINE #M-BUNDLE
+  2 #M-BUNDLE-8                      (A8)
+  2 #M-BUNDLE-R                      (A17)
+1 #MA-REP-RNB                        (A31)
+1 REDEFINE #MA-REP-RNB
+  2 #MA-REP                          (A25)
+  2 #MA-REPRNB                       (P11)
+1 #OBJ                               (A50)
+1 #RETAIN                            (A32)
+1 #AR-FOUND                          (L)
+1 #EXIST                             (L)   /* BLI1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+COMPRESS *PROGRAM '-' *PID TO
+  #RETAIN LEAVING NO
+CALLNAT 'NARPSEC' G-USER-PROFILE 'AAD' #ALLOWED
+INCLUDE C-NALLOW
+*
+IF *DATA > 0
+  INPUT #DSNAME #AD-ISN
+END-IF
+GETAD. GET ARCHIVE-DATASET #AD-ISN
+INCLUDE CVIDEO
+*
+RESET G-COMMIT
+G-C-OBJTYPE:='ARCHIVE'
+* ---
+#S-REPORT := +G-RLISDR-SEL-REPORT
+#NEWVAL := TRUE
+*
+MAIN-LOOP. REPEAT
+  RESET EXPIRATION-MODIFIED
+  PERFORM GET-SCREEN
+  RESET GET-SCREEN
+*
+  INCLUDE C-TOPBOT
+*
+  IF #LANGUAGE NE *LANGUAGE
+    #LANGUAGE := *LANGUAGE
+    CALLNAT 'ROTINI-N' ##EQO-ARCHIVED-REPORT G-OBJ-TYPE G-OTB
+    PERFORM INIT-PFKEYS
+    PERFORM INIT-LINECOM
+  END-IF
+  PERFORM SET-PFKEYS
+  INCLUDE RMVHLP-C
+  CALLNAT 'RFLIPG-N' G-LC G-LINECOM (*)
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RLISADM&'
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'WB'
+  IF G-DISPLAY-LONG-NAMES
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RLISDRL&'
+  ELSE
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RLISDRM&'
+  END-IF
+  RESET G-NATRP-ERC G-NATRP-ERT
+  INCLUDE RPFKVA-C
+  INCLUDE C-DIRECT
+  RESET #FORWARD #BACKWARD #NEWVAL G-NATRP-ERT G-NATRP-ERC
+  RESET #TOP #BOT #SCROLL-AMOUNT
+  INCLUDE C-LOCCMD
+  INCLUDE RPFKEX-C
+  IF G-PF-FUNC = 'EXT'
+    IF G-DISPLAY-LONG-NAMES
+      G-DISPLAY-LONG-NAMES := FALSE
+    ELSE
+      G-DISPLAY-LONG-NAMES := TRUE
+    END-IF
+  END-IF
+  PERFORM LINE-COMMANDS
+  IF EXPIRATION-MODIFIED
+    PERFORM UPDATE-DATASET-EXPIRATION
+  END-IF
+*
+  IF CV-SELECTION(*) MODIFIED
+    +G-RLISDR-SEL-REPORT := #S-REPORT
+    #NEWVAL := TRUE
+  END-IF
+*
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SCREEN
+************************************************************************
+IF G-DIRECT-COMMAND = 'TOP'
+  #TOP := TRUE
+END-IF
+RESET L-MARK(*)
+DECIDE FOR EVERY  CONDITION
+  WHEN #NEWVAL OR #TOP
+    RESET #PAGES(*) #MAXP #MAXAP
+    PERFORM INIT-SELECTION-KEYS
+    #PAGES(1) := #S-DSNAME-REP-RNB
+    #CP := #MAXAP := 1
+  WHEN #BOT
+    #CP := #MAXAP
+*
+  WHEN #FORWARD
+    IF #END-OF-DATA
+      ESCAPE ROUTINE
+    END-IF
+    IF #CP = #NOFPAGES
+      #PAGES(1 : #NOFPAGES - 1) := #PAGES(2 : #NOFPAGES)
+      RESET #PAGES(#CP)
+      #PAGES(#CP) := #LAST-KEY
+    ELSE
+      IF #SCROLL-AMOUNT < 1
+        #SCROLL-AMOUNT := 1
+      END-IF
+      IF #CP + #SCROLL-AMOUNT <= #MAXAP
+        #CP := #CP + #SCROLL-AMOUNT
+      ELSE
+        IF #SCROLL-AMOUNT > 1
+          #CP := #MAXAP
+        ELSE
+          ADD 1 TO #CP
+        END-IF
+      END-IF
+      IF #CP > #MAXAP
+        #PAGES(#CP) := #LAST-KEY
+      END-IF
+    END-IF
+  WHEN #BACKWARD
+    IF #CP < 2
+      IGNORE
+    ELSE
+      IF #SCROLL-AMOUNT < 1
+        #SCROLL-AMOUNT := 1
+      END-IF
+      SUBTRACT #SCROLL-AMOUNT FROM #CP
+      IF #CP < 1
+        #CP := 1
+      END-IF
+    END-IF
+  WHEN GET-SCREEN IGNORE
+  WHEN NONE ESCAPE ROUTINE
+END-DECIDE
+*
+IF #CP >= #MAXAP
+  #MAXAP := #CP
+END-IF
+*
+#RSTART := #PAGES(#CP)
+*
+RESET I L-SCREEN(*) #END-OF-DATA
+CV-MARK(*) := (AD=P)
+*
+READ-LOOP.
+READ DATASET-REPORT BY DR-DSNAME-REPORT-RNB = #RSTART
+  #DR-DSNAME-REP-RNB := DR-ARCHIVE-DSNAME
+  #DR-REPNAME := DR-REPNAME
+  #DR-REPRNB := DR-REPRNB
+  IF #DR-DSNAME-REP-RNB > #E-DSNAME-REP-RNB
+    ESCAPE BOTTOM
+  END-IF
+*
+  ADD 1 TO I
+  IF I > #NOFLINES
+    #DR-DSNAME-REP-RNB := DR-ARCHIVE-DSNAME
+    #DR-REPNAME := DR-REPNAME
+    #DR-REPRNB := DR-REPRNB
+    #LAST-KEY := #DR-DSNAME-REP-RNB
+    ESCAPE ROUTINE
+  END-IF
+  IF I = 1
+    #DR-DSNAME-REP-RNB := DR-ARCHIVE-DSNAME
+    #DR-REPNAME := DR-REPNAME
+    #DR-REPRNB := DR-REPRNB
+    #PAGES (#CP) := #DR-DSNAME-REP-RNB
+  END-IF
+  RESET CV-MARK(I)
+  L-NAME(I) := DR-REPNAME
+  L-STATUS (I) := DR-STATUS
+  L-RNB (I) := DR-REPRNB
+  CALLNAT 'IODATE-N' 'M' 'L' DR-EXPIRATION-DATE L-EXPIRATION-DATE (I)
+    G-DATE-FORMAT G-NATRP-ERC G-NATRP-ERT
+  IF DR-EXPIRATION-DATE-ORIG  NE ' '
+    CALLNAT 'IODATE-N' 'M' 'L' DR-EXPIRATION-DATE-ORIG
+      L-EXPIRATION-DATE-ORIG (I) G-DATE-FORMAT G-NATRP-ERC G-NATRP-ERT
+  END-IF
+  L-ISN(I) := *ISN(READ-LOOP.)
+  RESET CV-MARK(I)
+*
+END-READ
+#END-OF-DATA := TRUE
+#MAXP := #CP
+*
+END-SUBROUTINE /* GET-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE LINE-COMMANDS
+************************************************************************
+RESET L-IDENT (*)
+INCLUDE RLCMTI-C
+FOR I = 1 TO #NOFLINES
+  IF L-ISN(I) NE 0
+    DRCHK. GET DATASET-REPORT L-ISN(I)
+    #AR-REPNAME := DATASET-REPORT.DR-REPNAME
+    #AR-REPRNB := DR-REPRNB
+    FNDARCHK.
+    FIND ACTIVE-REPORTS WITH AR-REPORT-RNB = #AR-REPORT-RNB
+        RETAIN AS #RETAIN
+      IF NO RECORDS FOUND
+        #AR-FOUND := FALSE
+        RELEASE SET #RETAIN
+        ESCAPE BOTTOM (FNDARCHK.)
+      END-NOREC
+      #AR-FOUND := TRUE
+    END-FIND
+  END-IF
+  DECIDE ON FIRST VALUE L-IDENT (I)
+    VALUE ##EQU-REVIVE
+      IF NOT #AR-FOUND
+       REINPUT *0498 ALARM /* function not allowd, report to be deleted.
+      END-IF
+      DR. GET DATASET-REPORT L-ISN(I)
+      RESET DR-STATUS
+      UPDATE(DR.)
+      END TRANSACTION     /* F(028)
+      FIND ACTIVE-REPORTS WITH #RETAIN
+        IF NOT (ACTIVE-REPORTS.AR-REVIVE = ' ' OR = '*')
+          RESET ACTIVE-REPORTS.AR-REVIVE
+          #BC-REPNAME:= #AR-REPNAME
+          #BC-REPRNB:= #AR-REPRNB
+          DELBC. FIND BUNDLE-CONTENTS WITH BC-REPORT-RNB =#BC-REPORT-RNB
+            IF BC-BUNDRNB = 0
+              GET BUNDLE-CONTENTS *ISN(DELBC.)
+              DELETE
+              COMPRESS #AR-REPNAME '/' #AR-REPRNB TO #OBJ LEAVING NO
+              PERFORM RMLOGDEL #OBJ 'ACTIVE-REPORT'
+            END-IF
+          END-FIND
+        ELSE
+          IF ACTIVE-REPORTS.AR-REVIVE EQ '*' /* BLI NOMALL-1829 start
+* Report is already revived
+            G-NATRP-ERC:= 440
+            ESCAPE ROUTINE
+          ELSE
+            IF ACTIVE-REPORTS.AR-ARCHIVE NE '*'
+              IF ACTIVE-REPORTS.AR-ARCHIVE = 'R' OR = 'P' OR = 'I'
+* Report available, revive unnecessary.
+                G-NATRP-ERC := 497
+              ELSE                         /* 'A' OR ' '
+* Report is not on archive - revive not possible.
+                G-NATRP-ERC := 439
+              END-IF
+              ESCAPE ROUTINE
+            END-IF
+          END-IF                             /* BLI NOMALL-1829 end
+          IF ACTIVE-REPORTS.AR-REV-NUMBER > 0 AND  /* BLI1 start
+              ACTIVE-REPORTS.AR-REV-CALENDAR > ' '
+            CALLNAT 'RCHKCA' ACTIVE-REPORTS.AR-REV-CALENDAR #EXIST
+            IF NOT #EXIST
+              G-NATRP-ERC := 2004
+              ESCAPE ROUTINE
+            END-IF
+            ACTIVE-REPORTS.AR-REV-FACTOR := 'W'
+          END-IF                                   /* BLI1 end
+          IF G-DISPLAY-LONG-NAMES
+            #REPORT := AR-REPNAME
+          ELSE
+            RESET #REPORT
+            #REPORT-17 := AR-REPNAME
+          END-IF
+          RESET #M-BUNDLE
+          IF NOT G-DISPLAY-LONG-NAMES
+            #M-BUNDLE-R:= H'FA'
+          END-IF
+          DECIDE FOR FIRST CONDITION
+            WHEN AR-STORE-NATRPT = 'Y' #LOCATION := 'D'
+            WHEN NONE #LOCATION := 'S'
+          END-DECIDE
+          IF *MACHINE-CLASS NE 'MAINFRAME'
+            #LOCATION := 'D' /*revive medium - Only DB is valid
+          ELSE
+            SET CONTROL 'WC15L44B05/30F'
+            SET CONTROL 'MT'
+            RESET G-NATRP-ERC
+            INPUT USING MAP 'RREVRPM&'
+            IF *PF-KEY = 'PF3'
+              SET CONTROL 'WB'
+              SET CONTROL 'M21'
+              BACKOUT TRANSACTION
+              ESCAPE BOTTOM
+            END-IF
+            IF NOT(#LOCATION ='D' OR='S')
+              REINPUT *0007 ALARM
+            END-IF
+          END-IF
+          IF #M-BUNDLE-8 NE ' '
+            IF G-DISPLAY-LONG-NAMES
+              G-C-BUNDLE:= #M-BUNDLE
+            ELSE
+              G-C-BUNDLE:= #M-BUNDLE-8
+            END-IF
+            #OLD-FATHER-PROG:= G-FATHER-PROG
+            G-FATHER-PROG:= 'RREVAR'
+            G-C-REPORT:= #AR-REPNAME
+            G-C-REPRNB:= #AR-REPRNB
+            PERFORM BUNDLE-REPORT
+            G-FATHER-PROG:= #OLD-FATHER-PROG
+            IF G-NATRP-ERC NE 0438 /* ANYTHING OTHER THAN BUNDLED OK
+              REINPUT *G-NATRP-ERC
+            END-IF
+            RESET G-NATRP-ERC
+          END-IF
+*
+          ACTIVE-REPORTS.AR-REVIVE := #LOCATION
+*
+          #MA-RNB := #AR-REPRNB
+          #MA-USER := G-USERID
+          #MA-REP:= #AR-REPNAME
+          #MA-REPRNB:= #AR-REPRNB
+          FIND MAIL-REPORTS WITH MA-RNB-USER = #MA-RNB-USER
+              AND  MA-REP-RNB  = #MA-REP-RNB
+            IF NO RECORDS FOUND
+              ENTER
+            END-NOREC
+            IF *NUMBER > 0
+              ESCAPE BOTTOM
+            END-IF
+*
+            MAIL-REPORTS.MA-REPNAME := DR-REPNAME
+            MAIL-REPORTS.MA-REPRNB := DR-REPRNB
+            #TIMX := *TIMX
+            #TIMP := #TIMX
+            MAIL-REPORTS.MA-INV-TIME := #CONST-INV-TIME - #TIMP
+            MAIL-REPORTS.MA-FO-ID := 1
+            MAIL-REPORTS.MA-USERID := G-USERID
+            MA-PROCESS-TIME     := AR-PROCESS-TIME
+            MA-PROCESS-TIME-INV := AR-PROCESS-TIME-INV
+            IF AR-CURRENT-LOCATION = 'A'
+              MAIL-REPORTS.MA-CURRENT-LOCATION := 'A'
+            ELSE
+              MAIL-REPORTS.MA-CURRENT-LOCATION := 'B'
+            END-IF
+            STORE MAIL-REPORTS
+          END-FIND
+        END-IF
+        UPDATE
+        END TRANSACTION
+      END-FIND
+      RELEASE SET #RETAIN
+      SET CONTROL 'M21'
+    VALUE  ##EQU-DELETE
+      DD. GET DATASET-REPORT L-ISN(I)
+      IF L-STATUS (I) NE 'D'
+        IF G-CONFIRM
+          #OBJECT-NAME := L-NAME (I)
+          CALLNAT 'N-CNFRM' #OBJECT-NAME 'R' G-DISPLAY-LONG-NAMES
+            #CONFIRMED G-NATRP-ERT LOWER-CASE
+        END-IF
+        IF #CONFIRMED OR NOT G-CONFIRM
+          CALLNAT 'RDELDR' L-NAME(I) L-RNB (I)
+          END TRANSACTION
+          GET-SCREEN := TRUE
+          IF DATASET-REPORT.DR-EXPIRATION-DATE =
+              ARCHIVE-DATASET.AD-EXPIRATION-DATE
+            EXPIRATION-MODIFIED := TRUE
+          END-IF
+        END-IF
+      END-IF
+    VALUE  ##EQU-RESET
+      IF NOT #AR-FOUND
+        REINPUT *0498 ALARM /*function not allowd, report to be deleted.
+      END-IF
+      IF L-EXPIRATION-DATE-ORIG (I) NE ' '
+        RD. GET DATASET-REPORT L-ISN(I)
+        RESET  DR-STATUS
+* refresh if old report expiration-date = dataset expiration-date or
+* if new report expiration-date > dataset expiration-date
+        IF DATASET-REPORT.DR-EXPIRATION-DATE =
+            ARCHIVE-DATASET.AD-EXPIRATION-DATE   OR
+            DATASET-REPORT.DR-EXPIRATION-DATE-ORIG >
+            ARCHIVE-DATASET.AD-EXPIRATION-DATE
+          EXPIRATION-MODIFIED := TRUE
+        END-IF
+        DATASET-REPORT.DR-EXPIRATION-DATE :=
+          DATASET-REPORT.DR-EXPIRATION-DATE-ORIG
+        RESET  DATASET-REPORT.DR-EXPIRATION-DATE-ORIG
+        UPDATE(RD.)
+        END TRANSACTION
+        GET-SCREEN := TRUE
+      END-IF
+    VALUE  ##EQU-MODIFY
+      IF NOT #AR-FOUND
+       REINPUT *0498 ALARM /* function not allowd, report to be deleted.
+      END-IF
+      PERFORM MODIFY-EXPIRATION-DATE
+    NONE IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* LINE-COMMANDS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-SELECTION-KEYS
+************************************************************************
+IF G-DISPLAY-LONG-NAMES
+  #LEN := 25
+ELSE
+  #LEN := 17
+END-IF
+CALLNAT 'SELALPHA' #S-REPORT #F-REPORT #T-REPORT #LEN
+#S-REPNAME := #F-REPORT
+#E-REPNAME := #T-REPORT
+#S-REPRNB  := 0000000
+#E-REPRNB  := 99999999999
+#S-DSNAME  := #DSNAME
+#E-DSNAME  := #DSNAME
+*
+END-SUBROUTINE /* INIT-SELECTION-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-EXPIRATION-DATE
+************************************************************************
+#ACT-DATE := *DATX
+MOVE EDITED #ACT-DATE (EM=YYYYMMDD) TO #MIN-DATE
+SI := I
+MD. GET DATASET-REPORT L-ISN(I)
+#MODIFIED-EXPIRATION-DATE := DATASET-REPORT.DR-EXPIRATION-DATE
+COMPRESS L-NAME(I) '/' L-RNB(I) TO #REP-RNB
+SET CONTROL 'WFL60C13B04/20'
+SET CONTROL 'M9'
+CALLNAT 'IODATE-N' 'M' 'L' #MODIFIED-EXPIRATION-DATE
+  #MODIFIED-DATE-FORMATTED G-DATE-FORMAT G-NATRP-ERC G-NATRP-ERT
+INPUT USING MAP 'RLISDRW&'
+RESET G-NATRP-ERC G-NATRP-ERT
+IF *PF-KEY = 'PF3'
+  BACKOUT TRANSACTION
+  SET CONTROL 'WMB'
+  SET CONTROL 'M21'
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'IODATE-N' 'V' 'L' #MODIFIED-EXPIRATION-DATE
+  #MODIFIED-DATE-FORMATTED G-DATE-FORMAT G-NATRP-ERC G-NATRP-ERT
+DECIDE FOR FIRST CONDITION
+  WHEN G-NATRP-ERC NE 0
+    REINPUT *G-NATRP-ERC, G-NATRP-ERT
+  WHEN #MODIFIED-EXPIRATION-DATE < #MIN-DATE
+    REINPUT *0151
+  WHEN #MODIFIED-EXPIRATION-DATE = DATASET-REPORT.DR-EXPIRATION-DATE
+    BACKOUT TRANSACTION
+    SET CONTROL 'WMB'
+    SET CONTROL 'M21'
+    ESCAPE ROUTINE
+  WHEN NONE
+    IGNORE
+END-DECIDE
+RESET  DR-STATUS
+IF DATASET-REPORT.DR-EXPIRATION-DATE-ORIG = ' '
+  DATASET-REPORT.DR-EXPIRATION-DATE-ORIG :=
+    DATASET-REPORT.DR-EXPIRATION-DATE
+END-IF
+* refresh if old report expiration-date = dataset expiration-date or
+* if new report expiration-date > dataset expiration-date
+IF DATASET-REPORT.DR-EXPIRATION-DATE = ARCHIVE-DATASET.AD-EXPIRATION-DATE  OR
+    #MODIFIED-EXPIRATION-DATE > ARCHIVE-DATASET.AD-EXPIRATION-DATE
+  EXPIRATION-MODIFIED := TRUE
+END-IF
+DATASET-REPORT.DR-EXPIRATION-DATE := #MODIFIED-EXPIRATION-DATE
+UPDATE(MD.)
+END TRANSACTION
+GET-SCREEN := TRUE
+SET CONTROL 'WMB'
+SET CONTROL 'M21'
+*
+END-SUBROUTINE /* MODIFY-EXPIRATION-DATE
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-DATASET-EXPIRATION
+************************************************************************
+GETU. GET ARCHIVE-DATASET #AD-ISN
+CALLNAT 'RADEXP-N' AD-ARCHIVE-DSNAME AD-EXPIRATION-DATE
+UPDATE (GETU.)
+END OF TRANSACTION
+*
+END-SUBROUTINE /* UPDATE-DATASET-EXPIRATION
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-LINECOM
+************************************************************************
+G-LC-IDENT (01) := ##EQU-MODIFY
+G-LC-IDENT (02) := ##EQU-DELETE
+G-LC-IDENT (03) := ##EQU-REVIVE
+G-LC-IDENT (04) := ##EQU-RESET
+G-LC-NUM        := 4
+CALLNAT 'RLCINI-N' G-OBJ-TYPE G-LC G-LCB
+CALLNAT 'RFLIPG-N' G-LC G-LINECOM (*)
+*
+END-SUBROUTINE /* INIT-LINECOM
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFBRW-C
+INCLUDE RPFEXT-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+INCLUDE RPFSET-C
+*
+END

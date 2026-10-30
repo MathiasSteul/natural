@@ -1,0 +1,368 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMARRVN - API to mark for reviving selected amount of Active Reports
+* Parameters: in  1. NOM dbid, if necessary to set NOM lfile
+*                 2. NOM fnr, if necessary to set NOM lfile
+*                 3. type B-Active Bunldes, R-Active Reports
+*                 4. Active Report/Bundle name for selection,
+*                    '*' selection allowwed
+*                 5. start rnb for Active Report/Bundle
+*                 6. end rnb for Active Report/Bundle
+*                 7. start archive date for Active Report (no bundles)
+*                 8. end archive date for Active Rreport  (no bundles)
+*            out  9. number of marked Active Reports
+*                10. number of Active Reports not archived/already
+*                    revived
+*                11. return code:
+*                    1 - invalid parameters
+*                    2 - no data found for specified selection criteria
+*                12. error text, if return code > 0
+*                13. Optional: 'D' for revive to DB, 'R' for reset.
+*         if no name & rnbs specified all Active Reports will be marked
+*         for reviving to NOM DB
+*
+* Maintenance:
+* uuu     yyyY-MM-DD S (999999) ...
+* xsetggr 2005-11-21            created
+* xsetggr 2005-11-28            modified
+* xsetggr 2007-09-04 NOM3201    support P11 format run numbers
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2012-04-18 FHI278    Allow reset
+* xsetggr 2012-07-05 NOMALL-1178 corrections
+* xsetggr 2012-07-24 NOMALL-1178 corrections
+* fhi     2013-06-04 OPO-36    Fill field AR-ACTIVE
+* SU1     2014-07-04 NOMALL-1279 fill fields for Adabas Vista
+* SU2     2016-01-15 NOMALL-1802 do not update Adabas Vista fields
+* SU3     2021-03-26 NOMALL-2450 allow revive to spool (P-REVIVE)
+* SU4     2021-05-21 NOMALL-2464 add created date
+***********************************************************************
+DEFINE DATA
+PARAMETER
+1 P-NOM-DBID (N5)   /* in: NOM file dbid
+1 P-NOM-FNR  (N5)   /* in: NOM file fnr
+1 P-TYPE     (A1)   /* in: B-bundle, R-report
+1 P-NAME     (A25)  /* in: report/bundle name
+1 P-RNB-S    (P11)  /* in: start reprnb
+1 P-RNB-E    (P11)  /* in: end reprnb
+1 P-DAT-S    (T)    /* in: start archive date (optional)
+1 P-DAT-E    (T)    /* in: end archive date (optional)
+1 P-MARKED   (P10)  /* out: number of marked for reviving AR
+1 P-ACTIVE   (P10)  /* out: number of AR not archived/already revived
+1 P-RC       (N4)   /* out: error code
+1 P-TXT      (A250)
+1 P-REVIVE   (A1)   OPTIONAL /*in:location: Database/Spool
+1 P-DAT-CR-S (T)    OPTIONAL /*in:start archive date (P-TYPE=R only) SU4
+1 P-DAT-CR-E (T)    OPTIONAL /*in:end archive date (P-TYPE=R only) SU4
+* -------------------------------------------------------------------
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+LOCAL
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPRNB
+  2 AR-REPNAME
+  2 AR-ARCHIVE
+  2 AR-ACTIVE
+  2 AR-ARCHIVE-DATE
+  2 AR-PROCESS-TIME
+  2 AR-REVIVE
+  2 AR-CURRENT-LOCATION
+1 AB VIEW OF NRM-ACTIVE-BUNDLES
+  2 AB-BUNDLE
+  2 AB-BUNDRNB
+1 BC VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-BUNDLE
+  2 BC-BUNDRNB
+  2 BC-REPNAME
+  2 BC-REPRNB
+* *****
+1 #RNB                    (P11)
+1 #RNB-E                  (P11)
+1 #NAME                   (A25)
+1 #BUNDLE-RNB             (A31)
+1 REDEFINE #BUNDLE-RNB
+  2 #BUNDLE               (A25)
+  2 #BUNDRNB              (P11)
+1 #BUNDLE-RNB-E           (A31)
+1 REDEFINE #BUNDLE-RNB-E
+  2 #BUNDLE-E             (A25)
+  2 #BUNDRNB-E            (P11)
+1 #REPNAME-RNB            (A31)
+1 REDEFINE #REPNAME-RNB
+  2 #REPNAME              (A25)
+  2 #REPRNB               (P11)
+1 #REPNAME-RNB-E          (A31)
+1 REDEFINE #REPNAME-RNB-E
+  2 #REPNAME-E            (A25)
+  2 #REPRNB-E             (P11)
+1 #BC-BUNDLE-RNB          (A33)
+1 REDEFINE  #BC-BUNDLE-RNB
+  2 #BC-BUNDLE            (A25)
+  2 #BC-BUNDRNB           (P11)
+  2 #BC-SEQNO             (P3)
+1 #AR-REP-RNB             (A31)
+1 REDEFINE #AR-REP-RNB
+  2 #AR-REPNAME           (A25)
+  2 #AR-REPRNB            (P11)
+1 #OLD-NOM-DBID           (N5)
+1 #OLD-NOM-FNR            (N5)
+1 #P-REVIVE               (A1)
+1 #T-RESET                (T)
+1 #P-DAT-S                (T)
+1 #P-DAT-E                (T)
+1 #P-DAT-CR-S             (T) /*SU4
+1 #P-DAT-CR-E             (T) /*SU4
+1 #RNB-RANGE-SPECIFIED    (L)
+1 #ISN                    (P10)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-RC P-TXT #T-RESET
+IF P-REVIVE SPECIFIED
+  DECIDE ON FIRST VALUE OF P-REVIVE
+    VALUE 'D', 'S' /*Database/Spool SU3
+      IF *MACHINE-CLASS NE 'MAINFRAME' AND P-REVIVE ='S' /*SU3
+        PRINT 'Spool only valid on Mainframe. Stopped.'
+        ESCAPE ROUTINE
+      END-IF
+      #P-REVIVE := P-REVIVE
+    VALUE 'R',' '
+      RESET #P-REVIVE
+    NONE
+      #P-REVIVE := 'D'
+  END-DECIDE
+END-IF
+*
+DECIDE FOR EVERY CONDITION
+  WHEN P-NOM-FNR NE 0 AND P-NOM-DBID NE 0
+    PERFORM GET-NOM-LFILE
+    PERFORM SET-NOM-LFILE
+  WHEN SATLF-ERROR-CODE = 0
+    PERFORM MARK-FOR-REVIVE
+  WHEN SATLF-ERROR-CODE = 0 AND #OLD-NOM-DBID NE 0 AND
+      #OLD-NOM-FNR NE 0
+    PERFORM SET-OLD-NOM-LFILE
+  WHEN NONE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE MARK-FOR-REVIVE
+************************************************************************
+RESET P-MARKED P-ACTIVE
+DECIDE ON FIRST VALUE OF P-TYPE
+  VALUE 'B'
+    PERFORM MARK-BUNDLE-CONTENTS
+  VALUE 'R'
+    PERFORM MARK-ACTIVE-REPORTS
+  NONE VALUE
+    P-RC := 1         /* Invalid parms
+    P-TXT := 'Specify type B or R'
+    ESCAPE ROUTINE
+END-DECIDE
+*
+END-SUBROUTINE /* MARK-FOR-REVIVE
+*
+************************************************************************
+DEFINE SUBROUTINE MARK-BUNDLE-CONTENTS
+************************************************************************
+PERFORM FIND-KEYS
+F1. FIND AB WITH AB-BUNDLE-RNB = #BUNDLE-RNB THRU #BUNDLE-RNB-E
+  IF #RNB-RANGE-SPECIFIED
+    ACCEPT IF AB-BUNDRNB = #RNB THRU #RNB-E
+  END-IF
+  #BC-BUNDLE := AB-BUNDLE
+  #BC-BUNDRNB := AB-BUNDRNB
+  RBC. READ BC WITH BC-BUNDLE-RNB = #BC-BUNDLE-RNB
+    IF BC-BUNDLE NE #BC-BUNDLE AND BC-BUNDRNB NE #BC-BUNDRNB
+      ESCAPE BOTTOM(RBC.)
+    END-IF
+    #AR-REPNAME := BC-REPNAME
+    #AR-REPRNB  := BC-REPRNB
+    FAR. FIND AR WITH AR-REPORT-RNB = #AR-REP-RNB
+      #ISN := *ISN(FAR.)
+      PERFORM UPDATE-RECORD
+    END-FIND
+  END-READ
+END-FIND
+*
+END-SUBROUTINE /* MARK-BUNDLE-CONTENTS
+*
+************************************************************************
+DEFINE SUBROUTINE FIND-KEYS
+************************************************************************
+#NAME := P-NAME
+DECIDE ON FIRST VALUE OF P-TYPE
+  VALUE 'B'
+    DECIDE FOR FIRST CONDITION
+      WHEN #NAME = '*' OR = ' '
+        RESET #BUNDLE
+        #BUNDLE-E := H'FF'
+      WHEN #NAME = SCAN '*'
+        EXAMINE #NAME FOR '*' DELETE
+        #BUNDLE := P-NAME
+        COMPRESS #BUNDLE H'FF' TO #BUNDLE-E LEAVING NO
+      WHEN NONE
+        #BUNDLE := #BUNDLE-E := #NAME
+    END-DECIDE
+    PERFORM CHECK-RNB
+    #BUNDRNB := 0
+    #BUNDRNB-E := 9999999999
+*
+  VALUE 'R'
+    DECIDE FOR FIRST CONDITION
+      WHEN #NAME = '*' OR = ' '
+        RESET #REPNAME
+        #REPNAME-E := H'FF'
+      WHEN #NAME = SCAN '*'
+        EXAMINE #NAME FOR '*' DELETE
+        #REPNAME := #NAME
+        COMPRESS #REPNAME H'FF' TO #REPNAME-E LEAVING NO
+      WHEN NONE
+        #REPNAME := #REPNAME-E := #NAME
+    END-DECIDE
+    PERFORM CHECK-RNB
+    RESET #REPRNB
+    #REPRNB-E := 99999999999
+*
+    IF P-DAT-S = #T-RESET
+      RESET #P-DAT-S
+    ELSE
+      #P-DAT-S := P-DAT-S
+    END-IF
+    IF P-DAT-E = #T-RESET
+      #P-DAT-E := D'2100-12-31'
+    ELSE
+      #P-DAT-E := P-DAT-E
+    END-IF
+* SU4:
+    RESET #P-DAT-CR-S
+    #P-DAT-CR-E := D'2100-12-31'
+    IF P-DAT-CR-S SPECIFIED AND P-DAT-CR-E SPECIFIED
+      IF P-DAT-CR-S NE #T-RESET
+        #P-DAT-CR-S := P-DAT-CR-S
+      END-IF
+      IF P-DAT-CR-E NE #T-RESET
+        #P-DAT-CR-E := P-DAT-CR-E
+      END-IF
+    END-IF
+*
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* FIND-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-RNB
+************************************************************************
+RESET #RNB #RNB-E
+#RNB-RANGE-SPECIFIED := TRUE
+*
+DECIDE FOR FIRST CONDITION
+  WHEN P-RNB-E = 0 AND P-RNB-S = 0
+    #RNB-E := 99999999999
+    RESET #RNB #RNB-RANGE-SPECIFIED
+  WHEN P-RNB-E = 0 AND P-RNB-S > 0
+    #RNB := P-RNB-S
+    #RNB-E := 99999999999
+  WHEN P-RNB-E > 0 AND P-RNB-S > 0
+    IF P-RNB-E < P-RNB-S
+      P-RC := 1                     /* Invalid parms
+      P-TXT := 'Invalid Run number range: end-rnb > start-rnb'
+      ESCAPE ROUTINE
+    END-IF
+    #RNB := P-RNB-S
+    #RNB-E := P-RNB-E
+  WHEN (P-RNB-E > 0 AND P-RNB-S = 0)
+    #RNB   := P-RNB-S
+    #RNB-E := P-RNB-E
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-RNB
+*
+************************************************************************
+DEFINE SUBROUTINE MARK-ACTIVE-REPORTS
+************************************************************************
+PERFORM FIND-KEYS
+F2. FIND AR WITH AR-REPORT-RNB = #REPNAME-RNB THRU #REPNAME-RNB-E
+WHERE AR-ARCHIVE-DATE = #P-DAT-S    THRU #P-DAT-E                     /*
+AND   AR-PROCESS-TIME = #P-DAT-CR-S THRU #P-DAT-CR-E               /*SU4
+  IF #RNB-RANGE-SPECIFIED
+    ACCEPT IF AR-REPRNB = #RNB THRU #RNB-E
+  END-IF
+  #ISN := *ISN(F2.)
+  PERFORM UPDATE-RECORD
+END-FIND
+*
+END-SUBROUTINE /* MARK-ACTIVE-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+GAR. GET AR #ISN
+IF (AR.AR-ARCHIVE = '*' OR = 'P' OR = 'R')
+AND AR.AR-CURRENT-LOCATION = 'A' AND AR.AR-REVIVE NE '*'              /*
+  AR.AR-REVIVE := #P-REVIVE      /* revive to data base or reset flag
+  ADD 1 TO P-MARKED
+ELSE
+  ADD 1 TO P-ACTIVE
+END-IF
+IF AR.AR-ARCHIVE = 'A' OR = 'I'
+  RESET AR.AR-ARCHIVE
+  AR.AR-ACTIVE := 'X'
+END-IF
+UPDATE(GAR.)
+END TRANSACTION
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NOM-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'GET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+#OLD-NOM-DBID := SATLF-DBID-N5
+#OLD-NOM-FNR  := SATLF-FNR-N5
+*
+END-SUBROUTINE /* GET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'SET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := P-NOM-DBID
+SATLF-FNR-N5  := P-NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-OLD-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := #OLD-NOM-DBID
+SATLF-FNR-N5  := #OLD-NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-OLD-NOM-LFILE
+*
+END

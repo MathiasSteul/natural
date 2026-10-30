@@ -1,0 +1,691 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPREML - Print Object To Email Recipients
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* fhi 02-06-13 p(225125) created from RMPRNAF
+* sju 03-05-20 p(240452) fix email printing
+* sju 03-05-20 p(240334) ESY5508 rsp code 22 on biggish spool reports
+* sju 03-05-22 p(240334) Last line lost
+* xsetggr 03-11-19 p(247299) unify representing ESY err msg in printout
+* fhi 03-11-21 p(247772) Use reply-to field instead of from-name
+* HH  04-07-29 CHANGE PROCESS-STATEMENT IN FIND(1)-STATEMENT
+* xsetggr 2004-11-23 p(258871) recat due to changes in rmfl---p
+* sju     2004-12-14 TYPE=AL   NOM31 support TYPE=AL
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2007-07-17 NRT2422   print binary documents
+* xsetggr 2007-11-05 NRT2768   show size of binatry documnets in bytes
+* xsetggr 2008-03-05 p(302721) prevent NAT0082
+* xsetggr 2008-06-10 p(292935) fill po-printesd only after successfull
+*                              end of printing
+* fhi     2008-07-03 P306784   Test statements 'PRINT ...' commented.
+* spliar  2008-10-29 P308277   email attachment
+* bli     2009-01-21 p307959 restow due to unix attr changes in rmspl--l
+* spliar  2009-03-05 P308277   email attach-"Lib/Member" handling
+* - when available: read the TEXT member and use as email body.
+* xsetggr 2009-10-20 P303069 stow due to email attr changes in RMFL---P
+* fhi     2009-11-18 P321958 Improved trace messages
+* xsetggr 2010-03-25 p307403 add trace message
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-12-20 NOMALL-97 Save File Handle for NPR Unix
+* xsetggr 2010-12-21 NOMALL-865 restow due to changes in RMFL---P
+* fhi     2011-01-17 NOMALL-856 Allow symbols
+* fhi     2010-03-04 NOMALL-856 Spool Attributes were blank
+* fhi     2011-04-26 NOMALL-966 Do not suppress last line with Pr-Exit
+* xsetggr 2012-02-01 NOMALL-1100 write language independant msgs to log
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* fhi     2012-11-14 NOMALL-1143 Add occurrence for Base64
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* fhi     2013-11-18 NOMALL-1298 Correct bracketing
+* fhi     2014-08-29 NOMALL-1454 Restowed due to changes in XXUX---P
+* fhi     2014-10-21 NOMALL-79   Introduce long filenames
+* SU2     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU3     2015-08-11 NOMALL-1690 proove XXHASH coding
+* SU4     2015-12-30 NOMALL-1722 XXHASH-P changed->recat
+* SU5     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* SU6     2016-02-04 NOMALL-1722 support long path names
+* SU7     2016-03-08 NOMALL-1847 PDA RMPRAPIP -> PDA P-PEXIT
+* SU8     2016-07-25 NOM 3.5: remove unused code
+* fhi     2018-03-16 NOMALL-1918 Get it on Unix / Correct NPR Logons
+* fhi     2018-10-10 NOMALL-2157 Use RMNPRUSR instead of RMNPRLGN
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU9     2024-07-25 NOM 353     Recataloged due to changes of RMPR-C
+* ----------------------------- Parameter ------------------------------
+DEFINE DATA
+PARAMETER USING RMFL---P
+PARAMETER
+1 LINE-PARMS
+  2 LINE-CURRENT              (P3)
+  2 LINE-TAB                  (1:100)
+    3 LINE                    (A251)
+    3 REDEFINE LINE
+      4 LINE-L                (A1/1:251)
+    3 LINE-NUMBER             (P10)
+*
+PARAMETER USING XXUX---P
+PARAMETER
+1 P-ERROR-CODE                (N4)
+1 P-ERROR-TEXT                (A250)
+************************************************************************
+INDEPENDENT
+1 +NOD-LOCAL-CODEPAGE      (A64) /* Codepage of the local node
+************************************************************************
+LOCAL USING P-PEXIT
+LOCAL USING RCCTYP-E
+LOCAL USING RMMCASAP
+LOCAL USING RMASAC-E
+LOCAL USING RMSPL--L
+LOCAL USING RMSR---E
+LOCAL USING RMBRCK-P
+LOCAL USING XXHASH-P
+LOCAL USING NAD-MSG   /* Data for message exchange
+LOCAL USING NAD-FLD   /* Description of the field in error
+LOCAL USING RLOG-L
+LOCAL USING XXSUBS-A
+LOCAL
+1 ORDER-STATUS VIEW OF NRM-PRINTOUTS
+  2 PO-NODE
+  2 PO-USERID
+  2 PO-STATUS
+  2 PO-LAST-PRINTED-RECNO
+  2 PO-REPNAME
+  2 PO-REPRNB
+  2 PO-BUNDLE
+  2 PO-BUNDRNB
+  2 PO-CREATED
+1 SEND-EMAIL VIEW OF SEND-EMAIL
+  2 ERROR-CODE
+  2 ERROR-TEXT
+1 ACTIVE-REPORTS VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-SPOOL-ATTRIBUTES
+* *****
+1 #REPORT-RNB                 (A31)
+1 REDEFINE #REPORT-RNB
+  2 #REPNAME                  (A25)
+  2 #REPRNB                   (P11)
+1 #FILE-ID                    (A120)
+1  I                          (P3)
+1 #EMAIL-FUNCTION             (A20)
+1 #STATUS                     (A1)
+1 #UPD-COUNTER                (N8) INIT <10>
+1 #SAVE-LINE                  (A251)
+1 #TEMP-LINE                  (A251)
+1 REDEFINE #TEMP-LINE
+  2 #TEMP-CC                  (A1)
+  2 #TEMP-TEXT                (A250)
+1 #FIRSTBYTE                  (A1)
+1 #STRINGLEN                  (P5)
+1 RMNPRUSR-PARMS
+  2 #NODE                     (N5)
+  2 #USER                     (A8)
+  2 LOGON-ERC                 (N4)
+  2 LOGON-ERT                 (A250)
+  2 #TRACE                    (L)
+1 #INDEX1                     (I2)
+1 #INDEX2                     (I2)
+1 #MAX-RECIP                  (I2) CONST<9> /* was <10> ...
+*
+1 #RECIPIENT                  (A70/1:#MAX-RECIP)
+1 #RECIPIENT-CC               (A70/1:#MAX-RECIP)
+1 #LIBRARY                    (A8) /* NAT Library
+1 #MEMBER                     (A8) /* NAT TEXT member
+1 #FLUSH-LINE                 (A251)
+1 REDEFINE #FLUSH-LINE
+  2 #FLUSH-CC                 (A1)
+  2 #FLUSH-TEXT               (A250)
+1 #IND                        (I4)
+1 #BYTES                      (P11)
+1 #TEXT-INSERTED              (L)
+1 #RECORD                     (A253)
+* This is the current MIME multipart boundary produced by NPR (better to be received
+*   from NPR's api)
+1 #BOUNDARY                   (A80) INIT <'NextPart=_Bat_Bi_Hiru_Lau_Bost_Sei_Zazpi_Real' >
+*** NATA1100 - Areas *******************************************************
+1 V                           (I1) CONST <20>
+1 NADA1100
+  2 OBJECT-KEY
+    3 DBID                    (N5)
+    3 FNR                     (N5)
+    3 PASSWORD                (A8)
+    3 CIPHERCODE              (N8)
+    3 OBJECT-CLASS            (I1)
+    3 LIBRARY                 (A8)
+    3 OBJECT-NAME             (A32)
+    3 OBJECT-TYPE             (A2)
+    3 OBJECT-KIND             (A1)
+  2 INPUTS
+    3 OPT-ACCESS              (A1)
+    3 OPT-ET                  (L)
+    3 OPT-REPLACE             (A1)
+    3 OPT-LINE-NUM            (A1)
+    3 OPT-STEPLIBS            (L)
+    3 OPT-REDEF-DIR           (L)
+    3 OPT-STREAM              (A1)
+    3 OPT-AMOUNT              (I2)
+    3 OPT-LINESIZE            (I2)
+  2 INPUT-OUTPUTS
+    3 INT-HANDLE              (I4)
+    3 NEXT-SEQ                (I4)
+    3 NEXT-NUM                (I2)
+  2 OUTPUTS
+    3 RETURNED                (I2)
+    3 SRC-NUM                 (I2/1:V)
+    3 SRC-TEXT                (A1/1:V,1:92)
+    3 REDEFINE SRC-TEXT
+      4 SRC-GROUP             (1:V)
+        5 SRC-LINE            (A92)
+    3 SRC-SEQ                 (I4/1:V)
+    3 SRC-LONG                (A1/1:V)
+      /*
+1 NATA1100
+  2 VERSION                   (I1) INIT <3>
+  2 V1-NSC-CKECK              (A1)
+  2 V2-COUNT-LINES            (A1)
+  2 V3-EMPTY-BLANK            (A1) /* 'Y' = return empty lines on mainframe
+    /*       with blank instead of H'00'
+1 REDEFINE NATA1100
+  2 EXTENDED-PARMS
+    3 EXTENDED-DATA           (A1/1:4)
+      /*
+/*
+1 IX                          (I2)
+1 #BIN-ALLOWED                (L) CONST <FALSE>
+1 #BS2-ALLOWED                (L) CONST <FALSE>
+1 #TRACING                    (L) CONST <FALSE>
+1 #TRACE-MSG                  (A250)
+*                                                                       *
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#TRACE := #TRACING
+ADD 1 TO FLUSH-BUFFERS
+ADD 1 TO FLUSH-COUNTER
+IF #TRACE
+ WRITE *PROGRAM '=' FLUSH-SEGMENT '=' FLUSH-SEG-BRACKET'=' FLUSH-CC-TYPE
+END-IF
+*
+#RECIPIENT(1) := EMAIL-RECIPIENT1
+#RECIPIENT(2) := EMAIL-RECIPIENT2
+#RECIPIENT(3) := EMAIL-RECIPIENT3
+#RECIPIENT(4) := EMAIL-RECIPIENT4
+#RECIPIENT(5) := EMAIL-RECIPIENT5
+#RECIPIENT(6) := EMAIL-RECIPIENT6
+#RECIPIENT(7) := EMAIL-RECIPIENT7
+#RECIPIENT(8) := EMAIL-RECIPIENT8
+#RECIPIENT(9) := EMAIL-RECIPIENT9
+#RECIPIENT-CC(1) := EMAIL-RECIPIENT1-CC
+#RECIPIENT-CC(2) := EMAIL-RECIPIENT2-CC
+#RECIPIENT-CC(3) := EMAIL-RECIPIENT3-CC
+#RECIPIENT-CC(4) := EMAIL-RECIPIENT4-CC
+#RECIPIENT-CC(5) := EMAIL-RECIPIENT5-CC
+#RECIPIENT-CC(6) := EMAIL-RECIPIENT6-CC
+#RECIPIENT-CC(7) := EMAIL-RECIPIENT7-CC
+#RECIPIENT-CC(8) := EMAIL-RECIPIENT8-CC
+#RECIPIENT-CC(9) := EMAIL-RECIPIENT9-CC
+#LIBRARY := EMAIL-LIBRARY  /*
+#MEMBER  := EMAIL-MEMBER   /*
+PERFORM GET-SPOOL-ATTRIBUTES
+PERFORM RMFL---S-SUBSTITUTE-SYMBOLS FLUSH-PARMS EMAIL-SUBJECT
+  #SPOOL-ATTRIBUTES /* NOMALL-856 2011-03-04 in
+PERFORM RMFL---S-SUBSTITUTE-SYMBOLS FLUSH-PARMS EMAIL-REPLY
+  #SPOOL-ATTRIBUTES /* NOMALL-856 2011-03-04 in
+FOR #INDEX1 = 1 TO #MAX-RECIP
+  PERFORM RMFL---S-SUBSTITUTE-SYMBOLS FLUSH-PARMS #RECIPIENT-CC(#INDEX1)
+    #SPOOL-ATTRIBUTES /* NOMALL-856 2011-03-04 in
+  PERFORM RMFL---S-SUBSTITUTE-SYMBOLS FLUSH-PARMS #RECIPIENT(#INDEX1)
+    #SPOOL-ATTRIBUTES /* NOMALL-856 2011-03-04 in
+END-FOR
+#INDEX2:= 1
+FOR #INDEX1 = 1 TO #MAX-RECIP
+  IF #RECIPIENT-CC(#INDEX1) NE ' '
+    #RECIPIENT-CC(#INDEX2):= #RECIPIENT-CC(#INDEX1)
+    IF #INDEX2 NE #INDEX1
+      RESET #RECIPIENT-CC(#INDEX1)
+    END-IF
+    #INDEX2:= #INDEX2 + 1
+  END-IF
+END-FOR
+#INDEX2:= 1
+FOR #INDEX1 = 1 TO #MAX-RECIP
+  IF #RECIPIENT(#INDEX1) NE ' '
+    #RECIPIENT(#INDEX2):= #RECIPIENT(#INDEX1)
+    IF #INDEX2 NE #INDEX1
+      RESET #RECIPIENT(#INDEX1)
+    END-IF
+    #INDEX2:= #INDEX2 + 1
+  END-IF
+END-FOR
+*
+FOR I = 1 TO LINE-CURRENT
+*
+  CALLNAT 'RMBRCK-N' 'AUTO' FLUSH-SEGMENT FLUSH-SEG-BRACKET
+    FLUSH-BRACKET FIRST-BUFFER LAST-BUFFER FIRST-SEGMENT-BUFFER
+    LAST-SEGMENT-BUFFER I LINE-CURRENT
+  IF FIRST-BUFFER
+    PERFORM OPEN-PRINTER
+    IF P-ERROR-CODE NE 0
+      FLUSH-ERROR := TRUE
+      ESCAPE BOTTOM
+    END-IF
+    IF FLUSH-CC-TYPE = BINARY
+      PERFORM ATTACHMENT-PROLOG      /*  (and check TEXT...)
+    END-IF
+  END-IF
+  IF #TRACE
+    PRINT *PROGRAM *LINE  'CALL PRINTER EXIT'
+    PRINT *PROGRAM 'Current line:' I '=' FLUSH-BUFFERS
+    PRINT *PROGRAM '=' LINE-CURRENT '=' FLUSH-SEGMENT '=' FLUSH-BRACKET
+  END-IF
+*
+  PERFORM CALL-PRINTER-EXIT
+  IF P-ERROR-CODE NE 0
+    FLUSH-ERROR := TRUE
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-STATUS
+************************************************************************
+IF FLUSH-POID = 0
+  ESCAPE ROUTINE
+END-IF
+IF #TRACE
+  PRINT *PROGRAM *LINE 'Update status' '=' FLUSH-LINES
+END-IF
+*
+FNDOS. FIND ORDER-STATUS WITH PO-ID = FLUSH-POID
+  PO-STATUS := #STATUS
+  IF FLUSH-CC-TYPE = BINARY
+    PO-LAST-PRINTED-RECNO := FLUSH-LINES / 1024 /* in kbytes
+  ELSE
+    PO-LAST-PRINTED-RECNO := FLUSH-LINES
+  END-IF
+  UPDATE (FNDOS.)
+  END OF TRANSACTION
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-IT
+************************************************************************
+*** Handle carriage control for TYPE=AL. (TYPE=AL reports may contain
+*** a micture of ASA, Machine, and no carriage control).
+*** 1. If first character is a valid ASA carriage control, do nothing
+*** 2. If first character is printable (but not X'89' or X'8B' which
+***    are machine skip to channel 1), assume the record has no
+***    carriage control - shift the record right 1 position and put a
+***    space in column 1.
+*** 3. Otherwise, first character must be machine carriage control so
+***    translate it to ASA.
+*
+IF FLUSH-TYPE-AL = 'Y'
+  #FLUSH-LINE  := LINE(I)
+  EXAMINE FULL RMASAC-ASA-CODES(*) FOR #FLUSH-CC GIVING INDEX #IND
+  IF #IND = 0                            /* not ASA
+    IF #FLUSH-CC = MASK(P) AND #FLUSH-CC NE H'89' AND #FLUSH-CC NE H'8B'
+      RESET #FLUSH-CC
+      #FLUSH-TEXT:= LINE(I)
+      LINE(I):= #FLUSH-LINE
+      RESET FLUSH-SAVE-CC
+    ELSE
+      RMMCASA-PARMS.P-RECORD := LINE (I)
+      RMMCASA-PARMS.P-PREV-CC := FLUSH-SAVE-CC
+      CALLNAT 'RMMCASAN' RMMCASA-PARMS
+      FLUSH-SAVE-CC := RMMCASA-PARMS.P-PREV-CC
+      IF RMMCASA-PARMS.P-PRINT-NUMBER > 0
+        LINE (I) := RMMCASA-PARMS.P-RECORD
+      ELSE
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+  ELSE
+    RESET FLUSH-SAVE-CC
+  END-IF
+END-IF
+DECIDE FOR FIRST CONDITION
+  WHEN FLUSH-CC-TYPE = MACHINE-CODE
+    PERFORM MACHINE-TO-ASCII
+  WHEN FLUSH-CC-TYPE = ASA-CODE
+    PERFORM ASA-TO-ASCII
+  WHEN FLUSH-CC-TYPE = NO-CC
+    RESET #TEMP-CC
+    #TEMP-TEXT := LINE (I)
+    LINE (I) := #TEMP-LINE
+    PERFORM PRINT-LINE
+  WHEN NONE
+    PERFORM PRINT-LINE
+END-DECIDE
+*
+END-SUBROUTINE /* PRINT-IT
+*
+************************************************************************
+DEFINE SUBROUTINE OPEN-PRINTER /*  i.e. LOGON to ESY
+************************************************************************
+FIND (1) ORDER-STATUS WITH PO-ID = FLUSH-POID
+  #NODE := EMAIL-NODE
+  #USER := PO-USERID
+  IF #NODE = 0 OR #NODE = PO-NODE
+    RESET P-ERROR-CODE
+    ESCAPE BOTTOM
+  END-IF
+  CALLNAT 'RMNPRUSR' RMNPRUSR-PARMS /* NOMALL-2157 was RMNPRLGN         D
+  IF #TRACE
+    PRINT *PROGRAM *LINE 'Open printer' '=' #NODE '=' #USER
+    PRINT *PROGRAM 'erc:' P-ERROR-CODE
+  END-IF
+  IF LOGON-ERC NE 0
+    P-ERROR-CODE := LOGON-ERC
+    P-ERROR-TEXT := LOGON-ERT
+    ESCAPE ROUTINE
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* OPEN-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE MACHINE-TO-ASCII
+************************************************************************
+RMMCASA-PARMS.P-RECORD := LINE (I)
+*
+CALLNAT 'RMMCASAN' RMMCASA-PARMS
+*
+IF #TRACE
+  WRITE *PROGRAM 'Machine to ascii' '=' RMMCASA-PARMS.P-PRINT-NUMBER
+END-IF
+*
+IF RMMCASA-PARMS.P-PRINT-NUMBER > 0
+  LINE (I) := RMMCASA-PARMS.P-RECORD
+  PERFORM ASA-TO-ASCII
+END-IF
+*
+END-SUBROUTINE /* MACHINE-TO-ASCII
+*
+************************************************************************
+DEFINE SUBROUTINE ASA-TO-ASCII
+************************************************************************
+* Checks for ASA form feed and replaces with ASCII form feed.
+* ASCII and EBCDIC form feeds are the same. so I don't worry
+* about the code pages.
+* All other ASA codes are deleted.
+*
+IF SUBSTRING(LINE (I),1,1) = '1' /* form feed detected.
+  EXAMINE SUBSTRING(LINE (I),1,1) FOR '1' AND REPLACE H'0C'
+ELSE
+  #FIRSTBYTE := SUBSTRING(LINE (I),1,1)
+  EXAMINE LINE (I) FOR #FIRSTBYTE GIVING LENGTH #STRINGLEN
+  IF #TRACE
+    PRINT *PROGRAM *LINE 'Asa to ascii' '=' #STRINGLEN
+  END-IF
+  IF #STRINGLEN > 1 /* no empty line
+    EXAMINE SUBSTRING(LINE (I),1,1) FOR #FIRSTBYTE AND DELETE
+  ELSE
+    EXAMINE SUBSTRING(LINE (I),1,1) FOR #FIRSTBYTE AND REPLACE ' '
+  END-IF
+END-IF
+PERFORM PRINT-LINE
+*
+END-SUBROUTINE /* ASA-TO-ASCII
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-LINE
+************************************************************************
+IF FLUSH-CC-TYPE = BINARY
+  EXAMINE LINE(I) FOR ' ' GIVING LENGTH #BYTES
+  ADD #BYTES TO FLUSH-LINES
+ELSE
+  ADD 1 TO FLUSH-LINES
+END-IF
+IF #TRACE
+  PRINT *PROGRAM *LINE 'PRINT LINE:' FLUSH-LINES '=' FLUSH-BRACKET
+END-IF
+IF FLUSH-COUNTER > #UPD-COUNTER OR FLUSH-BRACKET = 'L'
+  #STATUS := 'P'
+  PERFORM UPDATE-STATUS
+  RESET FLUSH-COUNTER
+END-IF
+*
+RESET #EMAIL-FUNCTION
+IF #TRACE
+  PRINT *PROGRAM *LINE '=' #NODE '=' #USER '=' EMAIL-SUBJECT
+END-IF
+*
+#RECORD := LINE (I)
+PERFORM SUB-SEND-EMAIL
+IF FLUSH-BRACKET = 'L'
+  IF FLUSH-CC-TYPE = BINARY
+    PERFORM ATTACHMENT-EPILOG
+  END-IF
+  #EMAIL-FUNCTION := 'CLOSE'
+  RESET #RECORD
+  PERFORM SUB-SEND-EMAIL
+END-IF
+IF #TRACE
+  PRINT *PROGRAM *LINE 'PRINT ended.' '=' EMAIL-NODE
+    '=' EMAIL-RECIPIENT1 '=' EMAIL-RECIPIENT2 '=' EMAIL-RECIPIENT1-CC
+    '=' EMAIL-RECIPIENT2-CC '=' #EMAIL-FUNCTION
+    '=' FLUSH-BRACKET '=' FLUSH-SEG-BRACKET
+END-IF
+*
+END-SUBROUTINE /* PRINT-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE EMAIL-PROLOG
+************************************************************************
+* Here we'll use NATA1100 to retrieve an TEXT object and send as email
+*  content..
+RESET #TEXT-INSERTED
+IF #LIBRARY = " " OR #MEMBER = " "   /* Both should be specified
+  ESCAPE ROUTINE
+END-IF
+* Prepare reading the TEXT member
+EXAMINE #LIBRARY AND TRANSLATE INTO UPPER CASE /* FORCE UPPER
+EXAMINE #MEMBER AND TRANSLATE INTO UPPER CASE
+*
+NADA1100.LIBRARY        := #LIBRARY
+NADA1100.OBJECT-NAME    := #MEMBER
+NADA1100.OPT-LINE-NUM   := 'Y'
+NADA1100.OPT-REDEF-DIR  := TRUE
+NADA1100.OPT-AMOUNT     := 20
+NADA1100.OPT-LINESIZE   := 72
+NADA1100.OPT-STREAM     := 'B'
+NADA1100.OBJECT-TYPE    := 'T'
+NATA1100.V1-NSC-CKECK   := 'Y'
+NATA1100.V2-COUNT-LINES := 'Y'
+NATA1100.V3-EMPTY-BLANK := 'Y'
+NADA1100.OPT-ACCESS     := 'O'  /* OPEN
+CALLNAT 'NATA1100' NADA1100  NATA1100.EXTENDED-PARMS NAD-MSG   NAD-FLD
+IF MSG-NR NOT = 0           /* Returned ERR handling
+  LG-USERID := *PROGRAM
+  LG-CODE   := 'MO'
+  IF MSG-NR = 1006
+    COMPRESS '"' #LIBRARY '/' #MEMBER '"' TO #RECORD LEAVING NO
+    COMPRESS '1079'  #RECORD TO LG-MSG
+  ELSE
+    #XX-SHORT-TEXT     := NAD-MSG.MSG
+    #XX-MSG-DYNA (1:3) := NAD-MSG.MSG-DATA (1:3)
+    CALLNAT 'XXSUBS-N' #XX-SUBS-PARMS /* Substitute VARS in MSG
+    LG-MSG := #XX-SHORT-TEXT
+  END-IF
+  CALLNAT 'RLOG' PL-PARMS
+  ESCAPE ROUTINE
+END-IF
+*
+NADA1100.OPT-ACCESS := 'R'     /* READ THE TEXT
+REPEAT WHILE MSG-NR = 0
+  CALLNAT 'NATA1100' NADA1100 NATA1100.EXTENDED-PARMS NAD-MSG NAD-FLD
+  IF MSG-NR = 0 OR MSG-NR = 100 /* If returned OK or END-OF-DATA
+    #TEXT-INSERTED := TRUE      /*
+    FOR IX = 1 TO RETURNED      /* Process all returned lines
+      IF NADA1100.SRC-NUM  (IX) > 0    /* (WHICH HAVE SOME SEQUENCE ?)
+        #RECORD := NADA1100.SRC-LINE (IX)
+        PERFORM SUB-SEND-EMAIL
+      END-IF
+    END-FOR
+  ELSE                         /* Returned ERR handling
+    #XX-SHORT-TEXT     := NAD-MSG.MSG
+    #XX-MSG-DYNA (1:3) := NAD-MSG.MSG-DATA (1:3)
+    CALLNAT 'XXSUBS-N' #XX-SUBS-PARMS /* Substitute VARS in MSG
+    LG-MSG := #XX-SHORT-TEXT
+    CALLNAT 'RLOG' PL-PARMS
+    ESCAPE BOTTOM
+  END-IF
+END-REPEAT
+*
+NADA1100.OPT-ACCESS := 'C'  /* CLOSE (FOR OS)
+CALLNAT 'NATA1100' NADA1100 NATA1100.EXTENDED-PARMS NAD-MSG NAD-FLD
+*
+END-SUBROUTINE /* EMAIL-PROLOG
+*
+************************************************************************
+DEFINE SUBROUTINE ATTACHMENT-PROLOG
+************************************************************************
+* PERFORM GET-SPOOL-ATTRIBUTES /* NOMALL-856 out
+*  Send boundary                                  /* New NPR protocol
+COMPRESS '--' #BOUNDARY TO #RECORD LEAVING NO   /* This first boundary   should force NPR to
+PERFORM SUB-SEND-EMAIL                            /* force a "Multipart" MIME header
+*
+PERFORM EMAIL-PROLOG         /* Insert TEXT member, if available
+IF NOT #TEXT-INSERTED        /* If no TEXT member provided
+  COMPRESS 'Please notice the attached file:' #FILE-ID  TO #RECORD
+  PERFORM SUB-SEND-EMAIL
+END-IF
+*  Send boundary
+COMPRESS '--' #BOUNDARY TO #RECORD LEAVING NO
+PERFORM SUB-SEND-EMAIL
+* Send MIME attachment headers
+#RECORD := 'Content-Type: text/plain; charset=iso-8859-1'
+PERFORM SUB-SEND-EMAIL
+#RECORD := 'Content-Transfer-Encoding: base64'
+PERFORM SUB-SEND-EMAIL
+*
+COMPRESS 'Content-Disposition: attachment; filename=' #FILE-ID
+  TO #RECORD LEAVING NO
+PERFORM SUB-SEND-EMAIL
+#RECORD := ' '
+PERFORM SUB-SEND-EMAIL
+*
+END-SUBROUTINE /* ATTACHMENT-PROLOG
+*
+************************************************************************
+DEFINE SUBROUTINE ATTACHMENT-EPILOG
+************************************************************************
+* Send closing boundary
+COMPRESS '--' #BOUNDARY '--' TO #RECORD LEAVING NO
+PERFORM SUB-SEND-EMAIL
+*
+END-SUBROUTINE /* ATTACHMENT-EPILOG
+*
+************************************************************************
+DEFINE SUBROUTINE SUB-SEND-EMAIL
+************************************************************************
+IF EMAIL-NODE = 0
+  EMAIL-NODE := PO-NODE      /*   to prevent ESY5895
+END-IF
+IF EMAIL-SUBJECT = ' '        /* Should those invalid attributed be handled here ?Ü
+  DECIDE FOR FIRST CONDITION  /* It's patching a bug or it is a "feature" ?
+    WHEN PO-BUNDLE NE ' '
+      COMPRESS PO-BUNDLE  '/' PO-BUNDRNB '/' PO-CREATED TO EMAIL-SUBJECT
+    WHEN NONE
+      COMPRESS 'Report:' PO-REPNAME '/' PO-REPRNB  '/' PO-CREATED
+        TO EMAIL-SUBJECT
+  END-DECIDE
+END-IF
+*****
+FIND(1) SEND-EMAIL WITH NODE = EMAIL-NODE AND FUNCTION = #EMAIL-FUNCTION
+    AND SUBJECT   = EMAIL-SUBJECT AND REPLY-TO  = EMAIL-REPLY
+    AND RECORD    = #RECORD AND RECIPIENT = #RECIPIENT(1)
+    AND RECIPIENT = #RECIPIENT(2) AND RECIPIENT = #RECIPIENT(3)
+    AND RECIPIENT = #RECIPIENT(4) AND RECIPIENT = #RECIPIENT(5)
+    AND RECIPIENT = #RECIPIENT(6) AND RECIPIENT = #RECIPIENT(7)
+    AND RECIPIENT = #RECIPIENT(8) AND RECIPIENT = #RECIPIENT(9)
+    AND CC-RECIPIENT =#RECIPIENT-CC(1) AND CC-RECIPIENT=#RECIPIENT-CC(2)
+    AND CC-RECIPIENT =#RECIPIENT-CC(3) AND CC-RECIPIENT=#RECIPIENT-CC(4)
+    AND CC-RECIPIENT =#RECIPIENT-CC(5) AND CC-RECIPIENT=#RECIPIENT-CC(6)
+    AND CC-RECIPIENT =#RECIPIENT-CC(7) AND CC-RECIPIENT=#RECIPIENT-CC(8)
+    AND CC-RECIPIENT =#RECIPIENT-CC(9)
+    AND HOST-CODE-PAGE= +NOD-LOCAL-CODEPAGE
+END-FIND
+IF SEND-EMAIL.ERROR-CODE NE 0
+  P-ERROR-CODE := 5
+  P-ERROR-TEXT := SEND-EMAIL.ERROR-TEXT
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* SUB-SEND-EMAIL
+*
+************************************************************************-
+DEFINE SUBROUTINE GET-SPOOL-ATTRIBUTES
+************************************************************************
+IF FLUSH-POID = 0
+  ESCAPE ROUTINE
+END-IF
+*
+FNDPO. FIND ORDER-STATUS WITH PO-ID = FLUSH-POID
+  #REPNAME := PO-REPNAME
+  #REPRNB  := PO-REPRNB
+  FIND ACTIVE-REPORTS WITH AR-REPORT-RNB = #REPORT-RNB
+    #SPOOL-ATTRIBUTES := AR-SPOOL-ATTRIBUTES
+    RESET #FILE-ID
+    DECIDE ON FIRST VALUE OF #SPOOL-TYPE
+      VALUE DIRECT-INPUT
+        IF #SPOOL-DI-PATH NE ' '
+          XXHASH-PARMS.P-SHORT-NAME := #SPOOL-DI-PATH
+          PERFORM GET-LONG-NAME
+          COMPRESS XXHASH-PARMS.P-LONG-NAME '/' TO #FILE-ID LEAVING NO
+        END-IF
+        IF #SPOOL-DI-FILENAME NE ' '
+          XXHASH-PARMS.P-SHORT-NAME := #SPOOL-DI-FILENAME
+          PERFORM GET-LONG-NAME
+          COMPRESS #FILE-ID XXHASH-PARMS.P-LONG-NAME
+            TO #FILE-ID LEAVING NO
+        ELSE
+          COMPRESS 'attachment' #SPOOL-DI-FILENAME TO #FILE-ID LEAVING NO
+        END-IF
+        IF #SPOOL-DI-FILETYPE NE ' '
+          COMPRESS #FILE-ID '.' #SPOOL-DI-FILETYPE TO #FILE-ID LEAVING NO
+        END-IF
+      NONE
+        IGNORE
+    END-DECIDE
+  END-FIND
+END-FIND
+*
+END-SUBROUTINE /* GET-SPOOL-ATTRIBUTES
+*
+************************************************************************-
+DEFINE SUBROUTINE GET-LONG-NAME
+************************************************************************
+XXHASH-PARMS.P-FUNCTION := 'L' /*short -> long
+PERFORM XXHASH XXHASH-PARMS
+*
+END-SUBROUTINE /* GET-LONG-NAME
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  CALLNAT 'C-NATERN' P-ERROR-TEXT
+  P-ERROR-CODE := 21
+  FLUSH-ERROR := TRUE
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+INCLUDE RMPR-C /*V12-PRINTER-API,CALL-PRINTER-EXIT
+*
+END

@@ -1,0 +1,154 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMBRM-N - Maintenance of EOM Object >>> Report in Bundle <<
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  96-07-25           created
+* xsetggr 2009-09-02 P314431   allow only DISKUNIX&NATUNIX printers for
+*                              Unix systems, but UNIXLP printers only
+*                              for mainframe
+* xsetggr 2010-11-03 NOMALL-865 restow due to changes in EOMPHTYE
+* xsetggr 2012-12-16 NOMALL-89  add printer authorization check
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING EOM----P
+PARAMETER USING EOMBRM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL USING EOM----E
+LOCAL USING EOMBR--E
+LOCAL USING EOMPHTYE
+*
+LOCAL
+1 PRINTER VIEW OF NRM-PRINTERS
+  2 P-PHYSICAL-NAME
+  2 P-DISP
+1 PHYSICAL VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-PRINTER-TYPE
+1 GRANTED                   (L)
+1 #GR-N                     (A25)
+1 #GR-USERID                (A8)
+1 #GR-OPTIONS               (A1/6)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-MODIFY
+    PERFORM MODIFY-OBJECT
+  VALUE EOM-READ, EOM-READHOLD, EOM-READ-NEXT, EOM-READHOLD-NEXT
+    PERFORM READ-OBJECT
+  VALUE EOM-COMMIT
+    END OF TRANSACTION
+  VALUE EOM-BACKOUT
+    BACKOUT TRANSACTION
+  NONE VALUE
+    EOMMSG-NR := 2600
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-OBJECT
+************************************************************************
+PERFORM VALIDATE-KEY
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+PERFORM VALIDATION
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+PERFORM OBJECT-INTERFACE
+*
+END-SUBROUTINE /* MODIFY-OBJECT
+*
+************************************************************************
+DEFINE SUBROUTINE READ-OBJECT
+************************************************************************
+IF NOT (EOM-FUNCTION = EOMBR-FCT-READ-NEXT OR = EOMBR-FCT-READHOLD-NEXT)
+  PERFORM VALIDATE-KEY
+END-IF
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+PERFORM OBJECT-INTERFACE
+*
+END-SUBROUTINE /* READ-OBJECT
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-KEY
+************************************************************************
+IF EOMBRM-I-BUNDLE = ' '
+  EOMMSG-NR := 0042
+  EOMMSG-FIELD-NAME := 'EOMBRM-I-BUNDLE'
+  ESCAPE ROUTINE
+END-IF
+IF EOMBRM-I-REPORT = ' '
+  EOMMSG-NR := 0041
+  EOMMSG-FIELD-NAME := 'EOMBRM-I-REPORT'
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+IF EOMBRM-PRINTER NE ' '
+  FNDPR. FIND PRINTER WITH P-ID = EOMBRM-PRINTER
+    IF NO RECORDS FOUND
+      EOMMSG-NR := 0108
+      ESCAPE BOTTOM(FNDPR.)
+      ESCAPE ROUTINE
+    END-NOREC
+    FIND PHYSICAL WITH PH-VTAMID = P-PHYSICAL-NAME
+      IF *MACHINE-CLASS = 'MAINFRAME'
+        IF PH-PRINTER-TYPE = ##PHYS-NATUNIX
+          EOMMSG-NR := 0130
+          ESCAPE BOTTOM(FNDPR.)
+        END-IF
+      ELSE
+        IF NOT(PH-PRINTER-TYPE = ##PHYS-DISKUNIX OR = ##PHYS-NATUNIX)
+          EOMMSG-NR := 0131
+          ESCAPE BOTTOM (FNDPR.)
+        END-IF
+      END-IF
+    END-FIND
+  END-FIND
+  IF EOM-USER-TYPE NE 'A'
+    #GR-N := EOMBRM-PRINTER
+    #GR-USERID  := EOM-USER
+    CALLNAT 'RGRANT-N' #GR-USERID 'P' #GR-N GRANTED #GR-OPTIONS(*)
+    IF GRANTED AND P-DISP = 'Y' AND NOT #GR-OPTIONS(*) = 'Y'
+      RESET GRANTED /* restricted usage
+    END-IF
+    IF NOT GRANTED
+      EOMMSG-NR := 1090
+    END-IF
+  END-IF
+END-IF
+IF EOMMSG-NR NE 0
+  EOMMSG-FIELD-NAME := 'EOMBRM-PRINTER'
+END-IF
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE OBJECT-INTERFACE
+************************************************************************
+CALLNAT 'EOMBRMGN' EOM-FUNCTION EOMBRM-PARMS EOMMSG-PARMS
+*
+END-SUBROUTINE /* OBJECT-INTERFACE
+*
+END

@@ -1,0 +1,311 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RRDISRP
+* Function  Display Contents of Active Report
+* Version   1.3
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* mrs 93-01-21           clean up
+* mrs 93-11-05 s(999999) keys  on/off implemented
+* gw  94-01-14 s(999999) use ZGET11C instead of ZGET11A
+* gw  96-12-02 s(999999) correct message when report not available
+* jvd 98-09-14 p(164220) NOM141ÖNAT231
+* jvd 99-03-05 p(180050) Pass correct DBID/FNR for SET LFILE
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* fhi     2003-09-01 p(244091) Use PROF-LANGUAGE=1
+* xsetggr 2004-11-23 p(258871) change to zget11d interface
+* LP      2005-02-25 ADAPT TO UNIX ENVIRONMENT
+* fhi     2005-04-19 NOM31107  Support 7-byte job numbers
+* xsetggr 2007-08-27 NOM3201   Support P11 format run numbers
+* fhi     2008-02-22 P300675   First byte not shown in binary document
+* SPLILDAV 2012-06-27 NOMALL-1078 SUPPORT COMPRESSION 16K BYTE RECORDS
+* SU1     2017-12-27 NOMALL-1823 NOM 3.5: remove CONNECT
+* SU2     2023-10-26 NOMALL-2489 HEX on MF + remove unused coding
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING EDIT-CB
+LOCAL USING SUPER-L
+LOCAL USING RCCTYP-E
+LOCAL USING RMSR---E
+LOCAL USING RMSR---L
+LOCAL
+1 ACTIVE-REPORTS VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-SOURCE-ID
+  2 AR-CC-TYPE
+  2 AR-RECORD-LENGTH
+  2 AR-CURRENT-LOCATION
+  2 AR-NUMBER-OF-LINES
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-TYPE
+  2 SR-ATTRIBUTES-IDENT
+*
+1 EDIT-PREF
+  2 L-PREFIX                  (A6/1:10)
+1 EDIT-DATA
+  2 ED-DATA                   (A251/1:20)
+  2 REDEFINE ED-DATA
+    3 ED-DATA1 (1:20)
+      4 #LINE-FEED            (A1)
+      4 L-DATA                (A250)
+1 EDIT-ALIN                   (A32)
+1 REDEFINE EDIT-ALIN
+  2 CB-ALIN-V                 (N1/32)
+1 EDIT-ADAT                   (A32)
+1 REDEFINE EDIT-ADAT
+  2 CB-ADAT-V                 (N1/32)
+1 J                           (N3)
+1 #ED-SESNUM                  (N2)
+1 #FROM-LINE                  (N7)
+1 #TO-LINE                    (N7)
+/*SU2 -> 1 COMPCB (B40) 1 REDEFINE COMPCB 2 COMPCB-OP (A1)
+/* 2 COMPCB-CHAR  (B1) 2 COMPCB-ILEN-OLD (B1) 2 COMPCB-OLEN-OLD (B1)
+/*SU2 <-  2 COMPCB-ILEN (B2) 2 COMPCB-OLEN (B2)
+1 DATA-FOUND                  (L)
+1 LFILE                       (L)
+1 #LFILE-RC                   (I4)
+1 #LFILE-OLDDBID              (P5)
+1 #LFILE-OLDFILE              (P5)
+1 #LFILE-NEWDBID              (P5)
+1 #LFILE-NEWFILE              (P5)
+1 #TARGET-DBID                (N5)
+1 #TARGET-FNR                 (N5)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+INPUT G-C-REPORT G-C-REPRNB
+ED-NEWCB := 'Y'
+/*SU2 COMPCB-CHAR := 'N' /* 'N' - New parm list
+/*SU2 COMPCB-OP   := 'D'
+*
+SET CONTROL 'WB'
+*
+#AC-REPNAME := #F-REPNAME := G-C-REPORT
+#AC-REPRNB  := #F-REPRNB  := G-C-REPRNB
+*
+GET-REPORT. FIND ACTIVE-REPORTS WITH AR-REPORT-RNB = #AC-REP-RNB
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 426 /* report contents not available
+    ESCAPE ROUTINE
+  END-NOREC
+  IF NOT (AR-CURRENT-LOCATION = 'D' OR = 'S')
+    ESCAPE TOP
+  END-IF
+  IF AR-CURRENT-LOCATION = 'S'
+    FNDSRC. FIND SOURCE WITH SR-ID = AR-SOURCE-ID
+      IF NO RECORDS FOUND
+        G-NATRP-ERC := 0005
+        G-NATRP-ERT := 'Source not found'
+        ESCAPE ROUTINE
+      END-NOREC
+      ED-NRM-SOURCE-ISN := *ISN (FNDSRC.)
+    END-FIND
+  END-IF
+  IF ED-ERRNUM NE 0
+    ESCAPE ROUTINE
+  END-IF
+  DECIDE FOR FIRST CONDITION
+    WHEN AR-CURRENT-LOCATION = 'D'
+      PERFORM OPEN-EDIT /*SU2 PERFORM OPEN-NRMDB-EDIT
+      FETCH RETURN 'RBRWRP' #ED-SESNUM 'ADA' ED-FILE
+      ESCAPE ROUTINE
+    WHEN AR-CURRENT-LOCATION = 'S'
+      IF SOURCE.SR-TYPE = NOM-DATA-BASE
+        PERFORM GET-LFILE
+        #SOURCE-ATTRIBUTES := SOURCE.SR-ATTRIBUTES-IDENT
+        CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES SR-TYPE
+        IF #NOMDB-DBID > 0
+          #TARGET-DBID := #NOMDB-DBID
+          #TARGET-FNR  := #NOMDB-FNR
+        ELSE
+          #TARGET-DBID := #NOMDB-DBID-OLD
+          #TARGET-FNR  := #NOMDB-FNR-OLD
+        END-IF
+        PERFORM SET-LFILE
+        IF G-NATRP-ERC NE 0
+          ESCAPE ROUTINE
+        END-IF
+      END-IF
+      PERFORM OPEN-EDIT /*SU2 PERFORM OPEN-SPOOL-EDIT
+      IF G-NATRP-ERC > 0
+        PERFORM CLOSE-SESSION
+        ESCAPE ROUTINE
+      END-IF
+      FETCH RETURN 'RBRWRP' #ED-SESNUM 'SYS' ED-FILE
+      IF SOURCE.SR-TYPE = NOM-DATA-BASE
+        PERFORM REFRESH-LFILE
+      END-IF
+      ESCAPE ROUTINE
+    WHEN NONE
+      G-NATRP-ERC := 0426
+      ESCAPE ROUTINE
+  END-DECIDE
+*
+  IF J > 0
+    ED-SCRNUM := J
+    CALL 'EDITOR' EDIT-CB EDIT-ALIN EDIT-PREF EDIT-ADAT EDIT-DATA
+    DATA-FOUND := TRUE
+    IF ED-ERRNUM NE 0
+      PERFORM #EDITOR-ERR /*SU2
+      ESCAPE ROUTINE /*SU2
+/*SU2 G-NATRP-ERC := 4000 G-NATRP-ERT := ED-FLINE
+    END-IF
+  END-IF
+  IF DATA-FOUND
+    FETCH RETURN 'RBRWRP' #ED-SESNUM 'DAT'
+  ELSE
+    G-NATRP-ERC := 426 /*Report contents not available. SU1 704
+  END-IF
+  ESCAPE ROUTINE
+END-FIND
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+/*SU2 DEFINE SUBROUTINE OPEN-EDIT-SESSION
+/*SU2 DEFINE SUBROUTINE OPEN-NRMDB-EDIT
+/*SU2 DEFINE SUBROUTINE OPEN-SPOOL-EDIT
+*
+************************************************************************
+DEFINE SUBROUTINE OPEN-EDIT
+************************************************************************
+ED-REQUEST := 'OPEN'
+RESET ED-SESNUM ED-B-PROGRAM
+ED-DSTYPE  := 'DAT' /*SU2 'USR'
+ED-CTADR   := ED-DTADR := 0
+ED-ENV     := ED-BPUSE := 1
+ED-DTPLACE := 3 /*DATA PLACE (BP OR SA) 3=??
+ED-BPLEN   := 10
+ED-PRFLEN  := ED-PRFENT := 6 /*SU2 was 5
+ED-LINENTL := ED-SCRLEN := 251 /*SU2 ED-RECLEN see blow
+ED-BLKNUM  := 5
+ED-SCRNUM  := ED-SCRMAX := 24
+ED-RENUM   := 10
+ED-NATVER  := 2
+*
+PROF-MSO      := 'Y'
+PROF-CAPS     := 'N'
+PROF-LANGUAGE := 1
+*
+ED-SCROLL := 'CSR'
+IF ACTIVE-REPORTS.AR-RECORD-LENGTH = 1 THRU 251
+  ED-NRM-LRECL := ACTIVE-REPORTS.AR-RECORD-LENGTH
+ELSE
+  ED-NRM-LRECL := 251
+END-IF
+ED-NRM-SOURCE-CC-TYPE := ACTIVE-REPORTS.AR-CC-TYPE
+ED-NRM-REPNAME := G-C-REPORT
+ED-NRM-REPRNB  := G-C-REPRNB
+IF G-NTDB-PROCESS = 0
+  G-NTDB-PROCESS := G-MONITOR-NODE
+END-IF
+ED-NRM-DBID     := G-NTDB-PROCESS
+ED-NRM-FROMLINE := #FROM-LINE
+ED-NRM-TOLINE   := #TO-LINE
+ED-NEWCB        := 'Y'
+ED-NRM-MAXREC   := ACTIVE-REPORTS.AR-NUMBER-OF-LINES
+RESET ED-NRM-LAYOUT
+ED-NRM-LOCATION := ACTIVE-REPORTS.AR-CURRENT-LOCATION
+*
+PERFORM MOVE-ASA-TO-EDIT-CB
+ED-RECLEN := ED-NRM-LRECL /*SU2
+CALL 'EDITOR' EDIT-CB EDIT-ALIN EDIT-PREF EDIT-ADAT EDIT-DATA
+IF ED-ERRNUM NE 0
+  PERFORM #EDITOR-ERR /*SU2
+  ESCAPE ROUTINE
+END-IF
+#ED-SESNUM := ED-SESNUM
+*
+END-SUBROUTINE /* OPEN-EDIT
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-SESSION
+************************************************************************
+ED-REQUEST :='CLSS'
+ED-SESNUM  := #ED-SESNUM
+CALL 'EDITOR' EDIT-CB /*no error handling is okÜ
+*
+END-SUBROUTINE /* CLOSE-SESSION
+*
+************************************************************************
+DEFINE SUBROUTINE #EDITOR-ERR /*SU2
+************************************************************************
+G-NATRP-ERC := 3 /*SU2 was 5
+#TO-LINE := ED-ERRNUM
+COMPRESS #TO-LINE ED-FLINE TO G-NATRP-ERT
+COMPRESS G-NATRP-ERT ' (' *PROGRAM ',' ED-REQUEST ')'
+  TO G-NATRP-ERT LEAVING NO
+*
+END-SUBROUTINE /* #EDITOR-ERR
+*
+************************************************************************
+DEFINE SUBROUTINE MOVE-ASA-TO-EDIT-CB
+************************************************************************
+IF ACTIVE-REPORTS.AR-CC-TYPE = NO-CC OR = BINARY
+  ED-NRM-ASA-CODE-ON := 'F'
+ELSE
+  ED-NRM-ASA-CODE-ON := 'A'
+END-IF
+*
+END-SUBROUTINE /* MOVE-ASA-TO-EDIT-CB
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+IF NOT LFILE
+  #LFILE-NEWDBID := #TARGET-DBID
+  #LFILE-NEWFILE := #TARGET-FNR
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-NEWDBID #LFILE-NEWFILE
+  IF #LFILE-RC NE 0
+    G-NATRP-ERC := 4007
+    G-NATRP-ERT := #LFILE-RC
+  ELSE
+    LFILE := TRUE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE REFRESH-LFILE
+************************************************************************
+IF LFILE
+  RESET #LFILE-RC
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+  IF #LFILE-RC NE 0
+    G-NATRP-ERC := 4008
+    G-NATRP-ERT := #LFILE-RC
+  ELSE
+    LFILE := FALSE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* REFRESH-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-LFILE
+************************************************************************
+RESET #LFILE-RC
+CALLNAT 'RMIGGFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+*
+END-SUBROUTINE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF LFILE
+    CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+    LFILE := FALSE
+  END-IF
+*
+END-ERROR
+*
+END

@@ -1,0 +1,566 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* **********************************************************************
+* RMEMAIL - Check log messages for events to be emailed
+*
+* Maintenance
+* ----------------------------------------------------------------------
+* uuuuuuuu yyyy-mm-dd iTrac       Remark
+* fhi      2016-10-14 NOMALL-1934 Created from NOMLOG
+* fhi      2018-12-14 NOM 3.5     Add CPU measure
+* fhi      2019-05-14 NOMALL-2233 Correct microsecond handling
+* fhi      2019-08-15 NOMALL-2322 Avoid NAT3113
+* SU1     2019-08-23 NOMALL-2322 update 'Last check'+remove fields
+* SU2     2019-12-09 NOMALL-2290 add hint to NOM2117 to email
+* SU3     2020-03-30 NOMALL-2400 NAT3113: show event name in error
+* SU4     2022-04-28 NOMALL-2546 no email for NAT err.(prefix NUM)
+* SU5     2023-08-02 ES-33831    ERR:show fieldlength (itrac for uqac)
+* NKEW1   2024-08-22 ----------- Fix email cut away at certain length
+* **********************************************************************
+DEFINE DATA GLOBAL USING MONIT-GL
+LOCAL USING VEMAIL-L
+LOCAL USING XXEMAILP
+LOCAL USING XXGMSG-A
+LOCAL USING SATLF02P
+LOCAL
+1 SAT-LOG VIEW OF SAT-LOG-FILE35
+  2 LOG-ENV-TIME
+  2 LOG-ENVIRONMENT
+  2 LOG-TIME
+  2 LOG-MESSAGE
+  2 LOG-JOB
+  2 LOG-JOB-ID
+  2 LOG-EXEC-USERID
+  2 LOG-USER-DATA(1:20)
+  2 LOG-NOM-TYPE
+1 LAST-ACTIVITY VIEW OF NRM-EMAIL-EVENTS
+  2 EM-LAST-ACTIVE
+*
+1 #SATKEY-FROM                 (A20)
+1 REDEFINE #SATKEY-FROM
+  2 #LOG-ENV-FROM              (A10)
+  2 REDEFINE #LOG-ENV-FROM
+    3 #ENV-DBID-FROM           (N5)
+    3 #ENV-FNR-FROM            (N5)
+  2 #LAST-ACTIVE-T             (T)
+  2 #LAST-ACTIVE-MICRO-FROM    (P5)
+*
+1 #SATKEY-TO                   (A20)
+1 REDEFINE #SATKEY-TO
+  2 #LOG-ENV-TO                (A10)
+  2 REDEFINE #LOG-ENV-TO
+    3 #ENV-DBID-TO             (N5)
+    3 #ENV-FNR-TO              (N5)
+  2 #TIME-TO                   (T)
+  2 #LAST-ACTIVE-MICRO-TO      (P5)
+* Variables for XXTABLE2 handling events
+1 #EVENT-COLUMNS               (I4) CONST <17>
+1 #EVENT-FUNCTION              (A1)
+1 #EVENTS                      (A/*,#EVENT-COLUMNS) DYNAMIC
+1 #EVENT                       (A/  #EVENT-COLUMNS) DYNAMIC
+1 #EVENT-CURRENT-IX            (I4)
+1 #EVENT-LAST-IX               (I4)
+1 #EVENT-TEMP1                 (I4)
+1 #EVENT-TEMP2                 (I4)
+1 #EVENT-RC                    (I4)
+*
+* Variables for XXTABLE2 handling log records
+1 #LOG-COLUMNS                 (I4) CONST <5>
+1 #LOG-FUNCTION                (A1)
+1 #LOGS                        (A/*,#LOG-COLUMNS) DYNAMIC
+1 #LOG                         (A/  #LOG-COLUMNS) DYNAMIC
+1 #LOG-SAVE                    (A/  #LOG-COLUMNS) DYNAMIC
+1 #LOG-CURRENT-IX              (I4)
+1 #LOG-LAST-IX                 (I4)
+1 #LOG-TEMP1                   (I4)
+1 #LOG-TEMP2                   (I4)
+1 #LOG-RC                      (I4)
+*
+* Variables for XXTABLE handling email
+1 #EMAIL-FUNCTION              (A1)
+1 #EMAIL-LINE                  (A)     DYNAMIC
+1 #EMAIL-CURRENT-IX            (I4)
+1 #EMAIL-LAST-IX               (I4)
+1 #EMAIL-TEMP1                 (I4)
+1 #EMAIL-TEMP2                 (I4)
+1 #EMAIL-RC                    (N4)
+*
+1 #MESSAGE-TEXT                (A250)
+1 #LAST-ACTIVE-BEGIN           (T)
+1 #LOG-TIME                    (A)    DYNAMIC
+1 #I                           (I2)
+1 #J                           (I2)
+1 #MESSAGE-ARRAY               (A95/*) /* NKEW1  changed from 75 to 95
+1 #L-MSG-ALL                   (A)    DYNAMIC
+1 #RC                          (N4)
+1 #ERN                         (N4)
+1 #STRING                      (A250)
+1 REDEFINE #STRING
+  2 #STRING_A3                 (A3)
+  2 #STRING_A4                 (A4)
+1 #POS                         (I4)
+1 #NUM                         (I4)
+1 #DIFF                        (I4)
+1 #ZEROES                      (A4) CONST FULL LENGTH <'0'>
+1 #NINES                       (A4) CONST FULL LENGTH <'9'>
+1 #ISN                         (P11)
+1 #EMAIL-EVENTS                (A)    DYNAMIC
+1 #CHECK-TIME                  (A)    DYNAMIC
+1 #CHECK-PERIOD                (N9)
+1 #CHECK-TIME-T                (T)
+1 #SKIP                        (L)
+1 #FOUND                       (L)
+1 #COMMENTS                    (L)
+1 #COMMENT-IX-FROM             (I4)
+1 #COMMENT-IX-TO               (A)    DYNAMIC
+1 #EVENTS-FOUND                (L)
+1 #RANGE-FROM                  (A)    DYNAMIC
+1 #RANGE-TO                    (A)    DYNAMIC
+/*SU1 1 #SEARCH                      (A)    DYNAMIC
+1 #SEND-EMAIL                  (L)
+1 #CATDATE                     (A19)
+1 #TRACE-MSG                   (A250)
+1 #TRACING                     (L)
+1 RMSETTIM
+  2 FUNCTION                   (A1)
+  2 ERC                        (N4)
+  2 MSG                        (A250)
+1 #MAX  (I2) CONST <10000>
+1 #3113 (L) /*SU3
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#LAST-ACTIVE-MICRO-TO := 99999
+#TIME-TO := #LAST-ACTIVE-BEGIN := *TIMX
+IF G-TRACE GE *LEVEL
+  #TRACING := TRUE
+  RMSETTIM.FUNCTION := 'S'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  COMPRESS *PROGRAM 'started.' TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS *PROGRAM 'cataloged at' #CATDATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+#LAST-ACTIVE-BEGIN := #LAST-ACTIVE-BEGIN - 1728000 /* 48 hrs before
+SATLF-FUNCTION := 'GET'
+SATLF-LFILE    := 206
+CALLNAT 'SATLF02N' SATLF-SATVERS SATLF-PARMS (*)
+#SATKEY-FROM.#ENV-DBID-FROM := #SATKEY-TO.#ENV-DBID-TO := SATLF-DBID-N5
+#SATKEY-FROM.#ENV-FNR-FROM  := #SATKEY-TO.#ENV-FNR-TO  := SATLF-FNR-N5
+DECIDE ON EVERY VALUE OF #RC
+  VALUE 0
+    PERFORM READ-EVENTS
+    IF NOT #EVENTS-FOUND
+      #RC := 999 /* Escape
+      IF #TRACING
+        #TRACE-MSG := 'No events found to be processed. Exiting.'
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END TRANSACTION
+      END-IF
+    END-IF
+  VALUE 0
+    PERFORM CHECK-EMAILS
+  NONE IGNORE
+END-DECIDE
+IF #TRACING
+  COMPRESS *PROGRAM 'ended.' TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+  END TRANSACTION
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-EVENTS
+************************************************************************
+#EVENT-FUNCTION := 'K' /* Reset #EVENT Array
+PERFORM #XXTABLE2-EVENTS
+#EVENTS-FOUND := FALSE
+IF #TRACING
+  #TRACE-MSG := 'Start reading events.'
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+READ-EVENTS. READ EMAIL-EVENTS BY EM-MONITOR-ID = 'E-'
+  IF EM-MONITOR-ID NE MASK ('E-')
+    ESCAPE BOTTOM (READ-EVENTS.)
+  END-IF
+  MOVE EDITED EM-LAST-ACTIVE (EM=YYYYMMDDHHIISST) TO #EVENT(1)
+  IF #EVENT(1) = '000001020000000'
+    #EVENT(1) := '198001010000000'
+  END-IF
+  #EVENT(5) := EM-CHECK-PERIOD
+  IF #EVENT(5) IS (N9)
+    #CHECK-PERIOD := VAL(#EVENT(5))
+    #CHECK-PERIOD := #CHECK-PERIOD * 600 /* take it as minutes
+  ELSE
+    #CHECK-PERIOD := 0
+  END-IF
+  #CHECK-TIME-T := *TIMX - #CHECK-PERIOD
+  MOVE EDITED #CHECK-TIME-T (EM=YYYYMMDDHHIISST) TO #CHECK-TIME
+  IF #CHECK-TIME < #EVENT(1)   /* regard check-period
+  OR #CHECK-PERIOD = 0         /* checking disabled                   /*
+    ESCAPE TOP
+  END-IF
+  #EVENTS-FOUND := TRUE
+  #EVENT( 2) := SUBSTR(EM-MONITOR-ID,3) /*starts with 'E-' /*SU2
+  #EVENT( 3) := EM-EMAIL-SUBJECT
+/*SU1  #EVENT( 4) := EM-REMOTE-CODEPAGE
+  #EVENT( 6) := EM-EMAIL-MEMBER
+  #EVENT( 7) := EM-EMAIL-LIBRARY
+/*SU1  #EVENT( 8) := EM-MONITOR-NODE
+  #EVENT( 9) := EM-EMAIL-RECIPIENTS(1)
+  #EVENT(10) := EM-EMAIL-RECIPIENTS(2)
+  #EVENT(11) := EM-EMAIL-RECIPIENTS(3)
+  COMPRESS EM-EMAIL-EVENTS (*) TO #EVENT(12)
+  #EVENT(13) := EM-EMAIL-FROM-REPLY (1)
+  #EVENT(14) := EM-EMAIL-FROM-REPLY (2)
+/*SU1  #EVENT(15) := EM-EMAIL-NODE
+  #EVENT(16) := *ISN (READ-EVENTS.)
+  MOVE EDITED EM-LAST-ACTIVE (EM=YYYYMMDDHHIISST) TO #EVENT(17)
+  #EVENT-FUNCTION := 'A' /* Add record to #EVENTS
+  PERFORM #XXTABLE2-EVENTS
+END-READ
+IF #TRACING
+  #NUM := *COUNTER(READ-EVENTS.) - 1
+  COMPRESS 'Number of event definitions read: ' #NUM TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* READ-EVENTS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-EMAILS
+************************************************************************
+#EVENT-FUNCTION := 'S' /* Set #EVENTS to first record
+PERFORM #XXTABLE2-EVENTS
+CHECK-EMAIL. REPEAT
+  #EVENT-FUNCTION := 'R' /* read #EVENTS sequentially
+  PERFORM #XXTABLE2-EVENTS
+  IF #EVENT-RC = 1
+    ESCAPE BOTTOM (CHECK-EMAIL.)
+  END-IF
+  IF #TRACING
+    COMPRESS 'Processing event definition: ' #EVENT(2) TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+  RESET #SEND-EMAIL #SKIP #FOUND #COMMENTS /*SU1 #SEARCH
+  #EMAIL-FUNCTION := 'K' /* reset #EMAIL array
+  INCLUDE XXTABLE '#EMAIL-FUNCTION'  '#EM-EMAIL-BODY'
+    '#EMAIL-LINE' '#EMAIL-CURRENT-IX' '#EMAIL-LAST-IX'
+    '#EMAIL-TEMP1' '#EMAIL-TEMP2'    '#EMAIL-RC'
+  IF #EVENT(17) = '000001020000000' OR = ' '
+    #EVENT(17) := '198001010000000'
+  END-IF
+  MOVE EDITED #EVENT(17) TO #LAST-ACTIVE-T (EM=YYYYMMDDHHIISST)
+  IF #LAST-ACTIVE-T < #LAST-ACTIVE-BEGIN
+    #LAST-ACTIVE-T := #LAST-ACTIVE-BEGIN
+  END-IF
+  IF #TRACING
+    MOVE EDITED #LAST-ACTIVE-T (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      TO #TRACE-MSG
+    COMPRESS 'Start time for log entries of event' #EVENT(2) 'is'
+      #TRACE-MSG TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+  READ-LOGS. READ SAT-LOG BY LOG-ENV-TIME = #SATKEY-FROM
+    IF LOG-ENVIRONMENT NE #LOG-ENV-FROM OR LOG-ENV-TIME > #SATKEY-TO
+    OR *COUNTER(READ-LOGS.) > #MAX                                    /*
+      ESCAPE BOTTOM (READ-LOGS.)
+    END-IF
+    #LOG-FUNCTION := 'K' /* Reset log message array
+    PERFORM #XXTABLE2-LOGS
+    IF LOG-USER-DATA(1) = ' ' AND LOG-MESSAGE NE ' '
+      LOG-USER-DATA(1) := LOG-MESSAGE /* old stuff ...
+    END-IF
+    REDUCE DYNAMIC #L-MSG-ALL TO 0
+    RESET #LOG(*) #ERN
+    #LOG(4) := 'N' /* Indicates a new log message
+    SEPARATE LOG-USER-DATA(1) INTO #LOG(3) IGNORE
+    DECIDE FOR FIRST CONDITION
+      WHEN #LOG(3) IS (N4)
+        #ERN := VAL(#LOG(3))
+        MOVE EDITED #ERN (EM=9999) TO #LOG(3)
+        COMPRESS 'NOM' #LOG(3) TO #LOG(3) LEAVING NO
+      WHEN #LOG(3) = 'NUM' /*see RLOGERR /*SU4 was "= MASK('NUM ')"
+        ESCAPE TOP
+      WHEN LOG-USER-DATA(1) =MASK('NOM'NNNN' ') OR=MASK('NAT'NNNN' ')
+        #LOG(3) := SUBSTR(LOG-USER-DATA(1),1,7)
+      WHEN NONE
+        #LOG(3) := 'NOM0005' /*SU4 really ??
+    END-DECIDE
+    IF #LOG(3) = 'NOM0021' /* is a Natural error
+      EXAMINE #LOG(2) FOR '/' GIVING NUMBER IN #NUM
+      IF #NUM > 2 /* it is a Natural error message
+        SEPARATE #LOG(2) INTO #LOG(3) #LOG(3) #LOG(3) #LOG(3) IGNORE
+          WITH DELIMITER '/'
+        COMPRESS 'NAT' #LOG(3) TO #LOG(3) LEAVING NO
+      END-IF
+    END-IF
+    LOG-USER-DATA. FOR #I = 1 TO 20
+      IF LOG-USER-DATA(#I) = ' '
+        ESCAPE BOTTOM (LOG-USER-DATA.)
+      END-IF
+      #MESSAGE-TEXT := LOG-USER-DATA(#I)
+      CALLNAT 'RSUBMSGN' #MESSAGE-TEXT
+      COMPRESS #L-MSG-ALL #MESSAGE-TEXT TO #L-MSG-ALL
+    END-FOR
+    PERFORM XXWRAP-WORD-WRAP 'L' #L-MSG-ALL #MESSAGE-ARRAY (*) 95
+    MOVE EDITED LOG-TIME (EM=YYYYMMDDHHIISST) TO #LOG(5)
+    MOVE EDITED LOG-TIME (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      TO #LOG-TIME
+    COMPRESS LOG-EXEC-USERID #LOG-TIME #MESSAGE-ARRAY(1) TO #LOG(2)
+    IF *COUNTER(READ-LOGS.) = 1 /* Prolog: 'Events:' / 'Messages:'
+      #LOG-SAVE(*) := #LOG(*)
+      #LOG(2) := F#GETMSG (<5206,#EM-ERROR-TEXT>) /* Events:
+      COMPRESS #LOG(2) #EVENT(2) TO #LOG(2) /*SU2
+      #LOG(4) := '*'   /* Comment, not to be checked in SEND-EMAIL
+      MOVE EDITED #LOG-LAST-IX (EM=999999999) TO #LOG(1)
+      PERFORM ADD-LINE-TO-LOG
+      #LOG(2) := #EVENT(12) /* defined email events
+      PERFORM ADD-LINE-TO-LOG
+      #LOG(2) := F#GETMSG (<5207,#EM-ERROR-TEXT>) /*Messages:
+      PERFORM ADD-LINE-TO-LOG
+      #LOG(*) := #LOG-SAVE(*)
+    END-IF
+    MOVE EDITED #LOG-LAST-IX (EM=999999999) TO #LOG(1)
+    PERFORM ADD-LINE-TO-LOG
+    #LOG(4) := ' '           /* following records are the same message
+    FOR #J = 2 TO *OCC (#MESSAGE-ARRAY)
+      IF #MESSAGE-ARRAY(#J) NE ' '
+        #LOG(2) := #MESSAGE-ARRAY(#J)
+        MOVE EDITED #LOG-LAST-IX (EM=999999999) TO #LOG(1)
+        PERFORM ADD-LINE-TO-LOG
+      END-IF
+    END-FOR
+    #LOG-FUNCTION := 'S' /* Go back to beginning
+    PERFORM #XXTABLE2-LOGS
+    PROCESS-LOG. REPEAT
+      #LOG-FUNCTION := 'R' /* Read log lines sequentially
+      PERFORM #XXTABLE2-LOGS
+      DECIDE FOR FIRST CONDITION
+        WHEN #LOG-RC = 1
+          ESCAPE BOTTOM (PROCESS-LOG.)
+        WHEN #LOG(5) < #EVENT(1)     /* compare timestamps
+          ESCAPE TOP
+        WHEN NONE
+          IGNORE
+      END-DECIDE
+      DECIDE FOR EVERY CONDITION
+        WHEN #LOG(4) = 'N'           /* got new message:
+          #SKIP := #FOUND := FALSE
+          #EMAIL-EVENTS   := #EVENT(12)
+          GET-CONDITIONS. REPEAT UNTIL #EMAIL-EVENTS = ' '
+            SEPARATE #EMAIL-EVENTS INTO #STRING REMAINDER #EMAIL-EVENTS
+              WITH DELIMITERS ' ;'
+            MOVE LEFT #STRING TO #STRING
+/*SU1       #SEARCH := #STRING
+            EXAMINE #STRING TRANSLATE INTO UPPER
+            #STRING := SUBSTR(#STRING,1,7)
+            IF NOT (#STRING_A3 ='NOM' OR='NAT' AND #STRING_A4=MASK('*')
+            OR=MASK(9'*') OR=MASK(99'*') OR=MASK(999'*')  OR=MASK(9999))
+              ESCAPE TOP
+            END-IF
+/*SU1       RESET #SEARCH
+            EXAMINE #STRING FOR '*' GIVING POSITION IN #POS
+            IF #POS = 0
+              #RANGE-FROM := #RANGE-TO := #STRING
+            ELSE
+              SUBTRACT 1 FROM #POS
+              #DIFF := 7 - #POS
+              COMPRESS SUBSTR(#STRING,1,#POS) SUBSTR(#ZEROES,1,#DIFF)
+                TO #RANGE-FROM LEAVING NO
+              COMPRESS SUBSTR(#STRING,1,#POS) SUBSTR(#NINES,1,#DIFF)
+                TO #RANGE-TO   LEAVING NO
+            END-IF
+            IF #LOG(3) = #RANGE-FROM THRU #RANGE-TO
+              #FOUND := #SEND-EMAIL := TRUE
+              #SKIP  := FALSE
+            ELSE
+              #SKIP  := TRUE
+            END-IF
+          END-REPEAT
+        WHEN #LOG(4) = '*' AND NOT #SKIP /* remember comment lines
+          #COMMENT-IX-FROM := #LOG-CURRENT-IX - 1
+          #COMMENTS := #SKIP := TRUE
+        WHEN #LOG(4) = '*'            /* remember comment lines
+          #COMMENT-IX-TO   := #LOG(1) /*end of comments if present
+        WHEN  #SKIP AND NOT #FOUND
+          ESCAPE TOP
+        WHEN NONE
+          IGNORE
+      END-DECIDE
+      IF #TRACING
+        COMPRESS 'Matching event found: ' #LOG(3) 'in' #LOG(2)
+/*SU1     'with search string:' #SEARCH
+          TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END TRANSACTION
+      END-IF
+/*SU1 -> IF #SEARCH NE ' ' /* Search string as AND condition found
+/*      EXAMINE #LOG(2) FOR #SEARCH GIVING POSITION IN #POS
+/*      IF #POS = 0
+/*        IF #TRACING
+/*         COMPRESS 'but search string' #SEARCH 'not matched in' #LOG(2)
+/*            TO #TRACE-MSG
+/*          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+/*          END TRANSACTION
+/*        END-IF
+/*        RESET #LOG(4) /* skip log lines until next message
+/*        ESCAPE TOP
+/*SU1 <- END-IF END-IF
+      #SEND-EMAIL     := TRUE
+      #FOUND          := FALSE
+      IF #COMMENTS /* go back to preceding comment lines
+        #COMMENTS       := FALSE
+        #LOG-SAVE(*)    := #LOG(*)
+        #LOG-CURRENT-IX := #COMMENT-IX-FROM
+        GET-COMMENTS. REPEAT
+          #LOG-FUNCTION := 'R' /* read log lines sequentially
+          PERFORM #XXTABLE2-LOGS
+          IF #LOG(1) > #COMMENT-IX-TO OR #LOG-RC=1/*end of comment lines
+            ESCAPE BOTTOM (GET-COMMENTS.)
+          END-IF
+          #EMAIL-FUNCTION := 'A' /* Add line to #EM-EMAIL-BODY
+          INCLUDE XXTABLE '#EMAIL-FUNCTION'   '#EM-EMAIL-BODY'
+            '#LOG(2)'     '#EMAIL-CURRENT-IX' '#EMAIL-LAST-IX'
+            '#EMAIL-TEMP1' '#EMAIL-TEMP2'     '#EMAIL-RC'
+        END-REPEAT
+        #LOG(*) := #LOG-SAVE(*)
+      END-IF
+      #EMAIL-FUNCTION := 'A' /* Add line to #EM-EMAIL-BODY
+      INCLUDE XXTABLE '#EMAIL-FUNCTION'   '#EM-EMAIL-BODY'
+        '#LOG(2)'     '#EMAIL-CURRENT-IX' '#EMAIL-LAST-IX'
+        '#EMAIL-TEMP1' '#EMAIL-TEMP2'     '#EMAIL-RC'
+    END-REPEAT
+  END-READ /* READ-LOGS.
+  IF *COUNTER(READ-LOGS.) GE #MAX
+    #XX-ERROR-CODE := 2117 /*NOM2117 Too many log records. Some ignored
+    CALLNAT 'XXGMSG-N'#XX-GMSG-PARMS
+    #TRACE-MSG := #XX-SHORT-TEXT
+    #EMAIL-FUNCTION := 'A' /* Add line to #EM-EMAIL-BODY
+    INCLUDE XXTABLE '#EMAIL-FUNCTION'   '#EM-EMAIL-BODY'
+      '#TRACE-MSG'  '#EMAIL-CURRENT-IX' '#EMAIL-LAST-IX'
+      '#EMAIL-TEMP1' '#EMAIL-TEMP2'     '#EMAIL-RC'
+    #TRACE-MSG := '2117'
+    PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+*   Write hint to email: /*SU2
+    #TRACE-MSG := #EVENT(2)
+    COMPRESS '- Shorten ''Check cycle'' in Email Message definition '''
+      #TRACE-MSG ''' to avoid this.' TO #TRACE-MSG LEAVING NO
+    #EMAIL-FUNCTION := 'A' /* Add line to #EM-EMAIL-BODY
+    INCLUDE XXTABLE '#EMAIL-FUNCTION'   '#EM-EMAIL-BODY'
+      '#TRACE-MSG'  '#EMAIL-CURRENT-IX' '#EMAIL-LAST-IX'
+      '#EMAIL-TEMP1' '#EMAIL-TEMP2'     '#EMAIL-RC'
+    END TRANSACTION
+    #SEND-EMAIL := TRUE
+  END-IF
+  IF #SEND-EMAIL
+    PERFORM SEND-EMAIL
+  END-IF
+  IF NOT(#EVENT (16) IS (P11)) /*SU5 = MASK(ZZZZZZZZZZZ))
+    ESCAPE TOP
+  END-IF
+  #ISN := VAL(#EVENT(16))
+  IF #ISN LE 0
+    ESCAPE TOP
+  END-IF
+  #3113 := TRUE /*SU3
+  UPD-EVENT. GET LAST-ACTIVITY #ISN /*update before ESCAPE TOP /*SU1
+  LAST-ACTIVITY.EM-LAST-ACTIVE := #TIME-TO
+  UPDATE (UPD-EVENT.)
+  END TRANSACTION
+  RESET #3113 /*SU3
+END-REPEAT
+*
+END-SUBROUTINE /* CHECK-EMAILS
+*
+************************************************************************
+DEFINE SUBROUTINE SEND-EMAIL
+************************************************************************
+#EM-FUNCTION       := 'B'        /*Send Natural member with array
+#EM-SUBJECT        := #EVENT( 3) /*Insert #EM-EMAIL-BODY at &MESSAGES
+/*SU1 #EM-HOST-CODE-PAGE := #EVENT( 4)
+#EM-EMAIL-MEMBER   := #EVENT( 6)
+#EM-EMAIL-LIBRARY  := #EVENT( 7)
+/*SU1 #EM-NODE           := VAL(#EVENT(8))
+#EM-RECIPIENTS     := #EVENT( 9)
+EXAMINE #EM-RECIPIENTS FOR ' ' REPLACE WITH ';'
+#EM-CC-RECIPIENTS  := #EVENT(10)
+EXAMINE #EM-CC-RECIPIENTS FOR ' ' REPLACE WITH ';'
+#EM-BCC-RECIPIENTS := #EVENT(11)
+EXAMINE #EM-BCC-RECIPIENTS FOR ' ' REPLACE WITH ';'
+#EM-FROM-NAME      := #EVENT(13)
+#EM-REPLY-TO       := #EVENT(14)
+/*SU1 #EM-UX-NODE        := #EVENT(15)
+COMPRESS '&LAST=' SUBSTR(#EVENT(1),1,4)  '-' SUBSTR(#EVENT(1),5,2)  '-'
+  SUBSTR(#EVENT(1),7,2)  ',' SUBSTR(#EVENT(1),9,2)  ':'
+  SUBSTR(#EVENT(1),11,2) TO #EM-VARIABLES LEAVING NO
+#EM-TRACING := #TRACING
+CALLNAT 'XXEMAIL' #EM-PARAMS
+RESET #SEND-EMAIL
+IF #EM-ERROR-CODE = 0
+  COMPRESS '1576' #EVENT(2) #EM-SUBJECT TO #TRACE-MSG /*SU5
+ELSE /*SU5 above and below: was #EM-RECIPIENTS
+  COMPRESS '1577' #EVENT(2) #EM-ERROR-TEXT TO #TRACE-MSG /*SU5
+END-IF
+PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+END TRANSACTION
+*
+END-SUBROUTINE /* SEND-EMAIL
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-LINE-TO-LOG
+************************************************************************
+#LOG-FUNCTION := 'A' /* Add a line to logs
+PERFORM #XXTABLE2-LOGS
+*
+END-SUBROUTINE /* ADD-LINE-TO-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE #XXTABLE2-EVENTS /*SU5
+************************************************************************
+INCLUDE XXTABLE2 '#EVENT-FUNCTION' '#EVENTS' '#EVENT'
+  '#EVENT-CURRENT-IX' '#EVENT-LAST-IX' '#EVENT-TEMP1' '#EVENT-TEMP2'
+  '#EVENT-COLUMNS' '#EVENT-RC'
+*
+END-SUBROUTINE /* #XXTABLE2-EVENTS
+*
+************************************************************************
+DEFINE SUBROUTINE #XXTABLE2-LOGS /*SU5
+************************************************************************
+INCLUDE XXTABLE2 '#LOG-FUNCTION' '#LOGS' '#LOG' '#LOG-CURRENT-IX'
+  '#LOG-LAST-IX' '#LOG-TEMP1' '#LOG-TEMP2' '#LOG-COLUMNS' '#LOG-RC'
+*
+END-SUBROUTINE /* #XXTABLE2-LOGS
+*
+************************************************************************
+ON ERROR /*SU3
+************************************************************************
+  IF #3113
+    PRINT (AD=L) *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'error' *ERROR 'during send Email Message:' #EVENT(2)
+      'ISN:' #EVENT(16)(EM=H(10))
+      'len:' *LENGTH(#EVENT(16)) /*SU5
+  END-IF
+*
+END-ERROR
+*
+END

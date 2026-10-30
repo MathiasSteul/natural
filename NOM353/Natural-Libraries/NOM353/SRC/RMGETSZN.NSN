@@ -1,0 +1,97 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMGETSZN  Get SPACE for print data set
+* xsiszha 2000-08-01 (CE7461) Extend Report and Bundle Names
+* xsetggr 2007-05-03 NOM3201  support P11 format run numbers
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* ----------------------------------------------------------------------
+*
+DEFINE DATA PARAMETER
+*
+1 #PRINTOUT-TYPE         (A1)  /* R - REPORT B - BUNDLE
+1 #NAME                  (A25)
+1 #RNB                   (P11)
+1 #BLKSIZE               (N5)
+1 #SPACE                 (A32)
+************************************************************************
+LOCAL  USING  SUPER-L
+LOCAL
+1 ACT-REP  VIEW  OF  NRM-ACTIVE-REPORTS
+  2 AR-NUMBER-OF-LINES
+1 BUNDLE-CONTENTS  VIEW  OF  NRM-BUNDLE-CONTENTS
+  2 BC-BUNDLE
+  2 BC-BUNDRNB
+  2 BC-REPNAME
+  2 BC-REPRNB
+*
+1 #PRIMARY               (N8)
+1 #SECONDARY             (N8)
+1 #BC-BUNDLE-RNB         (A33)
+1 REDEFINE  #BC-BUNDLE-RNB
+  2 #BC-BUNDLE           (A25)
+  2 #BC-BUNDRNB          (P11)
+  2 #BC-SEQ              (P3)
+1 #NUM-OF-LINES          (P8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #NUM-OF-LINES
+DECIDE  ON FIRST VALUE OF #PRINTOUT-TYPE
+  VALUE 'R' PERFORM COMPUTE-FOR-REPORT
+  VALUE 'B' PERFORM COMPUTE-FOR-BUNDLE
+  NONE ESCAPE ROUTINE
+END-DECIDE
+*
+#PRIMARY   := (#NUM-OF-LINES * 107 ) / #BLKSIZE
+#SECONDARY := #PRIMARY * 0.2
+IF #PRIMARY LT 1
+  #PRIMARY   := 1
+  #SECONDARY := #PRIMARY
+END-IF
+*
+COMPRESS '(' #BLKSIZE ',(' #PRIMARY ',' #SECONDARY '§DIR),RLSE)'
+  TO #SPACE LEAVING NO
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE COMPUTE-FOR-REPORT
+************************************************************************
+#AR-REPNAME := #NAME
+#AR-REPRNB := #RNB
+FIND ACT-REP WITH AR-REPORT-RNB = #AR-REPORT-RNB
+  ADD AR-NUMBER-OF-LINES TO #NUM-OF-LINES
+END-FIND
+*
+END-SUBROUTINE /* COMPUTE-FOR-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE COMPUTE-FOR-BUNDLE
+************************************************************************
+RESET #NUM-OF-LINES
+#BC-BUNDLE := #NAME
+#BC-BUNDRNB := #RNB
+RESET #BC-SEQ
+READ BUNDLE-CONTENTS BY BC-BUNDLE-RNB STARTING FROM #BC-BUNDLE-RNB
+  IF BC-BUNDLE NE #BC-BUNDLE OR BC-BUNDRNB NE #BC-BUNDRNB
+    ESCAPE BOTTOM
+  END-IF
+  #AR-REPNAME := BC-REPNAME
+  #AR-REPRNB := BC-REPRNB
+  FIND ACT-REP WITH AR-REPORT-RNB = #AR-REPORT-RNB
+    ADD AR-NUMBER-OF-LINES TO #NUM-OF-LINES
+  END-FIND
+END-READ
+*
+END-SUBROUTINE /* COMPUTE-FOR-BUNDLE
+*
+END

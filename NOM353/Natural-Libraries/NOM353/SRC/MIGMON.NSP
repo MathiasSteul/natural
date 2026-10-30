@@ -1,0 +1,229 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* MIGMON - Migrate task and node structure from NOM 3.4. to NOM 3.5.             >
+*
+* Remark    Uses M-VERS-MIGRATION-COMPL(6)
+* Maintenance
+* uuuuuuu yyyy-mm-dd Issue
+* fhi     2017-01-25 NOMALL-1988 Created.
+* SU1     2017-03-07 NOM 3.5: remove unused code
+* SU2 2018-12-03 NOMALL-2180 set 'Automatic User Definition' to No
+* fhi     2019-01-23 NOMALL-2212 Honour first installation, rewritten
+* SU3     2020-04-15 NOMALL-2349 error handling (NPR)
+* SU4     2020-09-22 NOMALL-2433 better msg for 5999 if node not active
+* SU5     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU6     2021-04-07 NOMALL-2455 store node in N-NODEMF
+* SU5     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL USING RMTASK-P
+/*SU5 LOCAL USING VMONITUL
+/*LOCAL USING VMON34-L
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR
+  2 M-USER-AUTODEF
+  2 M-MONITOR-ID
+1 #MAX-FUNCTS                (N2)  CONST <12>
+1 TSK VIEW OF NRM-SUBTASK-INFO
+  2 ST-SUBTASK-ID
+  2 REDEFINE ST-SUBTASK-ID
+    3 #PRODUCT               (A3)
+    3 #ST-NUMBER             (N2)
+1 TSK-UPD VIEW OF NRM-SUBTASK-INFO
+/*SU3  2 ST-SUBTASK-ID 2 ST-WAIT-MINIMUM 2 ST-WAIT-MAXIMUM
+/*SU3  2 ST-WAIT-INCREMENT 2 ST-WAIT-CURRENT
+1 MON VIEW OF NRM-MONITOR
+  2 M-MONITOR-ID
+  2 REDEFINE M-MONITOR-ID
+    3 #MONITOR-PROD          (A3)
+    3 #MONITOR-TASKNO        (N2)
+  2 M-MONITOR-TASKS
+  2 REDEFINE M-MONITOR-TASKS
+    3 #TSK                   (N3/#MAX-FUNCTS)
+  2 M-VERSION
+  2 REDEFINE M-VERSION
+    3 M-VERS-VERSION-N       (N2)
+    3 M-VERS-RELEASE-N       (N2)
+    3 M-VERS-SP-N            (N2)
+    3 M-VERS-CF-N            (N4)
+    3 M-VERS-MIGRATION-IN-PROGRESS (A1) /* NOMALL-1214 was (L)
+    3 M-VERS-DATE            (A8)
+    3 M-VERS-NO-OF-MIG-PROGS (N2)
+    3 M-VERS-MIGRATION-COMPL (A1/10)
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU5
+  2 MF-MONITOR-NODE          (N5)
+1 MON-CHK VIEW OF NRM-MONITOR
+1 SYSTEM-INFO VIEW OF SYSTEM-INFO
+  2 ERROR-CODE /*SU4
+  2 ERROR-TEXT /*SU4
+  2 SYSTEM-TYPE
+  2 SPOOL-TYPE
+  2 PRODUCT-NAME
+*
+1 #FUNCTION                  (A15/#MAX-FUNCTS)
+  CONST <'Scan','Copy','Copy',
+  'Copy','Copy','Copy','Copy','Copy','Copy','Copy',
+  'Manage-Reports','Manage-Prints'>
+1 #TASK-UPDATE               (L)
+1 #I                         (I4)
+1 #CNT-UPD                   (I4)
+1 #PROGRAM                   (A8) INIT <*PROGRAM>
+1 #MONITOR-ID                (A20) /* NOMALL-2212 fhi in
+1 #FOUND                     (L)   /* NOMALL-2212 fhi in
+1 #NPR-USERID                (A8) INIT <'NOMMON'> /*default /*SU7
+1 #TRACING                   (L)  INIT <FALSE>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT AD=L /*for PRINT
+*
+INCLUDE MIG----C 'SET-MONITOR-ID' 'MON'
+*
+PRINT #PROGRAM *DAT4I *TIME(AL=8) 'starting.'
+#MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+FDMON. FIND MON WITH M-MONITOR-ID = #MONITOR-ID
+  IF M-VERS-MIGRATION-IN-PROGRESS NE 'Y'
+    BACKOUT TRANSACTION
+    WRITE / 'No migration started yet. Run MIGSTART first.' /
+    ESCAPE ROUTINE
+  END-IF
+  M-VERS-MIGRATION-COMPL (1) := 'N' /* migration in progress
+  IF #TSK(11) = 0 /* not yet migrated
+    #TSK(11:#MAX-FUNCTS) := #TSK(3:4)
+    RESET #TSK(3:10)
+    FOR #I = 1 TO #MAX-FUNCTS
+      DECIDE FOR EVERY CONDITION
+        WHEN #I = 3
+          #I := 10
+          ESCAPE TOP
+        WHEN #TSK(#I) > 1
+          #TSK(#I) := #TSK(#I) * 10 + 1
+        WHEN #TSK(#I) = 0
+          #TSK(#I) := 1
+        WHEN NONE
+          IGNORE
+      END-DECIDE
+      #TASK-UPDATE := TRUE
+    END-FOR
+    ADD 1 TO #CNT-UPD
+    UPDATE
+  END-IF
+END-FIND
+IF *MACHINE-CLASS = 'MAINFRAME' /*store MF-NODE
+  PRINT *DAT4I *TIME(AL=8) #PROGRAM 'create mainframe node.'
+/*
+/* M-MONITOR-NODE removed from NOM-MONITOR, content will be moved from
+/* mon. def. record to MF-NODE in N-NODEMF. Here 3.4 value is used:
+/*
+  GET MF-NODE *ISN (FDMON.) /*mon. def. record Ü SU5
+  FIND SYSTEM-INFO WITH NODE = MF-MONITOR-NODE /*SU5
+    IF ERROR-CODE NE 0 /*SU4
+      *ERROR-NR := ERROR-CODE + 5000
+    END-IF
+  END-FIND
+  CALLNAT 'N-NODEMF' SYSTEM-INFO.PRODUCT-NAME SYSTEM-INFO.SYSTEM-TYPE
+    SYSTEM-INFO.SPOOL-TYPE #NPR-USERID #PROGRAM #TRACING
+    MF-MONITOR-NODE /*SU6
+END-IF
+*
+RDTSK. READ TSK BY ST-SUBTASK-ID = 'NOM02' ENDING AT 'NOM05'
+  RMTASK-P.FUNCTION       := 'S'
+  RMTASK-P.SUBTASK-NUMBER := #ST-NUMBER * 10 + 1
+  CALLNAT 'RMTASKID' RMTASK-P
+  TSK1. FIND NUMBER TSK-UPD WITH ST-SUBTASK-ID = RMTASK-P.TASK-ID
+  IF *NUMBER (TSK1.) = 0
+    TSK.ST-SUBTASK-ID := RMTASK-P.TASK-ID
+    UPDATE (RDTSK.)
+    ADD 1 TO #CNT-UPD
+  END-IF
+END-READ
+*
+RDMON. READ MON BY M-MONITOR-ID = 'NOM02' ENDING AT 'NOM05'
+  RMTASK-P.FUNCTION       := 'S'
+  RMTASK-P.SUBTASK-NUMBER := MON.#MONITOR-TASKNO * 10 + 1
+  CALLNAT 'RMTASKID' RMTASK-P
+  RDMON1. FIND NUMBER MON-CHK WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+  IF *NUMBER (RDMON1.) = 0
+    MON.M-MONITOR-ID := RMTASK-P.TASK-ID
+    UPDATE (RDMON.)
+    ADD 1 TO #CNT-UPD
+  END-IF
+END-READ
+END TRANSACTION
+*
+PERFORM MIGRATE-AUTOMATIC-USER
+*
+IF #TASK-UPDATE
+  GET MON *ISN(FDMON.)
+  PRINT 'Updated task table. Now the following structure applies:'
+  FOR #I = 1 TO #MAX-FUNCTS
+    IF #TSK(#I) NE 0
+      DISPLAY 'Functions' #FUNCTION (#I) 'Task-Number' #TSK(#I)
+    END-IF
+  END-FOR
+  PRINT /
+END-IF
+PRINT 'Updated monitor parameter records:' #CNT-UPD
+PRINT '*** Migration of monitor definitions completed. ***'
+INCLUDE MIG----C 'SET-COMPLETED' 'MON'
+END TRANSACTION
+PRINT #PROGRAM *DAT4I *TIME(AL=8) 'ended.'
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SET-COMPLETED /* called by MIG----C
+************************************************************************
+M-VERS-MIGRATION-COMPL (1) := 'Y' /* migration finished
+*
+END-SUBROUTINE /*SET-COMPLETED
+*
+************************************************************************
+DEFINE SUBROUTINE SET-MONITOR-ID /* called by MIG----C
+************************************************************************
+MON.M-MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+*
+END-SUBROUTINE /*SET-MONITOR-ID
+*
+************************************************************************
+DEFINE SUBROUTINE MIGRATE-AUTOMATIC-USER
+************************************************************************
+NRM-MONITOR.M-MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+M-AUTO. FIND NRM-MONITOR WITH M-MONITOR-ID = NRM-MONITOR.M-MONITOR-ID
+  IF M-USER-AUTODEF NE 'N'
+    UPD3. GET NRM-MONITOR *ISN (M-AUTO.)
+    M-USER-AUTODEF := 'N'
+    UPDATE (UPD3.)
+    END TRANSACTION
+    WRITE NOHDR *PROGRAM 'Attention: Automatic User Definition set'
+      'to ''N''.'
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* MIGRATE-AUTOMATIC-USER
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  PRINT 'Updated monitor parameter records:' #CNT-UPD
+  PRINT 'Migration aborted with error but can be restarted:' /
+    'Error:' *ERROR-NR 'line:' *ERROR-LINE
+  PRINT ERROR-TEXT /*SU4
+  IF *ERROR-NR = 5999 /*Node not active /*SU4
+    PRINT 'NPR node under which NOM Monitor runs must be active.'
+  END-IF
+  PRINT #PROGRAM *DAT4I *TIME(AL=8) 'aborted.'
+  TERMINATE 16
+END-ERROR
+*
+END

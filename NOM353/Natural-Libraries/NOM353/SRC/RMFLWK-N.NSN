@@ -1,0 +1,161 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMFLWK-N - Get attributes for flush via write work file
+*
+* Creation and Maintenance History
+* uuu yy-mm-dd s(999999)     ...
+* mrs 93-07-07               created
+* mrs 93-10-24               extract cc-type from recfm
+* xsetggr 2004-03-10 p(250355) validate attribute LRECL
+* sju     2004-04-22 p(250355) correct handling of lrecl/recfm
+* xsetggr 2004-11-23 p(258871) recat due to changes in rmfl---p
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* xsetggr 2007-09-24 p(297910) prevent err NAT1320
+* fhi     2008-06-20 P306371   Redefintion misused, WKF-NUMBER destroyed
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-12-21 NOMALL-865 restow due to changes in RMFL---P
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER USING RMFL---P
+PARAMETER
+1 P-ERROR-CODE  (N4)
+1 P-ERROR-TEXT  (A250)
+************************************************************************
+INDEPENDENT
+1 +WKF-NUMBER   (N2)
+* ----------------------------------------------------------------------
+LOCAL USING RCCTYP-E
+LOCAL
+1 PRINTOUT    VIEW  OF  NRM-PRINTOUTS
+  2 PO-ATTRIBUTES   (1:25)
+  2 REDEFINE PO-ATTRIBUTES
+    3 PO-ATTRIB     (1:25)
+      4 PO-IDENT    (I1)
+      4 PO-LENGTH   (N2)
+      4 PO-PROMPT   (N4)
+      4 PO-VAR      (A16)
+      4 PO-VALUE    (A72)
+  2 C*PO-ATTRIBUTES
+1 F                 (I2)
+1 NOE               (I2)
+1 #PO-VALUE         (A72)
+1 REDEFINE #PO-VALUE
+  2 #PO-VAL-A1      (A1/72)
+1 #RECFM/LRECL      (A8)
+1 REDEFINE #RECFM/LRECL
+  2 #RL-A1          (A1/8)
+1 #I                (I2)
+1 #J                (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-ERROR-CODE P-ERROR-TEXT
+*
+PERFORM READ-PRINTOUT-RECORD
+IF P-ERROR-CODE = 0
+  PERFORM WORK-FILE-INTERFACE
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-PRINTOUT-RECORD
+************************************************************************
+FNDPR. FIND PRINTOUT WITH PO-ID = FLUSH-POID
+  IF NO RECORDS FOUND
+    P-ERROR-CODE := 0005
+    P-ERROR-TEXT := 'Printout Record not found'
+    ESCAPE BOTTOM (FNDPR.)
+  END-NOREC
+END-FIND
+*
+END-SUBROUTINE /* READ-PRINTOUT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE WORK-FILE-INTERFACE
+************************************************************************
+IF PRINTOUT.C*PO-ATTRIBUTES > 25
+  NOE := 25
+ELSE
+  NOE := PRINTOUT.C*PO-ATTRIBUTES
+END-IF
+*
+WKF-CC-TYPE := NO-CC
++WKF-NUMBER := 1
+*
+FOR F = 1 TO NOE
+  DECIDE ON FIRST VALUE PRINTOUT.PO-VAR (F)
+    VALUE 'CONTROL'
+      DECIDE ON FIRST PRINTOUT.PO-VALUE (F)
+        VALUE 'A'  WKF-CC-TYPE := ASA-CODE
+        VALUE 'M'  WKF-CC-TYPE := MACHINE-CODE
+        NONE       IGNORE
+      END-DECIDE
+    VALUE 'WKF'
+      IF PRINTOUT.PO-VALUE (F) NE ' '
+        +WKF-NUMBER := VAL (PRINTOUT.PO-VALUE (F))
+      END-IF
+    VALUE 'RECFM'
+      IF PRINTOUT.PO-VALUE (F) = SCAN 'A'
+        WKF-CC-TYPE := ASA-CODE
+      END-IF
+      IF PRINTOUT.PO-VALUE (F) = SCAN 'M'
+        WKF-CC-TYPE := MACHINE-CODE
+      END-IF
+    VALUE 'LRECL'
+      IF PRINTOUT.PO-VALUE(F) NE ' '
+        FLUSH-RECORD-LENGTH := VAL(PRINTOUT.PO-VALUE(F))
+      END-IF
+    VALUE 'DCB1', 'DCB2'
+      EXAMINE PRINTOUT.PO-VALUE (F) FOR 'RECFM=' GIVING POSITION IN #I
+      IF #I GT 0
+        #PO-VALUE:= PRINTOUT.PO-VALUE(F)
+        #I:= #I + 6
+        FOR #J = 1 TO 8
+          IF #I GT 72
+            ESCAPE BOTTOM
+          END-IF
+          IF #PO-VAL-A1(#I) EQ ' ' OR = ',' OR = ')'
+            ESCAPE BOTTOM
+          END-IF
+          #RL-A1(#J):= #PO-VAL-A1(#I)
+          #I:= #I + 1
+        END-FOR
+        IF #RECFM/LRECL = SCAN 'A'
+          WKF-CC-TYPE := ASA-CODE
+        END-IF
+        IF #RECFM/LRECL = SCAN 'M'
+          WKF-CC-TYPE := MACHINE-CODE
+        END-IF
+      END-IF
+      EXAMINE PRINTOUT.PO-VALUE (F) FOR 'LRECL=' GIVING POSITION IN #I
+      IF #I GT 0
+        #PO-VALUE := PRINTOUT.PO-VALUE(F)
+        ADD 6 TO #I
+        FOR #J = 1 TO 8
+          IF #I GT 72
+            ESCAPE BOTTOM
+          END-IF
+          IF #PO-VAL-A1(#I) EQ ' ' OR = ',' OR = ')'
+            ESCAPE BOTTOM
+          END-IF
+          #RL-A1(#J) := #PO-VAL-A1(#I)
+          ADD 1 TO #I
+        END-FOR
+        FLUSH-RECORD-LENGTH := VAL(#RECFM/LRECL)
+      END-IF
+    NONE  IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* WORK-FILE-INTERFACE
+*
+END

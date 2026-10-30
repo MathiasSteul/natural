@@ -1,0 +1,251 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMASAASN - Converts ASA to ASCII Code
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* fhi 05-03-31           created from template RMASAMCN
+* fhi 05-05-25 s(265478) Use User EBCDIC-ASCII table if filled
+* sju 05-07-29 p(267884) Long lines (250 bytes) truncated - ZDF
+* sju 05-10-19 p(270534) Too much cpu used
+* fhi 05-12-08 p(267884) 'Long lines' solution for Unix
+* fhi     2009-03-18 p315479   perform close processing under unix
+* SU1     2015-02-27 NOMALL-1569 CALL 'CMULT' => RMASCEBN (SYSNOM)
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING RMASAASP
+************************************************************************
+LOCAL USING RMFLLP-P
+LOCAL
+1 #CC                (A6)
+1 REDEFINE #CC
+  2 #CC-A1           (A1/6)
+1 #I                 (P3)
+1 #J                 (P3)
+1 #TABLE-IN          (A4/255)
+1 NADA1100
+  2 OBJECT-KEY
+    3 DBID           (N5)
+    3 FNR            (N5)
+    3 PASSWORD       (A8)
+    3 CIPHERCODE     (N8)
+    3 OBJECT-CLASS   (I1)
+    3 LIBRARY        (A8)
+    3 OBJECT-NAME    (A32)
+    3 OBJECT-TYPE    (A2)
+    3 OBJECT-KIND    (A1)
+      /*
+  2 INPUTS
+    3 OPT-ACCESS     (A1)
+    3 OPT-ET         (L)
+    3 OPT-REPLACE    (A1)
+    3 OPT-LINE-NUM   (A1)
+    3 OPT-STEPLIBS   (L)
+    3 OPT-REDEF-DIR  (L)
+    3 OPT-STREAM     (A1)
+    3 OPT-AMOUNT     (I2)
+    3 OPT-LINESIZE   (I2)
+      /*
+  2 INPUT-OUTPUTS
+    3 INT-HANDLE     (I4)
+    3 NEXT-SEQ       (I4)
+    3 NEXT-NUM       (I2)
+      /*
+  2 OUTPUTS                        /* Output for READ, input for WRITE
+    3 RETURNED       (I2)
+    3 SRC-NUM        (I2/1:255)
+    3 SRC-TEXT       (A1/1:255,1:92)
+    3 REDEFINE SRC-TEXT
+      4 SRC-GROUP    (1:255)
+        5 SRC-LINE   (A92)
+    3 SRC-SEQ        (I4/1:255)
+    3 SRC-LONG       (A1/1:255)
+      /*
+1 NATA1100
+  2 VERSION          (I1)     INIT <1>
+  2 V1-NSC-CHECK     (A1)     /* Check against NSC
+1 REDEFINE NATA1100
+  2 EXTENDED-PARMS
+    3 EXTENDED-DATA  (A1/1:2)
+1 NAD-MSG
+  2 MSG              (A79) /* Message
+  2 MSG-NR           (I4)  /* Message number:
+*                          /* <  0: NATURAL error number
+*                          /* >= 0: NAT. Util. error number
+  2 MSG-TYPE         (I1)  /* Type of message:
+*                          /*   0 = Informatory message
+*                          /*   1 = Warning
+*                          /* 100 = Severe error
+  2 MSG-DATA         (A32/1:3) /* Pass variables to be substituted
+1 NAD-FLD
+  2 FIELD-STRUCTURE  (A32) /* Name of structure the field
+*                                    /* in error belongs to.
+  2 FIELD-NAME       (A32) /* Name of field in error
+  2 FIELD-POSITION   (I4)  /* Result of the POS function
+  2 FIELD-INDEX1     (I4)  /* These indexes are used if the
+  2 FIELD-INDEX2     (I4)  /* field in error is an element
+  2 FIELD-INDEX3     (I4)  /* of an array.
+* variables for hex conversion
+1 #P-STRING          (A251)
+1 #P-CHAR            (B1)
+1 #P-CHAR-P          (P3)
+1 #P-VAL             (P5)
+1 #P-LEN             (P3)
+1 #P-FLAG            (L)
+1 #K                 (P3)
+1 #LIBRARY-ID        (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *MACHINE-CLASS = 'MAINFRAME' /* then translate into ASCII
+  DECIDE ON FIRST P-REC-CC
+    VALUE '1'  #CC := H'0C0D'         /* do a form feed
+    VALUE '+'  #CC := H'0D'           /* only CR
+    VALUE '0'  #CC := H'0D250D25'     /* space 2 Lines
+    VALUE '-'  #CC := H'0D250D250D25' /* space 3 Lines
+    VALUE '&'  #CC := P-REC-CC :=' '  /*no CC. No ASA but set in RMPRTCP
+    NONE       #CC := H'0D25'         /* space 1 Line
+  END-DECIDE
+*
+  EXAMINE P-REC-REST FOR ' ' GIVING LENGTH #K
+  COMPRESS #CC P-REC-REST TO #REC-A256 LEAVING NO
+  EXAMINE #REC-A256 FOR ' ' GIVING LENGTH #RECORD-LENGTH
+  IF #K = 0                            /* if record is empty
+    ADD 1 TO #RECORD-LENGTH            /* ensure we translate 1 blank
+  END-IF
+  CALLNAT 'RMASCEBN' 'E' #REC-A256 /* EBCDIC -> ASCII
+  IF P-TABLE-NAME NE ' ' /* additional user table
+    PERFORM FILL-TABLE
+    EXAMINE #REC-A256 TRANSLATE USING #TABLE(*)
+  END-IF
+ELSE /* use ASCII directly
+  DECIDE ON FIRST P-REC-CC
+    VALUE '1'  #CC := H'0C0D'         /* do a form feed
+    VALUE '+'  #CC := H'0D'           /* only CR
+    VALUE '0'  #CC := H'0D0A0D0A'     /* space 2 Lines
+    VALUE '-'  #CC := H'0D0A0D0A0D0A' /* space 3 Lines
+    VALUE '&'  #CC := P-REC-CC :=' '  /*no CC. No ASA but set in RMPRTC
+    NONE       #CC := H'0D0A'         /* space 1 Line
+  END-DECIDE
+*
+  EXAMINE P-REC-REST FOR ' ' GIVING LENGTH #K
+  COMPRESS #CC P-REC-REST TO #REC-A256 LEAVING NO
+  EXAMINE #REC-A256 FOR ' ' GIVING LENGTH #RECORD-LENGTH
+  IF #K = 0                            /* if record is empty
+    ADD 1 TO #RECORD-LENGTH            /* ensure we translate 1 blank
+  END-IF
+  IF P-TABLE-NAME NE ' ' /* additional user table
+    PERFORM FILL-TABLE
+    EXAMINE #REC-A256 TRANSLATE USING #TABLE(*)
+  END-IF
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE FILL-TABLE
+************************************************************************
+IF #TABLE(1) NE ' ' /* already filled
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'RGETLIB' #LIBRARY-ID
+COMPRESS #LIBRARY-ID 'U' TO LIBRARY LEAVING NO
+EXAMINE P-TABLE-NAME TRANSLATE INTO UPPER
+OBJECT-NAME   := P-TABLE-NAME
+OPT-LINE-NUM  := 'N'
+OPT-AMOUNT    := 255
+OPT-LINESIZE  := 92
+OPT-STREAM    := 'B'
+V1-NSC-CHECK  := 'Y'
+OBJECT-TYPE   := ' '
+OBJECT-KIND   := 'S'
+OPT-ACCESS    := 'O'
+CALLNAT 'NATA1100' NADA1100  NATA1100.EXTENDED-PARMS
+  NAD-MSG   NAD-FLD
+IF MSG-NR NE 0 AND MSG-TYPE GT 1
+  IF MSG-NR = 1006
+    P-ASA-ERROR-TEXT:= 'Transl-table member not found, default used.'
+  ELSE
+    IF MSG-NR LT 0
+      P-ASA-ERROR-TEXT:=
+        'Transl-table access denied by NSC, default used.'
+    ELSE
+      COMPRESS 'Error:' MSG-NR 'Function:' OPT-ACCESS
+        'reading transl-table' TO P-ASA-ERROR-TEXT
+    END-IF
+  END-IF
+  P-ASA-ERROR-CODE:= 21
+  WRITE '=' P-TABLE-NAME P-ASA-ERROR-TEXT
+  ESCAPE ROUTINE
+END-IF
+RESET SRC-LINE(*)
+OPT-ACCESS   := 'R'
+CALLNAT 'NATA1100' NADA1100  NATA1100.EXTENDED-PARMS NAD-MSG NAD-FLD
+IF RETURNED LT 1
+  PERFORM CLOSE-MEMBER
+  ESCAPE ROUTINE
+END-IF
+IF MSG-NR NE 0 AND MSG-TYPE GT 1
+  COMPRESS 'Error:' MSG-NR 'Function:' OPT-ACCESS
+    'reading transl-table' TO P-ASA-ERROR-TEXT
+  P-ASA-ERROR-CODE:= 21
+  WRITE '=' P-TABLE-NAME P-ASA-ERROR-TEXT
+  PERFORM CLOSE-MEMBER
+  ESCAPE ROUTINE
+END-IF
+FOR #I = 1 TO RETURNED
+  #TABLE-IN (#I) := SRC-LINE(#I)
+  PERFORM CHAR2HEX
+END-FOR
+*
+END-SUBROUTINE /* FILL-TABLE
+*
+************************************************************************
+DEFINE SUBROUTINE CHAR2HEX
+************************************************************************
+EXAMINE #TABLE-IN(#I) FOR ' ' GIVING LENGTH #P-LEN
+EXAMINE #TABLE-IN(#I) TRANSLATE USING #PO-TABLE(*)
+RESET #P-FLAG #P-CHAR #P-VAL #P-STRING
+FOR #J = 1 TO #P-LEN
+  #P-CHAR := SUBSTR(#TABLE-IN(#I),#J,1)
+  IF NOT #P-FLAG
+    IF #P-CHAR   < 16
+      #P-CHAR-P := #P-CHAR
+      #P-VAL    := #P-CHAR-P * 16
+    ELSE
+      RESET #P-CHAR
+    END-IF
+    #P-FLAG := TRUE
+  ELSE
+    IF #P-CHAR   < 16
+      #P-CHAR-P := #P-CHAR
+      #P-VAL    := #P-VAL + #P-CHAR-P
+    END-IF
+    #P-CHAR := #P-VAL
+    COMPRESS #P-STRING #P-CHAR TO #P-STRING LEAVING NO
+    #P-FLAG := FALSE
+  END-IF
+END-FOR
+*
+#TABLE(#I) := #P-STRING
+*
+END-SUBROUTINE /* CHAR2HEX
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-MEMBER
+************************************************************************
+OPT-ACCESS := 'C' /* CLOSE MEMBER FOR UNIX ACCESS
+CALLNAT 'NATA1100' NADA1100  NATA1100.EXTENDED-PARMS NAD-MSG NAD-FLD
+*
+END-SUBROUTINE /* CLOSE-MEMBER
+*
+END

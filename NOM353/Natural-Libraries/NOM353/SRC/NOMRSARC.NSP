@@ -1,0 +1,87 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* -------------------------------------------------------------------- *
+* NOMRSARC
+* Show all active reports with all dependencies and
+* reset archive flag
+* fhi/SAG, 12/2014
+* fhi  2014-12-01 NOMALL-1537 Created.
+* -------------------------------------------------------------------- *
+*
+DEFINE DATA
+GLOBAL USING MONIT-GL
+LOCAL
+1 XXNATDIR
+  2 P-LIBRARY                         (A8)
+  2 P-MODULE                          (A8)
+  2 P-LEVEL                           (N2)
+  2 P-DIRECTORY
+    3 M-SA-DATE                       (A10)
+    3 M-SA-TIME                       (A8)
+    3 M-SA-TIMESTAMP                  (T)     /* NOMALL-1214 in
+    3 M-SA-SIZE                       (A6)
+    3 M-CA-DATE                       (A10)
+    3 M-CA-TIME                       (A8)
+    3 M-CA-TIMESTAMP                  (T)     /* NOMALL-1214 in
+    3 M-CA-BP-SIZE                    (A6)
+  2 P-ERC                             (N4)   /* NOMALL-1214 in
+1 #FUNCTION (A1)
+1 #FLAG    (A1)
+1 #MSG                            (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY ALL
+FORMAT LS=133
+INPUT (AD=MILT'_')
+  '*****************************************************************' /
+  '***           Entire Output Management Utility                ***' /
+  '***      Reset Archive Flag of all Active Reports             ***' /
+  '***        Please run the function in batch only              ***' /
+  '*****************************************************************' //
+  'R)eset, S)how reports, E)nd:     '
+  #FUNCTION / '(PF3 - Quit)' //
+  'Archive-Flag (''A'',''I'', or ''B)oth'')' #FLAG
+IF *PF-KEY NE 'ENTR'
+  ESCAPE ROUTINE
+END-IF
+IF #FLAG NE 'A' AND #FLAG NE 'I' AND #FLAG NE 'B'
+  REINPUT 'Please enter correct Archive-Flag.' MARK *#FLAG
+END-IF
+PERFORM XXNATDIR-GETDIR XXNATDIR
+COMPRESS *PROGRAM 'running in mode' #FUNCTION
+  'searching archive flag(s)' #FLAG TO #MSG
+WRITE #MSG (AL=78)
+COMPRESS 'Catalogued on'
+  M-CA-DATE M-CA-TIME TO #MSG
+WRITE #MSG (AL=78) / '-' (78)
+DECIDE ON FIRST VALUE OF #FUNCTION
+  VALUES 'R','S'
+    FNDAR. FIND ACTIVE-REPORTS WITH AR-ARCHIVE = 'A' OR = 'I'
+      IF #FLAG NE 'B' AND AR-ARCHIVE NE #FLAG
+        ESCAPE TOP
+      END-IF
+      WRITE 'Report' AR-REPNAME 'Run Number' AR-REPRNB
+        'Arc' AR-ARCHIVE 'Arc-Type' AR-ARCHIVE-TYPE
+      WRITE '-' (78)
+      IF #FUNCTION = 'R'
+        GETAR. GET ACTIVE-REPORTS *ISN(FNDAR.)
+        RESET AR-ARCHIVE
+        UPDATE (GETAR.)
+        END TRANSACTION
+      END-IF
+    END-FIND
+  VALUE 'E'
+    ESCAPE ROUTINE
+  NONE
+    REINPUT 'Please enter correct function.'
+END-DECIDE
+*
+END

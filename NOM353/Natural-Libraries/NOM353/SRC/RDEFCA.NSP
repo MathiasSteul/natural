@@ -1,0 +1,342 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member     RDEFCA
+* Function   Define a calendar
+* Version    1.3
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 94-07-14 s(999999) cleanup, old version saved
+* mrs 94-07-14 s(999999) correct problem, when adding with default
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsetggr 01-03-14 P(202775) save default holidays in calendar
+*                            definition
+* xsetggr 01-10-05 p(208009) check values of default calendar
+* sju 02-01-03 p(219028) create new calendars correctly
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* fhi     2010-03-19 P307403 side effects with parameter handling
+* SU1     2014-06-04 NOMALL-1281 show last update user+date
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL  USING  RPFK---L
+LOCAL
+1 CALENDAR    VIEW  OF  NRM-CALENDARS
+  2 CA-CALENDAR-ID
+  2 REDEFINE    CA-CALENDAR-ID
+    3 CALENDAR-NAME                    (A8)
+    3 CALENDAR-YEAR                    (N4)
+  2 CA-WORKING-DAYS                    (1:12)
+  2 P-LAST-UPDATE      /*SU1
+  2 P-LAST-UPDATE-USER /*SU1
+1 DEFAULT-CALENDAR    VIEW  OF  NRM-CALENDARS
+  2 CA-CALENDAR-ID
+  2 REDEFINE    CA-CALENDAR-ID
+    3 CALENDAR-NAME                    (A8)
+    3 CALENDAR-YEAR                    (N4)
+  2 CA-WORKING-DAYS                    (1:12)
+*
+1 #RC                                  (I2)
+1 #OWNER                               (A10)
+1 #HALF-YEAR                           (N1) INIT <1>
+1 #TABLE-NAME                          (A10)
+1 #TABLE-TYPE                          (A1) INIT <'C'> /* Calendar
+1 #MODIFY-ALLOWED                      (L)   INIT <TRUE>
+1 #DATE-TABLE                          (A50)
+1 #NOPDTA-RC                           (I2)
+1 #JULIAN-DATE                         (A7) /* YYYYJJJ
+1 L-HEADER                             (A78)
+*
+1 L-HOLIDAYS                           (A1/7)
+  INIT <'X',' ',' ',' ',' ',' ','X'>
+1 L-CALENDAR-NAME                      (A8)
+1 L-CALENDAR-YEAR                      (N4)
+1 L-DATE                               (A8)
+1 REDEFINE    L-DATE
+  2 L-DAY                              (N2)
+  2 L-MONTH                            (N2)
+  2 L-YEAR                             (N4)
+1 MATRIX                               (A1/12,31)
+1 REDEFINE    MATRIX
+  2 L-MATLINE                          (A31/12)
+1 L-CALENDAR-ISN                       (N10)
+*
+1 #SUPER-CA                            (A12) /*SUPERDESC FOR CALENDARS
+1 REDEFINE    #SUPER-CA
+  2 #SUPER-CA-T                        (A8) /*CALENDAR NAME
+  2 #SUPER-CA-Y                        (N4) /*CALENDAR-YEAR
+*
+1 CV1                                  (C)
+1 #WD-V                                (A2/7)
+  INIT <'Su','Mo','Tu','We','Th','Fr','Sa'>
+1 #FDATE                               (D)
+1 REDEFINE    #FDATE
+  2 #FDATE-P                           (P6)
+1 #LDATE                               (D)
+1 REDEFINE    #LDATE
+  2 #LDATE-P                           (P6)
+1 #DATEA                               (A8)
+1 J                                    (N3)
+1 #TDATEA                              (A8)
+1 REDEFINE    #TDATEA
+  2 #DD                                (N2)
+  2 #MM                                (N2)
+  2 #WD                                (A2)
+1 I                                    (P6)
+1 REDEFINE    I
+  2 I-D                                (D)
+1 #PF-KEY                              (A4) /* FOR *PF-KEY
+1 #MODE                                (A1) /* 'L' LIST, 'U' UPDATE
+1 #FATHER-PROG                         (A8) INIT <'RLISCA'>
+1 #ALLOWED                             (L)
+1 #CALNAME                             (A8)
+1 #CALYEAR                             (N4)
+*
+1 L-DEFAULT-CALENDAR                   (A8)
+*
+1 #DATE                                (D)
+1 #DEFAULT-EXIST                       (L) INIT <TRUE>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+MOVE EDITED '19911229' TO #DATE (EM=YYYYMMDD)
+FOR I = 1 TO 7
+  MOVE EDITED #DATE (EM=NN) TO #WD-V (I)
+  ADD 1 TO #DATE
+END-FOR
+*
+PERFORM INIT-PFKEYS
+PERFORM SET-PFKEYS
+*
+INPUT G-C-FUNC / #CALNAME / #CALYEAR
+*
+#MODE := G-C-FUNC
+RESET G-COMMIT
+*
+DECIDE ON EVERY VALUE OF #MODE
+  VALUE 'A','M'
+    CALLNAT 'NARPSEC' G-USER-PROFILE 'MCA' #ALLOWED
+    INCLUDE C-NALLOW
+  VALUE 'D','M'
+    #SUPER-CA-T := #CALNAME
+    #SUPER-CA-Y := #CALYEAR
+    FIND CALENDAR WITH CA-CALENDAR-ID = #SUPER-CA
+      IF NO RECORDS FOUND
+        G-NATRP-ERC := 2004
+        INCLUDE C-ESCAPE
+      END-NOREC
+      L-CALENDAR-ISN := *ISN
+    END-FIND
+    PERFORM UPDATE-CALENDAR
+  VALUE 'A'
+    PERFORM NEW-CALENDAR
+    IF L-CALENDAR-ISN = 0
+      INCLUDE C-ESCAPE
+    END-IF
+    PERFORM UPDATE-CALENDAR
+  NONE VALUE
+    INCLUDE C-ESCAPE
+END-DECIDE
+*
+INCLUDE C-ESCAPE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-CALENDAR
+************************************************************************
+#TABLE-NAME := CALENDAR.CALENDAR-NAME
+IF #MODE = 'D'
+  #MODIFY-ALLOWED := FALSE
+ELSE
+  #MODIFY-ALLOWED := TRUE
+  LAB2. GET CALENDAR L-CALENDAR-ISN
+END-IF
+*
+PERFORM BUILD-CALENDAR
+*
+CALLNAT 'YEAR01-N' #RC #OWNER #TABLE-NAME #TABLE-TYPE L-CALENDAR-YEAR
+  #HALF-YEAR #DATE-TABLE #TABLE-NAME #MODIFY-ALLOWED G-DATE-FORMAT G-PF
+  P-LAST-UPDATE P-LAST-UPDATE-USER G-DATE-FORMAT /*SU1
+*
+IF (#RC = 2 AND #MODE NE 'D') OR #MODE = 'A' /* calendar modified/new
+  PERFORM UPDATE-CAL
+  UPDATE(LAB2.)
+* For mode = A (ie adding a new calendar) we force the calendar to be
+* updated without asking for confirmation p(219028)
+  IF #MODE = 'A'
+    END TRANSACTION
+  ELSE
+    G-NATRP-ERC := 32
+    G-COMMIT := TRUE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* UPDATE-CALENDAR
+*
+************************************************************************
+DEFINE SUBROUTINE BUILD-CALENDAR
+************************************************************************
+RESET J
+L-MATLINE (1:12) := CALENDAR.CA-WORKING-DAYS (1:12)
+EXAMINE L-MATLINE (1:12) 'W' REPLACE '.'
+L-CALENDAR-YEAR := L-YEAR := CALENDAR.CALENDAR-YEAR
+L-YEAR := CALENDAR.CALENDAR-YEAR
+L-CALENDAR-NAME := CALENDAR.CALENDAR-NAME
+L-DAY := L-MONTH := 1
+*
+COMPRESS L-CALENDAR-YEAR '0101' TO #DATEA LEAVING NO
+MOVE EDITED #DATEA TO #FDATE(EM=YYYYMMDD)
+COMPRESS L-CALENDAR-YEAR '1231' TO #DATEA LEAVING NO
+MOVE EDITED #DATEA TO #LDATE(EM=YYYYMMDD)
+*
+CALL 'NOPDTA' 'ST' #NOPDTA-RC #NOPDTA-RC #DATE-TABLE #DATE-TABLE
+  #JULIAN-DATE
+*
+FOR I #FDATE-P TO #LDATE-P
+  MOVE EDITED I-D (EM=DDMMN(2)) TO #TDATEA
+  EXAMINE #WD-V (*) #WD GIVING INDEX IN J
+  IF L-HOLIDAYS(*) = ' '  AND #MODE='A'
+    L-HOLIDAYS(1) := L-HOLIDAYS(7) := 'X'
+  END-IF
+  IF MATRIX (#MM,#DD) = 'H'  OR (L-HOLIDAYS (J) NE ' ' AND #MODE='A')
+    MOVE EDITED I-D (EM=YYYYJJJ) TO #JULIAN-DATE
+    CALL 'NOPDTA' 'RE' #NOPDTA-RC #NOPDTA-RC #DATE-TABLE #DATE-TABLE
+      #JULIAN-DATE
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* BUILD-CALENDAR
+*
+************************************************************************
+DEFINE SUBROUTINE NEW-CALENDAR
+************************************************************************
+CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDEFCAM&'
+*
+SET CONTROL 'WL40C11B10/15F'
+SET CONTROL 'MB'
+*
+INPUT USING MAP 'RDEFCAM&'
+*
+#PF-KEY := *PF-KEY
+INCLUDE C-DIRECT
+DECIDE ON FIRST VALUE OF #PF-KEY
+  VALUE 'PF1'
+    REINPUT USING HELP
+  VALUE 'PF3'
+    END TRANSACTION
+    INCLUDE C-ESCAPE
+  NONE IGNORE
+END-DECIDE
+*
+IF L-CALENDAR-NAME= ' '
+  G-NATRP-ERC := 2000
+  REINPUT *G-NATRP-ERC MARK *L-CALENDAR-NAME ALARM
+END-IF
+IF L-CALENDAR-YEAR = 0 OR L-CALENDAR-YEAR NE MASK(YYYY) OR
+    L-CALENDAR-YEAR < 1900
+  G-NATRP-ERC := 2001
+  REINPUT *G-NATRP-ERC MARK *L-CALENDAR-YEAR ALARM
+END-IF
+*
+#SUPER-CA-T := #CALNAME := L-CALENDAR-NAME
+#SUPER-CA-Y := #CALYEAR := L-CALENDAR-YEAR
+*
+FIND-NUM. FIND NUMBER CALENDAR WITH CA-CALENDAR-ID = #SUPER-CA
+*
+IF *NUMBER(FIND-NUM.) > 0
+  G-NATRP-ERC :=  2002
+  REINPUT *G-NATRP-ERC ALARM
+END-IF
+*
+RESET MATRIX (*,*)
+*
+IF L-DEFAULT-CALENDAR NE ' '
+  IF L-DEFAULT-CALENDAR = SCAN '*'
+    CALLNAT 'RSELCA-N' L-DEFAULT-CALENDAR
+      L-CALENDAR-YEAR
+    IF L-DEFAULT-CALENDAR = SCAN'*'
+      RESET L-DEFAULT-CALENDAR #DEFAULT-EXIST
+    END-IF
+  END-IF
+  IF #DEFAULT-EXIST
+    #SUPER-CA-T := L-DEFAULT-CALENDAR
+    #SUPER-CA-Y := L-CALENDAR-YEAR
+    FIND DEFAULT-CALENDAR WITH  CA-CALENDAR-ID = #SUPER-CA
+      IF NO RECORDS FOUND
+        REINPUT *2004 MARK *L-DEFAULT-CALENDAR ALARM
+      END-NOREC
+      MOVE BY NAME DEFAULT-CALENDAR TO CALENDAR
+    END-FIND
+  END-IF
+END-IF
+*
+CALENDAR.CALENDAR-NAME := L-CALENDAR-NAME
+CALENDAR.CALENDAR-YEAR := L-CALENDAR-YEAR
+*
+PERFORM BUILD-CALENDAR
+*
+CALENDAR.CA-WORKING-DAYS (1:12) := L-MATLINE (1:12)
+*
+STORE1. STORE CALENDAR
+END TRANSACTION
+*
+L-CALENDAR-ISN := *ISN (STORE1.)
+G-NATRP-ERC := 31
+*
+END-SUBROUTINE /* NEW-CALENDAR
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-CAL
+************************************************************************
+COMPRESS L-CALENDAR-YEAR '0101' TO #DATEA LEAVING NO
+MOVE EDITED #DATEA TO #FDATE(EM=YYYYMMDD)
+COMPRESS L-CALENDAR-YEAR '1231' TO #DATEA LEAVING NO
+MOVE EDITED #DATEA TO #LDATE(EM=YYYYMMDD)
+*
+FOR I #FDATE-P TO #LDATE-P
+  MOVE EDITED I-D (EM=YYYYJJJ) TO #JULIAN-DATE
+  CALL 'NOPDTA' 'TE' #NOPDTA-RC #NOPDTA-RC #DATE-TABLE #DATE-TABLE
+    #JULIAN-DATE
+  MOVE EDITED I-D(EM=DDMMN(2)) TO #TDATEA
+  IF #NOPDTA-RC = 1
+    MATRIX(#MM,#DD) := 'H'
+  ELSE
+    MATRIX(#MM,#DD) := 'W'
+  END-IF
+END-FOR
+*
+CALENDAR.CA-WORKING-DAYS (1:12) := L-MATLINE (1:12)
+CALENDAR.P-LAST-UPDATE          := *TIMX /*SU1
+CALENDAR.P-LAST-UPDATE-USER     := G-USERID /*SU1
+*
+END-SUBROUTINE /* UPDATE-CAL
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFBRW-C
+RESET G-PF-KEYS (12) G-PF-KEYS (24)
+*
+IF G-C-FUNC NE 'D'
+  INCLUDE RPFWKD-C
+ELSE
+  RESET G-PF-KEYS (4) G-PF-KEYS (16)
+END-IF
+*
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+* --------------------------------------- set pfekys -------------------
+INCLUDE RPFSET-C
+*
+END

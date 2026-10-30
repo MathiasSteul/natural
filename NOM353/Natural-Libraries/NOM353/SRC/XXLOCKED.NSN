@@ -1,0 +1,219 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP ISO-8859-15
+* :LineIncrement 10
+* <Natural Source Header
+*              XXLOCKED
+* Version      3.4
+* Function     Check if a Unix file is in use
+*              - Expects XXUX---P to be filled by caller
+*              - Expects P-FILE-NAME to be checked
+*              - Fills P-RECORD with #GETATTR redefinition
+* Maintenance
+* uuu     yyyy-mm-dd iTrac       Action
+* ----------------------------------------------------------------------
+* fhi     2016-04-05 NOMALL-1696 created
+* fhi     2016-04-13 NOMALL-1859 Avoid NAT1305
+* SU1     2016-12-13 NOMALL-1970 handle non-numeric size -> log
+* fhi     2018-12-10 NOMALL-2171 traces non-numeric size better
+* fhi     2018-12-13 NOMALL-2171 Part of module rewritten
+* fhi     2019-01-04 NOMALL-2171 same
+* BLI     2019-08-21 NOMALL-2294 NPR and Broker fails, reduce log
+* BLI1    2023-06-22 NOMALL-2635 Enhance numbers in error-text with prod
+* BLI2    2024-12-23 NOMALL-2670 Msg. handling NOM1127 'guessed' lock
+* fhi1    2026-10-21 NOMALL-???? Replace size check by Linux fuser command
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+* --------------------------------------- Parameters -------------------
+PARAMETER USING XXUX---P
+PARAMETER
+1 NPR-TRACE-INT               (I2)      OPTIONAL
+1 FILE-LOCKED                 (A1)      OPTIONAL
+LOCAL
+1 #GETATTR                    (A197) /* File Attributes
+1 REDEFINE #GETATTR
+  2 #REST                     (A5)
+  2 #OWNER                    (A8)
+  2 #SIZE                     (N10) /* Bytes
+  2 REDEFINE #SIZE
+    3 #SIZE_A10               (A10)
+  2 #MOD-DATE-TIME            (N14) /* yyyymmddhhmmss
+  2 REDEFINE #MOD-DATE-TIME
+    3 #MOD-DATE-TIME_A14      (A14)
+  2 #GETATTR-FILLER           (A158)
+  2 #FILE-LOCKED              (A1)
+1 #NPR-TRACE-INT              (I2)
+1 #TRACE-MSG                  (A250)
+1 #GUESS-MSG                  (A250) /* BLI2
+* fhi1 start commenting:
+* 1 #SECOND                   (I2)   INIT <1>
+* 1 #OLD-SIZE                 (N10) /* NOMALL-1859 was (I4)
+* 1 #OLD-MOD-DATE-TIME        (N14) /* NOMALL-1859 was (I4)
+* 1 #I                        (I1)
+* 1 #MAXWAIT                  (I1)   CONST <5> /* wait 5 seconds max
+* fhi1 end commenting, start insertion:
+1 #FILLOCK                    (A1)  /* Intermediate result of lock
+1 #PUSH                       (A10)  CONST <'PUSH'>
+1 #POP                        (A10)  CONST <'POP'>
+1 #STACK-RC                   (N1)
+1 #P-FILE-NAME                (A250)
+* fhi2 end insertion
+1 #LASTPROG                   (A8)
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF NPR-TRACE-INT SPECIFIED
+  #NPR-TRACE-INT := NPR-TRACE-INT
+END-IF
+IF P-NODE-NAME = ' ' OR P-FILE-NAME = ' '  /* BLI2 check file-name also
+  PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG
+  IF P-NODE-NAME = ' '
+    COMPRESS 'P-NODE-NAME is empty after call of' #LASTPROG TO #TRACE-MSG
+  ELSE /* P-FILE-NAME = ' '
+    COMPRESS 'P-FILE-NAME is empty after call of' #LASTPROG TO #TRACE-MSG
+  END-IF
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+  *ERROR-NR := 999 /* SHOULD NOT OCCUR
+ELSE
+  COMPRESS P-FILE-NAME P-NODE-NAME TO #GUESS-MSG
+END-IF                                     /* BLI2 end
+IF P-USERID = ' ' /* basic access parameter to be reloaded
+  CALLNAT 'RMGETUX' XXUX---P
+END-IF
+* fhi1 start insertion:
+CALLNAT 'XXUXST-N' #PUSH #STACK-RC XXUX---P
+IF #STACK-RC NE 0
+  P-ERC := 5
+  COMPRESS *PROGRAM 'Internal error: Stack overflow' *LINE TO P-ERT
+  ESCAPE ROUTINE
+END-IF
+P-FUNCTION    := 'COMMAND'
+P-WAIT-TERM   := 'Y'
+P-OUTPUT-MODE := 'W' /* Create logfile
+#P-FILE-NAME := P-FILE-NAME
+COMPRESS 'fuser -s' #P-FILE-NAME TO P-RECORD
+IF #NPR-TRACE-INT > 0
+  COMPRESS 'Executing:' P-RECORD
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+COMPRESS '/tmp/' *PROGRAM '.' *PID '.log' to P-FILE-NAME LEAVING NO
+CALLNAT 'XXUX---N' XXUX---P #NPR-TRACE-INT
+IF P-ERC NE 0
+  P-ERC := 2035
+  P-ERT := XXUX---P.P-ERT
+  COMPRESS '2035' *PROGRAM 'fuser' P-ERT #P-FILE-NAME TO P-ERT
+  ESCAPE ROUTINE
+END-IF
+P-FUNCTION  := 'GETEXIT'
+P-WAIT-TERM := 'Y'
+P-OUTPUT-MODE := 'A' /* Append logfile
+COMPRESS '/tmp/' *PROGRAM '.' *PID '.log' to P-FILE-NAME LEAVING NO
+CALLNAT 'XXUX---N' XXUX---P #NPR-TRACE-INT
+IF P-ERC NE 0
+  P-ERC := 2035
+  P-ERT := XXUX---P.P-ERT
+  COMPRESS '2035' *PROGRAM 'fuser' P-ERT P-FILE-NAME TO P-ERT
+  ESCAPE ROUTINE
+END-IF
+
+IF #NPR-TRACE-INT > 0
+  COMPRESS 'fuser exit code:' P-EXIT-CODE
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+
+IF P-EXIT-CODE = 0
+  #FILLOCK := 'Y'
+ELSE
+  #FILLOCK := 'N'
+END-IF
+
+CALLNAT 'XXUXST-N' #POP #STACK-RC XXUX---P
+IF #STACK-RC NE 0
+  P-ERC := 5
+  COMPRESS *PROGRAM 'Internal error: Stack overflow' *LINE TO P-ERT
+  ESCAPE ROUTINE
+END-IF
+
+IF #NPR-TRACE-INT > 0
+  COMPRESS 'Filename ist back to' P-FILE-NAME
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+
+* fhi1 end insertion.
+
+P-FUNCTION := 'GETATTR'
+* FOR. FOR #I = 1 TO #MAXWAIT /* fhi1 out
+CALLNAT 'XXUX---N' XXUX---P #NPR-TRACE-INT
+#GETATTR   := XXUX---P.P-RECORD
+IF #NPR-TRACE-INT > 0
+  COMPRESS 'File:' P-FILE-NAME '- owner:' #OWNER '- size:' #SIZE
+    '- mod:' #MOD-DATE-TIME '- file locked:' #FILE-LOCKED
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+IF P-ERC = 2036                        /* NOMALL-2294 file not found
+    OR P-ERC = 2046                    /* NOMALL-2294 base 64
+    OR P-ERT = SCAN 'SAT1114'          /* BLI1
+    OR P-ERT = SCAN 'NPR3339'          /* BLI1
+*   OR #FILE-LOCKED = 'Y' OR = 'N'     /* fhi1 out, don't trust on it!
+*   ESCAPE BOTTOM (FOR.)               /* fhi1 out
+  ESCAPE ROUTINE                       /* fhi1 in
+ELSE                                   /* BLI2
+  RESET P-ERC P-ERT                    /* BLI2
+END-IF
+* fhi1 begin commenting:
+* /*----- SU1 ->
+* /*NPR dont know if locked or not,maybe returned error not handled above.
+* /*Return 'is locked', maybe next run file is ok !
+* /*Alternative: force Natural error (see above 999) and insert NPR error
+* /*in statement above.
+* /*-----
+*   IF NOT (#SIZE_A10 IS (N10) AND #MOD-DATE-TIME_A14 IS (N14))
+*     #FILE-LOCKED      := 'Y' /* assume next time its ok
+*     IF FILE-LOCKED SPECIFIED
+*       FILE-LOCKED     := #FILE-LOCKED
+*     END-IF
+*     XXUX---P.P-RECORD := #GETATTR /* back to RECORD for caller
+*     ESCAPE MODULE
+*   END-IF
+*   #OLD-SIZE          := #SIZE
+*   #OLD-MOD-DATE-TIME := #MOD-DATE-TIME
+*   CALLNAT 'NAT00031' #SECOND /* Wait a second
+* END-FOR
+* IF P-ERC NE 0                        /* BLI2 start
+*   ESCAPE ROUTINE
+* END-IF
+* IF #FILE-LOCKED ='Y' OR = 'N'
+*   IGNORE
+* ELSE                                 /* BLI2 end
+*   IF #I = #MAXWAIT + 1
+*     IF       #OLD-SIZE NE 0 AND #OLD-MOD-DATE-TIME NE 0
+*         AND (#OLD-SIZE              NE #SIZE
+*         OR   #OLD-MOD-DATE-TIME  NE #MOD-DATE-TIME)
+*       #FILE-LOCKED := 'Y' /* someone is changing it
+*     ELSE
+*       COMPRESS '1127' #GUESS-MSG TO #TRACE-MSG    /* BLI2
+*       PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG     /* NOMALL-2294
+*       #FILE-LOCKED := 'N' /* seems to be untouched
+*     END-IF
+*   END-IF
+* END-IF
+* fhi1 end commenting.
+* fhi1 start inserting:
+#FILE-LOCKED := #FILLOCK
+IF FILE-LOCKED SPECIFIED
+  FILE-LOCKED := #FILE-LOCKED
+END-IF
+* fhi1 end inserting.
+XXUX---P.P-RECORD := #GETATTR
+* ----------------------------------------------------------------------
+END
+

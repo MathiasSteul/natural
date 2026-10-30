@@ -1,0 +1,120 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ---------------------------------------------------------------------0
+* Subprogram  NOEXMA-N
+* Version    3.4
+* Function   NOM API Maintain of Export Tasks - get data for list
+*
+* Maintenance:
+* SU      2013-07-26 NOMALL-86 created
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-01-11 NOMALL-1961 Change descriptor of NRM-ORDER
+* SU1     2017-03-07 NOM 3.5: remove unused code
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOEXMA-A
+************************************************************************
+LOCAL USING RMODTY-E
+LOCAL
+1 TASKS VIEW OF NRM-ORDER
+  2 OD-PARAMETER                      (A250/1:1)
+  2 REDEFINE  OD-PARAMETER
+    3 OD-OBJECT                       (A2)
+    3 OD-OBJECT-PREFIX                (A25)
+    3 OD-OBJECT-MASK                  (A25)
+    3 OD-WILDCARD                     (A1)
+    3 OD-MASK-CHAR                    (A1)
+    3 OD-LOG                          (A1)
+    3 OD-NODE                         (A16)
+    3 OD-FILE                         (A50)
+  2 OD-TIME-SCHEDULED                 (T)
+  2 OD-TIME-CREATED                   (T)
+*
+1 #I                                  (N2)
+1 REDEFINE #I
+  2 #IA                                  (A2)
+1 #J                                  (I2)
+/*SU1 1 #MAX                                (I2) CONST <21>
+* fhi     2017-01-11 NOMALL-1961 start commenting
+*  1 #OD-MONITOR-ID-TYPE-TIME            (A17)
+*  1 REDEFINE #OD-MONITOR-ID-TYPE-TIME
+*    2 #OD-MONITOR-ID                    (A8)
+*    2 #OD-TYPE                          (B2)
+*    2 #FILLER                           (B7)
+*  1 #OD-MONITOR-ID-TYPE-TIME-END        (A17)
+*  1 REDEFINE #OD-MONITOR-ID-TYPE-TIME-END
+*    2 #OD-MONITOR-ID-END                (A8)
+*    2 #OD-TYPE-END                      (B2)
+*    2 #FILLER-END                       (B7)
+* fhi     2017-01-11 NOMALL-1961 end commenting, start insertion
+1 #OD-TYPE-TIME                       (A9)
+1 REDEFINE #OD-TYPE-TIME
+  2 #OD-TYPE                          (B2)
+  2 #FILLER                           (B7)
+1 #OD-TYPE-TIME-END                   (A9)
+1 REDEFINE #OD-TYPE-TIME-END
+  2 #OD-TYPE-END                      (B2)
+  2 #FILLER-END                       (B7)
+* fhi     2017-01-11 NOMALL-1961 end insertion
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+MOVE ALL H'00' TO #FILLER
+MOVE ALL H'FF' TO #FILLER-END
+PERFORM FILL-TASKS
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE FILL-TASKS
+************************************************************************
+IF ES-NEXT-KEY-PARM (1) IS (N2)
+  #J := VAL(ES-NEXT-KEY-PARM (1))
+END-IF
+RESET ES-RC ES-NUMBER ES-STARTINDEX ES-SORTKEY ES-SORTORDER
+  ES-NEXT-KEY-PARM (*)
+ES-EOF := 'X'
+* #OD-MONITOR-ID := #OD-MONITOR-ID-END  := 'MAIN'
+* fhi     2016-11-15 NOMALL-1961 line above out
+#OD-TYPE       := #OD-TYPE-END        := OD-EXPORT-NOM-OBJECT
+* fhi     2017-01-11 NOMALL-1961 start commenting
+*  RD. READ TASKS BY OD-MONITOR-ID-TYPE-TIME
+*      FROM #OD-MONITOR-ID-TYPE-TIME
+*      TO   #OD-MONITOR-ID-TYPE-TIME-END
+* fhi     2017-01-11 NOMALL-1961 end commenting, start insertion
+RD. READ TASKS BY OD-TYPE-TIME FROM #OD-TYPE-TIME TO   #OD-TYPE-TIME-END
+* fhi     2017-01-11 NOMALL-1961 end insertion
+  ADD 1 TO ES-NUMBER
+  #I := ES-NUMBER
+  NOEXMA-OBJECT-TYPE      (#I) := OD-OBJECT
+  NOEXMA-OBJECT-PREFIX    (#I) := OD-OBJECT-PREFIX
+  NOEXMA-LOG              (#I) := OD-LOG
+  NOEXMA-NODE             (#I) := OD-NODE
+  NOEXMA-FILE             (#I) := OD-FILE
+*                                   ....+....1 . ...+....2.
+  MOVE EDITED OD-TIME-CREATED   (EM=YYYY-MM-DD' 'HH:II:SS)
+    TO NOEXMA-TIME-CREATED (#I) /*(A21)
+  MOVE EDITED OD-TIME-SCHEDULED (EM=YYYY-MM-DD' 'HH:II:SS)
+    TO NOEXMA-TIME-SCHEDULED (#I) /*(A21)
+*   if .. reset ES-EOF
+*   ES-NEXT-KEY-PARM(1) := BC-REPNAME
+*   ES-NEXT-KEY-PARM(2) := #REPRNB-A11
+*   ESCAPE BOTTOM
+* END-if
+END-READ
+*
+END-SUBROUTINE /* FILL-TASKS
+*
+END

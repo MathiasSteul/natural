@@ -1,0 +1,1210 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 5
+* <Natural Source Header
+* RMONITOR - Monitor Loop
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* mrs 93-01-28 s(182359) old version saved, monitor won't close
+* mrs 93-12-03 s(999999) make event-name unique to allow multiple NOMs
+*                        under one ESY
+* mrs 93-12-10 s(999999) use common data to reduce data base calls
+* mrs 94-02-06 s(999999) JES3 inplemented
+* mrs 94-03-01 s(999999) BS2 inplemented
+* mrs 94-05-16 s(999999) check NPR-USERID before each function
+* gw  94-06-22 s(999999) CMASPOOL implemented
+* gw  94-11-17 s(999999) SAP-Spool implemented
+* gw  94-11-29 s(999999) USR-Spool implemented
+* gw  95-01-09 s(999999) AIV for printertasks
+* gw  95-01-17 p(136151) AIV for printertasks
+* mrs 95-11-01 s(999999) NOM135 process count and rename orders
+* gw  98-02-17 s(275206) synchronize report creation with source cleanup
+*                        -> RMARCSCH, NOMCLEAN, RMSRCK, NOMCLNSP
+* gw  98-06-12 p(171538) Calendar in cleanup schedule always 'CLEAN'
+* jvd 98-08-19 s(164220) NOM141 - NAT23 changes
+* xsisaa 99-07-05 s(259992) CE7187 / remove comments pre 1996
+* fhi 00-01-27 s(191368) version taken from NOM142 and stowed for NOM211
+* sju 00-02-28 p(192484) No printing during cleanup
+* sju 00-03-13 s(191368) monitor multitasking
+* sju 00-03-14 p(192484) no printing during cleanup - see NOMCLEAN
+* fhi 00-08-22 QA01      Use Natural RDC utility and display statistics
+* fhi 05-11-15 P272724   End Transaction for Unix Eventing necessary
+*
+* User Id yyyy-mm-ss Mark       Comment
+* ------- ---------- ---------  ----------------------------------------
+* fhi     2000-09-12 s(196560)  Add Unix File Support
+* sju   02-12-17 p(230197) Monitor hangs while system defaults are being
+*                        modified (8.1.1/8.1.2/8.1.3/8.1.4). Use a new
+*                        control record SYNCHCLN.
+* sju     2003-10-22  p(246164) NPR 3.2 and JES3
+* sju     2004-07-15 NOM31     Dynamic tracing
+* sju   04-12-06 NOM31     Add date and time (tenths of second) to trace
+* sju     2005-03-16 NOM31     NAT AM=NOM
+* fhi     2005-06-23 p(266530) Monitor must be NPR Mainframe independent
+* xsetggr 2007-05-07 NOM3201  Support 5 byte node numbers
+* fhi     2007-07-12 NOM3204  More detailed message at monitor abend.
+* xsetggr 2007-10-31 NRT1560  operator commannd to check monitor status
+* fhi     2007-11-01 p298580  Not all files fetched from Unix directory
+* fhi     2008-03-03 NRT1560  out 2007-10-31, to be handled different
+* fhi     2008-05-13 P303573  Delete duplicate steplib entries
+* fhi     2010-05-31 NOMALL-93 Create statistics data for Optimize
+* fhi     2010-06-16 NOMALL-93 Create statistics data for Optimize
+* fhi     2010-08-04 NOMALL-93 Create statistics data for Optimize
+* fhi     2010-08-27 NOMALL-838 Add trace statements
+* fhi     2010-08-30 NOMALL-838 Supply the correct SPOOL-TYPE
+* fhi     2010-09-03 NOMALL-97 Call RMRDCDSP with correct trace variable
+* fhi     2010-09-10 NOMALL-93 Create statistics data for Optimize
+*                              Make work around for NATMF-16454 (#TXT)
+* fhi     2010-09-21 NOMALL-800 Backout P298580, other reasons
+* fhi     2010-10-05 NOMALL-97  extend trace levels
+* fhi     2010-10-08 NOMALL-97 Use dynamic memory handling
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* fhi     2010-11-05 NOMALL-97 Correct calling of Unix Scan Module
+* fhi     2010-11-11 NOMALL-97 Correct error handling
+* fhi     2011-02-11 NOMALL-929 Avoid NAT3009 subcode 6
+* fhi     2011-03-02 NOMALL-947 Do not go idle if cycle was not idle
+* fhi     2011-03-15 NOMALL-947 Introduce 10 nowait cycles
+* fhi     2011-06-07 NOMALL-77 Introduce wrap around trace
+* fhi     2011-10-05 NOMALL-1019 Backout NOMALL-947 for mainframes
+* splildav 2011-10-27 NOMALL-1060 Display CPU usage of monitor cycle
+* fhi      2012-08-29 NOMALL-1195 Avoid too many Adabas calls
+* fhi      2013-07-01 NOMALL-86   Introduce export utility
+* fhi      2013-07-17 NOMALL-975  Wake monitor --> reset idle time
+* SU1 2014-02-10 NOMALL-1344 unix - daily cleanup does not delete orders
+* fhi     2014-03-03 NOMALL-1363 Get cat cate into trace messages
+* fhi     2014-09-11 NOMALL-1480 Abort monitor if wrong NPR version
+* SU2     2014-11-12 NOMALL-1527 get rid of coding for old versions
+* fhi     2016-08-15 NOMALL-1621 Introduce Multinode Feature
+* fhi     2016-09-08 NOMALL-1621 same
+* fhi     2016-09-15 NOMALL-1621 Use LOCAL-NODE.M-MONITOR-NODE
+* fhi     2016-10-18 NOMALL-1934 Correct Error TA handling
+* fhi     2016-10-19 NOMALL-1934 Add RMEMAIL to monitor cyle
+* fhi     2016-10-28 NOMALL-1934 Add RMREACT to monitor cyle
+* fhi     2016-11-03 NOMALL-1621 ESY Logon only in RMSWNODE
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs, no tags
+* fhi     2016-12-14 NOMALL-1921 Add status 'Monitor working'
+* fhi     2017-01-05 NOMALL-1961 Avoid NAT1257
+* fhi     2017-01-06 NOMALL-1621 Call RDCDISIO, too.
+* fhi     2017-01-11 NOMALL-1961 Change descriptor of NRM-ORDER
+* fhi     2017-02-09 NOMALL-1961 Add trace messages
+* fhi     2017-02-10 NOMALL-1961 Correct task handling
+* SU3     2017-03-02 NOM3.5      remove RGETLIB
+* fhi     2017-03-23 NOMALL-2008 Add CAT Natural Source by monitor
+* fhi     2017-03-29 NOMALL-2008 Improve traces
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi/bli 2017-04-25 NOMALL-1871 NAT1257 if error in NOMSTCS
+* fhi     2017-05-02 NOMALL-1917 scan correct spool-queues
+* fhi     2017-11-07 NOMALL-2047 Ensure each cycle that WH=ON
+* SU4     2018-01-11 NOMALL-1823 NOM 3.5: remove SAP
+* fhi     2018-02-13 NOMALL-1918 Regard Unix, no tags
+* fhi     2018-04-25 NOM 3.5     NOSTATISTICS -> STATISTICS=ON
+* SU5     2018-10-18             LDA MONITNGL removed
+* fhi     2018-04-25 NOMALL-1905 Do not call statistics if +O4I false
+* fhi     2018-12-14 NOM 3.5     Improve CPU measures, no tags
+* fhi     2018-12-18 NOMALL-1770 Export tasks not processed
+* BLI     2019-06-17 NOMALL-2274 Wrong NPR version
+* SU6     2020-07-27 NOMALL-2327 unix:check license key/expiration date
+* SU7     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* BLI     2021-10-08 NOMALL-2498 wrong call of RMCHKDWN, move RMSWNODE
+* BLI1    2023-09-29 NOMALL-2636 Cleanup on remote nodes
+* SU8     2024-03-07 ES-34613    NOM 3.6 Remove power / BS2
+* NKEW1   2024-04-25 ES-35215    NOM 3.6 Licence check mainframe
+* SU9     2024-09-02 ES-35716    deactivate O4I
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+*
+INDEPENDENT
+1 +NOD-CURRENT-NODE          (N5)
+1 +NOD-CURRENT-ID            (A20)
+1 +NOD-LOCAL-NODE            (N5)
+1 +NOD-LOCAL-ID              (A20)
+1 +NOD-CURRENT-SPOOL-TYPE    (A8)
+1 +CMRDC                     (A1)
+1 +ERROR-COUNT-UX            (I2)
+1 +NOWAIT                    (I2)
+/*SU9 1 +O4I                       (L)
+* *****
+LOCAL USING RMSETSTE
+LOCAL USING RLOG-L
+LOCAL USING RMTASK-E
+LOCAL USING NOMSTCSP
+LOCAL USING RMTASK-P
+LOCAL
+1 MONITOR VIEW OF NRM-MONITOR
+  2 M-WAIT-CURRENT
+  2 M-MONITOR-TASKS
+  2 REDEFINE M-MONITOR-TASKS
+    3 M-SPOOL-QUEUE          (N3)
+    3 M-COPY-SOURCE          (N3)
+    3 M-CREATE-REPORTS       (N3)
+    3 M-MANAGE-PRINTOUTS     (N3)
+1 CPU VIEW OF SYSTEM-INFO
+  2 CPU-UTILIZATION
+1 ORDERS VIEW OF NRM-ORDER
+1 CLEANUP-TASK VIEW OF NRM-ARCHIVE-TASK
+  2 M-ARCHIVE-PREFIX
+  2 REDEFINE M-ARCHIVE-PREFIX
+    3 CLEANUP-IDENTIFIER     (A5)
+    3 CLEANUP-RESCHEDULE     (L)
+    3 CLEANUP-ACTIVE-NOW     (L)
+    3 REPORT-PROCESSING-NOW  (L)
+1 #I                         (I2)
+1 #TXT                       (A70) /* only if zap Nat427/NA76130 missing
+/*                                    work around for NATMF-16454
+1 #MON-ID                    (A5)  INIT <'NOM0x'>
+/* Please take note if you change the NAME of subtask then you
+/* must also make changes to RHANMO and RHANMON and Eventing progs
+/* Also please remember that NPR uses SUB-TASK name for
+/* eventing, so if you make a change here NPR must know
+/* about this change, this value is hard coded in NPR ???
+/*
+1 #EVENT-NAME                (A8)
+1 REDEFINE #EVENT-NAME
+  2 #EVENT-PREFIX            (A4)
+  2 #EVENT-DBID              (B2)
+  2 #EVENT-FNR               (B2)
+1 #REPORT-PROCESSING-NOW     (L)
+1 #EVENT-MESSAGE             (A250)
+1 NAT00009-PARMS
+  2 NAT00009-FUNCTION        (B1)
+  2 NAT00009-RESPONSE        (N4)
+  2 NAT00009-NUMBER-ACTIVE   (I2)
+  2 NAT00009-CURRENT-INDEX   (I2)
+  2 NAT00009-APPLIC          (A8)
+  2 NAT00009-LIBRARY         (A8)
+  2 NAT00009-DBID            (B2)
+  2 NAT00009-FNR             (B2)
+  2 NAT00009-PASSWORD        (A8)
+  2 NAT00009-CIPHER          (N8)
+  2 NAT00009-DIS-EN          (A1)
+  2 NAT00009-SYSIND          (A1)
+  2 NAT00009-POSITION        (I2)
+  2 NAT00009-NUMBER-MODULES  (I2)
+  2 NAT00009-RESERVE         (B32)
+  2 NAT00009-MODULES         (A80)
+1 #S                         (P9)
+1 RMSETTIM
+  2 FUNCTION                 (A1)
+  2 ERC                      (N4)
+  2 MSG                      (A250)
+  2 TIME                     (I4)
+1 #OD-FROM-G
+  2 TYPE                     (B2)
+  2 TIME-SCHEDULED           (P13)
+1 REDEFINE #OD-FROM-G
+  2 #OD-FROM                 (A9)
+1 #OD-TO-G
+  2  TYPE                    (B2) INIT <5000>
+  2  TIME-SCHEDULED          (P13)
+1 REDEFINE #OD-TO-G
+  2 #OD-TO                   (A9)
+1 #TRACING                   (L)
+1 #MONITOR-STATUS            (A1)
+1 #MONITOR-TIME              (T)
+1 #TASK-NUMBER               (N3)
+1 #TASKS-IDLE                (L)
+1 #MAX-TASKS                 (I1) CONST <59>
+1 #CATDATE                   (A19)
+1 #LINE                      (I4)
+1 #STATISTICS-ERROR          (L)
+1 #NAT51002 /*SU6
+  2 PROD-NAME                (A253) INIT <'Entire Output Management'>
+  2 PROD-VERSION             (A253) INIT <'3.5'> /*SU8 was 3.5
+  2 LICENSE-FILE-NAME        (A)    DYNAMIC
+  2 SHOW-MESSAGE             (L)
+  2 LC-ERC                   (I4)
+  2 LC-ERT                   (A253) /*OPT
+  2 EXP-LIMIT                (I4)   INIT <30> /*OPT 30 is default
+  2 EXP-DAYS                 (I4)   /*OPT
+1 #MF                        (L)
+1 #NAT82003 /*NKEW1
+  2 PRODUCT-VERSION          (A8)   INIT <'3.5'>
+  2 MSGS                     (A78/10)
+1 #DATE                      (D) /*NKEW1
+1 #MSG-PREFIX                 (A20) /*NKEW1
+1 #MSG-LONG                   (A254)/*NKEW1
+1 #M-STARTED                 (L) INIT <FALSE> /* Monitor started bool
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+CALLNAT 'NOMGSTEP' '*' G-NATRP-ERC
+*ERROR-TA := 'RM-ERRTA'
+PERFORM XXCATAL-GET-CATDATE #CATDATE
+COMPRESS *PROGRAM 'cataloged at'  #CATDATE TO G-TRACE-MSG
+PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+RMSETTIM.FUNCTION := 'R'
+PERFORM RMSETTIM-SETTIME RMSETTIM
+IF *MACHINE-CLASS = 'MAINFRAME'
+  #MF := TRUE
+END-IF
+*/*NKEW commented section
+* IF (*MACHINE-CLASS = 'PC' OR = 'UNIX') AND G-TASK-NUMBER = 1 /*SU6
+*  PERFORM CHECK-LICENCE
+* END-IF
+*
+CYCLE. REPEAT
+* Check Licence on LUW and Mainframe daily
+  IF G-TASK-NUMBER = 1 AND #DATE < *DATX /*NKEW>>
+    #DATE := *DATX
+    IF (*MACHINE-CLASS = 'PC' OR = 'UNIX')
+      PERFORM CHECK-LICENCE
+    END-IF
+    IF (#MF)
+      PERFORM XXRLOG-WRITE-LOG 'W' '*************************'
+      PERFORM CHECK-LICENCE-MF
+      PERFORM XXRLOG-WRITE-LOG 'W' '*************************'
+    END-IF
+  END-IF /*NKEW<<
+  RMSETTIM.FUNCTION := 'S'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM RMGTRACE-GET-SETTINGS #TRACING
+  PERFORM XXPARAMS-SET-PARAM 'WH=ON'
+  FETCH RETURN 'RMCHKDWN' /* Check Monitor termination
+  IF #TRACING
+    COMPRESS 'Schedule condition in line ' *LINE 'Task' G-TASK-NUMBER
+      'Table' G-TASK-TABLE(EQU-MANAGE-PRINTOUTS) 'Manage printouts'
+      'RMCTNAT' TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  END-IF
+* Check first of all if there is a CAT to be done:
+  IF NOT G-SHUTDOWN AND G-TASK-NUMBER=G-TASK-TABLE(EQU-MANAGE-PRINTOUTS)
+    FETCH RETURN 'RMCTNAT'
+    FETCH RETURN 'RMCTMSG'  /* Handle messages of RMCTNAT
+  END-IF
+  IF #TRACING AND NOT G-SHUTDOWN
+    G-TRACE-MSG := '*******************'
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    G-TRACE-MSG := 'Start monitor cycle'
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    G-TRACE-MSG := '*******************'
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  INCLUDE CMRDC
+  CALLNAT 'RMSETSTN' #EQU-START-CYCLE +NOD-LOCAL-NODE G-NATRP-DBID
+    G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+  END TRANSACTION
+  RESET +ERROR-COUNT-UX
+  PERFORM CLEANUP-STEPLIBS           /* P303573 in
+  IF #TRACING AND G-NATRP-ERC NE 0       /* BLI NOMALL-2498 add log
+    PERFORM XXRLOG-WRITE-LOG 'T' G-NATRP-ERT
+    END TRANSACTION
+  END-IF
+  CALLNAT 'RMNPRUSR' G-MONITOR-NODE G-NPR-USERID
+    G-NATRP-ERC G-NATRP-ERT #TRACING
+  G-NPR-CURRENT-USERID := G-NPR-USERID
+  END TRANSACTION /* Commit open transactions to avoid record in hold
+  IF G-NATRP-ERC NE 0
+    PERFORM XXRLOG-WRITE-LOG 'W' G-NATRP-ERT
+    END TRANSACTION
+    IF +NOD-CURRENT-ID = +NOD-LOCAL-ID
+      G-SHUTDOWN:= TRUE
+      FETCH 'RMCHKDWN'
+    END-IF
+    RESET G-NATRP-ERC G-NATRP-ERT        /* BLI NOMALL-2498
+    ESCAPE TOP
+  END-IF
+  CALLNAT 'RMSWNODE' 'N'  /* switch to next MF node  /* BLI NOMALL-2498
+    G-TASK-NUMBER G-NATRP-DBID G-NATRP-FNR #TRACING
+  END TRANSACTION
+  IF #TRACING AND #MF
+    FIND CPU WITH NODE = +NOD-CURRENT-NODE
+      COMPRESS '% CPU utilization of node' +NOD-CURRENT-NODE
+        '-->' CPU-UTILIZATION TO  G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-FIND
+  END-IF
+  IF NOT G-SHUTDOWN
+    FETCH RETURN 'RMBPPG' /* process purge bpm orders
+  END-IF
+  IF NOT G-SHUTDOWN
+    #LINE := *LINE
+    CALLNAT 'RMSETSTN' #EQU-MONITOR +NOD-LOCAL-NODE G-NATRP-DBID
+      G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER 1X #LINE
+    END TRANSACTION
+  END-IF
+*
+  DECIDE FOR EVERY CONDITION
+    WHEN #TRACING AND NOT G-SHUTDOWN
+      COMPRESS 'Schedule condition in line ' *LINE 'Task' G-TASK-NUMBER
+        'Table' G-TASK-TABLE(EQU-CREATE-REPORTS) 'Create reports'
+        'PERFORM UPDATE-CLEANUP-DEFAULTS' TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END TRANSACTION
+    WHEN NOT G-SHUTDOWN
+    AND G-TASK-NUMBER = G-TASK-TABLE(EQU-CREATE-REPORTS)              /*
+      #REPORT-PROCESSING-NOW := TRUE
+      PERFORM UPDATE-CLEANUP-DEFAULTS
+*
+    WHEN #TRACING AND NOT G-SHUTDOWN
+      COMPRESS 'Schedule condition in line ' *LINE 'Task' G-TASK-NUMBER
+        'Table' G-TASK-TABLE(EQU-SPOOL-QUEUE) 'Spool Queue'
+        'PERFORM SCAN-SPOOL-QUEUE' TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END TRANSACTION
+    WHEN NOT G-SHUTDOWN AND G-TASK-NUMBER =G-TASK-TABLE(EQU-SPOOL-QUEUE)
+      PERFORM SCAN-SPOOL-QUEUE
+*
+    WHEN #TRACING AND NOT G-SHUTDOWN
+      COMPRESS 'Schedule condition in line ' *LINE 'Task' G-TASK-NUMBER
+        'Table' G-TASK-TABLE (EQU-CP-SRCE-BEGIN:EQU-CP-SRCE-END)
+        'Copy Source PERFORM COPY-SOURCE-TO-DB' TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END TRANSACTION
+    WHEN NOT G-SHUTDOWN
+    AND G-TASK-NUMBER = G-TASK-TABLE (EQU-CP-SRCE-BEGIN:EQU-CP-SRCE-END)
+      PERFORM COPY-SOURCE-TO-DB
+    WHEN #TRACING AND NOT G-SHUTDOWN
+      COMPRESS 'Schedule condition in line ' *LINE 'Task' G-TASK-NUMBER
+        'Table' G-TASK-TABLE (EQU-CREATE-REPORTS)
+        'Create reports PERFORM CREATE-REPORTS-BUNDLES' TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END TRANSACTION
+    WHEN NOT G-SHUTDOWN
+    AND G-TASK-NUMBER = G-TASK-TABLE(EQU-CREATE-REPORTS)              /*
+      PERFORM CREATE-REPORTS-BUNDLES
+      #REPORT-PROCESSING-NOW := FALSE
+      PERFORM UPDATE-CLEANUP-DEFAULTS
+      PERFORM POST-CLEANUP-TASK
+    WHEN NOT G-SHUTDOWN AND G-TASK-NUMBER LE 1 /* BLI1 moved from below
+      PERFORM DELETE-SOURCES                   /* BLI1
+************************************************************************
+    WHEN +NOD-CURRENT-ID NE +NOD-LOCAL-ID  /* it's a remote node
+      IF #TRACING
+        COMPRESS 'Remote node:' 'Current ID:' +NOD-CURRENT-ID
+          'LOCAL NODE:' +NOD-LOCAL-ID
+          'Cycle stops here and restarts.' TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END TRANSACTION
+      END-IF
+      ESCAPE TOP /* <<<<< next cycle >>>>>
+************************************************************************
+    WHEN #TRACING AND NOT G-SHUTDOWN
+      COMPRESS 'Schedule condition in line ' *LINE 'Task' G-TASK-NUMBER
+        'Table' G-TASK-TABLE (EQU-MANAGE-PRINTOUTS)
+        'Manage printouts PERFORM FOLLOW-PRINT-JOBS' TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END TRANSACTION
+    WHEN NOT G-SHUTDOWN
+    AND G-TASK-NUMBER = G-TASK-TABLE(EQU-MANAGE-PRINTOUTS)            /*
+      PERFORM FOLLOW-PRINT-JOBS
+*
+    WHEN #TRACING AND NOT G-SHUTDOWN
+      COMPRESS 'Schedule condition in line ' *LINE 'Task' G-TASK-NUMBER
+        'Table' G-TASK-TABLE (EQU-MANAGE-PRINTOUTS)
+        'Manage printouts PERFORM FOLLOW-PRINT-TASKS' TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END TRANSACTION
+    WHEN NOT G-SHUTDOWN
+    AND G-TASK-NUMBER = G-TASK-TABLE(EQU-MANAGE-PRINTOUTS)            /*
+      PERFORM FOLLOW-PRINT-TASKS
+*
+    WHEN #TRACING AND NOT G-SHUTDOWN
+      COMPRESS 'Schedule condition in line ' *LINE 'Task' G-TASK-NUMBER
+        'Table' G-TASK-TABLE (EQU-MANAGE-PRINTOUTS)
+        'Manage printouts PERFORM SCAN-PRINTOUT-QUEUE' TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END TRANSACTION
+    WHEN NOT G-SHUTDOWN
+    AND G-TASK-NUMBER = G-TASK-TABLE(EQU-MANAGE-PRINTOUTS)            /*
+      PERFORM SCAN-PRINTOUT-QUEUE
+*
+/*SU8 -> WHEN NOT G-SHUTDOWN
+/*                AND G-TASK-NUMBER = G-TASK-TABLE(EQU-MANAGE-PRINTOUTS)
+/* IF SYSTEM-INFO-VIEW.SPOOL-TYPE = 'POWR'
+/* or SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN 'BS2'
+/*SU8 <-  PERFORM FOLLOW-PRINT-JOBS END-IF
+    WHEN NOT G-SHUTDOWN
+    AND G-TASK-NUMBER = G-TASK-TABLE(EQU-MANAGE-PRINTOUTS)            /*
+      PERFORM FOLLOW-PRINT-TASKS
+*
+**  WHEN NOT G-SHUTDOWN AND G-TASK-NUMBER LE 1 BLI1 move above
+**    PERFORM DELETE-SOURCES                   BLI1
+    WHEN NOT G-SHUTDOWN AND G-TASK-NUMBER LE 1
+      #TASKS-IDLE := TRUE
+      FORTSKS. FOR #TASK-NUMBER := 21 TO #MAX-TASKS
+        CALLNAT 'RMGETSTN' #MONITOR-STATUS #MONITOR-TIME +NOD-LOCAL-NODE
+          G-NATRP-DBID G-NATRP-FNR #TASK-NUMBER 2X #TRACING
+        DECIDE ON FIRST VALUE OF #MONITOR-STATUS
+          VALUES ' ','C','D',#EQU-NOTACTIVE,#EQU-ENDED,
+              #EQU-CLOSED,#EQU-ABENDED, #EQU-SHUTDOWN
+            IGNORE
+          NONE VALUE
+            #TASKS-IDLE := FALSE
+            ESCAPE BOTTOM (FORTSKS.)
+        END-DECIDE
+      END-FOR
+      #TASK-NUMBER := 1
+      CALLNAT 'RMSETSTN' #EQU-EXPORT +NOD-LOCAL-NODE G-NATRP-DBID
+        G-NATRP-FNR G-SHUTDOWN #TASK-NUMBER
+      END TRANSACTION
+      FETCH RETURN 'RMEXPORT'
+      IF NOT G-SHUTDOWN
+        #LINE := *LINE
+        CALLNAT 'RMSETSTN' #EQU-MONITOR +NOD-LOCAL-NODE G-NATRP-DBID
+          G-NATRP-FNR G-SHUTDOWN #TASK-NUMBER 1X #LINE
+        END TRANSACTION
+      END-IF
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+*
+  IF #TRACING
+    COMPRESS 'Schedule condition in line ' *LINE 'Task' G-TASK-NUMBER
+      'Table' G-TASK-TABLE (EQU-CREATE-REPORTS)
+      'Create reports FETCH RETURN ''RMRSETRP''' TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  END-IF
+  IF G-TASK-NUMBER = G-TASK-TABLE(EQU-CREATE-REPORTS)
+    FETCH RETURN 'RMRSETRP'  /* Reset an uncomlished report
+  END-IF
+  FETCH RETURN 'RMPRGTRC'  /* Delete wrap around trace information
+  END TRANSACTION          /* with status = 'O'
+*
+  IF NOT G-SHUTDOWN AND G-TASK-NUMBER LE 1
+    CALLNAT 'RMSETSTN' #EQU-EMAIL +NOD-LOCAL-NODE G-NATRP-DBID
+      G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+    END TRANSACTION
+    FETCH RETURN 'RMEMAIL' /* Check for emails to be sent
+    IF NOT G-SHUTDOWN
+      #LINE := *LINE
+      CALLNAT 'RMSETSTN' #EQU-MONITOR +NOD-LOCAL-NODE G-NATRP-DBID
+        G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER 1X #LINE
+      END TRANSACTION
+    END-IF
+  END-IF
+  IF NOT G-SHUTDOWN AND G-TASK-NUMBER LE 1
+    CALLNAT 'RMSETSTN' #EQU-REACT +NOD-LOCAL-NODE G-NATRP-DBID
+      G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+    END TRANSACTION
+    FETCH RETURN 'RMREACT' /* Try to reactivate suspended MF nodes
+    IF NOT G-SHUTDOWN
+      #LINE := *LINE
+      CALLNAT 'RMSETSTN' #EQU-MONITOR +NOD-LOCAL-NODE G-NATRP-DBID
+        G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER 1X #LINE
+      END TRANSACTION
+    END-IF
+  END-IF
+*
+/*SU9  IF +O4I PERFORM WRITE-STATISTICS END-IF
+*
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+*
+  RESET G-ERR-GROUP
+  IF #TRACING
+    G-TRACE-MSG := '******************'
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    COMPRESS 'End of monitor cycle.'
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    G-TRACE-MSG := RMSETTIM.MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    G-TRACE-MSG := '******************'
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  IF NOT G-SHUTDOWN
+    PERFORM WAIT-FOR-NEXT-CYCLE
+  END-IF
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SCAN-SPOOL-QUEUE
+************************************************************************
+CALLNAT 'RMNPRUSR' G-MONITOR-NODE G-NPR-USERID
+  G-NATRP-ERC G-NATRP-ERT #TRACING
+G-NPR-CURRENT-USERID := G-NPR-USERID
+/*SU8  IF SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN ('BS2')
+/*SU8  SYSTEM-INFO-VIEW.SPOOL-TYPE :=SYSTEM-INFO-VIEW.SYSTEM-TYPE END-IF
+/* Indicate current status of monitor cycle:
+CALLNAT 'RMSETSTN' #EQU-SCANJES +NOD-LOCAL-NODE G-NATRP-DBID G-NATRP-FNR
+  G-SHUTDOWN G-TASK-NUMBER
+END TRANSACTION
+IF G-SHUTDOWN
+  ESCAPE ROUTINE
+END-IF
+*
+IF G-SCAN-CMASPOOL = 'Y'
+  FETCH RETURN 'RMSCCMA' /*Scan CMASPOOL Queue+Create Source+Orders
+END-IF
+IF G-SCAN-NOMUSR (*) = 'Y'
+  FETCH RETURN 'RMSCUSR' /*Scan NOMPUT Q for USRSPOOLnn+create orders
+END-IF
+*
+DECIDE ON FIRST +NOD-CURRENT-SPOOL-TYPE
+/*SU8  VALUE 'POWR' FETCH RETURN 'RMSCPWR'
+  VALUE 'JES2'
+    FETCH RETURN 'RMSCJES2'
+  VALUE 'JES3'
+    FETCH RETURN 'RMSCJE32'
+  VALUE 'SPOOL' /* BS2000
+    FETCH RETURN 'RMSCBS2' /*Scan BS2 Queue and Create Source and Orders
+    FETCH RETURN 'RMB2RNC' /*process COUNT+RENAME orders(BS2-specific)
+  VALUE 'UNIX'
+    IGNORE /* do it below (see #UNIX#)
+  NONE VALUE
+    G-NATRP-ERC := 4501
+    COMPRESS '-->' +NOD-CURRENT-SPOOL-TYPE '<--'
+      TO G-NATRP-ERT LEAVING NO
+    COMPRESS G-NATRP-ERC G-NATRP-ERT TO G-NATRP-ERT
+    PERFORM XXRLOG-WRITE-LOG 'W' G-NATRP-ERT
+    G-SHUTDOWN:= TRUE
+    END TRANSACTION
+    ESCAPE ROUTINE
+END-DECIDE
+*
+END TRANSACTION
+*
+IF G-NP-ENTRIES > 0 OR G-SCAN-TRIGGER = 'Y' /* NAT AM=NOM
+  FETCH RETURN 'RMSCNP' /*Scan NOMPUT Queue+Create Source and Orders:
+END-IF
+* Scan Unix Files on external nodes (#UNIX#):
+IF G-SCAN-UNIX = 'Y' AND +NOD-CURRENT-ID = +NOD-LOCAL-ID
+  CALLNAT 'RMSETSTN' #EQU-ANALYSE-UNIX +NOD-LOCAL-NODE
+    G-NATRP-DBID G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+  END TRANSACTION
+  FETCH RETURN 'RMSCUX'
+* BLI 2019-06-17 NOMALL-2274 Don't handle wrong NPR version here.
+**IF G-NATRP-ERC = 1581 AND *MACHINE-CLASS NE 'MAINFRAME'
+**  G-SHUTDOWN := TRUE
+**  G-TRACE-MSG := G-NATRP-ERT
+**  MOVE LEFT G-TRACE-MSG TO G-TRACE-MSG
+**  PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+**  G-TRACE-MSG := '1575' /* Monitor shutdown due to severe error
+**  PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+**  END TRANSACTION
+**  ESCAPE ROUTINE
+**END-IF
+END-IF
+IF NOT G-SHUTDOWN
+  #LINE := *LINE
+  CALLNAT 'RMSETSTN' #EQU-MONITOR +NOD-LOCAL-NODE G-NATRP-DBID
+    G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER 1X #LINE
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE  /* SCAN-SPOOL-QUEUE
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-SOURCE-TO-DB
+************************************************************************
+CALLNAT 'RMNPRUSR' G-MONITOR-NODE G-NPR-USERID
+  G-NATRP-ERC G-NATRP-ERT #TRACING
+G-NPR-CURRENT-USERID := G-NPR-USERID
+CALLNAT 'RMSETSTN' #EQU-LOAD-SOURCE +NOD-LOCAL-NODE G-NATRP-DBID
+  G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+END TRANSACTION
+IF G-SHUTDOWN
+  ESCAPE ROUTINE
+END-IF
+*
+FETCH RETURN 'RMSRCP'
+*
+IF NOT G-SHUTDOWN
+  #LINE := *LINE
+  CALLNAT 'RMSETSTN' #EQU-MONITOR +NOD-LOCAL-NODE G-NATRP-DBID
+    G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER 1X #LINE
+END-IF
+END TRANSACTION
+*
+END-SUBROUTINE /* COPY-SOURCE-TO-DB
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-REPORTS-BUNDLES
+* creation of active reports and processing of open bundles is handled
+* as a unit. Shutdown is not allowed within this unit
+************************************************************************
+CALLNAT 'RMNPRUSR' G-MONITOR-NODE G-NPR-USERID
+  G-NATRP-ERC G-NATRP-ERT #TRACING
+G-NPR-CURRENT-USERID := G-NPR-USERID
+CALLNAT 'RMSETSTN' #EQU-CREATE-AR +NOD-LOCAL-NODE G-NATRP-DBID
+  G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+END TRANSACTION
+IF G-SHUTDOWN
+  ESCAPE ROUTINE
+END-IF
+*
+FETCH RETURN 'RMPROCRP'  /*   Process Source and create active Reports
+*
+IF NOT G-SHUTDOWN
+  #LINE := *LINE
+  CALLNAT 'RMSETSTN' #EQU-MONITOR +NOD-LOCAL-NODE G-NATRP-DBID
+    G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER 1X #LINE
+END-IF
+CALLNAT 'RMNPRUSR' G-MONITOR-NODE G-NPR-USERID
+  G-NATRP-ERC G-NATRP-ERT #TRACING
+G-NPR-CURRENT-USERID := G-NPR-USERID
+END TRANSACTION
+*
+CALLNAT 'RMSETSTN' #EQU-PROCBUN +NOD-LOCAL-NODE G-NATRP-DBID
+  G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+END TRANSACTION
+FETCH RETURN 'RMPROCBU'
+*
+IF NOT G-SHUTDOWN
+  #LINE := *LINE
+  CALLNAT 'RMSETSTN' #EQU-MONITOR +NOD-LOCAL-NODE G-NATRP-DBID
+    G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER 1X #LINE
+END-IF
+END TRANSACTION
+*
+END-SUBROUTINE /* CREATE-REPORTS-BUNDLES
+*
+************************************************************************
+DEFINE SUBROUTINE FOLLOW-PRINT-JOBS
+************************************************************************
+CALLNAT 'RMNPRUSR' G-MONITOR-NODE G-NPR-USERID
+  G-NATRP-ERC G-NATRP-ERT #TRACING
+G-NPR-CURRENT-USERID := G-NPR-USERID
+CALLNAT 'RMSETSTN' #EQU-CONTRL-PRT-JOB +NOD-LOCAL-NODE G-NATRP-DBID
+  G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+END TRANSACTION
+IF G-SHUTDOWN
+  ESCAPE ROUTINE
+END-IF
+*
+FETCH RETURN 'RMPRTJOB'
+*
+IF NOT G-SHUTDOWN
+  #LINE := *LINE
+  CALLNAT 'RMSETSTN' #EQU-MONITOR +NOD-LOCAL-NODE G-NATRP-DBID
+    G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER 1X #LINE
+END-IF
+END TRANSACTION
+*
+END-SUBROUTINE /* FOLLOW-PRINT-JOBS
+*
+************************************************************************
+DEFINE SUBROUTINE FOLLOW-PRINT-TASKS
+************************************************************************
+CALLNAT 'RMNPRUSR' G-MONITOR-NODE G-NPR-USERID
+  G-NATRP-ERC G-NATRP-ERT #TRACING
+G-NPR-CURRENT-USERID := G-NPR-USERID
+*
+CALLNAT 'RMSETSTN' #EQU-CONTRL-PRT-TASK +NOD-LOCAL-NODE G-NATRP-DBID
+  G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+END TRANSACTION
+IF G-SHUTDOWN
+  ESCAPE ROUTINE
+END-IF
+*
+FETCH RETURN 'RMPRTTSK' /* Control started Print Server Tasks
+IF NOT G-SHUTDOWN
+  #LINE := *LINE
+  CALLNAT 'RMSETSTN' #EQU-MONITOR +NOD-LOCAL-NODE G-NATRP-DBID
+    G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER 1X #LINE
+END-IF
+END TRANSACTION
+*
+END-SUBROUTINE /* FOLLOW-PRINT-TASKS
+*
+************************************************************************
+DEFINE SUBROUTINE SCAN-PRINTOUT-QUEUE
+************************************************************************
+CALLNAT 'RMNPRUSR' G-MONITOR-NODE G-NPR-USERID
+  G-NATRP-ERC G-NATRP-ERT #TRACING
+G-NPR-CURRENT-USERID := G-NPR-USERID
+*
+CALLNAT 'RMSETSTN' #EQU-SCANPRT +NOD-LOCAL-NODE
+  G-NATRP-DBID G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+END TRANSACTION
+IF G-SHUTDOWN
+  ESCAPE ROUTINE
+END-IF
+*
+FETCH RETURN 'RMSCPRNT'
+/*  Scan internal Printout Queue and submit Batch Jobs or
+/*  attach Subtasks to Print Active Reports or Active Bundles
+/*  Check if Printout Schedule is within Physical Printer
+/*  Time Window and check max. Line Number for Physical Printer
+*
+IF NOT G-SHUTDOWN
+  #LINE := *LINE
+  CALLNAT 'RMSETSTN' #EQU-MONITOR +NOD-LOCAL-NODE G-NATRP-DBID
+    G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER 1X #LINE
+END-IF
+END TRANSACTION
+*
+END-SUBROUTINE /* SCAN-PRINTOUT-QUEUE
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-SOURCES
+************************************************************************
+PERFORM READ-CLEANUP-DEFAULTS
+IF CLEANUP-IDENTIFIER = 'CLEAN' AND CLEANUP-ACTIVE-NOW
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'RMNPRUSR' G-MONITOR-NODE G-NPR-USERID
+  G-NATRP-ERC G-NATRP-ERT #TRACING
+G-NPR-CURRENT-USERID := G-NPR-USERID
+CALLNAT 'RMSETSTN' #EQU-DELETE-SOURCES +NOD-LOCAL-NODE G-NATRP-DBID
+  G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+*
+END TRANSACTION
+IF G-SHUTDOWN
+  ESCAPE ROUTINE
+END-IF
+FETCH RETURN 'RMSRDL' /* Process cleanup orders
+*
+IF NOT G-SHUTDOWN
+  #LINE := *LINE
+  CALLNAT 'RMSETSTN' #EQU-MONITOR +NOD-LOCAL-NODE G-NATRP-DBID
+    G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER 1X #LINE
+END-IF
+END TRANSACTION
+*
+END-SUBROUTINE /* DELETE-SOURCES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-CLEANUP-DEFAULTS
+************************************************************************
+FIND CLEANUP-TASK WITH M-MONITOR-ID = 'SYNCHCLN'
+END-FIND
+*
+END-SUBROUTINE /* READ-CLEANUP-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-CLEANUP-DEFAULTS
+************************************************************************
+FIND CLEANUP-TASK WITH M-MONITOR-ID = 'SYNCHCLN'
+  CLEANUP-IDENTIFIER    := 'CLEAN'
+  REPORT-PROCESSING-NOW := #REPORT-PROCESSING-NOW
+  UPDATE
+  END TRANSACTION
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-CLEANUP-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE POST-CLEANUP-TASK
+************************************************************************
+#EVENT-PREFIX := 'NCLN'
+#EVENT-DBID   := G-NATRP-DBID
+#EVENT-FNR    := G-NATRP-FNR
+CALLNAT 'RMEVNT-N' +NOD-LOCAL-NODE #EVENT-NAME 'POST    '
+  G-WAIT-FACTOR G-NATRP-ERC G-NATRP-ERT #EVENT-MESSAGE
+END TRANSACTION
+*
+END-SUBROUTINE /* POST-CLEANUP-TASK
+*
+************************************************************************
+DEFINE SUBROUTINE WAIT-FOR-NEXT-CYCLE
+************************************************************************
+CALLNAT 'RMSETSTN' #EQU-IDLE +NOD-LOCAL-NODE G-NATRP-DBID
+  G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+END TRANSACTION
+IF G-SHUTDOWN
+  ESCAPE ROUTINE
+END-IF
+*
+RMSETTIM.FUNCTION := 'S'
+PERFORM RMSETTIM-SETTIME RMSETTIM
+IF NOT #MF   /* NOMALL-1019 in
+  IF G-CYCLE-WAS-IDLE
+    IF +NOWAIT > 10
+      ADD G-WAIT-INCREMENT TO G-WAIT-FACTOR
+      IF G-WAIT-FACTOR > G-WAIT-MAXIMUM
+        G-WAIT-FACTOR := G-WAIT-MAXIMUM
+      END-IF
+    ELSE
+      ADD 1 TO +NOWAIT
+    END-IF
+  ELSE
+    G-WAIT-FACTOR := G-WAIT-MINIMUM
+    RESET +NOWAIT
+  END-IF
+  IF G-WAIT-FACTOR = 0
+    G-WAIT-FACTOR := 30
+  END-IF
+  IF NOT G-CYCLE-WAS-IDLE OR +NOWAIT < 11
+    G-CYCLE-WAS-IDLE := TRUE
+    IF #TRACING
+      COMPRESS '**********************************' TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      COMPRESS 'Monitor continues without waiting.' TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      COMPRESS '**********************************' TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+    END TRANSACTION
+    ESCAPE ROUTINE
+  END-IF
+ELSE
+  IF G-CYCLE-WAS-IDLE
+    ADD G-WAIT-INCREMENT TO G-WAIT-FACTOR
+    IF G-WAIT-FACTOR > G-WAIT-MAXIMUM
+      G-WAIT-FACTOR := G-WAIT-MAXIMUM
+    END-IF
+  ELSE
+    G-WAIT-FACTOR := G-WAIT-MINIMUM
+  END-IF
+  IF G-WAIT-FACTOR = 0
+    G-WAIT-FACTOR := 30
+  END-IF
+  G-CYCLE-WAS-IDLE := TRUE
+END-IF
+RMTASK-P.FUNCTION       := 'E'
+RMTASK-P.SUBTASK-NUMBER := G-TASK-NUMBER
+#LINE                   := *LINE
+CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+#EVENT-NAME   := RMTASK-P.TASK-ID
+*
+RESET #EVENT-MESSAGE
+IF #TRACING
+  COMPRESS '***********************'  TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  COMPRESS 'Monitor waiting' G-WAIT-FACTOR 'sec.' TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  COMPRESS '***********************'  TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+CALLNAT 'RMSETSTN' #EQU-IDLE +NOD-LOCAL-NODE G-NATRP-DBID
+  G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+*
+END TRANSACTION
+CALLNAT 'RMEVNT-N' +NOD-LOCAL-NODE #EVENT-NAME 'WAIT    '
+  G-WAIT-FACTOR G-NATRP-ERC G-NATRP-ERT #EVENT-MESSAGE
+END TRANSACTION
+RMSETTIM.FUNCTION := 'G'
+PERFORM RMSETTIM-SETTIME RMSETTIM
+IF RMSETTIM.TIME / 10 < G-WAIT-FACTOR /* wake monitor occurred
+  G-WAIT-FACTOR := G-WAIT-MINIMUM
+END-IF
+*
+IF G-NATRP-ERC = 999
+  PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY-MM-DD' 'HH:II:SS:T)
+    G-NATRP-ERT /*SU6 (AL=79)
+  PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY-MM-DD' 'HH:II:SS:T)
+    'Monitor goes down'
+  IF #MF
+    FETCH RETURN 'RMRDCDSP'  /* Display RDC statistics in batch
+    FETCH RETURN 'RDCDISIO'
+  END-IF
+  STACK TOP COMMAND 'FIN'
+  STACK TOP COMMAND 'LASTMSG'
+  STOP
+END-IF
+IF #EVENT-MESSAGE = 'TRACEON'
+  PERFORM RMGTRACE-GET-SETTINGS #TRACING
+  IF G-TRACE = 0
+    G-TRACE     := 100
+    #TRACING    := TRUE
+    G-TRACE-SET := 'SCAN COPY CREATE PRINT'
+  END-IF
+  G-TRACE-MSG := '1539'
+  PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+ELSE
+  IF #EVENT-MESSAGE = 'TRACEOFF'
+    RESET G-TRACE G-TRACE-SET #TRACING
+    G-TRACE-MSG := '1540'
+    PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* WAIT-FOR-NEXT-CYCLE
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-STATISTICS /*SU9 UNUSED ÜÜ
+************************************************************************
+RMSETTIM.FUNCTION := 'G'
+PERFORM RMSETTIM-SETTIME RMSETTIM
+/*SU9 IF NOT +O4I OR #STATISTICS-ERROR ESCAPE ROUTINE END-IF
+REDUCE ARRAY SS-VALUE TO 0
+EXPAND ARRAY SS-VALUE TO (1:100)
+REDUCE ARRAY SS-TITLE TO 0
+EXPAND ARRAY SS-TITLE TO (1:100)
+RESET NOMSTCSP
+NOMSTCSP.FUNCTION        := 'A' /* cumulate it (add function)
+NOMSTCSP.SS-ITEM         := 'MON-TIME'
+SS-VALUE (G-TASK-NUMBER) := RMSETTIM.TIME
+COMPRESS '4351' G-TASK-NUMBER TO #TXT
+CALLNAT 'RSUBMSGN' #TXT
+SS-TITLE (G-TASK-NUMBER) := #TXT
+PERFORM CALL-STATISTICS
+IF #STATISTICS-ERROR
+  ESCAPE ROUTINE
+END-IF
+FNDORD. FIND NUMBER ORDERS WITH OD-TYPE-TIME GE #OD-FROM
+AND  OD-TYPE-TIME LT #OD-TO                                           /*
+RESET NOMSTCSP SS-VALUE (*) SS-TITLE (*)
+NOMSTCSP.FUNCTION := 'W' /* update it
+NOMSTCSP.SS-ITEM  := 'MON-ORDERS'
+SS-VALUE (1)      := *NUMBER(FNDORD.)
+#TXT              := '4352'
+CALLNAT 'RSUBMSGN' #TXT
+SS-TITLE (1)  := #TXT
+PERFORM CALL-STATISTICS
+IF #STATISTICS-ERROR
+  ESCAPE ROUTINE
+END-IF
+IF G-TASK-NUMBER = 1
+  RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)
+  FIND MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+    REDUCE ARRAY SS-VALUE TO 0
+    EXPAND ARRAY SS-VALUE TO (1:100)
+    REDUCE ARRAY SS-TITLE TO 0
+    EXPAND ARRAY SS-TITLE TO (1:100)
+    NOMSTCSP.FUNCTION := 'W'
+    NOMSTCSP.SS-ITEM  := 'MON-WAITTIME'
+    SS-VALUE (1)      := M-WAIT-CURRENT
+    #TXT              := '4353'
+    CALLNAT 'RSUBMSGN' #TXT
+    SS-TITLE (1)  := #TXT
+    PERFORM CALL-STATISTICS
+    IF #STATISTICS-ERROR
+      ESCAPE ROUTINE
+    END-IF
+    RESET NOMSTCSP SS-VALUE (*) SS-TITLE (*)
+    NOMSTCSP.FUNCTION := 'W'
+    NOMSTCSP.SS-ITEM  := 'MON-PROFILE'
+    SS-VALUE (1)      := 'Monitor'
+    FOR #I = 1 TO 5
+      COMPRESS  '4354' #I TO #TXT
+      CALLNAT 'RSUBMSGN' #TXT
+      SS-TITLE (#I)  := #TXT
+      IF M-SPOOL-QUEUE = #I
+        #TXT := 4384               /* scan spool queue
+        PERFORM ADD-TEXT
+      END-IF
+      IF M-COPY-SOURCE = #I
+        #TXT := 4381               /* copy source
+        PERFORM ADD-TEXT
+      END-IF
+      IF M-CREATE-REPORTS = #I
+        #TXT := 4382               /* create reports
+        PERFORM ADD-TEXT
+      END-IF
+      IF M-MANAGE-PRINTOUTS = #I
+        #TXT := 4383               /* manage printouts
+        PERFORM ADD-TEXT
+      END-IF
+      IF *LENGTH(SS-VALUE (#I)) NE 0 AND SUBSTR(SS-VALUE (#I),1,2)='; '
+        EXAMINE SS-VALUE (#I) FOR '; ' AND DELETE FIRST
+      END-IF
+      IF *LENGTH(SS-VALUE (#I)) NE 0 AND SUBSTR (SS-VALUE (#I),1,1)=' '
+        EXAMINE SS-VALUE (#I) FOR ' ' AND DELETE FIRST
+      END-IF
+      IF *LENGTH(SS-VALUE (#I)) NE 0 AND SUBSTR (SS-VALUE (#I),1,1)=';'
+        EXAMINE SS-VALUE (#I) FOR ';' AND DELETE FIRST
+      END-IF
+      EXAMINE SS-VALUE (#I) FOR ' ; ' REPLACE WITH '; '
+    END-FOR
+    PERFORM CALL-STATISTICS
+    IF #STATISTICS-ERROR
+      ESCAPE ROUTINE
+    END-IF
+  END-FIND
+ELSE
+  MOVE G-TASK-NUMBER TO SUBSTR (#MON-ID,5)
+  FIND MONITOR WITH M-MONITOR-ID = #MON-ID
+    RESET NOMSTCSP SS-VALUE (*) SS-TITLE (*)
+    NOMSTCSP.FUNCTION        := 'W'
+    NOMSTCSP.SS-ITEM         := 'MON-WAITTIME'
+    SS-VALUE (G-TASK-NUMBER) := M-WAIT-CURRENT
+    #TXT := '4353'
+    CALLNAT 'RSUBMSGN' #TXT
+    SS-TITLE (1)  := #TXT
+    PERFORM CALL-STATISTICS
+    IF #STATISTICS-ERROR
+      ESCAPE ROUTINE
+    END-IF
+  END-FIND
+END-IF
+*
+END TRANSACTION
+*
+END-SUBROUTINE /* WRITE-STATISTICS
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-TEXT
+************************************************************************
+CALLNAT 'RSUBMSGN' #TXT
+COMPRESS SS-VALUE (#I) '; ' #TXT TO SS-VALUE (#I) LEAVING NO
+*
+END-SUBROUTINE /* ADD-TEXT
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-STATISTICS
+************************************************************************
+IF NOT #STATISTICS-ERROR
+  CALLNAT 'NOMSTCS' NOMSTCSP
+  IF NOMSTCSP.ERC NE 0
+    COMPRESS '4390' SS-ITEM NOMSTCSP.ERC TO LG-MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' LG-MSG
+    RESET LG-FUNCTION /* restore old fashioned way.
+    #STATISTICS-ERROR := TRUE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CALL-STATISTICS
+*
+************************************************************************
+DEFINE SUBROUTINE CLEANUP-STEPLIBS
+************************************************************************
+NAT00009-FUNCTION := 20 /* how many steplibs active?
+CALLNAT 'RGETLIB'  NAT00009-LIBRARY
+CALLNAT 'NAT00009' NAT00009-PARMS
+IF NAT00009-NUMBER-ACTIVE > 1
+  FOR #S = NAT00009-NUMBER-ACTIVE TO 2 STEP -1 /*scan from end of table
+    NAT00009-FUNCTION      := 12
+    NAT00009-CURRENT-INDEX := #S
+    CALLNAT 'NAT00009' NAT00009-PARMS
+    NAT00009-FUNCTION := 20
+    CALLNAT 'NAT00009' NAT00009-PARMS     /* duplicate?
+    IF NAT00009-CURRENT-INDEX LT #S AND NAT00009-CURRENT-INDEX > 0
+      NAT00009-CURRENT-INDEX := #S
+      NAT00009-FUNCTION      := 16   /* delete it from table
+      CALLNAT 'NAT00009' NAT00009-PARMS
+    END-IF
+  END-FOR
+END-IF
+*
+END-SUBROUTINE /* CLEANUP-STEPLIBS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-LICENCE /*SU6
+************************************************************************
+IF #TRACING
+  COMPRESS 'Check licence for ''' PROD-NAME ''' version='
+    PROD-VERSION 'limit=' EXP-LIMIT ' days' TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+* 1. call without SHOW-MESSAGE to get RC:
+CALLNAT 'NAT51002' #NAT51002
+IF (NOT (LC-ERC =0 OR=-2)) /*OR (LC-ERC =0 AND EXP-LIMIT GE EXP-DAYS)
+  /* -2 Call is not implemented for this platform
+  SHOW-MESSAGE := TRUE /*something wrong -> show msg
+  CALLNAT 'NAT51002' #NAT51002
+  COMPRESS NUMERIC 'The product license is invalid:' LC-ERT '(RC:'
+    LC-ERC ')' TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+  END TRANSACTION
+/*PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+/*  G-TRACE-MSG
+  CALLNAT 'XXCONTRM' 'E' G-TASK-NUMBER 5 G-TRACE-MSG #TRACING /*Email
+  G-SHUTDOWN := TRUE
+  FETCH 'RMCHKDWN'
+  /*Terminate with MSG 5 (:1:)
+END-IF
+IF #TRACING OR (EXP-DAYS =0 THRU EXP-LIMIT) /* < 30 days(-1=unlimited)
+  COMPRESS NUMERIC 'The product license will expire in' EXP-DAYS 'days.'
+    TO G-TRACE-MSG
+  IF EXP-LIMIT GE EXP-DAYS /*send email
+    COMPRESS '>>>' G-TRACE-MSG '<<<' TO G-TRACE-MSG
+    CALLNAT 'XXCONTRM' 'E' G-TASK-NUMBER 5 G-TRACE-MSG #TRACING /*Email
+  END-IF
+  PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY-MM-DD' 'HH:II:SS:T)
+    G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* CHECK-LICENCE
+*
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-LICENCE-MF /*NKEW1
+************************************************************************
+*
+RESET #MSG-LONG
+IF #TRACING
+  COMPRESS 'Check licence for ''' PROD-NAME ''' version='
+    PROD-VERSION TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+IF  ( *NATVERS LE '09.02.00')
+  COMPRESS '0040 Current Natural version is:' *NATVERS
+    'No Licence Check will be performed due to lower version then'
+    '09.02.03' TO G-TRACE-MSG
+  PRINT G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+  END TRANSACTION
+* Variables for ZAP need to be known
+* PERFORM TEST-IF-ZAP-APPLIED ZAP-NAME ZAP-IS-APPLIED
+* NAT82003(SYSLIBS)
+* ONLY ESCAPE IF ZAP-IS-APPLIED EQ FALSE
+  ESCAPE ROUTINE
+END-IF
+* See NATURAL.V93.TEST.SRCE(NATMPP) for docu
+CALL 'CMMPP' 'LICS' 'NOM  ' PRODUCT-VERSION
+  '1       '
+  MSGS(*)
+LC-ERC  := RET('CMMPP')
+IF ( LC-ERC EQ 0 )
+  #M-STARTED := TRUE
+  COMPRESS '0135' TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+  ESCAPE ROUTINE
+END-IF
+*   0      License check was successful.                              *
+*   4/8    Warning message has been issued. Product can continue.     *
+*   12     License check failed, Error message has been issued.       *
+*          Product must stop and cannot be used.                      *
+*   16     Severe error occurred (during development only).           *
+*                                                                     *
+*   -1     Function LICS is not implemented in NATMPP.                *
+*   -2     License module not found for specified product code.       *
+IF LC-ERC NE 0
+  MSGS. FOR ##REC-COUNT = 1 TO 10
+    IF MSGS(##REC-COUNT) = ' '
+      ESCAPE BOTTOM (MSGS.)
+    END-IF
+    COMPRESS 'NOM0040'
+      MSGS(##REC-COUNT) TO G-TRACE-MSG
+    PRINT G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+    END TRANSACTION
+*   Write a long message when multiple msgs are returned by cmmpp
+*   If more then 4 just add look at trace for details
+    COMPRESS ##REC-COUNT ':' TO #MSG-PREFIX LEAVING NO
+    IF ##REC-COUNT EQ 4
+      COMPRESS #MSG-LONG '!View trace' TO #MSG-LONG
+    END-IF
+    IF ##REC-COUNT LT 4
+      COMPRESS #MSG-LONG 'MSG' #MSG-PREFIX G-TRACE-MSG TO #MSG-LONG
+    END-IF
+  END-FOR
+  IF LC-ERC NE 12 AND LC-ERC GT 0
+    #M-STARTED := TRUE
+    CALLNAT 'XXCONTRM' 'E' G-TASK-NUMBER 136 #MSG-LONG #TRACING
+    COMPRESS '0136' TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+    ESCAPE ROUTINE
+  END-IF
+  IF LC-ERC = -2
+    COMPRESS NUMERIC '0040 License module not found for specified'
+      'product code: NOM' TO G-TRACE-MSG
+    PRINT G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+    END TRANSACTION
+    LC-ERC := LC-ERC * -1
+    COMPRESS 'NOM0040 License module not found for specified'
+      'product code: NOM RC minus' LC-ERC   TO G-TRACE-MSG
+    CALLNAT 'XXCONTRM' 'E' G-TASK-NUMBER 137 G-TRACE-MSG #TRACING
+  ELSE
+    CALLNAT 'XXCONTRM' 'E' G-TASK-NUMBER 137 #MSG-LONG #TRACING
+  END-IF
+  COMPRESS NUMERIC '0137' TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+  IF NOT #M-STARTED /* If monitor is already running don't shutdown
+    G-SHUTDOWN := TRUE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CHECK-LICENCE-MF
+************************************************************************
+END

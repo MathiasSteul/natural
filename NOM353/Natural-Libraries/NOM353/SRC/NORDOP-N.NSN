@@ -1,0 +1,359 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NORDOP-N - NOM API Maintenance of Report in Archive dataset
+* Parameters: ES-KEY-PARM(1) - Archive dsname
+*             ES-KEY-PARM(2) - Repname
+*             ES-KEY-PARM(3) - Reprnb
+*             ES-KEY-PARM(4) - use for passing data for actualisation
+* Maintenance:
+* XSETGGR 2005-02-20 created
+* XSETGGR 2005-05-18 pass data thru es-key-parm(4)
+* XSETHZ  2005-05-23
+* XSETGGR 2005-05-25 changes
+* xsetggr 2007-07-04 NOM3201  Support P11 format run numbers
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-11-05 NOMALL-1450 fill fields for Adabas Vista
+* SU3     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* CF1     2016-02-11 NOMALL-1833 Display revive flag in report list
+* -------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NORDOP-A
+************************************************************************
+LOCAL     USING NOMODE-A
+LOCAL     USING NADA2000
+LOCAL     USING NAD-MSG
+LOCAL     USING NAD-FLD
+LOCAL
+1 DATASET-REPORT VIEW OF NRM-DATASET-REPORT
+  2 DR-ARCHIVE-DSNAME
+  2 DR-REPNAME
+  2 DR-REPRNB
+  2 DR-STATUS
+  2 DR-EXPIRATION-DATE
+  2 DR-EXPIRATION-DATE-ORIG
+1 ARCHIVE-DATASET VIEW OF NRM-ARCHIVE-DATASET
+  2 AD-EXPIRATION-DATE
+  2 AD-ARCHIVE-DSNAME
+  2 C*AD-VOLSERS
+1 ARCHIVE-TASK VIEW OF NRM-ARCHIVE-TASK
+  2 M-ARCHIVE-PREFIX
+1 CATALOG VIEW OF CATALOG
+  2 DSNAME
+1 AR VIEW OF NRM-ACTIVE-REPORTS                       /* CF1 +
+  2 AR-REVIVE
+/*
+1 #REPORT-RNB      (A31)
+1 REDEFINE #REPORT-RNB
+  2 #REPORT        (A25)
+  2 #RNB           (P11)                              /* CF1 -
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+1 #ERC                      (N4)
+1 #ERT                      (A250)
+1 #LIBRARY-ID               (A8)
+1 #DSNAME-REP-RNB           (A75)
+1 REDEFINE  #DSNAME-REP-RNB
+  2 #DSNAME                 (A44)
+  2 #REPNAME                (A25)
+  2 #REPRNB                 (P11)
+1 #ES-MSG-TXT               (A250)
+1 #MIN-DATE                 (A8)
+1 #ACT-DATE                 (D)
+1 #MODIFIED-EXP-DATE        (A8)
+1 #TEMP-STRING              (A60)
+1 #DATE                     (A8)
+1 #FORMATED-DATE            (A10)
+1 #EXP-MODIFIED             (L)
+/*1 #PARM                     (A30)                   /* CF1
+1 #PARM                     (A50)                     /* CF1
+1 REDEFINE #PARM
+  2 #AD-EXP-DATE            (A10)
+  2 #AD-OPTIONS             (A2/10)
+  2 #AR-REVIVE              (A1)                      /* CF1
+  2 #AR-OPTIONS             (A2/3)                    /* CF1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC
+*
+NOMOD-PARMS := ES-SELECT
+#LIBRARY-ID := ES-APP-SERVER-LIBRARY
+#DSNAME  := ES-KEY-PARM(1)
+#REPRNB  := VAL(ES-KEY-PARM(3))
+#REPNAME := ES-KEY-PARM(2)
+*
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+  VALUE ' '
+    PERFORM READ-RECORD
+  VALUE 'UPD'
+    PERFORM UPDATE-RECORD
+    IF ES-RC = 0
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  VALUE 'CHK'
+    PERFORM CHECK
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-RECORD
+************************************************************************
+RESET NORD-PARMS #ES-MSG-FIELD #ES-MSG-NR
+FNDDR. FIND DATASET-REPORT WITH DR-DSNAME-REPORT-RNB = #DSNAME-REP-RNB
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0034             /* :1: does not exist
+    COMPRESS #REPNAME '/' #REPRNB TO #ES-MSG-TXT LEAVING NO
+    ESCAPE BOTTOM (FNDDR.)
+  END-NOREC
+  /*                                                  /* CF1 +
+  #REPORT-RNB.#REPORT := DR-REPNAME
+  #REPORT-RNB.#RNB    := DR-REPRNB
+  FIND AR WITH AR-REPORT-RNB = #REPORT-RNB
+    IF NO RECORDS FOUND
+      COMPRESS #REPNAME '/' #REPRNB INTO #ES-MSG-TXT LEAVING NO
+      #ES-MSG-NR := 0494 /* Function terminated. Prop.record not found.
+      ESCAPE BOTTOM (FNDDR.)
+    END-NOREC
+    IGNORE
+  END-FIND
+  /*                                                  /* CF1 -
+  NORD-DSNAME  := DR-ARCHIVE-DSNAME
+  NORD-REPNAME := DR-REPNAME
+  NORD-REPRNB  := DR-REPRNB
+  IF DR-EXPIRATION-DATE-ORIG  NE ' '
+    #DATE := DR-EXPIRATION-DATE-ORIG
+    PERFORM MASK-DATE
+    NORD-ORIG-EXP-DATE := #FORMATED-DATE
+  END-IF
+  #DATE := DR-EXPIRATION-DATE
+  PERFORM MASK-DATE
+  NORD-EXP-DATE := #FORMATED-DATE
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* READ-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+RESET NORD-OPTIONS(*) #PARM
+FNDMOD. FIND DATASET-REPORT WITH DR-DSNAME-REPORT-RNB = #DSNAME-REP-RNB
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0034             /* :1: does not exist
+    COMPRESS #REPNAME '/' #REPRNB TO #ES-MSG-TXT LEAVING NO
+    ESCAPE BOTTOM(FNDMOD.)
+  END-NOREC
+  /*                                                  /* CF1 +
+  #REPORT-RNB.#REPORT := DR-REPNAME
+  #REPORT-RNB.#RNB    := DR-REPRNB
+  FNDAR. FIND AR WITH AR-REPORT-RNB = #REPORT-RNB
+    IF NO RECORDS FOUND
+      COMPRESS #REPNAME '/' #REPRNB INTO #ES-MSG-TXT LEAVING NO
+      #ES-MSG-NR := 0494 /* Function terminated. Prop.record not found.
+      ESCAPE BOTTOM (FNDMOD.)
+    END-NOREC
+    #AR-REVIVE := AR-REVIVE
+  END-FIND
+  /*                                                  /* CF1 -
+  FNDAD. FIND ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = #DSNAME
+  END-FIND
+  PERFORM VALIDATION
+  IF #ES-MSG-NR NE 0
+    ESCAPE BOTTOM(FNDMOD.)
+  END-IF
+  GETMOD. GET DATASET-REPORT *ISN(FNDMOD.)
+  RESET DR-STATUS
+  IF DATASET-REPORT.DR-EXPIRATION-DATE-ORIG = ' '
+    DATASET-REPORT.DR-EXPIRATION-DATE-ORIG :=
+      DATASET-REPORT.DR-EXPIRATION-DATE
+  END-IF
+  #DATE := DR-EXPIRATION-DATE-ORIG
+  PERFORM RD-OPTIONS                                  /* CF1
+  PERFORM MASK-DATE
+  NORD-ORIG-EXP-DATE := #FORMATED-DATE
+  IF DATASET-REPORT.DR-EXPIRATION-DATE
+      = ARCHIVE-DATASET.AD-EXPIRATION-DATE OR
+      #MODIFIED-EXP-DATE > ARCHIVE-DATASET.AD-EXPIRATION-DATE
+    #EXP-MODIFIED := TRUE
+  END-IF
+  DATASET-REPORT.DR-EXPIRATION-DATE := #MODIFIED-EXP-DATE
+  UPDATE (GETMOD.)
+  /*END TRANSACTION                                   /* CF1
+  IF #EXP-MODIFIED
+    PERFORM MODIFY-ARCHIVE-EXP-DATE
+  END-IF
+  END TRANSACTION                                     /* CF1
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+ELSE
+  ES-KEY-PARM(4) := #PARM
+END-IF
+*
+END-SUBROUTINE /* UPDATE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-ARCHIVE-EXP-DATE
+************************************************************************
+RESET #AD-EXP-DATE
+/* check highest  exp date
+/* (Note: This request destroys the previously gathered DR-... values.)
+FIND DATASET-REPORT WITH
+    DR-ARCHIVE-DSNAME = ARCHIVE-DATASET.AD-ARCHIVE-DSNAME
+  IF DR-EXPIRATION-DATE > #AD-EXP-DATE
+    #AD-EXP-DATE := DATASET-REPORT.DR-EXPIRATION-DATE
+  END-IF
+END-FIND
+IF #AD-EXP-DATE NE ' '
+  GETU. GET ARCHIVE-DATASET *ISN(FNDAD.)
+  ARCHIVE-DATASET.AD-EXPIRATION-DATE := #AD-EXP-DATE
+  UPDATE (GETU.)
+  #DATE := #AD-EXP-DATE
+  PERFORM MASK-DATE
+  #AD-EXP-DATE := #FORMATED-DATE
+  PERFORM AD-OPTIONS
+END-IF
+*
+END-SUBROUTINE /* MODIFY-ARCHIVE-EXP-DATE
+*
+************************************************************************
+DEFINE SUBROUTINE MASK-DATE
+************************************************************************
+RESET #FORMATED-DATE
+CALLNAT 'IODATE-N' 'M' 'L' #DATE #FORMATED-DATE ES-DATE-FORMAT #ERC #ERT
+*
+END-SUBROUTINE /* MASK-DATE
+*
+************************************************************************
+DEFINE SUBROUTINE AD-OPTIONS
+************************************************************************
+/* get archive-dataset options
+FIND (1) ARCHIVE-TASK WITH M-MONITOR-ID = 'ARCHIVE'
+  EXAMINE #TEMP-STRING FOR ARCHIVE-TASK.M-ARCHIVE-PREFIX DELETE
+  IF #TEMP-STRING = MASK ('.G'NNNN'V'NN) AND *MACHINE-CLASS NE 'PC'
+    FIND CATALOG WITH NODE = NOMOD-MONITOR-NODE
+        AND DSNAME = ARCHIVE-TASK.M-ARCHIVE-PREFIX
+      IF DSNAME = ARCHIVE-DATASET.AD-ARCHIVE-DSNAME
+        #AD-OPTIONS(1) := 'OD'
+        /*  Not allowed to condense the oldest data set in a GDG
+        ESCAPE BOTTOM
+      END-IF
+      ESCAPE BOTTOM
+    END-FIND
+  END-IF
+END-FIND
+#AD-OPTIONS(2) := 'DT'
+IF C*AD-VOLSERS = 0
+  #AD-OPTIONS(3) := 'LV'
+END-IF
+*
+END-SUBROUTINE /* AD-OPTIONS
+*
+************************************************************************
+DEFINE SUBROUTINE RD-OPTIONS
+************************************************************************
+/* get report in archive dataset options
+IF DR-STATUS = 'D'
+  #AR-OPTIONS(1) := 'DL'           /* delete
+END-IF
+IF DR-EXPIRATION-DATE-ORIG = ' '
+  #AR-OPTIONS(2) := 'RD'           /* reset
+END-IF
+IF #AR-REVIVE = '*'
+  #AR-OPTIONS(3) := 'RV'           /* revive
+END-IF
+*
+END-SUBROUTINE /* RD-OPTIONS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK
+************************************************************************
+PERFORM VALIDATION
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* CHECK
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+RESET #ES-MSG-NR #ES-MSG-FIELD #ACT-DATE
+#ACT-DATE := *DATX                             /* current date
+MOVE EDITED #ACT-DATE (EM=YYYYMMDD) TO #MIN-DATE
+IF NORD-EXP-DATE NE MASK(YYYYMMDD)
+  CALLNAT 'IODATE-N' 'V' 'L' #MODIFIED-EXP-DATE NORD-EXP-DATE
+    ES-DATE-FORMAT #ES-MSG-NR #ES-MSG-TXT
+  IF #ES-MSG-NR NE 0
+    #ES-MSG-FIELD-NAME := 'EXP-DATE'
+    ESCAPE ROUTINE
+  END-IF
+ELSE
+  #MODIFIED-EXP-DATE := NORD-EXP-DATE
+  #DATE := NORD-EXP-DATE
+  PERFORM MASK-DATE
+  NORD-EXP-DATE := #FORMATED-DATE
+END-IF
+IF #MODIFIED-EXP-DATE < #MIN-DATE
+  #ES-MSG-NR := 0151  /* Date must be greater than current date
+  #ES-MSG-FIELD-NAME := 'EXP-DATE'
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR  := #ES-MSG-NR
+ES-MSG-TXT := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT
+ES-MSG-FIELD := #ES-MSG-FIELD
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

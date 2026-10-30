@@ -1,0 +1,194 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPRGPO
+* Function:    Purge Printouts by retention Period
+*              Status D,E or F if defined in the Monitor defaults
+*              Status H if hold retention is entered (NOMALL-1284)
+* Maintenance
+* jwo 1997-09-22 p(165064)   adjust PO-IDs in control record
+* gw  1998-06-22 s(999999)   allow batch cleanup to run in lib other
+*                            than SYSNOM
+* fhi 2014-06-18 NOMALL-1284 Allow retention period of held printouts
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista-onlyRestru
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+*
+LOCAL
+1 PRINTOUTS VIEW OF NRM-PRINTOUTS
+  2 PO-CREATED
+  2 PO-STATUS
+1 MONITOR VIEW OF NRM-MONITOR
+  2 M-PO-RETENTION
+  2 M-HOLD-RETENTION                   /* NOMALL-1284 fhi in
+  2 M-PO-TYPES        (1:3)
+  2 C*M-PO-TYPES
+* *****
+1 I                   (P2)
+1 #AUTO-DATE          (T)
+1 #PERIOD-N           (N5)
+1 #LEN                (P2)
+1 #PERIOD             (A5)
+1 REDEFINE #PERIOD
+  2 #PERIOD-V         (A1/5)
+1 #PERIOD-A           (A5)
+1 REDEFINE #PERIOD-A
+  2 #PERIOD-A-V       (A1/5)
+1 ERROR-OCCURRED      (L)
+1 #NOR                (P6)
+1 #COUNTER            (P10) INIT <60>
+1 #TIME               (A14)
+1 REDEFINE #TIME
+  2 #DATE             (A8)
+  2 #HHIISS           (A6)
+1 #RMPOID-FUNC        (A1)
+1 #POID               (N7)
+1 #RETENTION          (A5)
+1 #MONIT-ID           (A16)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'started'
+PERFORM READ-SYSTEM-DEFINITIONS
+* fhi 2014-06-18 NOMALL-1284 start commenting
+*  IF ERROR-OCCURRED OR MONITOR.M-PO-RETENTION = ' '
+*    IGNORE
+*  ELSE
+* fhi 2014-06-18 NOMALL-1284 end commenting, start insertion
+DECIDE FOR EVERY CONDITION
+  WHEN MONITOR.M-PO-RETENTION NE ' ' AND NOT ERROR-OCCURRED
+    #RETENTION := MONITOR.M-PO-RETENTION
+* fhi 2014-06-18 NOMALL-1284 end insertion
+    PERFORM COMPUTE-COMPARISON-DATE
+    IF NOT ERROR-OCCURRED
+      FOR I = 1 TO MONITOR.C*M-PO-TYPES
+        PERFORM DELETE-PRINTOUT-RECORDS
+      END-FOR
+      IF #NOR GT 0                      /* POs have been purged
+        #RMPOID-FUNC := 'A'             /* Adjust control record
+        CALLNAT 'RMPOID-N' #POID G-NATRP-ERC G-NATRP-ERT #RMPOID-FUNC
+      END-IF
+    END-IF
+* fhi 2014-06-18 NOMALL-1284 start insertion
+  WHEN MONITOR.M-HOLD-RETENTION NE ' ' AND NOT ERROR-OCCURRED
+    #RETENTION := MONITOR.M-HOLD-RETENTION
+    PERFORM COMPUTE-COMPARISON-DATE
+    IF NOT ERROR-OCCURRED
+      REAPO2. READ PRINTOUTS BY PO-STATUS = 'H' ENDING AT 'H'
+        IF PO-CREATED <= #AUTO-DATE
+          ADD 1 TO #NOR
+          DELETE
+        END-IF
+        IF *COUNTER (REAPO2.) = #COUNTER
+          END OF TRANSACTION
+          RESET *COUNTER (REAPO2.)
+        END-IF
+      END-READ
+      END OF TRANSACTION
+      IF #NOR GT 0                      /* POs have been purged
+        #RMPOID-FUNC := 'A'             /* Adjust control record
+        CALLNAT 'RMPOID-N' #POID G-NATRP-ERC G-NATRP-ERT #RMPOID-FUNC
+      END-IF
+    END-IF
+  WHEN NONE
+    IGNORE
+END-DECIDE
+* fhi 2014-06-18 NOMALL-1284 end   insertion
+* END-IF                              /* NOMALL-1284 fhi out
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  #NOR (EM=ZZZZZ9) 'Printout records deleted'
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'normal end'
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-PRINTOUT-RECORDS
+************************************************************************
+REAPO. READ PRINTOUTS BY PO-STATUS STARTING FROM MONITOR.M-PO-TYPES (I)
+    ENDING AT     MONITOR.M-PO-TYPES (I)
+*
+  IF PO-CREATED <= #AUTO-DATE
+    ADD 1 TO #NOR
+    DELETE
+  END-IF
+  IF *COUNTER (REAPO.) = #COUNTER
+    END OF TRANSACTION
+    RESET *COUNTER (REAPO.)
+  END-IF
+*
+END-READ
+END OF TRANSACTION
+*
+END-SUBROUTINE /* DELETE-PRINTOUT-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE COMPUTE-COMPARISON-DATE
+************************************************************************
+* fhi 2014-06-18 NOMALL-1284 start commenting
+*  IF MONITOR.M-PO-RETENTION IS (N5)
+*    #PERIOD-N := VAL(MONITOR.M-PO-RETENTION)
+*  ELSE
+*    EXAMINE MONITOR.M-PO-RETENTION FOR 'X' GIVING LENGTH IN #LEN
+*    MOVE MONITOR.M-PO-RETENTION TO #PERIOD
+* fhi 2014-06-18 NOMALL-1284 end   commenting, start insertion
+IF #RETENTION IS (N5)
+  #PERIOD-N := VAL(#RETENTION)
+ELSE
+  EXAMINE #RETENTION FOR 'X' GIVING LENGTH IN #LEN
+  MOVE #RETENTION TO #PERIOD
+* fhi 2014-06-18 NOMALL-1284 end insertion
+  MOVE #PERIOD-V(1:#LEN - 1) TO #PERIOD-A-V(1:#LEN - 1)
+  IF NOT(#PERIOD-A IS (N5))
+    ERROR-OCCURRED := TRUE
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'invalid Retention Period'
+    ESCAPE ROUTINE
+  END-IF
+  #PERIOD-N := VAL(#PERIOD-A)
+  DECIDE ON FIRST VALUE OF #PERIOD-V(#LEN)
+    VALUE 'D' IGNORE
+    VALUE 'W' #PERIOD-N := #PERIOD-N * 7
+    VALUE 'M' #PERIOD-N := #PERIOD-N * 30
+    NONE
+      ERROR-OCCURRED := TRUE
+      WRITE NOTITLE NOHDR
+        *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'invalid Retention Period'
+      ESCAPE ROUTINE
+  END-DECIDE
+END-IF
+#AUTO-DATE := *TIMX - (#PERIOD-N * 864000)
+MOVE EDITED #AUTO-DATE (EM=YYYYMMDDHHIISS) TO #TIME
+#HHIISS := '235959'
+MOVE EDITED #TIME TO #AUTO-DATE (EM=YYYYMMDDHHIISS)
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'delete Printout Records older LE' #AUTO-DATE (EM=YYYY'-'MM'-'DD)
+*
+END-SUBROUTINE /* COMPUTE-COMPARISON-DATE
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SYSTEM-DEFINITIONS
+************************************************************************
+#MONIT-ID := F#MONITOR-TASK-ID1 (<>)
+FIND MONITOR WITH M-MONITOR-ID = #MONIT-ID
+  IF NO RECORDS FOUND
+    ERROR-OCCURRED := TRUE
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'System Record missing'
+  END-NOREC
+END-FIND
+*
+END-SUBROUTINE /* READ-SYSTEM-DEFINITIONS
+*
+END

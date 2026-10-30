@@ -1,0 +1,905 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMSCCMA * Scan CMASPOOL Queue and Create Source and Orders
+*
+* Maintenance
+* uuu yy-mm-dd s(999999)  ...
+* gw  94-03-04 s(999999) created
+* gw  95-01-17 s(999999) Time limit for scan routine
+* gw  95-01-25 p(136414) Avoid NAT1305 if not cma-retan = -1 thru 4095
+* mrs 95-05-29 s(225717) Retry loading data if possible
+* gw  96-02-20 s(999999) adapt to cmaspool V11 interface
+*                        note! CA drops support of V10 end of '96
+*                        to make things easier, this program only
+*                        supports v11. use RMSCCMAO and RMSRCPON for v10
+* gw  96-11-11 s(255001) call user exit #2 (modify spool attributes)
+* gw  97-01-29 s(261093) set NO-CC if not ASA or MCC
+* jwo 97-11-13 p(167263) add active reports exit
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* sju 00-03-27 p(191368) monitor multitasking
+* wcd 00-04-01 CE 7267   re-cat as changes made to EOMRPM-E
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* fhi     2000-09-28 QA04     Correct CE7461
+* sju     2000-11-30 p(202436) reset idle indicator if work to do
+* fhi     2002-06-13 s(225125) Add email notificaton, NOMEX010
+* fhi     2002-09-25 p(218246) Monitor error recovery
+* sju     2002-12-18 p(232455) route to temp before starting load order
+* sju     2003-01-27 p(235267) Support CMASpool version 2
+* sju     2003-06-26 p(230407) Correct setting of retry info in orders
+* sju     2004-11-29 nom31     restow for changed NRM-ORDER
+* sju 04-12-06 NOM31     Add date and time (tenths of second) to trace
+* fhi     2005-06-23 p(266530) Make Monitor NPR Mainframe independent
+* fhi    2005-12-05 P272727    Avoid NAT6223 under Unix
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-02-14 p(300297) restow due changes in RMSCTR-P
+* xsetggr 2008-05-05 p(304350) restow due to changes in RMSPL--L
+* fhi     2010-06-14 NOMALL-815  User RMSETTIM instead of *TIMD for Ux
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* raya    2012-08-21 NOMALL-98 disable long records
+* fhi     2012-08-24 NOMALL-1004 Add report formatting
+* fhi     2012-10-18 NOMALL-1004 Add report formatting
+* fhi     2012-11-09 NOMALL-1143 Add cpu time output
+* raya     2012-11-29 NOMALL-1214 check cat date of nomex*
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* raya    2013-05-09 NOMALL-1214 backout check cat date of nomex*
+* fhi     2013-05-24 NOMALL-1260 Change CMA Spool to CA Spool on interf
+*                                No tags, only literals changed
+* SU2     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* fhi     2016-08-01 NOMALL-1748 Backout Report Formatting
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-01-11 NOMALL-1916 Store codepage in source record
+* fhi     2017-01-26 NOMALL-1961 Wake correct monitor task
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi     2018-03-13 NOMALL-1918 Correct multinode behavior, no tags
+* fhi     2018-08-06 NOMALL-2135 Use internal node id in orders
+* bli     2018-10-10 NOMALL-2061 no codepage handling for local only
+* fhi     2018-12-14 NOM 3.5     Improve CPU measures, no tags
+* SU3     2019-01-31             avoid 'Defaul' in output
+* ---------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +NOD-CURRENT-NODE            (N5)
+1 +G-NOMEXIT-ACTIVE            (L/1:20)
+1 +G-SCAN-CMASPOOL-TIME-LIMIT  (N3)
+1 +G-CMASPOOL-VERSION          (N1)
+1 +CMRDC                       (A1)
+1 +NOD-CURRENT-INTERNAL-ID     (P11)
+* -----------------------------LDA's-----------------------------------
+LOCAL USING RMSPL--L
+LOCAL USING RMSR---L
+LOCAL USING RMSR---E
+LOCAL USING RCCTYP-E
+LOCAL USING RMODTY-E
+LOCAL USING EOMRPM-E
+LOCAL USING RLOG-L
+LOCAL USING SATBT--P
+LOCAL USING SATFNC3E
+*
+LOCAL
+1 SOURCE  VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-CONTROL-FLAG
+  2 SR-TYPE
+  2 SR-MONITOR-ID
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-SPOOL-ATTRIBUTES
+  2 SR-CC-TYPE
+  2 SR-RECORD-LENGTH
+  2 SR-NUMBER-OF-LINES
+  2 SR-RELATED-ID
+  2 SR-OBJECT-TYPE /*SU2
+  2 SR-OBJECT-TIME /*SU2
+1 ORDER  VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-TYPE
+  2 OD-MONITOR-ID
+  2 OD-USER-ID
+  2 OD-PARAMETER               (1:1)
+  2 REDEFINE OD-PARAMETER
+    3 OD-MASTER                (A25)
+  2 REDEFINE OD-PARAMETER
+    3 OD-IDENT                 (A8)
+    3 OD-FILLER1               (A17)
+    3 OD-DBID                  (N3)
+    3 OD-FNR                   (N3)
+    3 OD-RETRY-COUNT           (N3)
+    3 OD-DBID-N5               (N5)
+    3 OD-FNR-N5                (N5)
+    3 OD-REP-FORMAT            (A1)
+  2 OD-INTERNAL-NODE-ID        (P15)
+  2 OD-TIME-CREATED
+  2 OD-TIME-SCHEDULED
+  2 OD-SOURCE-ID               (P10)
+  2 OD-MAX-RETRIES
+  2 OD-RETRY-INTERVAL
+1 REPORT VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-USERID
+  2 R-INTERNAL-NODE-ID
+  2 R-IDENT-FILES                (1:10)
+  2 C*R-IDENT-FILES
+*
+1 #ESF-RC                      (B4)
+1 REDEFINE  #ESF-RC
+  2 #ESF-RC-I                  (I4)
+1 #ESF-STAT-PARMS              (A200/1:11)
+1 REDEFINE  #ESF-STAT-PARMS
+  2 #ESFS
+    3 #ESFS-STA                (A2)
+    3 #ESFS-NEA                (B2)
+    3 #ESFS-NEU                (B2)
+    3 #ESFS-SEL                (A8)
+    3 REDEFINE #ESFS-SEL
+      4 #ESFS-SEL-FNO          (N1)
+      4 #ESFS-SEL-OWN          (N1)
+      4 #ESFS-SEL-DES          (N1)
+      4 #ESFS-SEL-CLS          (N1)
+      4 #ESFS-SEL-FOR          (N1)
+      4 #ESFS-SEL-FCB          (N1)
+      4 #ESFS-SEL-DIS          (N1)
+      4 #ESFS-SEL-GR           (N1)
+    3 #ESFS-SEQ-UNUSED         (B2)
+    3 #ESFS-OWN                (A8)
+    3 #ESFS-DES                (A8)
+    3 #ESFS-CLS                (A1)
+    3 #ESFS-FOR                (A4)
+    3 #ESFS-FCB                (A4)
+    3 #ESFS-OPT                (B1)
+    3 #ESFS-EPL                (B2)
+    3 #ESFS-SSN                (A4)
+    3 #ESFS-USR-UNUSED         (A4)
+    3 #ESFS-MF#-UNUSED         (A2)
+    3 #ESFS-MFE                (B2)
+    3 #ESFS-DIS                (A8)
+    3 #ESFS-GR1                (B4)
+    3 #ESFS-GR2                (B4)
+    3 #ESFS-ORG                (A8)
+    3 #ESFS-GRP                (B4)
+    3 #ESFS-FNO                (B4)
+    3 #ESFS-MFN                (B4)
+    3 #ESFS-#MF                (A4)
+    3 #ESFS-RES-UNUSED         (A8)
+    3 #ESFS-E90                (A250/1:8)
+*
+    3 REDEFINE #ESFS-E90
+      4 #ESFS-E90-FQEFLAG1     (B1)
+      4 #ESFS-E90-FQEFLAG2     (B1)
+      4 #ESFS-E90-FQEFLAG3     (B1)
+      4 #ESFS-E90-FQEFLAG4     (B1)
+      4 #ESFS-E90-FQESEQNO     (I4)
+      4 #ESFS-E90-FQECHAIN     (B4)
+      4 #ESFS-E90-FQEOWNNM     (A12) /* owner name
+      4 #ESFS-E90-FQEDSTNM     (A8) /* DESTINATION
+      4 #ESFS-E90-FQEWTRNM     (A8) /* remote destination
+      4 #ESFS-E90-FQERMWTR     (A8) /* remote writer
+      4 #ESFS-E90-FQEGRPID     (A8) /* file groupid
+      4 #ESFS-E90-FQENONOD     (A8) /* notify node
+      4 #ESFS-E90-FQENOUID     (A8) /* notify userid
+      4 #ESFS-E90-FQECLASS     (A1) /* output class
+      4 #ESFS-E90-FQECOPYS     (I1) /* copy count 1-255
+      4 #ESFS-E90-FQEPRIO      (I1) /* output priority 0-15
+      4 #ESFS-E90-FQELINCT     (I1) /* linect=nnn
+      4 #ESFS-E90-FQERETAN     (I2) /* no of hours to retain file
+      4 #ESFS-E90-RESERVED     (B2) /* reserved
+      4 #ESFS-E90-FQEFORMS     (A8) /* forms number
+      4 #ESFS-E90-FQEFCB       (A8) /* fcb image name
+      4 #ESFS-E90-FQEPRMOD     (A8) /* prmode=line/page/etc.
+      4 #ESFS-E90-FQEFORMD     (A6) /* formdef=psf-membername
+      4 #ESFS-E90-FQEPAGED     (A6) /* pagedef=psf-membername
+      4 #ESFS-E90-FQECHARS     (A16)/* chars
+      4 REDEFINE #ESFS-E90-FQECHARS
+        5 #ESFS-E90-FQECHAR1   (A4)
+        5 #ESFS-E90-FQECHAR2   (A4)
+        5 #ESFS-E90-FQECHAR3   (A4)
+        5 #ESFS-E90-FQECHAR4   (A4)
+      4 #ESFS-E90-FQECODPG     (A8) /* codepage name
+      4 #ESFS-E90-FQENDISP     (A1) /* normal outdisp=W/H/K/L/P
+      4 #ESFS-E90-FQEADISP     (A1) /* abnormal outdisp=W/H/K/L/P
+      4 #ESFS-E90-FQERECFM     (A1) /* recfm=F/V
+      4 #ESFS-E90-FQESARPR     (A1) /* sar-process=B/A/X/N
+      4 #ESFS-E90-FQEUSRID     (A8) /* originator's userid
+      4 #ESFS-E90-FQEACTNO     (A8) /* originator's acct number
+      4 #ESFS-E90-FQEROOM      (A4) /* room=xxxx
+      4 #ESFS-E90-FQELNCNT     (I4) /* number of lines on file
+      4 #ESFS-E90-FQEPGCNT     (I4) /* number of pages on file
+      4 #ESFS-E90-FQESID       (A4) /* sid name
+      4 #ESFS-E90-FQEFSACK     (B4) /* mttr of checkpoint block
+      4 #ESFS-E90-FQEOUTLM     (I4) /* current residual outlim
+      4 #ESFS-E90-FQEPSSEC     (B4) /* partial printing section
+      4 REDEFINE #ESFS-E90-FQEPSSEC
+        5 #ESFS-E90-FQEPSPNO   (I2) /* start page number 0-65535
+        5 #ESFS-E90-FQEPSPG#   (I1) /* number of pages
+        5 #ESFS-E90-FQEPSPCN   (I1) /* number of pages printed
+      4 #ESFS-E90-FQECOPDN     (I1) /* copies already printed
+      4 #ESFS-E90-FQEAFF       (B1) /* cpu affinity mask
+      4 #ESFS-E90-FQEBUSY      (B1) /* busy system id number
+      4 #ESFS-E90-FQENJEID     (B1) /* id of nje pcb
+      4 #ESFS-E90-FQEDCEN      (B4) /* active psf printer dce
+      4 #ESFS-E90-RESERVED01   (B4) /* reserved
+* dataset identification key (tod-clock at initial open(output)):
+      4 #ESFS-E90-FQEDSKEY       (B8) /* dataset key
+* tod-clock, when file last was printed
+      4 #ESFS-E90-FQETODCL       (B4) /* tod clock in 1.048576 sec
+* spool allocation table pointer if any:
+      4 #ESFS-E90-FQESPLAT       (B4) /* mttr of 1st utam or zero
+* spool record chain information fields:
+      4 #ESFS-E90-FQEFRSTB       (B4) /* mttr of 1st block in file
+      4 #ESFS-E90-FQELASTB       (B4) /* mttr of last block in file
+* last processed block/record fields:
+      4 #ESFS-E90-FQEMTTR        (B4) /* mttr of last block written/read
+      4 #ESFS-E90-FQEOFFST       (B2) /* offset of next un-processed rec
+      4 #ESFS-E90-RESERVED2      (B2) /* reserved
+* forward and backward chains for fqes for multidest fqes.     a-es8211 00380000
+      4 #ESFS-E90-FQEMCHNF       (B4) /* offset to next mdest fqe
+      4 #ESFS-E90-FQEMCHNB       (B4) /* offset to prev mdest fqe
+*       ds    0f                  align element to fullword boundary    00440000
+      4 #ESFS-E90-FQEPGMNM       (A32)/* programmer name
+    3 REDEFINE #ESFS-E90
+      4 #ESFS-E90-FQEFLAG12      (B1)
+      4 #ESFS-E90-FQEFLAG22      (B1)
+      4 #ESFS-E90-FQEFLAG32      (B1)
+      4 #ESFS-E90-FQEFLAG42      (B1)
+* following 4 are new with V2
+      4 #ESFS-E90-FQEACT2        (B1)
+      4 #ESFS-E90-FQEACTOR2      (B1)
+      4 #ESFS-E90-FQEARV12       (B1)
+      4 #ESFS-E90-FQEFCBPL2      (B1)
+      4 #ESFS-E90-FQESEQNO2      (I4)
+      4 #ESFS-E90-FQECHAIN2      (B4)
+      4 #ESFS-E90-FQEOWNNM2      (A12) /* owner name
+      4 #ESFS-E90-FQEDSTNM2      (A8) /* DESTINATION
+      4 #ESFS-E90-FQEWTRNM2      (A8) /* remote destination
+      4 #ESFS-E90-FQERMWTR2      (A8) /* remote writer
+      4 #ESFS-E90-FQEGRPID2      (A8) /* file groupid
+      4 #ESFS-E90-FQENONOD2      (A8) /* notify node
+      4 #ESFS-E90-FQENOUID2      (A8) /* notify userid
+      4 #ESFS-E90-FQECLASS2      (A1) /* output class
+      4 #ESFS-E90-FQECOPYS2      (I1) /* copy count 1-255
+      4 #ESFS-E90-FQEPRIO2       (I1) /* output priority 0-15
+      4 #ESFS-E90-FQELINCT2      (I1) /* linect=nnn
+      4 #ESFS-E90-FQERETAN2      (I2) /* no of hours to retain file
+      4 #ESFS-E90-RESERVED12     (B2) /* reserved
+      4 #ESFS-E90-FQEFORMS2      (A8) /* forms number
+      4 #ESFS-E90-FQEFCB2        (A8) /* fcb image name
+      4 #ESFS-E90-FQEPRMOD2      (A8) /* prmode=line/page/etc.
+      4 #ESFS-E90-FQEFORMD2      (A6) /* formdef=psf-membername
+      4 #ESFS-E90-FQEPAGED2      (A6) /* pagedef=psf-membername
+      4 #ESFS-E90-FQECHARS2      (A16)/* chars
+      4 REDEFINE #ESFS-E90-FQECHARS2
+        5 #ESFS-E90-FQECHAR12    (A4)
+        5 #ESFS-E90-FQECHAR22    (A4)
+        5 #ESFS-E90-FQECHAR32    (A4)
+        5 #ESFS-E90-FQECHAR42    (A4)
+      4 #ESFS-E90-FQECODPG2      (A8) /* codepage name
+      4 #ESFS-E90-FQENDISP2      (A1) /* normal outdisp=W/H/K/L/P
+      4 #ESFS-E90-FQEADISP2      (A1) /* abnormal outdisp=W/H/K/L/P
+      4 #ESFS-E90-FQERECFM2      (A1) /* recfm=F/V
+      4 #ESFS-E90-FQESARPR2      (A1) /* sar-process=B/A/X/N
+      4 #ESFS-E90-FQEUSRID2      (A8) /* originator's userid
+      4 #ESFS-E90-FQEACTNO2      (A8) /* originator's acct number
+      4 #ESFS-E90-FQEROOM2       (A4) /* room=xxxx
+      4 #ESFS-E90-FQELNCNT2      (I4) /* number of lines on file
+      4 #ESFS-E90-FQEPGCNT2      (I4) /* number of pages on file
+      4 #ESFS-E90-FQESID2        (A4) /* sid name
+      4 #ESFS-E90-FQEFSACK2      (B4) /* mttr of checkpoint block
+      4 #ESFS-E90-FQEOUTLM2      (I4) /* current residual outlim
+      4 #ESFS-E90-FQEPSSEC2      (B4) /* partial printing section
+      4 REDEFINE #ESFS-E90-FQEPSSEC2
+        5 #ESFS-E90-FQEPSPNO2    (I2) /* start page number 0-65535
+        5 #ESFS-E90-FQEPSPG#2    (I1) /* number of pages
+        5 #ESFS-E90-FQEPSPCN2    (I1) /* number of pages printed
+      4 #ESFS-E90-FQECOPDN2      (I1) /* copies already printed
+      4 #ESFS-E90-FQEAFF2        (B1) /* cpu affinity mask
+      4 #ESFS-E90-FQEBUSY2       (B1) /* busy system id number
+      4 #ESFS-E90-FQENJEID2      (B1) /* id of nje pcb
+      4 #ESFS-E90-FQEDCEN2       (B4) /* active psf printer dce
+      4 #ESFS-E90-RESERVED012    (B4) /* reserved
+* following is new with V2
+      4 #ESFS-E90-FQEALGN12      (B4) /* for alignment
+* dataset identification key (tod-clock at initial open(output)):
+      4 #ESFS-E90-FQEDSKEY2      (B8) /* dataset key
+* tod-clock, when file last was printed
+      4 #ESFS-E90-FQETODCL2      (B4) /* tod clock in 1.048576 sec
+* spool allocation table pointer if any:
+      4 #ESFS-E90-FQESPLAT2      (B4) /* mttr of 1st utam or zero
+* spool record chain information fields:
+      4 #ESFS-E90-FQEFRSTB2      (B4) /* mttr of 1st block in file
+      4 #ESFS-E90-FQELASTB2      (B4) /* mttr of last block in file
+* last processed block/record fields:
+      4 #ESFS-E90-FQEMTTR2       (B4) /* mttr of last block written/read
+      4 #ESFS-E90-FQEOFFST2      (B2) /* offset of next un-processed rec
+      4 #ESFS-E90-RESERVED22     (B2) /* reserved
+* forward and backward chains for fqes for multidest fqes.     a-es8211 00380000
+      4 #ESFS-E90-FQEMCHNF2      (B4) /* offset to next mdest fqe
+      4 #ESFS-E90-FQEMCHNB2      (B4) /* offset to prev mdest fqe
+*        ds    0f                  align element to fullword boundary   00440000
+* following is new with V2
+      4 #ESFS-E90-FQEPUROP2      (A8) /* operid who issued purge
+      4 #ESFS-E90-FQEPGMNM2      (A32)/* programmer name
+*
+1 #ESF-ROUT-PARMS                (A80)
+1 REDEFINE  #ESF-ROUT-PARMS
+  2 #ESFR
+    3 #ESFR-STA                  (B2)
+    3 #ESFR-SEQ-RESERVED         (B2)
+    3 #ESFR-SEL                  (N8)
+    3 REDEFINE #ESFR-SEL
+      4 #ESFR-FILLER             (N1)
+      4 #ESFR-SEL-DEST           (N1)
+    3 #ESFR-OOW                  (A8)
+    3 #ESFR-NOW-UNUSED           (A8)
+    3 #ESFR-NDS                  (A8)
+    3 #ESFR-NCL-UNUSED           (A1)
+    3 #ESFR-RS1-UNUSED           (B3)
+    3 #ESFR-SSN-UNUSED           (A4)
+    3 #ESFR-USR-UNUSED           (A4)
+    3 #ESFR-RS2-UNUSED           (B4)
+    3 #ESFR-PNL-UNUSED           (B2)
+    3 #ESFR-RS3-UNUSED           (B2)
+    3 #ESFR-FNO                  (I4)
+    3 #ESFR-RS4-UNUSED           (B12)
+*
+1 #CONTROL                       (A65)
+1 REDEFINE #CONTROL
+  2 #CONTROL-TYPE                (I2)
+  2 #CONTROL-IDENT               (A63)
+1 #ATTRIBUTES
+  2 #CC-TYPE                     (I2)
+  2 #RECORD-LENGTH               (N3)
+  2 #NUMBER-OF-LINES             (P10)
+  2 #USER-ID                     (A8)
+  2 #FORM                        (A8)
+  2 #SOURCE-TYPE                 (I2)
+  2 #CONTROL-FLAG                (A1)
+1 #IDENT                         (A11/1:12)
+1 REDEFINE #IDENT
+  2 #IDENT-TAB                   (1:12)
+    3 #IDENT-RTYPE               (A1)
+    3 #IDENT-TYPE                (I2)
+    3 #IDENT-VALUE               (A8)
+1 #FILE-NAME                     (A8)
+1 REDEFINE #FILE-NAME
+  2 #FN                          (A1/1:8)
+1 #I                             (I2)
+1 #TI                            (I2)
+1 #TJ                            (I2)
+1 #TL                            (I2)
+1 #COUNT                         (I4)
+1 #LAST-ORDER-ISN                (P10)
+1 ESF-STAT-ROUTINE               (A8) INIT <'ESFSTAT'>
+1 ESF-ROUT-ROUTINE               (A8) INIT <'ESFROUT'>
+1 #DEST-INDEX                    (I4)
+1 #TIMD                          (N7)
+1 #START-FIRST-ORDER             (L)
+1 CMASPOOL-VERSION VIEW OF NRM-MONITOR
+  2 M-BATCH-MODULE
+1 RMSETTIM
+  2 FUNCTION                 (A1)
+  2 ERC                      (N4)
+  2 MSG                      (A250)
+  2 TIME                     (I4)
+1 #TRACING                       (L)
+1 #SPOOL                         (A8) CONST <'CMASPOOL'>
+1 #CHECK-NODE                    (L) CONST <TRUE>
+1 #TYPE                          (A7) /*SU3 was A6
+1 #CATDATE                       (A19)
+1 DATASET-FOUND                  (L)
+1 PROCESSED-BY-NOM               (L)
+1 #DEFINED-NUMBER                (P2)
+1 #IDENT-FILE                    (A54)
+1 #MAX-RETRIES                   (N3)
+1 #RETRY-INTERVAL                (N5)
+1 #OD-TYPE                       (B2)
+1 #ISN                           (P10)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT (0) LS=133 PS=60
+*
+IF *MACHINE-CLASS NE 'MAINFRAME' /* This only works on MF
+  ESCAPE ROUTINE
+END-IF
+IF G-TRACE GE *LEVEL AND G-TRACE-SET = SCAN ('SCAN')
+  #TRACING := TRUE
+END-IF
+INCLUDE CMRDC
+IF #TRACING
+  COMPRESS 'Start Scanning' #SPOOL TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS *PROGRAM 'cataloged at' #CATDATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+CALLNAT 'N-MONERR' #MAX-RETRIES #RETRY-INTERVAL
+IF +G-CMASPOOL-VERSION = 0
+  FIND CMASPOOL-VERSION WITH M-MONITOR-ID = 'CMASPOOL'
+    IF CMASPOOL-VERSION.M-BATCH-MODULE IS (N1)
+      +G-CMASPOOL-VERSION:= VAL(CMASPOOL-VERSION.M-BATCH-MODULE)
+    END-IF
+  END-FIND
+  IF +G-CMASPOOL-VERSION LT 1
+    +G-CMASPOOL-VERSION:= 1
+  END-IF
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'CA Spool version:' +G-CMASPOOL-VERSION
+END-IF
+*
+RMSETTIM.FUNCTION := 'S'
+PERFORM RMSETTIM-SETTIME RMSETTIM
+*
+RESET #ESFS
+*
+#ESFS-SEL-FNO := #ESFS-SEL-DES := #ESFS-NEA := 1
+#ESFS-SEL-OWN := #ESFS-SEL-GR := 0
+#ESFS-SEL-CLS := #ESFS-SEL-FOR := #ESFS-SEL-FCB := #ESFS-SEL-DIS := 0
+#ESFS-EPL            := 32
+IF +G-CMASPOOL-VERSION = 1
+  RESET  #ESFS-E90-FQESEQNO
+ELSE
+  RESET  #ESFS-E90-FQESEQNO2
+END-IF
+*
+FOR #DEST-INDEX 1 10
+  IF G-SCAN-CMASPOOL-IDENT (#DEST-INDEX) = ' '
+    ESCAPE ROUTINE
+  END-IF
+  #ESFS-DES := G-SCAN-CMASPOOL-IDENT (#DEST-INDEX)
+  PERFORM SCAN-DESTINATION
+END-FOR
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SCAN-DESTINATION
+************************************************************************
+IF #TRACING
+  COMPRESS 'Scan dest' #ESFS-DES TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+REPEAT
+*
+  #ESFS-STA := G-SCAN-CMASPOOL-VERSION
+  #ESFS-OPT := H'A8'                    /* fqe layout instead of fscte
+  IF +G-CMASPOOL-VERSION = 1
+    #ESFS-FNO := #ESFS-E90-FQESEQNO + 1
+  ELSE
+    #ESFS-FNO := #ESFS-E90-FQESEQNO2 + 1
+  END-IF
+*
+  CALL ESF-STAT-ROUTINE #ESF-STAT-PARMS (*)
+  #ESF-RC := RET (ESF-STAT-ROUTINE)
+*
+  IF #ESF-RC > H'0000'
+    COMPRESS G-MONITOR-ID '/' +NOD-CURRENT-NODE '/' *PROGRAM
+      TO LG-OBJECT-NAME LEAVING NO
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Unable to process CA Spool' LG-OBJECT-NAME
+    COMPRESS 'Error during Scan CA Spool RC=' #ESF-RC-I
+      TO G-NATRP-ERT LEAVING NO
+    G-NATRP-ERC := 0005
+    PERFORM WRITE-ERROR-LOG
+    ESCAPE ROUTINE
+  END-IF
+*
+  IF #ESFS-NEU = 0
+    ESCAPE BOTTOM
+  END-IF
+  IF (+G-CMASPOOL-VERSION = 1 AND #ESFS-E90-FQELNCNT > 0)
+      OR (+G-CMASPOOL-VERSION = 2 AND #ESFS-E90-FQELNCNT2 > 0)
+    PERFORM PROCESS-CMA-QUEUE-ELEMENT
+    IF G-NATRP-ERC NE 0
+      ESCAPE ROUTINE
+    END-IF
+    PERFORM ROUT-TO-TEMP-DEVICE
+    IF #START-FIRST-ORDER
+      #START-FIRST-ORDER:= FALSE
+      PERFORM START-FIRST-ORDER-GEN /*RMSC-C
+    END-IF
+    IF G-NATRP-ERC NE 0
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+*
+  IF +G-SCAN-CMASPOOL-TIME-LIMIT NE 0
+    RMSETTIM.FUNCTION := 'G'
+    PERFORM RMSETTIM-SETTIME RMSETTIM
+    IF #TRACING
+      PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+      END TRANSACTION
+    END-IF
+    IF #TIMD > +G-SCAN-CMASPOOL-TIME-LIMIT
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+*
+END-REPEAT
+*
+END-SUBROUTINE /* SCAN-DESTINATION
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-CMA-QUEUE-ELEMENT
+************************************************************************
+RESET #ATTRIBUTES #SOURCE-ATTRIBUTES #SPOOL-ATTRIBUTES
+*
+#CONTROL-FLAG                := 'X'
+#SOURCE-TYPE                 := CMASPOOL
+IF +G-CMASPOOL-VERSION = 1
+  #CMASPOOL-SID   := #ESFS-E90-FQESID
+  #CMASPOOL-DSKEY := #ESFS-E90-FQEDSKEY
+  #CMASPOOL-SEQNO := #ESFS-E90-FQESEQNO
+  #CMASPOOL-OWNNM := #ESFS-E90-FQEOWNNM
+ELSE
+  #CMASPOOL-SID   := #ESFS-E90-FQESID2
+  #CMASPOOL-DSKEY := #ESFS-E90-FQEDSKEY2
+  #CMASPOOL-SEQNO := #ESFS-E90-FQESEQNO2
+  #CMASPOOL-OWNNM := #ESFS-E90-FQEOWNNM2
+END-IF
+IF #TRACING
+  COMPRESS 'Process queue element' #CMASPOOL-SID #CMASPOOL-SEQNO
+    TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+#CMASPOOL-DEST    := G-SCAN-CMASPOOL-TEMP-DEST
+#CMASPOOL-VERSION := G-SCAN-CMASPOOL-VERSION
+*
+#CONTROL-TYPE  := CMASPOOL
+#CONTROL-IDENT := #CMASPOOL-IDENT
+*
+FNDP. FIND NUMBER SOURCE WITH SR-CONTROL = #CONTROL
+IF *NUMBER (FNDP.) = 0
+  PERFORM ASSIGN-SPOOL-ATTRIBUTES
+  PERFORM CREATE-SOURCE-RECORD
+  IF G-NATRP-ERC = 0
+    PERFORM CREATE-ORDER-RECORDS
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* PROCESS-CMA-QUEUE-ELEMENT
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-SOURCE-RECORD
+************************************************************************
+REPEAT
+  CALLNAT 'RMSRID-N' SOURCE.SR-ID G-NATRP-ERC G-NATRP-ERT
+  UNTIL G-NATRP-ERC NE 3145
+END-REPEAT
+*
+IF G-NATRP-ERC NE 0
+  RESET LG-OBJECT-NAME
+  PERFORM WRITE-ERROR-LOG
+  ESCAPE ROUTINE
+END-IF
+*
+RESET SOURCE.SR-RELATED-ID
+*
+IF +G-NOMEXIT-ACTIVE (2)
+  PERFORM CALL-NOM-EXIT-002
+END-IF
+*
+SOURCE.SR-CONTROL-FLAG     := #CONTROL-FLAG
+SOURCE.SR-TYPE             := #SOURCE-TYPE
+SOURCE.SR-ATTRIBUTES-IDENT := #SOURCE-ATTRIBUTES
+SOURCE.SR-SPOOL-ATTRIBUTES := #SPOOL-ATTRIBUTES
+IF #CC-TYPE = 0
+  SOURCE.SR-CC-TYPE := NO-CC
+ELSE
+  SOURCE.SR-CC-TYPE := #CC-TYPE
+END-IF
+SOURCE.SR-RECORD-LENGTH   := #RECORD-LENGTH
+SOURCE.SR-NUMBER-OF-LINES := #NUMBER-OF-LINES
+SOURCE.SR-MONITOR-ID      := G-MONITOR-ID
+*
+IF #TRACING
+  COMPRESS 'Create source --->' SOURCE.SR-ID 'lines' #NUMBER-OF-LINES
+    'reclen' #RECORD-LENGTH TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+SR-OBJECT-TYPE := 'SR' /*SU2
+SR-OBJECT-TIME := *TIMX /*SU2
+STORE SOURCE
+END OF TRANSACTION
+*
+END-SUBROUTINE /* PROCESS-CMA-QUEUE-ELEMENT
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-SPOOL-ATTRIBUTES
+************************************************************************
+PERFORM CHECK-ESFS-E90-FQEFLAG3
+*
+IF +G-CMASPOOL-VERSION = 1
+  #NUMBER-OF-LINES := #ESFS-E90-FQELNCNT
+ELSE
+  #NUMBER-OF-LINES := #ESFS-E90-FQELNCNT2
+END-IF
+#RECORD-LENGTH   := 251
+*
+#SPOOL-TYPE      := CMASPOOL
+#SPOOL-CMA-SEQNO := #ESFS-E90-FQESEQNO
+IF +G-CMASPOOL-VERSION = 1
+  #SPOOL-CMA-OWNNM := #ESFS-E90-FQEOWNNM
+  #SPOOL-CMA-FNAM  := #ESFS-E90-FQEOWNNM
+  #SPOOL-CMA-WTRNM := #ESFS-E90-FQEWTRNM
+  #SPOOL-CMA-DSTNM := #ESFS-E90-FQEDSTNM
+  #SPOOL-CMA-CLASS := #ESFS-E90-FQECLASS
+  #SPOOL-CMA-COPYS := #ESFS-E90-FQECOPYS
+  #SPOOL-CMA-PRIO  := #ESFS-E90-FQEPRIO
+  #SPOOL-CMA-LINCT := #ESFS-E90-FQELINCT
+  IF #ESFS-E90-FQERETAN = -1 THRU 4095
+    #SPOOL-CMA-RETAN := #ESFS-E90-FQERETAN
+  ELSE
+    #SPOOL-CMA-RETAN := -1
+  END-IF
+  #SPOOL-CMA-FORMS := #ESFS-E90-FQEFORMS
+  #SPOOL-CMA-FCB   := #ESFS-E90-FQEFCB
+  #SPOOL-CMA-PRMOD := #ESFS-E90-FQEPRMOD
+  #SPOOL-CMA-FORMD := #ESFS-E90-FQEFORMD
+  #SPOOL-CMA-PAGED := #ESFS-E90-FQEPAGED
+  #SPOOL-CMA-CHARS := #ESFS-E90-FQECHARS
+  #SPOOL-CMA-USRID := #ESFS-E90-FQEUSRID
+  #SPOOL-CMA-ACTNO := #ESFS-E90-FQEACTNO
+  #SPOOL-CMA-ROOM  := #ESFS-E90-FQEROOM
+  #SPOOL-CMA-LNCNT := #ESFS-E90-FQELNCNT
+  #SPOOL-CMA-PGCNT := #ESFS-E90-FQEPGCNT
+  #SPOOL-CMA-SID   := #ESFS-E90-FQESID
+  #SPOOL-CMA-PGMNM := #ESFS-E90-FQEPGMNM
+  #SPOOL-CMA-FNAM  := #ESFS-E90-FQEOWNNM
+ELSE
+  #SPOOL-CMA-OWNNM := #ESFS-E90-FQEOWNNM2
+  #SPOOL-CMA-FNAM  := #ESFS-E90-FQEOWNNM2
+  #SPOOL-CMA-WTRNM := #ESFS-E90-FQEWTRNM2
+  #SPOOL-CMA-DSTNM := #ESFS-E90-FQEDSTNM2
+  #SPOOL-CMA-CLASS := #ESFS-E90-FQECLASS2
+  #SPOOL-CMA-COPYS := #ESFS-E90-FQECOPYS2
+  #SPOOL-CMA-PRIO  := #ESFS-E90-FQEPRIO2
+  #SPOOL-CMA-LINCT := #ESFS-E90-FQELINCT2
+  IF #ESFS-E90-FQERETAN2 = -1 THRU 4095
+    #SPOOL-CMA-RETAN := #ESFS-E90-FQERETAN2
+  ELSE
+    #SPOOL-CMA-RETAN := -1
+  END-IF
+  #SPOOL-CMA-FORMS := #ESFS-E90-FQEFORMS2
+  #SPOOL-CMA-FCB   := #ESFS-E90-FQEFCB2
+  #SPOOL-CMA-PRMOD := #ESFS-E90-FQEPRMOD2
+  #SPOOL-CMA-FORMD := #ESFS-E90-FQEFORMD2
+  #SPOOL-CMA-PAGED := #ESFS-E90-FQEPAGED2
+  #SPOOL-CMA-CHARS := #ESFS-E90-FQECHARS2
+  #SPOOL-CMA-USRID := #ESFS-E90-FQEUSRID2
+  #SPOOL-CMA-ACTNO := #ESFS-E90-FQEACTNO2
+  #SPOOL-CMA-ROOM  := #ESFS-E90-FQEROOM2
+  #SPOOL-CMA-LNCNT := #ESFS-E90-FQELNCNT2
+  #SPOOL-CMA-PGCNT := #ESFS-E90-FQEPGCNT2
+  #SPOOL-CMA-SID   := #ESFS-E90-FQESID2
+  #SPOOL-CMA-PGMNM := #ESFS-E90-FQEPGMNM2
+  #SPOOL-CMA-FNAM  := #ESFS-E90-FQEOWNNM2
+END-IF
+*
+END-SUBROUTINE /* ASSIGN-SPOOL-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE ROUT-TO-TEMP-DEVICE
+************************************************************************
+RESET #ESFR
+#ESFR-STA := G-SCAN-CMASPOOL-VERSION
+#ESFR-SEL-DEST := 1
+#ESFR-NDS := G-SCAN-CMASPOOL-TEMP-DEST
+IF +G-CMASPOOL-VERSION = 1
+  #ESFR-FNO := #ESFS-E90-FQESEQNO
+  #ESFR-OOW := #ESFS-E90-FQEOWNNM
+ELSE
+  #ESFR-FNO := #ESFS-E90-FQESEQNO2
+  #ESFR-OOW := #ESFS-E90-FQEOWNNM2
+END-IF
+*
+CALL ESF-ROUT-ROUTINE #ESF-ROUT-PARMS
+#ESF-RC := RET (ESF-ROUT-ROUTINE)
+IF #ESF-RC > H'0000'
+  COMPRESS G-MONITOR-ID '/' +NOD-CURRENT-NODE '/' *PROGRAM
+    TO LG-OBJECT-NAME LEAVING NO
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Unable to change CA Spool destination' LG-OBJECT-NAME
+  COMPRESS 'Error during reroute CA Spool RC=' #ESF-RC-I
+    TO G-NATRP-ERT LEAVING NO
+  G-NATRP-ERC := 0005
+  PERFORM WRITE-ERROR-LOG
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* ROUT-TO-TEMP-DEVICE
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-ORDER-RECORDS
+************************************************************************
+IF #TRACING
+  G-TRACE-MSG := 'Create order records'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+RESET  #IDENT (*)
+#TJ := 1
+#IDENT-VALUE (#TJ) := #SPOOL-CMA-OWNNM               /* file-name
+#IDENT-TYPE  (#TJ) := REPORT-IDENT-CMA-FILE-NAME
+#IDENT-RTYPE (#TJ) := 'M'
+*
+#FILE-NAME := #SPOOL-CMA-OWNNM
+EXAMINE #FILE-NAME FOR 'X' GIVING LENGTH IN #TL
+IF #TL > 0
+  IF #TL < 8                                     /* 'FILNAME*'
+    ADD 1 TO #TL                                /* 'FILNAM* '
+  END-IF                                         /* 'FILNA*  '
+  FOR #TI = #TL TO 1 STEP -1                     /* 'FILN*   '
+    #FN (#TI) := '*' /* 'FIL*    '
+    IF #TI < 8                                   /* 'FI*     '
+      RESET #FN (#TI + 1)                       /* 'F*      '
+    END-IF                                       /* '*       '
+    ADD 1 TO #TJ
+    #IDENT-VALUE (#TJ) := #FILE-NAME
+    #IDENT-TYPE         (#TJ) := REPORT-IDENT-CMA-FILE-NAME
+    #IDENT-RTYPE (#TJ) := 'M'
+  END-FOR
+END-IF
+*
+IF #SPOOL-CMA-USRID NE ' '
+  ADD 1 TO #TJ
+  #IDENT-VALUE (#TJ) := #SPOOL-CMA-USRID
+  #IDENT-TYPE  (#TJ) := REPORT-IDENT-CMA-USER-ID
+  #IDENT-RTYPE (#TJ) := 'M'
+END-IF
+*
+IF #SPOOL-CMA-FORMS NE ' '
+  ADD 1 TO #TJ
+  #IDENT-VALUE (#TJ) := #SPOOL-CMA-FORMS
+  #IDENT-TYPE  (#TJ) := REPORT-IDENT-CMA-FORM
+  #IDENT-RTYPE (#TJ) := 'M'
+END-IF
+*
+IF #SPOOL-CMA-WTRNM NE ' '
+  ADD 1 TO #TJ
+  #IDENT-VALUE (#TJ) := #SPOOL-CMA-WTRNM
+  #IDENT-TYPE  (#TJ) := REPORT-IDENT-CMA-WRITER
+  #IDENT-RTYPE (#TJ) := 'M'
+END-IF
+*
+RESET #COUNT
+*
+PERFORM MASTER-DEFINITIONS-GEN
+*
+IF #COUNT = 0
+  #IDENT-RTYPE (1:#TJ) := 'D'
+  PERFORM DEFAULT-DEFINITIONS-GEN
+END-IF
+*
+IF #COUNT = 0
+  PERFORM WRITE-LOG-RECORD
+ELSE
+  PERFORM CREATE-LOAD-ORDER
+  #START-FIRST-ORDER:= TRUE
+END-IF
+*
+END-SUBROUTINE /* CREATE-ORDER-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-IT-SPEC /*special
+************************************************************************
+IF #TRACING
+  COMPRESS #TYPE 'report=' REPORT.R-REPNAME TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+ADD 1 TO #COUNT
+PERFORM WRITE-ORDER-RECORD
+*
+END-SUBROUTINE /* HANDLE-IT-SPEC
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-ORDER-RECORD
+************************************************************************
+REPEAT
+  CALLNAT 'RMODID-N' ORDER.OD-ID G-NATRP-ERC G-NATRP-ERT
+  UNTIL G-NATRP-ERC NE 3145
+END-REPEAT
+*
+IF G-NATRP-ERC NE 0
+  RESET LG-OBJECT-NAME
+  PERFORM WRITE-ERROR-LOG
+  ESCAPE ROUTINE
+END-IF
+#OD-TYPE := OD-CREATE-AR
+PERFORM WRITE-ORDER-RECORD-GEN /*RMSC-C
+#LAST-ORDER-ISN := #ISN
+*
+END-SUBROUTINE /* WRITE-ORDER-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-LOAD-ORDER
+************************************************************************
+REPEAT
+  CALLNAT 'RMODID-N' ORDER.OD-ID G-NATRP-ERC G-NATRP-ERT
+  UNTIL G-NATRP-ERC NE 3145
+END-REPEAT
+*
+IF G-NATRP-ERC NE 0
+  RESET LG-OBJECT-NAME
+  PERFORM WRITE-ERROR-LOG
+  ESCAPE ROUTINE
+END-IF
+*
+RESET   ORDER.OD-PARAMETER (1)
+ORDER.OD-TYPE         := OD-LOAD-SOURCE
+ORDER.OD-MONITOR-ID   := G-MONITOR-ID
+ORDER.OD-USER-ID      := REPORT.R-USERID
+ORDER.OD-IDENT        := G-SCAN-CMASPOOL-IDENT (#DEST-INDEX)
+ORDER.OD-DBID-N5      := G-SCAN-CMASPOOL-DBID (#DEST-INDEX)
+ORDER.OD-FNR-N5       := G-SCAN-CMASPOOL-FNR  (#DEST-INDEX)
+ORDER.OD-SOURCE-ID    := SOURCE.SR-ID
+ORDER.OD-TIME-CREATED := *TIMX
+RESET  ORDER.OD-RETRY-COUNT
+ORDER.OD-MAX-RETRIES    := #MAX-RETRIES
+ORDER.OD-RETRY-INTERVAL := #RETRY-INTERVAL
+*
+STOOD. STORE ORDER
+#LAST-ORDER-ISN := *ISN (STOOD.)
+END OF TRANSACTION
+*
+END-SUBROUTINE /* CREATE-LOAD-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-ESFS-E90-FQEFLAG3
+************************************************************************
+* FQEFLAG3 DC    X'00'               FILE ATTRIBUTE FLAG         A-ES8211 00080000
+* FQEFLG3A EQU   X'80'               ASA CC                      A-ES8211 00495030
+* FQEFLG3M EQU   X'40'               MACHINE CC                  A-ES8211 00495030
+* FQEFLG3C EQU   X'08'               COMPRESSION=YES             A-ES8211 00495030
+* FQEFLG3T EQU   X'04'               TRC=YES                     A-ES8211 00495040
+* FQEFLG3F EQU   X'02'               FSA CHECKPOINT DATA VALID   A-ES9221 00495040
+*
+SATBT-FLAG := #ESFS-E90-FQEFLAG3
+CALLNAT SAT-CHECK-FLAG-BIT-SETTINGS SATBT-SATVERS SATBT-PARMS (*)
+DECIDE FOR EVERY CONDITION
+  WHEN SATBT-BIT-SET (1)     #CC-TYPE := ASA-CODE
+  WHEN SATBT-BIT-SET (2)     #CC-TYPE := MACHINE-CODE
+  WHEN SATBT-BIT-SET (5)     #SPOOL-CMA-CMP := 'Y'
+  WHEN NOT SATBT-BIT-SET (5) #SPOOL-CMA-CMP := 'N'
+  WHEN SATBT-BIT-SET (6)     #SPOOL-CMA-TRC := 'Y'
+  WHEN NOT SATBT-BIT-SET (6) #SPOOL-CMA-TRC := 'N'
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-ESFS-E90-FQEFLAG3
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+COMPRESS 'CASPOOL' '/' #CMASPOOL-DEST '/' #CMASPOOL-OWNNM
+  TO LG-OBJECT-NAME LEAVING NO
+COMPRESS '1106' LG-OBJECT-NAME TO LG-MSG
+LG-USERID := G-LG-USERID
+LG-CODE   := 'NP'
+CALLNAT 'RLOG' PL-PARMS
+END OF TRANSACTION
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  G-NATRP-ERC := 0021
+  CALLNAT 'C-NATERN' G-NATRP-ERT
+  IF *ERROR-NR NE 3148
+    PERFORM WRITE-ERROR-LOG
+  END-IF
+END-ERROR
+*
+INCLUDE RMSC-C ' ' ' ' 'PERFORM HANDLE-IT-SPEC'
+*
+END

@@ -1,0 +1,208 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOBCFF-N - NOM API Bundle Contens Maintenance - Functions: delete
+*            Input keys :
+*            ES-KEY-PARM(1)     bundle
+*            ES-KEY-PARM(2)     runnumber
+*            ES-KEY-PARM(3)     report
+*            ES-KEY-PARM(4)     runnumber
+*
+* Maintenance:
+* XSETHZ  2002-07-29 created
+* XSETGGR 2002-09-25 change check values of time variables
+* XSETGGR 2002-10-30 change assignment of values of numeric attributes
+* XSETGGR 2002-11-14 use new parameter ES-APP-SERVER-LIBRARY
+* XSETGGR 2003-03-04 P(222810)-only open bundles can be updated
+* HH 040825 FORMATTING T CHANGED;                /* HH 040825
+* xsetggr 2007-05-08 NOM3201 Support P11 format run numbers
+* xsetggr 2007-05-09 (294774) change date/time format in lists
+* XSETHZ  2007-10-20 New interface for lists
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-08-01 NOMALL-982 restow due corrections in NOABRO1A
+* xsetggr 2011-09-20 NOMALL-901 do not log delete bundle-contents
+* xsetggr 2012-01-12 NOMALL-1020 write language independent msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* SU1     2016-01-21 NOMALL-1802 react - VABUND-L changed
+* SU2     2024-04-24 NOM36 remove unused
+* -------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RLOG-L
+LOCAL USING NOMODE-A
+LOCAL USING NOABRO1A
+LOCAL USING VABUND-L
+* *****
+LOCAL
+1 BC VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-BUNDLE
+/*SU2 2 BC-BUNDRNB 2 BC-REPNAME 2 BC-REPRNB
+/*SU2 1 BN VIEW OF NRM-BUNDLES 2 B-DESC
+1 #BC-BUNDLE-RNB-REPORT-RNB (A62)
+1 REDEFINE #BC-BUNDLE-RNB-REPORT-RNB
+  2 #BUNDLE-RNB            (A31)
+  2 REDEFINE #BUNDLE-RNB
+    3 #BC-BUNDLE           (A25)
+    3 #BC-BUNDRNB          (P11)
+  2 #BC-REPORT             (A25)
+  2 #BC-REPRNB             (P11)
+1 #BUNDLE-RNB-SEQ          (A33)
+1 REDEFINE #BUNDLE-RNB-SEQ
+  2 #BUNDLE-RNB-S          (A31)
+  2 #SEQ                   (P3)
+1 #BUNDLE-RNB-SEQ-E        (A33)
+1 #ES-CONTROL              (A253)
+1 #ES-INPUT-AREA           (A253/1:3)
+1 #ES-MSG-PREF             (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM            (A3)
+  2 #ES-MSG-NR             (N4)
+1 #ES-MSG-FIELD            (A32)
+/*SU2 1 #ES-MSG-TXT (A250) 1 #TIME (T) 1 #TIME-P13 (P13)
+/*SU2 1 #DATE (A8) 1 #T (A5)
+1 #TT                      (T)
+1 #GRANTS                  (A1/6)
+1 #GR-USER                 (A8)
+1 #STRING                  (A38)
+1 #USER-LIB                (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC #TT ES-MSG-NR ES-MSG-FIELD ES-MSG-TXT
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA (*) := ES-INPUT-AREA(*)
+NOMOD-PARMS := ES-SELECT
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+  VALUE 'DL'
+    PERFORM DELETE
+  ANY VALUE
+    IF ES-RC NE 1
+      PERFORM WRITE-LOG-RECORD
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE
+************************************************************************
+#BC-BUNDLE           := ES-KEY-PARM(1)
+#BC-BUNDRNB          := VAL(ES-KEY-PARM(2))
+#BC-REPORT           := ES-KEY-PARM(3)
+#BC-REPRNB           := VAL(ES-KEY-PARM(4))
+#BUNDLE-RNB-S        := #BUNDLE-RNB
+#BUNDLE-RNB-SEQ.#SEQ := 999
+#BUNDLE-RNB-SEQ-E    := #BUNDLE-RNB-SEQ
+#BUNDLE-RNB-SEQ.#SEQ := 0
+FIND BC WITH BC-BUNDLE-RNB-REPORT-RNB = #BC-BUNDLE-RNB-REPORT-RNB
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0449            /* bundle does not contain report
+    #ES-MSG-FIELD := 'BUNDLE'
+    PERFORM GET-MSG-TXT
+    ESCAPE BOTTOM
+  END-NOREC
+  DELETE
+  PERFORM SEND
+END-FIND
+*
+END-SUBROUTINE /* DELETE
+*
+************************************************************************
+DEFINE SUBROUTINE SEND
+************************************************************************
+FIND ACTIVE-BUNDLES WITH AB-BUNDLE-RNB = #BUNDLE-RNB
+  IF NO RECORDS FOUND
+    ES-RC := 2
+    ESCAPE BOTTOM
+  END-NOREC
+  RESET #NOABRO1.#OPTIONS(*)
+  FBCN. FIND NUMBER BC WITH BC-BUNDLE-RNB = #BUNDLE-RNB-SEQ
+    THRU #BUNDLE-RNB-SEQ-E
+  #NOABRO1.#NUM-REP := *NUMBER(FBCN.)
+  IF *NUMBER(FBCN.) = 0
+    #NOABRO1.#OPTIONS(1) := 'LB'
+    #NOABRO1.#OPTIONS(2) := 'SS'
+  END-IF
+  IF ACTIVE-BUNDLES.AB-STATUS NE 'O'
+    #NOABRO1.#OPTIONS(6) := 'OP'
+    #NOABRO1.#OPTIONS(3) := 'CL'
+  END-IF
+  IF ACTIVE-BUNDLES.AB-STATUS = 'E'
+    #NOABRO1.#OPTIONS(4) := 'PB'
+  END-IF
+  IF ES-USER-TYPE NE 'A'
+    CALLNAT 'NOGROU-N' 'B' BC-BUNDLE ES-USER #GR-USER #GRANTS(*)
+    IF #GRANTS(1) NE 'Y' AND #GRANTS(3) NE 'Y'
+      #NOABRO1.#OPTIONS(5) := 'DL'
+    END-IF
+  END-IF
+  ES-SELECT := #NOABRO1
+END-FIND
+*
+END-SUBROUTINE /* SEND
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND    := 'U'
+NADA2000.ERROR-NUMBER   := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+NADA2000.LIBRARY        := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR  := #ES-MSG-NR
+ES-MSG-TXT := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+EXAMINE ES-MSG-TXT FOR ':2:' REPLACE ' '
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+IF NOMOD-LOG-TYPES (*) = 'B'
+  DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+    VALUE 'DL'
+      LG-USERID      := ES-USER
+      LG-CODE        := 'AB'
+      LG-BUNDLE      := #BC-BUNDLE
+      LG-BUNDRNB     := #BC-BUNDRNB
+      LG-REPNAME     := #BC-REPORT
+      LG-REPRNB      := #BC-REPRNB
+      COMPRESS ES-KEY-PARM(3) '/' ES-KEY-PARM(4) TO #STRING LEAVING NO
+      COMPRESS '0772' #STRING TO LG-MSG
+      COMPRESS ES-KEY-PARM(1) '-' ES-KEY-PARM(2) TO LG-OBJECT-NAME
+        LEAVING NO
+      CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+    NONE VALUE IGNORE
+  END-DECIDE
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+END

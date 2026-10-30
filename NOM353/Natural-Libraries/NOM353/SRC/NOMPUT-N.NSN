@@ -1,0 +1,357 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMPUT-N
+* Version   1.3
+* Function  Interface for sending print data to NOM
+*
+* WARNING:  NOMPUT* programs must  n o t  contain any screen I/O stmts
+*           because it is called by NAF via NAT3GCAN during WRITE
+*           or DISPLAY processing. Reason for this restriction is
+*           that NATINO2 cannot be called recursively.
+*           Attempt to do so causes unpredictable results/abends.
+*           Markus Klein, 93-10-21
+*
+* WARNING:  NOMPUT* programs must  n o t  contain any ET/BT statement
+*           instead the caller must issue an ET if field
+*           NOMPUT-ISSUE-ET = 0001
+*
+* NOTE:     For performance reasons the caller should call this routine
+*           for ET/BT only if the NOMPUT-ETBT-NEEDED = 0002
+*
+* NOTE:     For performance reasons the caller should call this routine
+*           for CLOSE only if the NOMPUT-REPORT-IS-OPENED = 0001
+*
+* Natural error code reserved for NOMPUT (5960 - 5980) = nnnn + 5959
+* pppppppp nnnn ....
+* NOMPUT-N 0001 Internal error - invalid function code (NOMPUT-N)
+* NOMPUT-N 0002 Internal error - report not opened
+* NOMPUT-N 0003 Internal error - error during compression of print line
+* NOMPUT-N 0004 Internal error - invalid CC type specification
+* NOMPUT-N 0005 Internal error - invalid source type specification
+* NOMPUT-N 0006 Internal error - invalid NAF DBID
+* NOMPUT-N 0007 Internal error - invalid NAF FNR
+* NOMPUT-N 0008 Internal error - invalid logical printer number (1-31)
+* NOMPUT-N 0009 Internal error - invalid User ID specification
+* NOMPUT-N 0010 Internal error - invalid PROGRAM specification
+* NOMPUT-N 0011 Internal error - invalid LIBRARY specification
+* NOMPUT-N 0012 Internal error - invalid LPF specification
+* NOMPUTQN 0013 Internal error - invalid function code (NOMPUTQN)
+* NOMPUTFN 0014 NOM control record missing
+* NOMPUTFN 0015 FSPOOL not defined in the NOM monitor defaults
+* NOMPUTFN 0016 Internal error - error during CMMPP call
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-10-08 s(999999) created
+* mk1 93-10-21 S(999999) make it callable by NAF
+* gw  98-10-31 s(999999) NAF dbid / fnr compatibility
+* fhi     2009-07-28 P319282 Binary files on Linux corrupted
+* fhi     2009-09-15 P320367 Use NOMCOMPR as compression utility
+* fhi     2010-12-14 NOMALL-921 Introduce DEST Spool parameter
+* SPLILDAV 2012-06-27 NOMALL-1078 SUPPORT COMPRESSION 16K BYTE RECORDS
+* SU1     2016-07-28 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* SU2     2020-01-03 NOMALL-2370 new field:NAF: OUTPUT -store as attr.
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER USING NOMPUT-P
+* *****
+LOCAL USING RMSR---E
+LOCAL USING RCCTYP-E
+* -----------------------------local Variables--------------------------
+LOCAL
+1 #NSMCOMP-CB                (B40) /*NOMALL-1078 END INSERT
+1 REDEFINE #NSMCOMP-CB
+  2 #NSMCOMP-COMMAND         (A1)
+  2 #NSMCOMP-CODE            (B1)
+  2 #NSMCOMP-INLENGTH-OLD    (B1)
+  2 #NSMCOMP-OUTLENGTH-OLD   (B1)
+  2 #NSMCOMP-INLENGTH        (B2)
+  2 #NSMCOMP-OUTLENGTH       (B2)
+1 NOMPUTQ-FUNCTION           (I2)
+*
+1 #NSMCOMP-RC                (B2)
+1 #NSMCOMP-LINE              (A251)
+1 #NSMCOMP-BUFFER-LENGTH     (B4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+NAF-DBID := NAF-DBID-OLD
+NAF-FNR  := NAF-FNR-OLD
+*
+RESET NOMPUT-ERROR-CODE NOMPUT-ISSUE-ET
+*
+IF WORK-INIT NE 'X'
+  WORK-INIT := 'X'
+  RESET #WORK-AREA-GROUP NOMPUT-ETBT-NEEDED
+END-IF
+*
+DECIDE ON FIRST NOMPUT-FUNCTION
+  VALUE 0001 PERFORM OPEN-REPORT                 /* open
+  VALUE 0002 PERFORM COMPRESS-PRINT-RECORD       /* put
+  VALUE 0003 PERFORM CLOSE-REPORT                /* close
+* VALUE 0004 PERFORM MARK-REPORT-FOR-DELETION    /* abort
+  VALUE 0005 PERFORM ET-ISSUED                   /* end transaction
+  VALUE 0006 PERFORM BT-ISSUED                   /* backout transaction
+  NONE VALUE NOMPUT-ERROR-CODE := 0001
+END-DECIDE
+*
+IF NOMPUT-ERROR-CODE = 1 THRU 20
+  NOMPUT-ERROR-CODE := NOMPUT-ERROR-CODE + 5959
+END-IF
+*
+IF REPORT-IS-OPENED
+  NOMPUT-REPORT-IS-OPENED := 0001
+ELSE
+  RESET  NOMPUT-REPORT-IS-OPENED
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE OPEN-REPORT
+************************************************************************
+IF REPORT-IS-OPENED
+  PERFORM CLOSE-REPORT
+END-IF
+*
+RESET   #WORK-AREA-GROUP
+WORK-INIT := 'X'
+NOMPUT-WORK (2) := H'00000000'
+RESET   NOMPUT-WORK (3:09)
+*
+PERFORM VALIDATION
+IF NOMPUT-ERROR-CODE NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+*
+#NP-NAF-DBID    := NAF-DBID
+#NP-NAF-FNR     := NAF-FNR
+#NP-NAF-PNR     := NAF-PNR
+#NP-NAF-USER-ID := NAF-USER-ID
+#NP-NAF-NATPGM  := NAF-NATPGM
+#NP-NAF-NATLIB  := NAF-NATLIB
+#NP-NAF-NAME    := NAF-NAME
+#NP-NAF-FORMS   := NAF-FORMS
+#NP-NAF-PROFILE := NAF-PROFILE
+#NP-NAF-COPIES  := NAF-COPIES
+#NP-NAF-DISP    := NAF-DISP
+#NP-NAF-DEST    := NAF-DEST
+#NP-NAF-OUTPUT  := NAF-OUTPUT /*SU2
+*
+#NP-CC-TYPE     := NOMPUT-CC-TYPE
+#NP-SOURCE-TYPE := NOMPUT-SOURCE-TYPE
+*
+PERFORM SET-CONTAINER-FILE
+IF NOMPUT-ERROR-CODE NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+REPORT-IS-OPENED := TRUE
+PERFORM COMPRESS-PRINT-RECORD
+*
+END-SUBROUTINE /* OPEN-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE COMPRESS-PRINT-RECORD
+************************************************************************
+IF NOT REPORT-IS-OPENED
+  NOMPUT-ERROR-CODE := 0002
+  ESCAPE ROUTINE
+END-IF
+*
+IF NOMPUT-LINE-LENGTH = 0
+  ESCAPE ROUTINE
+END-IF
+*
+IF #QUEUE-ENTRY-STATUS = 0
+  NOMPUTQ-FUNCTION := 0001
+  PERFORM QUEUE-ENTRY
+  IF NOMPUT-ERROR-CODE NE 0
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+#NSMCOMP-BUFFER-LENGTH := 251 * 08
+#NSMCOMP-CODE    := 'N'  /* 'N' - NEW PARM LIST
+#NSMCOMP-COMMAND := 'C'
+*
+ADD 1 TO #RECORD-NUMBER
+IF #LINE-START = 0
+  #LINE-START := #RECORD-NUMBER
+END-IF
+*
+IF NOMPUT-LINE-LENGTH > 251
+  #NSMCOMP-INLENGTH := 251 /* for compat
+ELSE
+  #NSMCOMP-INLENGTH := NOMPUT-LINE-LENGTH
+END-IF
+#NSMCOMP-INLENGTH-OLD := #NSMCOMP-INLENGTH /* for compat
+*
+IF #NSMCOMP-INLENGTH > #LINE-SIZE
+  #LINE-SIZE := #NSMCOMP-INLENGTH
+END-IF
+*
+NOMPUT-ETBT-NEEDED := 0001
+*
+REPEAT
+  CALLNAT 'R-NSMCM2' #NSMCOMP-CB #NSMCOMP-LINE #NSMCOMP-BUFFER-LENGTH
+    NOMPUT-WORK (*) #NSMCOMP-RC #NSMCOMP-WORK
+  DECIDE ON FIRST #NSMCOMP-RC
+    VALUE 0
+      #LINE-END := #RECORD-NUMBER
+      IN-BUFFER := TRUE
+      ESCAPE BOTTOM
+    VALUE 4
+      PERFORM FLUSH-BUFFER
+      #LINE-START := #RECORD-NUMBER
+    NONE
+      NOMPUT-ERROR-CODE := 0003
+      ESCAPE BOTTOM
+  END-DECIDE
+*
+END-REPEAT
+*
+END-SUBROUTINE /* COMPRESS-PRINT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-BUFFER
+************************************************************************
+CALLNAT 'NOMPUTBN' NOMPUT-PARMS
+*
+END-SUBROUTINE /* FLUSH-BUFFER
+*
+************************************************************************
+DEFINE SUBROUTINE QUEUE-ENTRY
+************************************************************************
+CALLNAT 'NOMPUTQN' NOMPUTQ-FUNCTION NOMPUT-PARMS
+*
+END-SUBROUTINE /* QUEUE-ENTRY
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-REPORT
+************************************************************************
+IF NOT REPORT-IS-OPENED
+  ESCAPE ROUTINE
+END-IF
+*
+IF IN-BUFFER
+  PERFORM FLUSH-BUFFER                        /* save isn of buffer
+END-IF
+*
+IF #QUEUE-ENTRY-STATUS > 0
+  NOMPUTQ-FUNCTION := 0003
+  PERFORM QUEUE-ENTRY
+END-IF
+*
+RESET #WORK-AREA-GROUP NOMPUT-ETBT-NEEDED
+*
+IF NOMPUT-ET-POSSIBLE = 2
+  NOMPUT-ISSUE-ET := 0001
+END-IF
+*
+END-SUBROUTINE /* CLOSE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE ET-ISSUED
+************************************************************************
+IF #QUEUE-ENTRY-STATUS = 1                     /* queue entry is
+  #QUEUE-ENTRY-STATUS := 2                    /* in data base
+END-IF
+IF #SOURCE-TEXT-ID = 0                         /* no source text id
+  PERFORM GET-SOURCE-TEXT-ID
+END-IF
+IF IN-BUFFER
+  PERFORM FLUSH-BUFFER                        /* save isn of buffer
+END-IF
+#BUFF-ISN-ET      := #BUFF-ISN
+#LINE-SIZE-ET     := #LINE-SIZE
+#RECORD-NUMBER-ET := #RECORD-NUMBER
+RESET  NOMPUT-ETBT-NEEDED
+*
+END-SUBROUTINE /* ET-ISSUED
+*
+************************************************************************
+DEFINE SUBROUTINE BT-ISSUED
+************************************************************************
+IF #QUEUE-ENTRY-STATUS = 1                     /* queue entry is no
+  #QUEUE-ENTRY-STATUS := 0                    /* longer in data base
+END-IF
+#LINE-SIZE     := #LINE-SIZE-ET
+#RECORD-NUMBER := #RECORD-NUMBER-ET
+RESET #LINE-START #LINE-END NOMPUT-WORK (3:09) IN-BUFFER
+NOMPUT-WORK (2) := H'00000000'
+RESET  NOMPUT-ETBT-NEEDED
+*
+END-SUBROUTINE /* BT-ISSUED
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+IF NOT (NOMPUT-CC-TYPE =ASA-CODE OR=MACHINE-CODE OR=BS2000-CC OR=NO-CC)
+  NOMPUT-ERROR-CODE := 0004
+  ESCAPE ROUTINE
+END-IF
+DECIDE ON FIRST NOMPUT-SOURCE-TYPE
+  VALUE NAF         PERFORM VALIDATE-NAF-PARAMETERS
+  NONE VALUE        NOMPUT-ERROR-CODE := 0005
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-NAF-PARAMETERS
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN NAF-DBID = 0              NOMPUT-ERROR-CODE := 0006
+  WHEN NAF-FNR = 0               NOMPUT-ERROR-CODE := 0007
+  WHEN NOT (NAF-PNR = 0 THRU 31) NOMPUT-ERROR-CODE := 0008
+  WHEN NAF-USER-ID = ' '         NOMPUT-ERROR-CODE := 0009
+  WHEN NAF-NATPGM = ' '          NAF-NATPGM := '*NONAME*'
+  WHEN NAF-NATLIB = ' '          NOMPUT-ERROR-CODE := 0011
+  WHEN NAF-PROFILE = ' '         NOMPUT-ERROR-CODE := 0012
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATE-NAF-PARAMETERS
+*
+************************************************************************
+DEFINE SUBROUTINE SET-CONTAINER-FILE
+************************************************************************
+CALLNAT 'NOMPUTFN' NOMPUT-PARMS
+*
+END-SUBROUTINE /* SET-CONTAINER-FILE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SOURCE-TEXT-ID
+************************************************************************
+CALLNAT 'NOMPUTIN' NOMPUT-PARMS
+*
+IF #QUEUE-ENTRY-STATUS > 0
+  NOMPUTQ-FUNCTION := 0002
+  PERFORM QUEUE-ENTRY
+END-IF
+*
+END-SUBROUTINE /* GET-SOURCE-TEXT-ID
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  NOMPUT-ERROR-CODE := *ERROR-NR
+  IF REPORT-IS-OPENED
+    NOMPUT-REPORT-IS-OPENED := 0001
+  ELSE
+    RESET  NOMPUT-REPORT-IS-OPENED
+  END-IF
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

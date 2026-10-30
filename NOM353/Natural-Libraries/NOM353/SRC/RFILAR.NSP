@@ -1,0 +1,216 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RFILAR - File Active Report
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-08-04           created
+* gw  95-12-14           cleaned up
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* sju     2002-11-13 p(231843) mail wrong if run number wraps round
+* xsetggr 2007-08-27 NOM3201   Support P11 format run numbers
+* xsetggr 2007-12-19 p(300375) restow due changes in EOMFOM-P
+* xsetggr 2011-05-03 NOMALL-902 changes in EOMFOM-P
+* xsetggr 2011-11-08 NOMALL-1069 do not allow create equal mail records
+* xsetggr 2011-12-01 NOMALL-1069 corrections
+* xsetggr 2013-05-26 NOMALL-89   get read mail record to save new one
+* raya    2013-09-08 NOMALL-1278 get report creation date for mails
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-02-08 NOMALL-1822 Fill MA-CURRENT-LOCATION field
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+*
+LOCAL  USING EOM----E
+LOCAL  USING EOM----P
+LOCAL  USING EOMFOM-P
+LOCAL  USING EOMMSG-P
+*
+LOCAL
+1 MAIL VIEW OF NRM-MAIL
+  2 MA-USERID
+  2 MA-FO-ID
+  2 MA-REPNAME
+  2 MA-REPRNB
+  2 MA-INV-TIME
+  2 MA-STATUS
+  2 MA-LAYOUT (1:10)
+    3 MA-FROM
+    3 MA-TO
+  2 MA-HEADLINES
+  2 MA-CURRENT-LOCATION
+  2 MA-PROCESS-TIME
+  2 MA-PROCESS-TIME-INV
+  2 MA-OBJECT-TYPE
+  2 MA-OBJECT-TIME
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-PROCESS-TIME
+  2 AR-PROCESS-TIME-INV
+  2 AR-CURRENT-LOCATION
+*
+1 #FATHER-PROG           (A8) INIT <'RLIACF'>
+1 #FO-ID                 (B2)
+1 #FOLDER                (A16)
+1 #USER-ID               (A8)
+1 #FOLDER-USER-ID        (A8)
+1 #MA-RNB-USER           (A14)
+1 REDEFINE #MA-RNB-USER
+  2 #MA-RNB            (P11)
+  2 #MA-USER           (A8)
+1 #M-REPORT              (A25)
+1 REDEFINE #M-REPORT
+  2 #M-REPORT-17      (A17)
+  2 #M-REPORT-R       (A8)
+1 #MA-REP-RNB                  (A31)
+1 REDEFINE #MA-REP-RNB
+  2 #MA-REP                  (A25)
+  2 #MA-REPRNB               (P11)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE WINDOW FILE-WINDOW SIZE 12*58 BASE 07/20 CONTROL WINDOW
+*
+IF *DATA > 0
+  INPUT #USER-ID G-C-REPORT G-C-REPRNB
+ELSE
+  INCLUDE C-ESCAPE
+END-IF
+*
+SET CONTROL 'L'
+#FOLDER := G-C-FOLDER
+*
+#MA-RNB   := G-C-REPRNB
+#MA-USER  := #USER-ID
+#M-REPORT := G-C-REPORT
+IF NOT G-DISPLAY-LONG-NAMES
+  #M-REPORT-R := H'FA'
+END-IF
+#MA-REP    := G-C-REPORT
+#MA-REPRNB := G-C-REPRNB
+FNDMA. FIND MAIL WITH MA-RNB-USER = #MA-RNB-USER
+AND MA-REP-RNB  = #MA-REP-RNB                                         /*
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 9999
+    ESCAPE ROUTINE
+  END-NOREC
+  INPUT-LOOP. REPEAT
+    SET KEY PF3 = PGM
+    SET CONTROL 'MT'
+    INPUT WINDOW = 'FILE-WINDOW' WITH TEXT *G-NATRP-ERC, G-NATRP-ERT
+      USING MAP 'RFILARM&'
+*
+    RESET G-NATRP-ERC G-NATRP-ERT
+*
+    IF *PF-KEY = 'PF3'
+      SET CONTROL 'M21'
+      INCLUDE C-ESCAPE
+    END-IF
+    RESET G-NATRP-ERC G-NATRP-ERT
+*
+    IF #FOLDER = SCAN '*'
+      CALLNAT 'RSELFO1N' G-USERID #FOLDER
+    END-IF
+*
+    PERFORM VALIDATE-INPUT
+    IF G-NATRP-ERC NE 0
+      ESCAPE TOP
+    END-IF
+    ESCAPE BOTTOM (INPUT-LOOP.)
+  END-REPEAT
+*
+  GETMA. GET MAIL *ISN (FNDMA.)
+  IF MA-USERID = #FOLDER-USER-ID
+    MA-FO-ID := #FO-ID
+    UPDATE (GETMA.)
+  ELSE
+    FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #MA-REP-RNB
+    END-FIND
+    MA-PROCESS-TIME     := AR-PROCESS-TIME
+    MA-PROCESS-TIME-INV := AR-PROCESS-TIME-INV
+    MA-USERID           := #FOLDER-USER-ID
+    MA-FO-ID            := #FO-ID
+    MA-OBJECT-TYPE      := 'MA'
+    MA-OBJECT-TIME      := *TIMX
+    IF AR-CURRENT-LOCATION = 'A'
+      MAIL.MA-CURRENT-LOCATION := 'A'
+    ELSE
+      MAIL.MA-CURRENT-LOCATION := 'B'
+    END-IF
+    STORE MAIL
+  END-IF
+*
+END-FIND
+END OF TRANSACTION
+SET CONTROL 'M21'
+*
+G-C-FOLDER := #FOLDER
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-FOLDER
+************************************************************************
+EOM-FUNCTION := EOM-READ
+CALLNAT 'EOMFOM-N' EOM-PARMS EOMFOM-PARMS EOMMSG-PARMS
+*
+END-SUBROUTINE /* READ-FOLDER
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+IF #FOLDER = ' '
+  G-NATRP-ERC := 351          /* 'please enter folder-name'
+  ESCAPE ROUTINE
+END-IF
+*
+EOMFOM-I-NAME := #FOLDER
+EOMFOM-I-USER := G-USERID
+*
+EOM-USER-PROFILE := G-USER-PROFILE
+EOM-USER         := G-USERID
+#FOLDER-USER-ID  := G-USERID
+EOM-USER-TYPE    := G-USER-TYPE
+EOM-LANGUAGE     := *LANGUAGE
+*
+PERFORM READ-FOLDER
+*
+IF EOMMSG-NR NE 0
+  G-NATRP-ERC := EOMMSG-NR
+  G-NATRP-ERT := EOMMSG-TOKEN (1)
+  ESCAPE ROUTINE
+END-IF
+*
+IF EOMFOM-ID = 1 THRU 100 AND EOMFOM-LINKED-FOLDER-USERID = ' '
+  G-NATRP-ERC := 0359
+  ESCAPE ROUTINE
+END-IF
+#FO-ID := EOMFOM-ID
+IF EOMFOM-LINKED-FOLDER-USERID NE ' '
+  G-NATRP-ERC := 371
+  ESCAPE ROUTINE
+END-IF
+#MA-USER := EOMFOM-USER-ID
+FNDFI. FIND MAIL WITH MA-RNB-USER = #MA-RNB-USER
+AND MA-REP-RNB  = #MA-REP-RNB                                         /*
+  IF *NUMBER(FNDFI.) > 0 AND MA-FO-ID = #FO-ID
+    IF #MA-USER = G-USERID
+      G-NATRP-ERC := 360
+    ELSE
+      G-NATRP-ERC := 364
+      G-NATRP-ERT := MA-USERID
+    END-IF
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+END

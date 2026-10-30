@@ -1,0 +1,510 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RJREVUX - Revive Active Report from Archive Data set on Unix
+*           Called from RJREVIVE only if Unix OS detected.
+*
+* This routine has been introduced to avoid problems that arise on
+* Unix systems because of the 0A character which means end of line.
+* The compression routine 'compress.so' (up to NOM 3.3, not relevant
+* for NOM 3.4 and above because 'nomcompr.so' is used) compresses 10
+* blanks to hex value '010A' which causes READ WORK FILE to stop at the
+* 0A position as it means line end. This routine opens the work file
+* in mode 'UNFORMATTED' and reads a record buffer in full length. Then
+* it checks for H'0A'+'T' combination to get the beginning of a new
+* record in a NOM archive file and for H'0A'+'I' to recognize a new
+* report in a NOM archive file. However, the new 'nomcompr.so' routine
+* avoids H'010A' and compresses 10 blanks to H'0109'+' '.
+* This solution is only valid for ASCII platformsÜ
+*
+* This routine reads the work file as type 'UNFORMATTED'
+*
+* Maintenance:
+* uuuuuuuu yyyy-mm-dd iTrac       Comment
+* fhi      2011-11-14 NOMALL-1073 Created from RJREVIVE
+*                                 Old tags from RJREVIVE deleted
+* SPLILDAV 2012-06-27 NOMALL-1078 SUPPORT COMPRESSION 16K BYTE RECORDS
+* xsetggr  2012-10-22 ES-104 fill MA-CURRENT-LOCATION
+* fhi      2012-11-09 NOMALL-1143 Add cpu time output
+* raya     2012-11-29 NOMALL-1214 check cat date of nomex*
+* xsetggr  2013-03-14 ES-104      corrections in RJREVUXC
+* raya     2013-05-09 NOMALL-1214 backout check cat date of nomex*
+* fhi      2013-09-24 NOMALL-932  Change NOMEX08L to NOMEXP08
+* SU1      2014-07-11 NOMALL-1279 fill fields for Adabas Vista(RJREVUXC)
+* BLI      2014-10-07 NOMALL-1422 remove NOP and 'mainframe'
+* SU2      2014-11-17 NOMALL-1279 fill fields for Adabas Vista(RJREVUXC)
+* fhi      2015-07-15 NOMALL-1677 Add trace (although NOM33 solution)
+* SU3      2016-01-18 NOMALL-1802 do not update Adabas Vista fields
+* BLI      2018-03-21 use GDA again
+* fhi      2018-12-14 NOM 3.5     Improve CPU measures, no tags
+* SU4      2019-05-15 NOMALL-2273 upd location in mail records
+* SU5     2020-05-27 NOMALL-2349 ON ERROR: show full msg
+* SU6     2020-05-22 NOMALL-2349 no ESY logon on Unix
+* BLI1    2022-08-01 NOMALL-2548 check calendar in RJREVUXC
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE           (L/1:20)
+* -----------------------------LDAs-------------------------------------
+LOCAL USING NOMEXP08
+LOCAL USING NOMEX08E
+LOCAL USING VFSYS-L
+LOCAL USING RLOG-L
+LOCAL USING SATLGV1P
+LOCAL USING RACTLF-A
+LOCAL USING VUSARC-L
+LOCAL USING NOMUDA-P
+LOCAL USING SAT00009
+LOCAL USING RIDREC-L
+LOCAL USING CONST-L
+LOCAL USING RJ-L
+* *****
+LOCAL
+1 REPORT-CONTENTS-LOC VIEW OF NRM-REPORT-CONTENTS
+  2 AC-OBJECT-TYPE
+  2 AC-OBJECT-TIME
+  2 AC-REPNAME
+  2 AC-REPRNB
+  2 AC-SEQNO
+  2 C*AC-INSERTED-LINE
+  2 AC-INSERTED-LINE        (1:10)
+  2 C*AC-CONTENTS
+  2 AC-CONTENTS
+    3 AC-FROM-LINE          (1:99)
+    3 AC-TO-LINE            (1:99)
+  2 C*AC-CONTENTS-N9
+  2 AC-CONTENTS-N9
+    3 AC-FROM-LINE-N9       (1:99)
+    3 AC-TO-LINE-N9         (1:99)
+1 REPORT VIEW OF NRM-REPORTS-NEW
+  2 R-REVIVE-RETENTION
+1 ACTIVE-REPORTS-LEFT VIEW OF NRM-ACTIVE-REPORTS /*used in RJREVUXC
+1 MAIL VIEW OF NRM-MAIL
+  2 MA-CURRENT-LOCATION
+1 BUNDLE-CONTENTS VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-BUNDRNB
+* *****
+1 RMSETTIM
+  2 FUNCTION                (A1)
+  2 ERC                     (N4)
+  2 MSG                     (A250)
+1 #RECORD-LENGTH            (I4)
+1 #BEGIN-ID                 (A2) INIT <H'0A49'> /* 0A + 'I'
+1 #BEGIN-TEXT               (A2) INIT <H'0A54'> /* 0A + 'T'
+1 #RECORD-BUFFER            (A2570)
+1 #RECBUF-LEN               (I4)
+1 #RECORD-READ              (A257)
+1 #RECORD-FIRST             (L)    INIT <TRUE>
+1 #TEXT-RECORD              (A257)
+1 REDEFINE #TEXT-RECORD
+  2 #T-RECORD-TYPE          (A1)
+  2 #T-TEXT                 (A256)
+1 #ARCHIVE-DSNAME           (A44)
+1 #T                        (N2)
+1 #SEQNO                    (P4)
+1 SW-STORE                  (L)
+1 SW-I-REC                  (L)
+1 END-OF-PROCESSING         (L)
+1 REVIVE-IT                 (L)
+1 #REPISN                   (N10)
+1 #K-REPNAME                (A25)
+1 #K-REPRNB                 (P11)
+1 FROM-SWITCHES
+  2 FROM-NRM                (L)
+  2 FROM-PRINTER            (L)
+1 #REVIVE-DATE              (T)
+1 #WRITER                   (A8)
+1 REDEFINE #WRITER
+  2 #WRITER-FIL             (A1)
+  2 #WRITER-RNB             (A7)
+/*NOMALL-1078 START INSERT
+1 COMPCB                    (B40)
+1 REDEFINE    COMPCB
+  2 COMPCB-OP               (A1)
+  2 COMPCB-CHAR             (B1)
+  2 COMPCB-ILEN-OLD         (B1)
+  2 COMPCB-OLEN-OLD         (B1)
+  2 COMPCB-ILEN             (B2)
+  2 COMPCB-OLEN             (B2)
+/*NOMALL-1078 END INSERT
+1 #REC-NO                   (P8)
+1 ANY-REVIVE                (L)
+1 ERROR-OCCURED             (L)
+1 #AC-RRS                   (A35)
+1 REDEFINE #AC-RRS
+  2 #AC-REPNAME             (A25)
+  2 #AC-REPRNB              (P11)
+  2 #AC-SEQNO               (B4)
+1 #POS                      (I4)
+1 #POS2                     (I4)
+1 #POS-START                (I4)
+1 #LEN                      (I4)
+1 #DATE-IN                  (D)
+1 #DATE-OUT                 (D)
+1 #VOLSER                   (A6/1:6)
+1 #NVOL                     (N2)
+1 #NUMREP                   (P10)
+1 #AR-DATASET-VOLSER-REVIVE (A51/1:3)
+1 REDEFINE #AR-DATASET-VOLSER-REVIVE
+  2 #AR-TAB                 (1:3)
+    3 #AR-ARCHIVE-DATASET   (A44)
+    3 #AR-ARCHIVE-VOLSER    (A6)
+    3 #AR-REVIVE            (A1)
+*
+1 #BC-REPORT-RNB            (A31)
+1 REDEFINE #BC-REPORT-RNB
+  2 #BC-REPNAME             (A25)
+  2 #BC-REPRNB              (P11)
+1 #ALREADY-BUNDLED          (L)
+1 #REVIVE-TO-BUNDLE         (L)
+1 #BC-ISN                   (P10)
+1 #ERR-TEXT                 (A60)
+1 #ACTREP-KEY               (A31)
+1 REDEFINE #ACTREP-KEY
+  2 #ACTREP-REPORT          (A25)
+  2 #ACTREP-REPRNB          (P11)
+1 #NOMEX008                 (A01)  INIT <'N'>
+1 #USERARC-ID               (A10)  INIT <'USERARC00'>
+1 REDEFINE #USERARC-ID
+  2 #USERARC-FIXED          (A8)
+  2 #USERARC-NUMBER         (N1)
+1 #MA-REP-RNB               (A31)
+1 REDEFINE #MA-REP-RNB
+  2 #MA-REPNAME             (A25)
+  2 #MA-REPRNB              (P11)
+1 #FUNCTION                 (A10) CONST <'Reviver'>
+1 EXIST                     (L)   /* BLI1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+****+*******************************************************************
+*
+IF G-TRACE > 0
+  RMSETTIM.FUNCTION := 'S'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+END-IF
+*
+FORMAT PS=60 LS=133
+*
+IF G-TRACE < 2
+  CALLNAT 'NOMGSTEP' '*' G-NATRP-ERC
+ELSE
+  CALLNAT 'NOMGSTEP' '*' G-NATRP-ERC G-TRACE
+END-IF
+G-LG-USERID := G-MONITOR-ID := #_REVIVE
+RESET G-NATRP-ERC
+*
+COMPCB-OP:='D'
+COMPCB-CHAR := 'N'                  /* 'N' - New parm list
+*
+INPUT (IP=OFF) G-NPR-USERID G-MONITOR-NODE #ARCHIVE-DSNAME #NOMEX008
+  #USERARC-NUMBER
+*
+IF G-TRACE > 0
+  COMPRESS 'Running with trace level' G-TRACE
+    'archive' #ARCHIVE-DSNAME 'NOMEX008:' #NOMEX008
+    'UserArc:' #USERARC-NUMBER
+    TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+RESET #VOLSER (*)
+#VOLSER (1) := 'FILSYS'
+*
+DEFINE WORK FILE 1 TYPE 'UNFORMATTED'
+RESET RACTLF-LOGGING
+RACTLF-ERROR-LOGGING:= TRUE
+RACTLF-LOG-USERID := G-MONITOR-ID
+RACTLF-LOG-CODE := 'MO'
+RACTLF-LFILE-1:= 91
+RACTLF-LFILE-2:= 206
+CALLNAT 'RACTLF-N' RACTLF-PARMS
+IF RACTLF-ERROR-CODE NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    RACTLF-ERROR-CODE RACTLF-ERROR-TEXT
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Dbid1:' RACTLF-DBID-1 'Fnr1:' RACTLF-FNR-1
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Dbid2:' RACTLF-DBID-2 'Fnr2:' RACTLF-FNR-2
+  TERMINATE 50
+END-IF
+IF #NOMEX008 = 'Y'
+  +G-NOMEXIT-ACTIVE(8):= TRUE
+END-IF
+*
+G-NPR-CURRENT-USERID := G-NPR-USERID
+*
+CALLNAT 'SATLGFVN' SATLGV-PARMS
+IF SATLGV-RC NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    SATLGV-ERROR-TEXT
+  IF SATLGV-LOG-DBID NE 0 OR SATLGV-LOG-FNR NE 0
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Dbid:' SATLGV-LOG-DBID 'Fnr:' SATLGV-LOG-FNR
+  END-IF
+  TERMINATE 50
+END-IF
+*
+IF #USERARC-NUMBER GT 0
+  FIND NRM-USER-DEFINED-ARCHIVE WITH M-MONITOR-ID = #USERARC-ID
+    IF NO RECORDS FOUND
+      COMPRESS '0458' 'Revive' #USERARC-ID TO LG-MSG
+      PERFORM #RLOG
+      END TRANSACTION
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'User defined archive' #USERARC-ID 'not defined'
+      TERMINATE 50
+    END-NOREC
+    #NATLIB:= M-USERARC-EXITLIB
+    #NATMEM:= M-USERARC-EXITMEM
+    IF #NATLIB NE ' ' AND #NATMEM NE ' '
+      PERFORM ADD-STEPLIB
+      NOMUDA-API-VERSION:= 02
+      NOMUDA-FUNCTION:= 'R'
+      NOMUDA-DATA-SET-NAME-1:= #ARCHIVE-DSNAME
+      NOMUDA-ARCHIVE-NAME:= M-USERARC-NAME
+      NOMUDA-ARCHIVE-NUMBER:= #USERARC-NUMBER
+      NOMUDA-ESY-USERID:= G-NPR-USERID
+      NOMUDA-ESY-NODE:= G-MONITOR-NODE
+      IF G-TRACE > 0
+        COMPRESS 'User defined archive executed as:' 'prog:' #NATMEM
+          'Lib::' #NATLIB TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END TRANSACTION
+      END-IF
+    END-IF
+  END-FIND
+END-IF
+LG-MSG := '0443'
+PERFORM #RLOG
+END TRANSACTION
+/*SU6 PERFORM LOGON-TO-ESY
+*
+PERFORM IS-ANYTHING-TO-REVIVE
+*
+IF NOT END-OF-PROCESSING
+  PERFORM REVIVE-ACTIVE-REPORTS
+  IF #ERR-TEXT > ' '
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Error finding archive file' #ARCHIVE-DSNAME
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+      #ERR-TEXT
+    RESET #ERR-TEXT
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+IF ANY-REVIVE
+  LG-MSG := '0444' /* reviver ended succesfully
+ELSE
+  LG-MSG := '0445' /* reviver ended - nothing to revive
+END-IF
+PERFORM #RLOG
+IF G-TRACE > 0
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  MOVE 'Consumed after last exit (if present):' TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+  END TRANSACTION
+END-IF
+END TRANSACTION
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'Reviver terminated normally'
+TERMINATE 0
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE REVIVE-ACTIVE-REPORTS
+************************************************************************
+*
+RESET SW-I-REC SW-STORE REVIVE-IT #T #SEQNO ERROR-OCCURED REPORT-TEXT
+*
+DECIDE FOR FIRST CONDITION
+  WHEN #NATMEM NE ' ' AND #NATLIB NE ' '
+    REPEAT
+      CALLNAT #NATMEM NOMUDA-API-VERSION NOMUDA-PARMS(*)
+      IF NOMUDA-RC NE 0
+        WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+          'Error:' NOMUDA-RC 'from' #NATMEM / NOMUDA-RT
+        ERROR-OCCURED:= TRUE
+        TERMINATE 50
+      END-IF
+      #TEXT-RECORD:= NOMUDA-RECORD
+      #RECORD-LENGTH:= NOMUDA-RECORD-LENGTH
+      IF NOMUDA-END-OF-DATA = 'YES'
+        RESET #TEXT-RECORD NOMUDA-END-OF-DATA
+        #T-RECORD-TYPE:= 'I'
+      END-IF
+      DECIDE ON FIRST VALUE OF #T-RECORD-TYPE
+        VALUE 'I'
+          PERFORM HANDLE-ID-RECORD
+          IF END-OF-PROCESSING
+            ESCAPE ROUTINE
+          END-IF
+        VALUE 'T'
+          IF NOT REVIVE-IT OR ERROR-OCCURED
+            ESCAPE TOP
+          END-IF
+          PERFORM HANDLE-TEXT-RECORD
+        NONE VALUE
+          IGNORE
+      END-DECIDE
+    END-REPEAT
+    IF #STEPLIB-ADDED
+      PERFORM REMOVE-STEPLIB
+    END-IF
+*
+  WHEN NONE
+    READ WORK FILE 1 #RECORD-READ
+      IF #RECORD-FIRST
+        EXAMINE FULL #RECORD-READ FOR H'00' GIVING POSITION IN #POS
+        DECIDE FOR FIRST CONDITION
+          WHEN #POS = 1 OR = 2
+* The first two bytes indicate a rec length: On little endian machines
+* it is H'xx00'; on big endian machines it is H'00xx'.
+            CLOSE WORK FILE 1
+            FETCH 'RJREVUX2' G-NPR-USERID G-MONITOR-NODE #ARCHIVE-DSNAME
+              #NOMEX008 #USERARC-NUMBER
+          WHEN #RECORD-READ =
+              SCAN ('Software AG Natural Portable Work File')
+            CLOSE WORK FILE 1
+            FETCH 'RJREVUX3' G-NPR-USERID G-MONITOR-NODE #ARCHIVE-DSNAME
+              #NOMEX008 #USERARC-NUMBER
+          WHEN NONE
+            IGNORE
+        END-DECIDE
+        RESET #RECORD-FIRST #RECORD-BUFFER #RECBUF-LEN #POS
+      END-IF
+      ADD 1 TO #RECBUF-LEN
+      MOVE SUBSTR(#RECORD-READ,1,257)
+        TO SUBSTR(#RECORD-BUFFER,#RECBUF-LEN)
+      #RECBUF-LEN := #RECBUF-LEN + 256 /* full value incl trail. blanks
+      #POS-START  := 1
+      #LEN        := #RECBUF-LEN
+      IF SUBSTR(#RECORD-BUFFER,#LEN,1) = H'01'
+        ESCAPE TOP /* compression format not yet complete
+      END-IF
+      PERFORM HANDLE-RECORD-BUFFER
+    END-WORK
+    IF #RECORD-BUFFER NE ' ' /* process last portion of buffer
+      #TEXT-RECORD := #RECORD-BUFFER
+      EXAMINE #TEXT-RECORD FOR 'X' GIVING LENGTH IN #LEN
+      IF SUBSTR(#TEXT-RECORD,#LEN,1) = H'0A' AND #LEN > 1
+        SUBTRACT 1 FROM #LEN
+        #TEXT-RECORD := SUBSTR(#TEXT-RECORD,1,#LEN)
+      END-IF
+      DECIDE ON FIRST VALUE OF #T-RECORD-TYPE
+        VALUE 'I'
+          PERFORM HANDLE-ID-RECORD
+          IF END-OF-PROCESSING
+            ESCAPE ROUTINE
+          END-IF
+        VALUE 'T'
+          IF REVIVE-IT AND NOT ERROR-OCCURED
+            PERFORM HANDLE-TEXT-RECORD
+          END-IF
+        NONE VALUE
+          IGNORE
+      END-DECIDE
+    END-IF
+END-DECIDE
+
+PERFORM FLUSH-LAST-BUFFER
+*
+END-SUBROUTINE /* REVIVE-ACTIVE-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-RECORD-BUFFER
+************************************************************************
+REP. REPEAT
+  UNTIL #POS-START > #LEN OR #POS-START = 0
+/* Look for new record
+  EXAMINE SUBSTR(#RECORD-BUFFER,#POS-START) FOR #BEGIN-TEXT
+    GIVING POSITION IN #POS
+  IF #POS > 0
+    EXAMINE SUBSTR(#RECORD-BUFFER,#POS-START) FOR #BEGIN-ID
+      GIVING POSITION IN #POS2
+    IF #POS2 > 0 AND #POS2 < #POS
+      #POS := #POS2  /* new report earlier in buffer than new record
+    END-IF
+  END-IF
+  #POS := #POS + #POS-START - 1
+  DECIDE FOR EVERY CONDITION
+    WHEN #POS > #POS-START
+      SUBTRACT 1 FROM #POS
+      IF SUBSTR(#RECORD-BUFFER,#POS,1) = H'01'
+        #POS-START := #POS + 2 /* skip this 0A, no line end
+        ESCAPE TOP /* (REP.)
+      END-IF
+      #TEXT-RECORD   := SUBSTR(#RECORD-BUFFER,1,#POS)
+      #RECORD-LENGTH := #POS
+      ADD 2 TO #POS
+      IF #POS > #RECBUF-LEN
+        RESET #RECORD-BUFFER #RECBUF-LEN #LEN
+      ELSE
+        #RECORD-BUFFER := SUBSTR(#RECORD-BUFFER,#POS)
+        #POS-START     := 1
+        #LEN := #RECBUF-LEN := #RECBUF-LEN - #POS + 1
+      END-IF
+    WHEN #POS LE #POS-START
+/* Look for new report
+      EXAMINE SUBSTR(#RECORD-BUFFER,#POS-START) FOR #BEGIN-ID
+        GIVING POSITION IN #POS
+      #POS := #POS + #POS-START - 1
+      DECIDE FOR EVERY CONDITION
+        WHEN #POS > #POS-START
+          SUBTRACT 1 FROM #POS
+          IF SUBSTR(#RECORD-BUFFER,#POS,1) = H'01'
+            #POS-START := #POS + 2
+            EXAMINE #RECORD-BUFFER FOR 'X' GIVING LENGTH IN #LEN
+            ESCAPE TOP /* (REP.)
+          END-IF
+          #TEXT-RECORD   := SUBSTR(#RECORD-BUFFER,1,#POS)
+          #RECORD-LENGTH := #POS
+          ADD 2 TO #POS
+          IF #POS > #RECBUF-LEN
+            RESET #RECORD-BUFFER #RECBUF-LEN #LEN
+          ELSE
+            #RECORD-BUFFER := SUBSTR(#RECORD-BUFFER,#POS)
+            #POS-START     := 1
+            #LEN := #RECBUF-LEN := #RECBUF-LEN - #POS + 1
+          END-IF
+        WHEN #POS LE #POS-START
+          ESCAPE BOTTOM (REP.)
+        WHEN NONE
+          IGNORE
+      END-DECIDE
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+*
+  DECIDE ON FIRST VALUE OF #T-RECORD-TYPE
+    VALUE 'I'
+      PERFORM HANDLE-ID-RECORD
+      IF END-OF-PROCESSING
+        ESCAPE ROUTINE
+      END-IF
+    VALUE 'T'
+      IF REVIVE-IT AND NOT ERROR-OCCURED
+        PERFORM HANDLE-TEXT-RECORD
+      END-IF
+    NONE VALUE
+      IGNORE
+  END-DECIDE
+*
+END-REPEAT
+*
+END-SUBROUTINE /* HANDLE-RECORD-BUFFER
+*
+INCLUDE RJREVUXC       /* Common subroutines for RJREVUX* modules
+INCLUDE RJ-C ''' ''' /*ON ERROR
+*
+END

@@ -1,0 +1,190 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    EOMBCMGN
+* Version   1.3
+* Function  DB Interface EOM Object Bundle-contents
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  96-07-25           created
+* xsethz  2000-07-27 (CE7461) Extend Report and Bundle Names
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2007-07-12 NOM3201   Support P11 format run number
+* xsetggr 2008-06-17 p(300323) read-next if report-rnb not specified
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* xsetggr 2008-12-05 P300323   change work of read-next, readhold-next
+* SU1     2014-11-05 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2016-01-19 NOMALL-1802 do not update Adabas Vista fields
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+*
+1 EOM-FUNCTION               (I2)
+*
+PARAMETER USING EOMBCM-P
+PARAMETER USING EOMMSG-P
+* -----------------------------LDAs-------------------------------------
+LOCAL     USING EOM----E
+* -----------------------------Views------------------------------------
+LOCAL
+1 BUNDLE-CONTENTS VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-BUNDLE
+  2 REDEFINE BC-BUNDLE
+    3 BC-BUNDLE-8 (A8)
+  2 BC-BUNDRNB
+  2 BC-REPNAME
+  2 BC-REPRNB
+  2 BC-PRINTER
+  2 BC-GROUP
+  2 BC-SEQNO
+  2 BC-SEPMEM
+  2 BC-SEPNO
+  2 BC-REPNO
+  2 BC-FORM
+  2 BC-CHARS
+  2 BC-FLASH
+  2 BC-FCB
+  2 BC-PAGEDEF
+  2 BC-FORMDEF
+/*SU2 2 BC-OBJECT-TYPE /*SU1
+/*SU2 2 BC-OBJECT-TIME /*SU1
+* -----------------------------local variables--------------------------
+1 #BC-KEY                 (A62)
+1 REDEFINE #BC-KEY
+  2 #BC-BUNDLE            (A25)
+  2 #BC-BUNDLE-RNB        (P11)
+  2 #BC-REPORT            (A25)
+  2 #BC-REPORT-RNB        (P11)
+1 REDEFINE #BC-KEY
+  2 #BUNDLE-KEY           (A31)
+  2 #REPORT-KEY           (A31)
+  2 REDEFINE #REPORT-KEY
+    3 #REPORT-KEY-ALL     (A29)
+    3 #REPORT-KEY-1       (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#BC-BUNDLE     := EOMBCM-I-BUNDLE
+#BC-BUNDLE-RNB := EOMBCM-I-BUNDLE-RNB
+#BC-REPORT     := EOMBCM-I-REPORT
+#BC-REPORT-RNB := EOMBCM-I-REPORT-RNB
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-READ, EOM-READHOLD, EOM-READ-NEXT, EOM-READHOLD-NEXT
+    PERFORM READ-OBJECT-ATTRIBUTES
+  VALUE EOM-ADD, EOM-MODIFY
+    PERFORM MODIFY-OBJECT-ATTRIBUTES
+  NONE  IGNORE
+END-DECIDE
+*                                                                       -
+************************************************************************-
+DEFINE SUBROUTINE READ-OBJECT-ATTRIBUTES
+************************************************************************-
+IF EOM-FUNCTION = EOM-READHOLD-NEXT OR = EOM-READ-NEXT
+  ADD 1 TO #REPORT-KEY-1
+END-IF
+*
+READOBJ. READ BUNDLE-CONTENTS BY BC-BUNDLE-RNB-REPORT-RNB = #BC-KEY
+  IF EOM-FUNCTION = EOM-READ-NEXT OR = EOM-READHOLD-NEXT
+    IF (EOMBCM-I-BUNDLE NE ' ' AND BC-BUNDLE NE SCAN EOMBCM-I-BUNDLE) OR
+        (EOMBCM-I-BUNDLE-RNB NE 0 AND BC-BUNDRNB NE EOMBCM-I-BUNDLE-RNB)
+      EOMBCM-EOF := TRUE
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+*
+  EOMBCM-BUNDLE           := BC-BUNDLE
+  EOMBCM-BUNDLE-RNB       := BC-BUNDRNB
+  EOMBCM-REPORT           := BC-REPNAME
+  EOMBCM-REPORT-RNB       := BC-REPRNB
+  EOMBCM-PRINTER          := BC-PRINTER
+  EOMBCM-GROUP            := BC-GROUP
+  EOMBCM-SEQUENCE-NUMBER  := BC-SEQNO
+  EOMBCM-SEPARATOR        := BC-SEPMEM
+  EOMBCM-SEPARATOR-COPIES := BC-SEPNO
+  EOMBCM-REPORT-COPIES    := BC-REPNO
+  EOMBCM-FORM             := BC-FORM
+  EOMBCM-CHARS            := BC-CHARS
+  EOMBCM-FLASH            := BC-FLASH
+  EOMBCM-FCB              := BC-FCB
+  EOMBCM-PAGEDEF          := BC-PAGEDEF
+  EOMBCM-PAGEDEF          := BC-FORMDEF
+*
+  IF EOM-FUNCTION = EOM-READHOLD OR = EOM-READHOLD-NEXT
+    UPD. GET BUNDLE-CONTENTS *ISN (READOBJ.)
+    IF BC-BUNDLE NE BC-BUNDLE
+      UPDATE (UPD.)
+    END-IF
+  END-IF
+*
+  ESCAPE BOTTOM (READOBJ.)
+*
+END-READ
+IF *COUNTER (READOBJ.) = 0
+  IF EOM-FUNCTION = EOM-READ-NEXT OR = EOM-READHOLD-NEXT
+    EOMBCM-EOF := TRUE
+  ELSE
+    EOMMSG-NR := 0034
+  END-IF
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* READ-OBJECT-ATTRIBUTES
+*
+************************************************************************-
+DEFINE SUBROUTINE MODIFY-OBJECT-ATTRIBUTES
+************************************************************************-
+FNDOBJ. FIND (1) BUNDLE-CONTENTS WITH BC-BUNDLE-RNB-REPORT-RNB = #BC-KEY
+*
+  IF NO RECORDS FOUND
+    ENTER
+  END-NOREC
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN EOM-FUNCTION = EOM-MODIFY AND *NUMBER (FNDOBJ.) = 0
+      WRITE 'no records found'
+      EOMMSG-NR := 0034
+      ESCAPE BOTTOM (FNDOBJ.)
+    WHEN *NUMBER (FNDOBJ.) NE 0
+      GETMOD. GET BUNDLE-CONTENTS *ISN (FNDOBJ.)
+      BC-PRINTER  := EOMBCM-PRINTER
+      IF EOMBCM-GROUP = ' '
+        BC-GROUP := BC-BUNDLE-8
+      ELSE
+        BC-GROUP := EOMBCM-GROUP
+      END-IF
+      IF EOMBCM-SEQUENCE-NUMBER = 0
+        BC-SEQNO := 1
+      ELSE
+        BC-SEQNO := EOMBCM-SEQUENCE-NUMBER
+      END-IF
+      BC-SEPMEM   := EOMBCM-SEPARATOR
+      BC-SEPNO    := EOMBCM-SEPARATOR-COPIES
+      BC-REPNO    := EOMBCM-REPORT-COPIES
+      BC-PAGEDEF  := EOMBCM-PAGEDEF
+      BC-FORMDEF  := EOMBCM-PAGEDEF
+      BC-FORM     := EOMBCM-FORM
+      BC-CHARS    := EOMBCM-CHARS
+      BC-FLASH    := EOMBCM-FLASH
+      BC-FCB      := EOMBCM-FCB
+/*SU2 BC-OBJECT-TYPE := 'BC' /*SU1
+/*SU2 BC-OBJECT-TIME := *TIMX /*SU1
+      UPDATE (GETMOD.)
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+*
+END-FIND
+*
+END-SUBROUTINE /* MODIFY-OBJECT-ATTRIBUTES
+* --------------------------------------- on error ---------------------
+INCLUDE C-EOMERR
+*
+END

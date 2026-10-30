@@ -1,0 +1,272 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPDOCRN - Dieses Programm erzeugt den Resource-Description Teil
+*           eines PRINT-DOCUMENT Kommandos
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* gw      1996-02-05 s(999999) created
+* gw      1996-08-06 s(999999) CHARS
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* xsetggr 2007-05-14 NOM3201  Convert node number to 5 digit format
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-05-05 p(304350) restow due to changes in RMSPL--L
+* fhi     2009-06-24 N3463     Extend metadata for OPO
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-10-08 NOMALL-97 Use dynamic memory handling
+* ---------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 RMPDOCRN-SPOOL-ATTRIBUTES         (A250)
+1 RMPDOCRN-SPOOL-ATTRIBUTES-ADD     (A750)
+1 RMPDOCRN-CMD                      (16)
+  2 RMPDOCRN-CMD-LINE               (A72)
+  2 REDEFINE RMPDOCRN-CMD-LINE
+    3 RMPDOCRN-FILLER               (A71)
+    3 RMPDOCRN-CONTINUATION         (A1)
+  2 REDEFINE RMPDOCRN-CMD-LINE
+    3 RMPDOCRN-C                    (A1/1:72)
+1 RMPDOCRN-CMD-OCC                  (I4)
+1 RMPDOCRN-ERROR-CODE               (N4)
+1 RMPDOCRN-ERROR-TEXT               (A250)
+************************************************************************
+LOCAL USING RMSPL--L
+LOCAL USING RMSPLA-L
+*
+LOCAL
+1 #PERFORM-IN-ANY-CASE              (L) CONST <TRUE>
+1 #LENGTH                           (I2)
+1 #LINE-LENGTH                      (I2)
+1 #TLEN                             (I2)
+1 #TOKEN                            (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=81
+*
+RESET RMPDOCRN-ERROR-CODE RMPDOCRN-ERROR-TEXT
+*
+IF RMPDOCRN-CMD-OCC = 0
+  RMPDOCRN-CMD-OCC := 1
+END-IF
+*
+EXAMINE RMPDOCRN-CMD-LINE (RMPDOCRN-CMD-OCC)
+  FOR 'x' GIVING LENGTH #LINE-LENGTH
+*
+#SPOOL-ATTRIBUTES                := RMPDOCRN-SPOOL-ATTRIBUTES
+CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+#SPOOL-ATTRIBUTES-EXT := RMPDOCRN-SPOOL-ATTRIBUTES-ADD
+*
+#TOKEN := ',RESOURCE-DESCRIPTION=*PARAMETERS('
+PERFORM TOKEN-TO-COMMAND
+*
+DECIDE FOR EVERY CONDITION
+  WHEN #SPOOL-BS2-FORM-NAME NE ' '
+    PERFORM RESOURCE-DESC-FORM-NAME
+  WHEN #SPOOL-BS2-LOOP-NAME NE ' '
+    PERFORM RESOURCE-DESC-LOOP-NAME
+  WHEN #SPOOL-BS2-ROT-LOOP-NAME NE ' '
+    PERFORM RESOURCE-DESC-ROT-LOOP
+  WHEN #PERFORM-IN-ANY-CASE
+    PERFORM RESOURCE-DESC-CHAR-SETS
+  WHEN #PERFORM-IN-ANY-CASE
+    PERFORM RESOURCE-DESC-OVERLAY-RESOURCES
+  WHEN #SPOOL-BS2-PAGEDEF NE ' '
+    PERFORM RESOURCE-DESC-PAGEDEF
+  WHEN #SPOOL-BS2-FORMDEF NE ' '
+    PERFORM RESOURCE-DESC-FORMDEF
+  WHEN #SPOOL-BS2-USER-RES-FILE NE ' '
+    PERFORM RESOURCE-DESC-USER-RESOURCES
+  WHEN #PERFORM-IN-ANY-CASE
+    PERFORM RESOURCE-DESC-TRANS-TAB
+  WHEN #SPOOL-BS2-RES-LOC NE ' '
+    PERFORM RESOURCE-DESC-RESOURCE-LOC
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+COMPRESS RMPDOCRN-CMD-LINE (RMPDOCRN-CMD-OCC) ')'
+  TO RMPDOCRN-CMD-LINE (RMPDOCRN-CMD-OCC) LEAVING NO
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE RESOURCE-DESC-FORM-NAME
+************************************************************************
+COMPRESS ',FORM-NAME=' #SPOOL-BS2-FORM-NAME TO #TOKEN LEAVING NO
+*
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE /* RESOURCE-DESC-FORM-NAME
+*
+************************************************************************
+DEFINE SUBROUTINE RESOURCE-DESC-LOOP-NAME
+************************************************************************
+COMPRESS ',LOOP-NAME=' #SPOOL-BS2-LOOP-NAME TO #TOKEN LEAVING NO
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE /* RESOURCE-DESC-LOOP-NAME
+*
+************************************************************************
+DEFINE SUBROUTINE RESOURCE-DESC-ROT-LOOP
+************************************************************************
+COMPRESS ',ROTATION-LOOP-NAME=' #SPOOL-BS2-ROT-LOOP-NAME
+  TO #TOKEN LEAVING NO
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE /* RESOURCE-DESC-ROT-LOOP
+*
+************************************************************************
+DEFINE SUBROUTINE RESOURCE-DESC-CHAR-SETS
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN #SPOOL-BS2-CHARS-POOL NE ' '
+    COMPRESS '*POOL(POOL-NAME=' #SPOOL-BS2-CHARS-POOL
+      ',POOL-INDEX=' #SPOOL-BS2-CHARS-INDEX ')'
+      TO #TOKEN LEAVING NO
+  WHEN #SPOOL-BS2-CHAR-SETS NE ' '
+    EXAMINE #SPOOL-BS2-CHAR-SETS FOR ' ' REPLACE ','
+    COMPRESS '(' #SPOOL-BS2-CHAR-SETS ')' TO #TOKEN LEAVING NO
+  WHEN ANY
+    COMPRESS ',CHARACTER-SETS=' #TOKEN TO #TOKEN LEAVING NO
+  WHEN NONE
+    RESET #TOKEN
+END-DECIDE
+*
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE /* RESOURCE-DESC-CHAR-SETS
+*
+************************************************************************
+DEFINE SUBROUTINE RESOURCE-DESC-OVERLAY-RESOURCES
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN #SPOOL-BS2-ELECTR-OVER NE ' '
+    COMPRESS ',ELECTRONIC-OVERLAY=' #SPOOL-BS2-ELECTR-OVER
+      TO #TOKEN LEAVING NO
+  WHEN #SPOOL-BS2-FORM-OVERLAY-BUFFER NE ' '
+    COMPRESS ',FORMS-OVERLAY-BUFFER=' #SPOOL-BS2-FORM-OVERLAY-BUFFER
+      TO #TOKEN LEAVING NO
+  WHEN #SPOOL-BS2-FACE-SIDE NE ' ' OR #SPOOL-BS2-REV-SIDE NE ' '
+    COMPRESS ',OVERLAY=*PARAMETERS(FACE-SIDE=' #SPOOL-BS2-FACE-SIDE
+      ',REVERSE-SIDE=' #SPOOL-BS2-REV-SIDE ')' TO #TOKEN LEAVING NO
+  WHEN ANY
+    COMPRESS ',OVERLAY-RESOURCES=*PARAMETERS(' #TOKEN ')'
+      TO #TOKEN LEAVING NO
+  WHEN NONE
+    RESET #TOKEN
+END-DECIDE
+*
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE /* RESOURCE-DESC-OVERLAY-RESOURCES
+*
+************************************************************************
+DEFINE SUBROUTINE RESOURCE-DESC-PAGEDEF
+************************************************************************
+COMPRESS ',PAGE-DEFINITION=' #SPOOL-BS2-PAGEDEF TO #TOKEN LEAVING NO
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE /* RESOURCE-DESC-PAGEDEF
+*
+************************************************************************
+DEFINE SUBROUTINE RESOURCE-DESC-FORMDEF
+************************************************************************
+COMPRESS ',FORM-DEFINITION=' #SPOOL-BS2-FORMDEF TO #TOKEN LEAVING NO
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE /* RESOURCE-DESC-FORMDEF
+*
+************************************************************************
+DEFINE SUBROUTINE RESOURCE-DESC-USER-RESOURCES
+************************************************************************
+COMPRESS ',USER-RESOURCES-FILE=' #SPOOL-BS2-USER-RES-FILE
+  TO #TOKEN LEAVING NO
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE /* RESOURCE-DESC-USER-RESOURCES
+*
+************************************************************************
+DEFINE SUBROUTINE RESOURCE-DESC-TRANS-TAB
+************************************************************************
+IF #SPOOL-BS2-TRANS-TAB-NAME = ' ' AND #SPOOL-BS2-TRANS-TAB-FILE = ' '
+  ESCAPE ROUTINE
+END-IF
+*
+#TOKEN := ',TRANSLATION-TABLE=*PARAMETERS('
+PERFORM TOKEN-TO-COMMAND
+*
+DECIDE FOR FIRST CONDITION
+  WHEN #SPOOL-BS2-TRANS-TAB-NAME NE ' '
+    COMPRESS 'NAME=' #SPOOL-BS2-TRANS-TAB-NAME TO #TOKEN LEAVING NO
+  WHEN #SPOOL-BS2-TRANS-TAB-FILE NE ' '
+    COMPRESS 'FILE=' #SPOOL-BS2-TRANS-TAB-FILE TO #TOKEN LEAVING NO
+  WHEN ANY
+    COMPRESS #TOKEN ')' TO #TOKEN LEAVING NO
+  WHEN NONE
+    RESET #TOKEN
+END-DECIDE
+*
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE /* RESOURCE-DESC-TRANS-TAB
+*
+************************************************************************
+DEFINE SUBROUTINE RESOURCE-DESC-RESOURCE-LOC
+************************************************************************
+IF #SPOOL-BS2-RES-LOC = '*HOME'
+  ESCAPE ROUTINE
+END-IF
+*
+COMPRESS ',RESOURCE-LOCATION=' #SPOOL-BS2-RES-LOC TO #TOKEN LEAVING NO
+PERFORM TOKEN-TO-COMMAND
+*
+END-SUBROUTINE /* RESOURCE-DESC-RESOURCE-LOC
+*
+************************************************************************
+DEFINE SUBROUTINE TOKEN-TO-COMMAND
+************************************************************************
+IF #TOKEN = ' '
+  ESCAPE ROUTINE
+END-IF
+*
+EXAMINE #TOKEN FOR 'x' GIVING LENGTH IN #TLEN
+#LENGTH := #LINE-LENGTH + #TLEN
+*
+IF #LENGTH > 71
+  RMPDOCRN-CONTINUATION (RMPDOCRN-CMD-OCC) := '-'
+  ADD 1 TO RMPDOCRN-CMD-OCC
+  #LINE-LENGTH := 2
+END-IF
+*
+IF #LINE-LENGTH > 2
+  COMPRESS RMPDOCRN-CMD-LINE(RMPDOCRN-CMD-OCC) #TOKEN
+    TO RMPDOCRN-CMD-LINE(RMPDOCRN-CMD-OCC) LEAVING NO
+ELSE
+  COMPRESS '/' #TOKEN TO RMPDOCRN-CMD-LINE(RMPDOCRN-CMD-OCC)
+END-IF
+*
+ADD #TLEN TO #LINE-LENGTH
+*
+RESET #TOKEN
+*
+END-SUBROUTINE /* TOKEN-TO-COMMAND
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  CALLNAT 'C-NATERN' RMPDOCRN-ERROR-TEXT
+  RMPDOCRN-ERROR-CODE := 21
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

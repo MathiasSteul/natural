@@ -1,0 +1,186 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* SHUTDOWN - Shutdown NOM
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* gw      1998-09-14 p(173976) created
+* sju     2000-03-13 s(191368) monitor multitasking
+* sju     2000-04-27 p(191368) support 2-byte dbid/fnr
+* sju     2004-07-15 NOM31     Extra parm for RMEVNT-N
+* xsetggr 2007-05-03 NOM3201   Support 5 byte node numbers
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2016-08-18 NOMALL-1621 Introduce Multinode Feature
+* fhi     2016-09-15 NOMALL-1621 Use +NOD-LOCAL-NODE as monitor node
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* SU1     2020-06-22 NOMALL-2349 show full msg
+* SU2     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU3     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* BLI1    2022-11-30 NOMALL-2586 Doesn't work for Unix anymore
+* ----------------------------------------------------------------------
+DEFINE DATA
+** INDEPENDENT  /* BLI1
+** 1 +NOD-LOCAL-NODE   (N5) /*fhi  2016-09-15 NOMALL-1621 inBLI1 out
+* *****
+LOCAL USING RLOG-L
+/*SU2 LOCAL USING VMONIT-L
+LOCAL USING RMSETSTE
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+LOCAL USING RMTASK-P /* NOMALL-1961 fhi in
+LOCAL
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU2
+  2 MF-TYPE         (A1)
+  2 MF-MONITOR-ID   (A20)
+  2 MF-MONITOR-NODE (N5)
+1 NRM-MONITOR VIEW OF NRM-MONITOR /*SU2
+/*SU2  2 M-MONITOR-ID    (A20)
+/*SU2  2 M-MONITOR-NODE  (N5)
+  2 M-LAST-ACTIVE   (T)
+  2 M-STATUS        (A1)
+1 #EVENT-NAME       (A8)
+1 G-MONITOR-NODE    (N5)
+1 G-NATRP-DBID      (N5)
+1 G-NATRP-FNR       (N5)
+1 G-NATRP-ERC       (N4)
+1 G-NATRP-ERT       (A250)
+1 #SHUTDOWN         (L)
+1 #WAIT-CURRENT     (N4)
+1 G-WAIT-FACTOR     (N4)
+1 #I                (I2)
+1 #TASK-NUMBER      (N3) CONST <001>
+1 #EVENT-MESSAGE    (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY PF3
+*
+SATLF-FUNCTION := 'GET'
+SATLF-LFILE    := 206
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+*
+G-NATRP-DBID   := SATLF-DBID-N5
+G-NATRP-FNR    := SATLF-FNR-N5
+*
+IF *MACHINE-CLASS = 'MAINFRAME'  /* BLI1
+  READ(1) MF-NODE BY MF-TYPE-ID = 'MR-' /*SU2
+    IF MF-TYPE NE 'M' OR MF-MONITOR-ID NE MASK('R-')
+      ESCAPE BOTTOM
+    END-IF
+    G-MONITOR-NODE := MF-MONITOR-NODE
+  END-READ
+  IF G-MONITOR-NODE = 0
+    *ERROR-NR := 999 /* INTERNAL ERROR
+  END-IF
+END-IF  /* BLI1
+*
+INPUT (AD=AM'_' SG=OFF) 'Shutdown NOM'
+  // '  Node ...' G-MONITOR-NODE
+  // '  NOM System File'
+  / '    DBID ..' G-NATRP-DBID
+  / '    FNR ...' G-NATRP-FNR
+  /// 'PF3' (I) 'Exit'
+*
+IF *PF-KEY = 'PF3'
+  STOP
+END-IF
+*
+RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)
+FIND NRM-MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+  IF NO RECORDS FOUND
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'NOM not installed correctly, please check DBID/FNR.'
+  END-NOREC
+  IF M-STATUS = 'C'
+    WRITE NOTITLE NOHDR
+      *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'NOM Monitor already closed.'
+    STOP
+  END-IF
+END-FIND
+*
+PERFORM SET-SHUTDOWN-FLAG
+PERFORM WAKE-MONITOR
+*
+FOR #I 1 5
+  RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)
+  FIND NRM-MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+    IF M-STATUS = 'C'
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'NOM Monitor closed.'
+      STOP
+    END-IF
+  END-FIND
+*
+  PERFORM WAIT-A-WHILE
+*
+END-FOR
+*
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'Unable to shutdown NOM monitor.'
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SET-SHUTDOWN-FLAG
+************************************************************************
+RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)
+CLOSE-MON. FIND NRM-MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+  CALLNAT 'RMSETSTN' 'D'
+**  +NOD-LOCAL-NODE G-NATRP-DBID G-NATRP-FNR #SHUTDOWN #TASK-NUMBER BLI1
+    G-MONITOR-NODE G-NATRP-DBID G-NATRP-FNR #SHUTDOWN #TASK-NUMBER
+  M-STATUS      := 'D'
+  M-LAST-ACTIVE := *TIMX
+  UPDATE (CLOSE-MON.)
+  LG-USERID := *USER
+  LG-CODE   := 'MO'
+  LG-MSG    := '1514'
+  CALLNAT 'RLOG' PL-PARMS
+  END TRANSACTION
+END-FIND
+*
+END-SUBROUTINE /* SET-SHUTDOWN-FLAG
+*
+************************************************************************
+DEFINE SUBROUTINE WAKE-MONITOR
+************************************************************************
+RMTASK-P.FUNCTION       := 'E'
+RMTASK-P.SUBTASK-NUMBER := 1
+CALLNAT 'RMTASKID' RMTASK-P
+#EVENT-NAME             := RMTASK-P.TASK-ID
+CALLNAT 'RMEVNT-N' G-MONITOR-NODE #EVENT-NAME 'POST    ' #WAIT-CURRENT
+  G-NATRP-ERC G-NATRP-ERT #EVENT-MESSAGE
+IF G-NATRP-ERC NE 0
+  WRITE G-NATRP-ERC
+END-IF
+*
+END-SUBROUTINE /* WAKE-MONITOR
+*
+************************************************************************
+DEFINE SUBROUTINE WAIT-A-WHILE
+************************************************************************
+RMTASK-P.FUNCTION       := 'E'
+RMTASK-P.SUBTASK-NUMBER := 1
+CALLNAT 'RMTASKID' RMTASK-P
+#EVENT-NAME := RMTASK-P.TASK-ID
+G-WAIT-FACTOR := 5
+CALLNAT 'RMEVNT-N' G-MONITOR-NODE #EVENT-NAME 'WAIT    ' G-WAIT-FACTOR
+  G-NATRP-ERC G-NATRP-ERT #EVENT-MESSAGE
+IF G-NATRP-ERC = 999
+  PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    G-NATRP-ERT /*SU1 (AL=70)
+  STOP
+END-IF
+*
+END-SUBROUTINE /* WAIT-A-WHILE
+*
+END

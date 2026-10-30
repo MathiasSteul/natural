@@ -1,0 +1,190 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMMMS-N - Start NOM Monitor
+*            ES-RC = 2 just message should be displayed, not error
+*
+* Maintenance:
+* XSETGGR 2004-10-27 created
+* XSETGGR 2007-03-22 replace call of ES...-N to direct call of module
+* XSETGGR 2007-03-30 prevent NAT1308 when NOM1521 occurs
+* xsetggr 2007-05-08 NOM3201 Support 5 byte node numbers
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-08-15 p307976  make Monitor NPR Mainframe independent
+* fhi     2010-11-05 NOMALL-97  Extend tracing for Unix
+* fhi     2010-11-08 NOMALL-95  Improve names of log files
+* fhi     2010-12-02 NOMALL-929 END TRANSACTION for Unix layer RMSTX--N
+* CF1     2014-02-28 NOMALL-1362 Send SAT start error to client
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* SU1     2017-03-07 NOM 3.5: remove unused code
+* CF2     2018-10-16             Correct status/error information
+* SU2     2021-03-23 NOMALL-2452 avoid NAT0082: NOMSAT32
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER
+1 TRACE-LEVEL                (I2)  OPTIONAL
+************************************************************************
+LOCAL USING SATOS03P
+LOCAL USING NOMODE-A
+LOCAL USING NOMMTS-A
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING RMSTX--P
+LOCAL USING NAD-FLD
+LOCAL
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-TXT               (A58)
+1 #ES-INPUT-AREA            (A253/1:3)
+1 #ES-CONTROL               (A253)
+1 #TT                       (T)
+1 #ESY-MSG                  (A45)
+1 #ES-LINE                  (A167)     /* CF2
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC #TT
+NOMOD-PARMS := ES-SELECT
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+IF *MACHINE-CLASS = 'MAINFRAME'
+  RESET SATOS-PARMS-03 (*)
+  SATOS-NODE-N5     := NOMOD-MONITOR-NODE
+  SATOS-SERVDBID-N5 := NOMOD-NATRPT-DBID
+  SATOS-SERVFNR-N5  := NOMOD-NATRPT-FNR
+  SATOS-SATVERS := 33 /*SU2 was 32
+  CALLNAT 'SATOS03N' SATOS-SATVERS SATOS-PARMS-03 (*)
+  DECIDE ON FIRST SATOS-ERROR-CODE
+    VALUE 0
+      IF SATOS-TYPE = 'BATCH'
+        #ES-MSG-NR := 1500    /* Monitor start initiated Job = :1:
+        COMPRESS SATOS-BATCH-JOBNAME '/' SATOS-BATCH-JOB-NUMBER
+          TO #ES-MSG-TXT LEAVING NO
+        COMPRESS '# SATOS-BATCH-JOBNAME:' SATOS-BATCH-JOBNAME  /* CF2 ->
+          '; SATOS-BATCH-JOB-NUMBER:' SATOS-BATCH-JOB-NUMBER '#'
+          INTO #ES-LINE                                      /* CF2 <-
+      ELSE
+        #ES-MSG-NR := 1520    /* Monitor start initiated Subtask = :1:
+        #ES-MSG-TXT := SATOS-SUBTASK-NAME
+        COMPRESS '# SATOS-SUBTASK-NAME:' SATOS-SUBTASK-NAME '#'  /* CF2
+          INTO #ES-LINE                                        /* CF2
+      END-IF
+      PERFORM GET-MSG-TXT
+      ES-RC := 2 /* not error, just message
+    VALUE 3148,5500:5999
+      #ES-MSG-NR := 0005
+      #ES-MSG-TXT := SATOS-ERROR-TEXT
+      COMPRESS '# STX-ERROR-TEXT:' STX-ERROR-TEXT '#'  /* CF2
+        INTO #ES-LINE                                /* CF2
+      PERFORM GET-MSG-TXT
+    NONE VALUE
+      #ES-MSG-NR := 1521          /* SAT Online Start failed::1:
+      #ES-MSG-TXT := SATOS-ERROR-TEXT
+      IF SATOS-ERROR-TEXT = ' '
+        MOVE SATOS-ERROR-CODE TO #ES-MSG-TXT
+      END-IF
+      COMPRESS '# SATOS-ERROR-CODE:' SATOS-ERROR-CODE  /* CF2 ->
+        '; SATOS-ERROR-TEXT:' SATOS-ERROR-TEXT '#'
+        INTO #ES-LINE                                /* CF2 <-
+      PERFORM GET-MSG-TXT
+  END-DECIDE
+ELSE
+  STX-TASK-NAME     := F#MONITOR-TASK-ID1 (<>)
+  STX-FUNCTION      := 'START'
+  STX-START-SCRIPT  := '$NOMDIR/$NOMVERS/nommon.bsh'
+  STX-LOGFILE       := '$EOM_WORK/nommon.task1.stdout'
+  STX-TASK-NUMBER   := 1
+  IF TRACE-LEVEL SPECIFIED
+    CALLNAT 'RMSTX--N' STX-PARMS TRACE-LEVEL
+  ELSE
+    CALLNAT 'RMSTX--N' STX-PARMS
+  END-IF
+  END TRANSACTION
+  IF STX-ERROR-CODE = 0
+    #ES-MSG-NR  := 1500
+    /*#ES-MSG-TXT := SUBSTR(STX-START-SCRIPT,1,58)   /* CF2 ->
+    #ES-MSG-TXT := SUBSTR(STX-START-SCRIPT,1,25)
+    COMPRESS '# STX-START-SCRIPT:' STX-START-SCRIPT '#'
+      INTO #ES-LINE                                /* CF2 <-
+    PERFORM GET-MSG-TXT
+    ES-RC := 2                    /* not error, just message
+  ELSE
+    #ES-MSG-NR := 5
+    EXAMINE STX-ERROR-TEXT FOR ' ' REPLACE '/'
+    #ES-MSG-TXT := SUBSTR(STX-ERROR-TEXT,1,58)
+    COMPRESS '# STX-ERROR-TEXT:' STX-ERROR-TEXT '#'  /* CF2
+      INTO #ES-LINE                                /* CF2
+    PERFORM GET-MSG-TXT
+  END-IF
+END-IF
+/* Get status only if no error during SAT start  /* CF1
+IF ES-RC = 0 OR= 2                               /* CF1
+  PERFORM GET-STATUS
+END-IF                                           /* CF1
+IF ES-RC = 0
+  ES-CONTROL := #ES-CONTROL
+  ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+  ES-SELECT := NOMM-STATUS(1)
+END-IF
+/* Keep additional status/error information for client side  /* CF2
+ES-LINE := #ES-LINE                                          /* CF2
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-STATUS
+************************************************************************
+RESET NOMM-PARMS
+ES-APPLICATION := 'NO'
+ES-OBJECT      := 'MM'
+ES-FUNCTION    := 'TS'
+CALLNAT 'NOMMTS-N' ES-CONTROL ES-INPUT-AREA(*) NOMM-PARMS
+*
+END-SUBROUTINE /* GET-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND    := 'U'
+NADA2000.ERROR-NUMBER   := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+NADA2000.LIBRARY        := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR  := #ES-MSG-NR
+ES-MSG-TXT := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+IF ES-MSG-NR = 1521
+  #ESY-MSG := SUBSTR(#ES-MSG-TXT,1,45)
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ESY-MSG
+ELSE
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT
+END-IF
+EXAMINE ES-MSG-TXT FOR ':2:' REPLACE ' '
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

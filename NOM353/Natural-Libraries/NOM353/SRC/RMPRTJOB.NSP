@@ -1,0 +1,655 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPRTJOB - Control submitted Print Jobs
+*           Under VSE and BS2 no job name is returned by submit view,
+*           so it is filled here.
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-05-18 s(999999) clean up, old version saved
+* gw  96-10-18 s(999999) printout statistics exit
+* gw  97-01-06 s(259701) print job found with delay under jes3
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* sju 00-03-24 p(191368) monitor multitasking
+* sju 04-09-27 p(253816) Incorrect NOM7204 log messages with NPR 3.2
+* sju 04-12-07 NOM31     Tracing
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* xsetggr 2008-06-10 p(292935) fill po-printed only after successful and
+*                              of printing
+* fhi     2009-10-30 P321483   Introduce CONFIRM in jobcards
+* fhi     2009-11-18 P321962   Improve Trace facility
+* fhi     2010-01-29 P321962   Improve Trace facility
+* fhi     2010-03-22 P321962   Ignore ESY5992: variable not found
+* fhi     2010-03-29 P324700   Pass correct file to GETHOLD
+* fhi     2010-04-06 P321962   Set correct status if ESY5992 occurred.
+* fhi     2010-04-12 P321962   Set correct status if ESY5992 occurred.
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* fhi      2012-11-09 NOMALL-1143 Add cpu time output
+* raya     2012-11-29 NOMALL-1214 check cat date of nomex*
+* raya     2013-01-01 NOMALL-1216 wrong status text
+* raya     2013-05-12 NOMALL-1214 backout  check cat date of nomex*
+* fhi     2014-03-03 NOMALL-1363 Get cat cate into trace messages
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-12-02 NOMALL-1621 +NOD-LOCAL-NODE instead of G-MONITOR-NODE STEM
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi     2017-08-22 NOMALL-1621 Improve trace handling
+* fhi/bli 2018-03-16 NOMALL-1961 Correct start/end condition
+* fhi     2018-12-14 NOM 3.5     Improve CPU measures, no tags
+* SU3     2020-06-22 NOMALL-2349 ON ERROR: show full msg
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+* ----------------------------------------------------------------------
+INDEPENDENT
+1 +NOD-LOCAL-NODE (N5)
+1 +CMRDC          (A1)
+* ----------------------------------------------------------------------
+LOCAL USING RTXT---L
+LOCAL USING RLOG-L
+LOCAL USING NOMEXP06
+LOCAL USING RACTLF-A
+*
+LOCAL
+1 SPOOL-QUEUE VIEW OF SPOOL-QUEUE
+  2 JOB-NAME
+  2 JOB-NUMBER
+  2 QUEUE
+  2 STATUS
+  2 ERROR-CODE
+  2 SYSTEM-MESSAGE-CODE
+  2 ERROR-TEXT
+  2 REDEFINE ERROR-TEXT
+    3 ERROR-PREFIX            (A7)
+    3 ERROR-FIL               (A1)
+    3 ERROR-TXT               (A49)
+*
+1 PO-UPD VIEW OF NRM-PRINTOUTS
+  2 PO-ID
+  2 PO-STATUS
+  2 PO-SCHEDULED
+  2 PO-JOBNAME
+  2 PO-JOBNO
+  2 REDEFINE PO-JOBNO
+    3 PO-JOBNO-A7             (A7)
+  2 PO-JOBID
+  2 PO-ESY-USERID
+  2 PO-MSG
+  2 PO-REPNAME
+  2 PO-BUNDLE
+  2 PO-REPRNB
+  2 PO-BUNDRNB
+  2 PO-LOGICAL
+  2 PO-PRINTED
+  2 PO-LAST-PRINTED-RECNO
+  2 PO-PHYSICAL-NAME
+  2 PO-PRINTER-TYPE
+  2 PO-JCL-SKELETON
+  2 PO-JOBCARD                (1:3)
+  2 PO-EXITMEM
+  2 PO-EXITLIB
+  2 PO-USERID
+  2 PO-CREATED
+  2 PO-LANGUAGE
+  2 PO-COPIES
+1 MONITOR-JOB-VARIABLE VIEW OF JOB-VARIABLES
+  2 ERROR-CODE
+  2 SYSTEM-MESSAGE-CODE
+  2 ERROR-TEXT
+  2 REDEFINE ERROR-TEXT
+    3 ERROR-PREFIX            (A7)
+    3 ERROR-FIL               (A1)
+    3 ERROR-TXT               (A49)
+  2 DATA
+  2 REDEFINE DATA
+    3 MONJV-JOB-STATUS        (A2)
+    3 MONJV-JOB-TSN           (A5)
+  2 REDEFINE DATA
+    3 MONJV-PRINT-STATUS      (A2)
+    3 MONJV-PRINT-TSN         (A5)
+    3 MONJV-PRINT-PROC        (A8)
+    3 MONJV-PRINT-RESERVE     (A21)
+    3 MONJV-PRINT-S           (A2)
+    3 MONJV-PRINT-OTSN        (A5)
+    3 MONJV-PRINT-E#          (A4)
+    3 MONJV-PRINT-EC#         (A4)
+    3 MONJV-PRINT-DEVICE      (A9)
+    3 MONJV-PRINT-ERCOD       (A9)
+    3 MONJV-PRINT-ERMSG       (A9)
+*
+1 #F-STATUS-SCHEDULED         (A8)
+1 REDEFINE #F-STATUS-SCHEDULED
+  2 #F-STATUS                 (A1)
+  2 #F-SCHEDULED              (T)
+1 #T-STATUS-SCHEDULED         (A8)
+1 REDEFINE #T-STATUS-SCHEDULED
+  2 #T-STATUS                 (A1)
+  2 #T-SCHEDULED              (T)
+1 JOB-FOUND                   (L)
+1 ERROR-OCCURED               (L)
+1 #ISN                        (P10)
+1 #ADA-RC                     (N4)
+1 #IDENT                      (N4)
+1 #STATUS                     (A1)
+1 #MONJV-DEL                  (A54)
+1 #MONJV-JOB                  (A54) INIT <'JV.NOM.00000.00000.J.0000000'>
+1 REDEFINE #MONJV-JOB
+  2 #MONJV-J-PREFIX           (A7)
+  2 #MONJV-J-DBID             (N5)
+  2 #MONJV-J-F1               (A1)
+  2 #MONJV-J-FNR              (N5)
+  2 #MONJV-J-F3               (A3)
+  2 #MONJV-J-ID               (N7)
+1 #MONJV-PRINT                (A54) INIT <'JV.NOM.00000.00000.P.0000000'>
+1 REDEFINE #MONJV-PRINT
+  2 #MONJV-P-PREFIX           (A7)
+  2 #MONJV-P-DBID             (N5)
+  2 #MONJV-P-F1               (A1)
+  2 #MONJV-P-FNR              (N5)
+  2 #MONJV-P-F3               (A3)
+  2 #MONJV-P-ID               (N7)
+*
+1 #T                          (P13)
+1 #TT                         (T)
+1 #I                          (P3)
+1 #PO-JOBCARD                 (A72)
+1 RMSETTIM
+  2 FUNCTION                 (A1)
+  2 ERC                      (N4)
+  2 MSG                      (A250)
+  2 TIME                     (I4)
+1 #TRACING                   (L)
+1 #CATDATE                   (A19)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=100
+*
+IF G-TRACE GE *LEVEL AND G-TRACE-SET = SCAN ('PRINT')
+  #TRACING := TRUE
+  RMSETTIM.FUNCTION := 'S'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS 'Start' *PROGRAM 'cataloged at'  #CATDATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+INCLUDE CMRDC
+PERFORM CONTROL-SUBMITTED-JOBS
+IF #TRACING
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+  G-TRACE-MSG := 'End'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CONTROL-SUBMITTED-JOBS
+************************************************************************
+#F-STATUS  := 'P'
+RESET  #F-SCHEDULED
+#T-STATUS-SCHEDULED := #F-STATUS-SCHEDULED
+#T-SCHEDULED := *TIMX
+*
+FNDPOP. READ PO-UPD BY PO-STATUS-SCHEDULED = #F-STATUS-SCHEDULED
+  IF PO-STATUS    NE #T-STATUS
+    ESCAPE BOTTOM (FNDPOP.)
+  END-IF
+  IF PO-JOBNO = 0 AND PO-JOBID = ' '
+    ESCAPE TOP
+  END-IF
+  #ISN := *ISN (FNDPOP.)
+  RESET #STATUS #IDENT
+  IF #TRACING
+    COMPRESS 'Found' 'System-Type:' SYSTEM-INFO-VIEW.SYSTEM-TYPE
+      'Spool-Type:' SYSTEM-INFO-VIEW.SPOOL-TYPE TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  DECIDE FOR FIRST CONDITION
+    WHEN SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN 'BS2'
+    AND SYSTEM-INFO-VIEW.JOBVAR = 'YES'                               /*
+      IF PO-JOBNAME = ' '
+        PERFORM SCAN-SPOOL-QUEUE-BS2000
+      ELSE
+        RESET SPOOL-QUEUE.JOB-NAME
+      END-IF
+      PERFORM CHECK-MONITOR-JOB-VARIABLE
+    WHEN SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN 'BS2'
+      PERFORM SCAN-SPOOL-QUEUE-BS2000
+    WHEN NONE
+      PERFORM SCAN-SPOOL-QUEUE
+      IF SYSTEM-INFO-VIEW.SPOOL-TYPE = 'JES3' AND NOT JOB-FOUND
+        #T := *TIMX - PO-SCHEDULED
+        IF #T < 600                  /* 60 sec.
+          ESCAPE TOP
+        END-IF
+      END-IF
+  END-DECIDE
+*
+  IF ERROR-OCCURED
+    ESCAPE TOP
+  END-IF
+*
+  RESET RACTLF-ERROR-LOGGING RACTLF-LOGGING #ADA-RC
+  RACTLF-LFILE-1   := 91
+  CALLNAT 'RACTLF-N' RACTLF-PARMS
+  IF RACTLF-ERROR-CODE = 0
+    CALLNAT 'GETHOLD' RACTLF-DBID-1 RACTLF-FNR-1 #ISN 'BS' #ADA-RC
+  END-IF
+  IF #ADA-RC = 145
+    END TRANSACTION
+    ESCAPE TOP
+  END-IF
+*
+  GETPOP. GET PO-UPD #ISN
+  RESET G-CYCLE-WAS-IDLE
+  IF NOT JOB-FOUND
+    #STATUS := 'E'
+    #IDENT := ##TXT-JOB-NOT-FOUND
+  END-IF
+*
+  IF PO-STATUS = 'D'
+    RESET PO-MSG
+  ELSE
+    IF #IDENT = 0
+      RESET PO-MSG
+    ELSE
+      PO-MSG := #IDENT
+    END-IF
+*
+    IF #STATUS NE ' '
+      PO-STATUS := #STATUS
+      FOR-JOBC. FOR #I = 1 TO 3
+        #PO-JOBCARD := PO-JOBCARD (#I)
+        EXAMINE #PO-JOBCARD TRANSLATE INTO UPPER
+        IF #PO-JOBCARD = SCAN ('EXTERNAL-OK')  /* confirm manually
+          PO-STATUS := 'X'
+          ESCAPE BOTTOM (FOR-JOBC.)
+        END-IF
+      END-FOR
+      DECIDE ON FIRST #STATUS
+        VALUE 'E'
+          PERFORM WRITE-ERROR-LOG
+        VALUE 'D'
+          PERFORM WRITE-LOG
+          IF PO-PRINTED = #TT
+            PO-PRINTED := *TIMX
+          END-IF
+          PERFORM CALL-STATISTIC-EXIT
+        NONE VALUE
+          IGNORE
+      END-DECIDE
+    END-IF
+  END-IF
+*
+  IF SPOOL-QUEUE.JOB-NAME NE ' '
+    PO-JOBNAME := SPOOL-QUEUE.JOB-NAME
+  END-IF
+*
+  IF #TRACING
+    COMPRESS 'Updating PO record with' '- status:' #STATUS
+      '- job:'    PO-JOBNAME '- jobno:'  PO-JOBNO-A7 TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  UPDATE (GETPOP.)
+  END OF TRANSACTION
+*
+END-READ
+*
+END-SUBROUTINE /* CONTROL-SUBMITTED-JOBS
+*
+************************************************************************
+DEFINE SUBROUTINE SCAN-SPOOL-QUEUE
+************************************************************************
+RESET JOB-FOUND ERROR-OCCURED
+IF #TRACING
+  COMPRESS 'Searching for job:' 'Monitor Node:' +NOD-LOCAL-NODE
+    'Job number:' PO-UPD.PO-JOBNO TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+FNDSQ. FIND SPOOL-QUEUE WITH NODE = +NOD-LOCAL-NODE
+AND JOB-NUMBER = PO-UPD.PO-JOBNO                                      /*
+  IF NO RECORDS FOUND
+    IF #TRACING
+      COMPRESS 'Job not found:' 'Monitor Node:' +NOD-LOCAL-NODE
+        'Job number:' PO-UPD.PO-JOBNO TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+    ESCAPE ROUTINE
+  END-NOREC
+*
+  IF ERROR-CODE (FNDSQ.) NE 0
+    ERROR-OCCURED := TRUE
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Unable to follow print job' PO-UPD.PO-ID
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      SPOOL-QUEUE.ERROR-TEXT
+    ESCAPE BOTTOM (FNDSQ.)
+  END-IF
+  JOB-FOUND := TRUE
+  DECIDE ON FIRST SPOOL-QUEUE.QUEUE
+    VALUE 'RDR'
+      IF SPOOL-QUEUE.STATUS = 'ACTIVE'
+        #IDENT := ##TXT-EXECUTING
+      ELSE
+        #IDENT := ##TXT-READER-QUEUE
+      END-IF
+    VALUE 'IN'
+      #IDENT := ##TXT-INPUT-QUEUE
+    VALUE 'EXQ' , 'XEQ'
+      #IDENT := ##TXT-EXECUTING
+    VALUE 'LST'
+      IF SPOOL-QUEUE.STATUS NE 'CRE'
+        #STATUS := 'E'
+        #IDENT := ##TXT-JOB-CANCELED
+      END-IF
+    VALUE 'OUT'
+      #STATUS := 'E'
+      #IDENT := ##TXT-JOB-CANCELED
+    NONE VALUE
+      RESET #IDENT
+  END-DECIDE
+*
+END-FIND
+*
+END-SUBROUTINE /* SCAN-SPOOL-QUEUE
+*
+************************************************************************
+DEFINE SUBROUTINE SCAN-SPOOL-QUEUE-BS2000
+************************************************************************
+RESET JOB-FOUND ERROR-OCCURED
+*
+IF #TRACING
+  COMPRESS 'Monitor Node:' +NOD-LOCAL-NODE 'Job ID:' PO-UPD.PO-JOBID
+    TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+FNDSQBS2. FIND SPOOL-QUEUE WITH NODE = +NOD-LOCAL-NODE
+AND JOB-ID = PO-UPD.PO-JOBID                                          /*
+  IF NO RECORDS FOUND
+    IF #TRACING
+      COMPRESS 'Job not found:' 'Monitor Node:' +NOD-LOCAL-NODE
+        'Job ID:' PO-UPD.PO-JOBID TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+    ESCAPE ROUTINE
+  END-NOREC
+*
+  IF ERROR-CODE (FNDSQBS2.) NE 0
+    ERROR-OCCURED := TRUE
+    COMPRESS SPOOL-QUEUE.ERROR-PREFIX
+      '(' SPOOL-QUEUE.SYSTEM-MESSAGE-CODE
+      ')' SPOOL-QUEUE.ERROR-TXT TO SPOOL-QUEUE.ERROR-TEXT LEAVING NO
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Unable to follow print job' PO-UPD.PO-ID
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      SPOOL-QUEUE.ERROR-TEXT
+    ESCAPE BOTTOM (FNDSQBS2.)
+  END-IF
+  JOB-FOUND := TRUE
+  DECIDE ON FIRST SPOOL-QUEUE.STATUS
+    VALUE 'WT'
+      #IDENT := ##TXT-READER-QUEUE
+    VALUE 'BATCH', 'TP'
+      #IDENT := ##TXT-EXECUTING
+    NONE VALUE
+      RESET #IDENT
+  END-DECIDE
+*
+END-FIND
+*
+END-SUBROUTINE /* SCAN-SPOOL-QUEUE-BS2000
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-MONITOR-JOB-VARIABLE
+************************************************************************
+RESET JOB-FOUND ERROR-OCCURED
+RESET INITIAL #MONJV-JOB
+*
+#MONJV-J-ID   := ABS(PO-UPD.PO-ID)
+#MONJV-J-DBID := ABS(G-NATRP-DBID)
+#MONJV-J-FNR  := ABS(G-NATRP-FNR)
+*
+IF PO-UPD.PO-ESY-USERID = ' '
+  PO-UPD.PO-ESY-USERID := G-BS2-USERID
+END-IF
+*
+COMPRESS '$' PO-UPD.PO-ESY-USERID '.' #MONJV-JOB
+  TO #MONJV-JOB LEAVING NO
+*
+FNDMONJV. FIND MONITOR-JOB-VARIABLE WITH NODE = +NOD-LOCAL-NODE
+AND NAME = #MONJV-JOB AND FUNCTION = 'READ'                           /*
+  IF #TRACING
+    WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Found' '=' #MONJV-JOB /
+      23T '=' MONJV-JOB-STATUS '=' MONJV-JOB-TSN /
+      23T '=' DATA (AL=30) /
+      23T '=' MONITOR-JOB-VARIABLE.ERROR-CODE
+      '=' MONITOR-JOB-VARIABLE.ERROR-TEXT
+  END-IF
+  DECIDE ON FIRST ERROR-CODE (FNDMONJV.)
+    VALUE 0
+      IGNORE
+    VALUE 992
+      RESET DATA
+      MONJV-JOB-STATUS := 'NF'
+    NONE VALUE
+      COMPRESS MONITOR-JOB-VARIABLE.ERROR-PREFIX
+        '(' MONITOR-JOB-VARIABLE.SYSTEM-MESSAGE-CODE
+        ')' MONITOR-JOB-VARIABLE.ERROR-TXT
+        TO MONITOR-JOB-VARIABLE.ERROR-TEXT LEAVING NO
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Unable to follow print job' #MONJV-JOB
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        MONITOR-JOB-VARIABLE.ERROR-TEXT
+      ERROR-OCCURED := TRUE
+      ESCAPE BOTTOM (FNDMONJV.)
+  END-DECIDE
+*
+  JOB-FOUND := TRUE
+  DECIDE ON FIRST MONJV-JOB-STATUS
+    VALUE '$S'
+      #IDENT := ##TXT-READER-QUEUE
+    VALUE '$R'
+      #IDENT := ##TXT-EXECUTING
+    VALUE '$A'
+      #STATUS := 'E'
+      #IDENT := ##TXT-JOB-CANCELED
+      #MONJV-DEL := #MONJV-JOB
+      PERFORM DELETE-JOB-VARIABLE
+    VALUE '$T'
+      PERFORM CHECK-PRINT-JOB-VARIABLE
+    VALUE 'NF' /* was not found. This is no error but a timing probl.
+      RESET  #IDENT
+      #STATUS := 'D' /* no error.
+    NONE VALUE
+      RESET #IDENT
+  END-DECIDE
+*
+END-FIND
+*
+END-SUBROUTINE /* CHECK-MONITOR-JOB-VARIABLE
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-PRINT-JOB-VARIABLE
+************************************************************************
+RESET JOB-FOUND ERROR-OCCURED
+RESET INITIAL #MONJV-PRINT
+*
+#MONJV-P-ID   := ABS(PO-UPD.PO-ID)
+#MONJV-P-DBID := ABS(G-NATRP-DBID)
+#MONJV-P-FNR  := ABS(G-NATRP-FNR)
+*
+IF PO-UPD.PO-ESY-USERID = ' '
+  PO-UPD.PO-ESY-USERID := G-BS2-USERID
+END-IF
+*
+COMPRESS '$' PO-UPD.PO-ESY-USERID '.' #MONJV-PRINT
+  TO #MONJV-PRINT LEAVING NO
+*
+FNDPRNJV. FIND MONITOR-JOB-VARIABLE WITH NODE     = +NOD-LOCAL-NODE
+AND NAME = #MONJV-PRINT AND FUNCTION = 'READ'                         /*
+*
+  IF #TRACING
+    WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Found' '=' #MONJV-PRINT /
+      23T '=' MONJV-PRINT-STATUS '=' MONJV-PRINT-TSN /
+      23T '=' DATA (AL=30) /
+      23T '=' MONITOR-JOB-VARIABLE.ERROR-CODE
+      '=' MONITOR-JOB-VARIABLE.ERROR-TEXT /
+      23T '=' MONJV-PRINT-ERCOD '=' MONJV-PRINT-ERMSG
+  END-IF
+*
+  DECIDE ON FIRST ERROR-CODE (FNDPRNJV.)
+    VALUE 0
+      IGNORE
+    VALUE 992
+      #MONJV-DEL := #MONJV-JOB
+      PERFORM DELETE-JOB-VARIABLE
+      RESET DATA
+      MONJV-JOB-STATUS := 'NF'
+    NONE VALUE
+      COMPRESS MONITOR-JOB-VARIABLE.ERROR-PREFIX
+        '(' MONITOR-JOB-VARIABLE.SYSTEM-MESSAGE-CODE
+        ')' MONITOR-JOB-VARIABLE.ERROR-TXT
+        TO MONITOR-JOB-VARIABLE.ERROR-TEXT LEAVING NO
+      WRITE NOTITLE NOHDR
+        *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Unable to follow print job' #MONJV-PRINT
+      WRITE NOTITLE NOHDR
+        *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        MONITOR-JOB-VARIABLE.ERROR-TEXT
+      ERROR-OCCURED := TRUE
+      ESCAPE BOTTOM (FNDPRNJV.)
+  END-DECIDE
+*
+  JOB-FOUND := TRUE
+  DECIDE ON FIRST MONJV-PRINT-STATUS
+    VALUE '$S'
+      #IDENT := ##TXT-IN-PRINTER-QUEUE
+    VALUE '$R'
+      #IDENT := ##TXT-PRINTING
+    VALUE '$P'
+      #IDENT := ##TXT-PRINT-PREPROCESSING
+    VALUE '$K'
+      #IDENT := ##TXT-PRINT-KEPT
+    VALUE '$A'
+      #STATUS := 'E'
+      #IDENT := ##TXT-PRINT-CANCELED
+      #MONJV-DEL := #MONJV-JOB
+      PERFORM DELETE-JOB-VARIABLE
+      #MONJV-DEL := #MONJV-PRINT
+      PERFORM DELETE-JOB-VARIABLE
+    VALUE '$T'
+      #STATUS := 'D'
+      #MONJV-DEL := #MONJV-JOB
+      PERFORM DELETE-JOB-VARIABLE
+      #MONJV-DEL := #MONJV-PRINT
+      PERFORM DELETE-JOB-VARIABLE
+    VALUE 'NF' /* was not found. This is no error but a timing probl.
+      RESET  #IDENT
+      #STATUS := 'D' /* no error. 2010-04-12 was 'E'
+    NONE VALUE
+      RESET #IDENT
+  END-DECIDE
+*
+END-FIND
+*
+END-SUBROUTINE /* CHECK-PRINT-JOB-VARIABLE
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-JOB-VARIABLE
+************************************************************************
+FNDDELJV. FIND MONITOR-JOB-VARIABLE WITH NODE = +NOD-LOCAL-NODE
+AND NAME     = #MONJV-DEL AND FUNCTION = 'DELETE'                     /*
+  IF ERROR-CODE (FNDDELJV.) NE 0
+    COMPRESS MONITOR-JOB-VARIABLE.ERROR-PREFIX
+      '(' MONITOR-JOB-VARIABLE.SYSTEM-MESSAGE-CODE
+      ')' MONITOR-JOB-VARIABLE.ERROR-TXT
+      TO MONITOR-JOB-VARIABLE.ERROR-TEXT LEAVING NO
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Error deleting job variable' #MONJV-DEL
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      MONITOR-JOB-VARIABLE.ERROR-TEXT
+    ERROR-OCCURED := TRUE
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* DELETE-JOB-VARIABLE
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-ERROR-LOG
+************************************************************************
+IF PO-UPD.PO-REPNAME NE ' '
+  LG-OBJECT-NAME := PO-UPD.PO-REPNAME
+  LG-REPNAME     := PO-UPD.PO-REPNAME
+  LG-REPRNB      := PO-UPD.PO-REPRNB
+  LG-PRINTER     := PO-UPD.PO-LOGICAL
+  COMPRESS PO-UPD.PO-REPNAME '/' PO-UPD.PO-REPRNB TO LG-MSG LEAVING NO
+  COMPRESS '7204' LG-MSG TO LG-MSG
+ELSE
+  LG-OBJECT-NAME := PO-UPD.PO-BUNDLE
+  LG-BUNDLE      := PO-UPD.PO-BUNDLE
+  LG-BUNDRNB     := PO-UPD.PO-BUNDRNB
+  LG-PRINTER     := PO-UPD.PO-LOGICAL
+  COMPRESS PO-UPD.PO-BUNDLE '/' PO-UPD.PO-BUNDRNB TO LG-MSG LEAVING NO
+  COMPRESS '7214' LG-MSG TO LG-MSG
+END-IF
+*
+COMPRESS LG-MSG PO-LOGICAL TO LG-MSG
+LG-USERID := G-LG-USERID
+LG-CODE   := 'PR'
+CALLNAT 'RLOG' PL-PARMS
+IF #TRACING
+  PRINT *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T) 'Error'
+    / '    --->' G-NATRP-ERC(EM=9999) LG-MSG /*SU3 (AL=70)
+END-IF
+*
+END-SUBROUTINE /* WRITE-ERROR-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG
+************************************************************************
+IF PO-UPD.PO-REPNAME NE ' '
+  LG-OBJECT-NAME := PO-UPD.PO-REPNAME
+  LG-REPNAME     := PO-UPD.PO-REPNAME
+  LG-REPRNB      := PO-UPD.PO-REPRNB
+  LG-PRINTER     := PO-UPD.PO-LOGICAL
+  COMPRESS PO-UPD.PO-REPNAME '/' PO-UPD.PO-REPRNB TO LG-MSG LEAVING NO
+  COMPRESS '7202' LG-MSG TO LG-MSG
+ELSE
+  LG-OBJECT-NAME := PO-UPD.PO-BUNDLE
+  LG-BUNDLE      := PO-UPD.PO-BUNDLE
+  LG-BUNDRNB     := PO-UPD.PO-BUNDRNB
+  LG-PRINTER     := PO-UPD.PO-LOGICAL
+  COMPRESS PO-UPD.PO-BUNDLE '/' PO-UPD.PO-BUNDRNB TO LG-MSG LEAVING NO
+  COMPRESS '7212' LG-MSG TO LG-MSG
+END-IF
+*
+COMPRESS LG-MSG PO-LOGICAL TO LG-MSG
+LG-USERID := G-LG-USERID
+LG-CODE   := 'PR'
+CALLNAT 'RLOG' PL-PARMS
+*
+END-SUBROUTINE /* WRITE-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-STATISTIC-EXIT
+************************************************************************
+INCLUDE NOMEXC06
+*
+END-SUBROUTINE /* CALL-STATISTIC-EXIT
+*
+END

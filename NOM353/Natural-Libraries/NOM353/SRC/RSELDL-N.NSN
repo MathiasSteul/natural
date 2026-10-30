@@ -1,0 +1,108 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RSELDL-N  DISTRIBUTION LIST SELECTION DISPLAY
+*
+* MAINTENANCE:
+*
+* GW  91-07-31  rewritten to sort by list-id and allow selection
+*               by list-id
+* mrs 92-06-15  '*' - Notation implemented
+* xsiszha 2000-08-02 (CE7461) Extend Report and Bundle Names
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 #LISTID(A8)
+************************************************************************
+LOCAL
+1 LISTS VIEW OF NRM-DISTRIBUTION-LIST
+  2 D-LIST-NAME
+1 #S-LISTID         (A25)
+1 #LISTID-F         (A25)
+1 #LISTID-T         (A25)
+1 #LEN              (N3)
+1 #SCREEN
+  2 L-MARK          (A1/10)
+  2 L-LIST          (A8/10)
+1 #PF-KEY           (A4)
+1 I(N3)
+1 #TOP              (N3)
+1 #MAXREC           (N3)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF #LISTID = SCAN '*'
+  #S-LISTID := #LISTID
+END-IF
+SET CONTROL 'WB'
+SET KEY PF3=PGM PF7 PF8
+*
+RESET I
+#TOP := 1
+REPEAT
+  RESET #SCREEN
+  PERFORM GET-RECORDS
+  SET CONTROL 'WC22L42B1/5F'
+  INPUT USING MAP 'RSELDLM&'
+  SET CONTROL 'WB'
+  #PF-KEY := *PF-KEY
+  FOR I 1 TO 10
+    DECIDE ON FIRST VALUE OF L-MARK(I)
+      VALUE ' ' IGNORE
+      NONE VALUE
+        #LISTID := L-LIST(I)
+        ESCAPE ROUTINE
+    END-DECIDE
+  END-FOR
+  DECIDE ON EVERY VALUE OF #PF-KEY
+    VALUE 'PF3'
+      ESCAPE ROUTINE
+    VALUE 'PF7'
+      SUBTRACT 10 FROM #TOP
+      IF #TOP < 1
+        #TOP := 1
+      END-IF
+    VALUE 'PF8'
+      IF #TOP <= #MAXREC - 10
+        ADD 10 TO #TOP
+      END-IF
+    NONE VALUE IGNORE
+  END-DECIDE
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-RECORDS
+************************************************************************
+IF #S-LISTID = SCAN '*'
+  #LEN := 8
+  CALLNAT 'SELALPHA'  #S-LISTID  #LISTID-F  #LISTID-T #LEN
+ELSE
+  #LISTID-F := #S-LISTID
+  MOVE ALL H'FF' TO #LISTID-T
+END-IF
+FIND NUMBER LISTS WITH D-LIST-NAME = #LISTID-F THRU #LISTID-T
+#MAXREC := *NUMBER
+RESET I
+* LISTS.
+READ LISTS BY D-LIST-NAME = #LISTID-F THRU #LISTID-T
+  ACCEPT IF *COUNTER >= #TOP
+  ADD 1 TO I
+  IF I > 10
+    ESCAPE BOTTOM
+  END-IF
+  L-LIST(I) := D-LIST-NAME
+END-READ
+*
+END-SUBROUTINE /* GET-RECORDS
+*
+END

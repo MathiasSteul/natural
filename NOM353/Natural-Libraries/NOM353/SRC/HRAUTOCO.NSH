@@ -1,0 +1,16 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* HRAUTOCO
+* HELPROUTINE FOR AUTOCOMMIT FLAG
+*
+DEFINE DATA PARAMETER
+1 #CODE(A1)
+END-DEFINE
+INPUT USING MAP 'HAUTOCO&'
+IF NOT(#CODE = 'I' OR = 'E')
+  REINPUT *0007 ALARM
+END-IF
+END

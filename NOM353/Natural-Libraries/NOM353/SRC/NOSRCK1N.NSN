@@ -1,0 +1,197 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOSRCK1N - check of source existance of Active Reports in NGC
+*
+* Maintenance:
+* XSETGGR 2010-08-25 NOMALL-870 created
+* XSETGGR 2011-01-05 NOMALL-907 corrected
+* xsetggr 2011-03-03 NOMALL-907 corrections
+* XSETHZ  2011-10-27 NOMALL-1069 optimization (created from NOSRCK-N)
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2020-04-20 NOMALL-2349 error handling (NPR)
+*   ÜÜ no parm to return error and ES-MSG-TXT only (A70)/log ?? ÜÜ
+* HEB1    2020-09-28 NOMALL-2439 return error message to client/NOMLOG
+* SU3     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ---------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 AR-CURRENT-LOCATION  (A1)
+1 AR-SOURCE-ID         (P10)
+1 AR-REVIVE            (A1)
+1 AR-REVIVE-EXPIRATION (A8)
+1 AR-ARCHIVE           (A1)
+1 AR-EXPIRATION        (A8)
+1 P-SOURCE-EXIST       (L)             /* out
+1 P-NATRP-ERC          (N4)            /* out           HEB1
+1 P-NATRP-ERT          (A250)          /* out           HEB1
+1 P-ES-USER            (A8)            /* in            HEB1
+1 P-ES-APP-SERVER-LIBRARY (A8)         /* in            HEB1
+************************************************************************
+LOCAL     USING RMSR---L
+LOCAL     USING RMSR---E
+LOCAL
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-TYPE
+  2 SR-ATTRIBUTES-IDENT
+1 SPOOL-FILE VIEW OF SPOOL-FILES
+  2 ERROR-CODE
+1 SPOOL-QUEUE VIEW OF SPOOL-QUEUE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 QUEUE
+1 CATALOG VIEW OF CATALOG
+  2 ERROR-CODE
+1 #USER-LIB        (A8)                                 /* HEB1
+LOCAL USING RLOG-L                                      /* HEB1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+/* HEB1 > Test the logging in the log file
+* COMPRESS *PROGRAM *LINE
+*          'ESY5713 Jobname and Job ID missing. One of them required.'
+*          'job-name= ' 'node= 148'
+*          'job-number= 504872' 'type= STC'
+*     INTO P-NATRP-ERT
+* PERFORM WRITE-LOG /* => ESCAPE MODULE
+/* HEB1 <
+P-SOURCE-EXIST := TRUE
+*
+IF AR-CURRENT-LOCATION = 'A'
+  RESET P-SOURCE-EXIST
+  ESCAPE ROUTINE
+END-IF
+*
+* no source-id / revived report located in NOM db
+IF AR-SOURCE-ID = 0 OR (AR-REVIVE = '*'  AND AR-CURRENT-LOCATION = 'D')
+  ESCAPE ROUTINE
+END-IF
+*
+FIND (1) SOURCE WITH SR-ID = AR-SOURCE-ID
+  #SOURCE-ATTRIBUTES := SR-ATTRIBUTES-IDENT
+END-FIND
+*
+CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES SR-TYPE
+DECIDE ON FIRST VALUE SR-TYPE
+  VALUE JES2-QUEUE-ENTRY ,JES3-QUEUE-ENTRY
+    JESQ. FIND (1) SPOOL-QUEUE WITH NODE = #JES-QUEUE-NODE
+    AND JOB-NAME   = #JES-QUEUE-JOB-NAME                              /*
+    AND JOB-NUMBER = #JES-QUEUE-JOB-NUMBER                            /*
+    AND GROUP-ID   = #JES-QUEUE-GROUP-ID                              /*
+      IF NO RECORDS FOUND
+        RESET P-SOURCE-EXIST
+      END-NOREC
+      IF ERROR-CODE NE 0
+        PRINT (AD=L) *PROGRAM *LINE ERROR-CODE ERROR-TEXT
+          'node=' #JES-QUEUE-NODE 'job-name=' #JES-QUEUE-JOB-NAME
+          'job-number=' #JES-QUEUE-JOB-NUMBER
+          'group-id=' #JES-QUEUE-GROUP-ID
+        /*this will lead to I/O ÜÜ -> error in NGC
+      END-IF
+    END-FIND
+    IF *COUNTER (JESQ.) = 0
+      RESET P-SOURCE-EXIST
+    END-IF
+*
+  VALUE JES2, JES3
+    IF #JES-TYPE = 'AL'
+      #JES-TYPE:= '*'
+    END-IF
+    FIND SPOOL-FILE WITH JOB-NAME = #JES-JOB-NAME AND NODE = #JES-NODE
+    AND JOB-NUMBER = #JES-JOB-NUMBER AND TYPE = #JES-TYPE             /*
+    AND DATA-SET-KEY = #JES-DATA-SET-KEY                              /*
+      IF NO
+        RESET P-SOURCE-EXIST
+      END-NOREC
+      DECIDE ON FIRST ERROR-CODE
+        VALUE 0 IGNORE
+        VALUE 724, 722
+          RESET P-SOURCE-EXIST
+        NONE /*SU2
+          /* HEB1 > del
+          /* PRINT (AD=L) *PROGRAM *LINE ERROR-CODE ERROR-TEXT
+          /*  'job-name=' #JES-JOB-NAME 'node=' #JES-NODE
+          /*  'job-number=' #JES-JOB-NUMBER 'type=' #JES-TYPE
+          /*  'data-set-key=' #JES-DATA-SET-KEY
+          /*this will lead to I/O ÜÜ -> error in NGC
+          /* HEB1 < del
+          /* HEB1 >
+          P-NATRP-ERC := 5 /* :1:
+          COMPRESS *PROGRAM *LINE ERROR-CODE ERROR-TEXT
+            'job-name=' #JES-JOB-NAME 'node=' #JES-NODE
+            'job-number=' #JES-JOB-NUMBER 'type=' #JES-TYPE
+            'data-set-key=' #JES-DATA-SET-KEY
+            INTO P-NATRP-ERT
+          PERFORM WRITE-LOG /* => ESCAPE MODULE
+          /* HEB1 <
+      END-DECIDE
+    END-FIND
+*
+/*SU3  VALUE POWER
+/*SU3  VALUE SEQUENTIAL-FILE-VSE
+*
+  VALUE SEQUENTIAL-FILE-MVS
+    FNDCAT. FIND CATALOG WITH NODE = #FMVS-NODE AND PREFIX = 'NO'
+    AND DSNAME = #FMVS-DSNAME                                         /*
+      DECIDE ON FIRST ERROR-CODE
+        VALUE 0 IGNORE
+        VALUE 562
+          RESET P-SOURCE-EXIST
+        NONE
+          PRINT (AD=L) *PROGRAM *LINE ERROR-CODE ERROR-TEXT
+            'node=' #FMVS-NODE 'prefix=''NO''' 'dsname='#FMVS-DSNAME
+          /*this will lead to I/O ÜÜ -> error in NGC
+      END-DECIDE
+    END-FIND
+    IF *COUNTER (FNDCAT.) = 0
+      RESET P-SOURCE-EXIST
+    END-IF
+*
+  VALUE SEQUENTIAL-FILE-BS2
+    FNDBS2. FIND CATALOG WITH NODE = #FBS2-NODE AND GEN = 'YES'
+    AND DSNAME = #FBS2-DSNAME                                         /*
+      DECIDE ON FIRST ERROR-CODE
+        VALUE 0 IGNORE
+        VALUE 722, 750
+          RESET P-SOURCE-EXIST
+        NONE VALUE /*SU2
+          /* HEB1 > del
+          /* PRINT (AD=L) *PROGRAM *LINE ERROR-CODE ERROR-TEXT
+          /*  'node=' #FBS2-NODE 'gen=''yes''' 'dsname=' #FBS2-DSNAME
+          /*this will lead to I/O ÜÜ -> error in NGC
+          /* HEB1 < del
+          /* HEB1 >
+          P-NATRP-ERC := 5 /* :1:
+          COMPRESS *PROGRAM *LINE ERROR-CODE ERROR-TEXT
+            'node=' #FBS2-NODE 'gen=''yes''' 'dsname=' #FBS2-DSNAME
+            INTO P-NATRP-ERT
+          PERFORM WRITE-LOG /* => ESCAPE MODULE
+          /* HEB1 <
+      END-DECIDE
+    END-FIND
+    IF *COUNTER (FNDBS2.) = 0
+      RESET P-SOURCE-EXIST
+    END-IF
+*
+  NONE IGNORE /*LMS/EPS/NOM-DATA-BASE
+END-DECIDE
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG /* HEB1 >>
+COMPRESS P-ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+P-NATRP-ERC := 5 /* :1:
+LG-MSG      := P-NATRP-ERT
+LG-USERID   := P-ES-USER
+LG-CODE     := 'MO'  /* MOnitor (LG codes documented in NOLG---N)
+LG-FUNCTION := 'W'   /* log to SAT log file and write to output
+CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+END TRANSACTION
+ESCAPE MODULE
+*
+END-SUBROUTINE /* WRITE-LOG
+*
+END

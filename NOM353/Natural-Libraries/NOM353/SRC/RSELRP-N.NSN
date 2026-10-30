@@ -1,0 +1,246 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RSELRP-N
+* Function:  Select a Report
+* mrs 92-01-28   completly new
+* mrs 92-02-06   s(143141) 'Y41' commented out
+* xsiszha 2000-08-02 (CE7461) Extend Report and Bundle Names
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #REPNAME  (A25)
+1 #G-USERID (A8)
+1 G-DISPLAY-LONG-NAMES (L)
+************************************************************************
+LOCAL USING VGRANT-L
+LOCAL USING VUSERS-L
+LOCAL
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+* *****
+1 #I                   (P2)
+1 #J                   (P2)
+1 #NOFLINES            (I2)   CONST <10>
+1 #SCREEN  (1:#NOFLINES)
+  2 L-REPNAME          (A25)
+  2 REDEFINE L-REPNAME
+    3 L-REPNAME-17     (A17)
+    3 L-REPNAME-R      (A8)
+1 CV-MARK              (C/1:#NOFLINES)
+1 L-MARK               (A1/1:#NOFLINES)
+1 END-OF-PROCESSING    (L)
+1 END-OF-DISPLAY       (L)
+1 END-OF-DATA          (L)
+1 NEW-SEARCH           (L)
+1 #ERC                 (N4)
+1 #PAGE                (P3)  INIT <1>
+1 #NOFPAGES            (I2)  CONST <20>
+1 #S-REPNAME           (A25/1:#NOFPAGES)
+1 #E-REPNAME           (A25)
+1 #LEN                 (N3)
+1 #SEL-REPNAME         (A25)
+1 #COUNTER             (P10)
+1 #GR-FROM             (A34)
+1 REDEFINE #GR-FROM
+  2 #GR-TYPE-F         (A1)
+  2 #GR-USERID-F       (A8)
+  2 #GR-OBJECT-F       (A25)
+1 #GR-TO               (A34)
+1 REDEFINE #GR-TO
+  2 #GR-TYPE-T         (A1)
+  2 #GR-USERID-T       (A8)
+  2 #GR-OBJECT-T       (A25)
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FNDU. FIND USERS WITH USER-ID = #G-USERID
+END-FIND
+PERFORM PF-KEYS
+IF #REPNAME = SCAN '*'
+  #SEL-REPNAME := #REPNAME
+END-IF
+IF G-DISPLAY-LONG-NAMES
+  #LEN := 25
+ELSE
+  #LEN := 17
+END-IF
+CALLNAT 'SELALPHA' #SEL-REPNAME #S-REPNAME(1) #E-REPNAME #LEN
+IF USERS.PROF-TYPE = 'A'
+  PERFORM READ-ALL-REPORTS
+ELSE
+  PERFORM READ-GRANTED-REPORTS
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ALL-REPORTS
+************************************************************************
+MAIN. REPEAT UNTIL END-OF-PROCESSING
+  RESET #I #COUNTER
+  RESET INITIAL END-OF-DATA NEW-SEARCH
+  REA. READ REPORTS BY R-REPNAME =#S-REPNAME(#PAGE) ENDING AT #E-REPNAME
+    IF #I = #NOFLINES
+      PERFORM SCREEN-IO
+      IF END-OF-PROCESSING OR NEW-SEARCH
+        ESCAPE BOTTOM (REA.)
+      END-IF
+    END-IF
+    ADD 1 TO #I
+    ADD 1 TO #COUNTER
+    PERFORM REPORT-TO-SCREEN
+  END-READ
+  DECIDE FOR FIRST CONDITION
+    WHEN #I > 0
+      END-OF-DATA := TRUE
+    WHEN #COUNTER  = 0
+      ESCAPE BOTTOM (MAIN.)
+    WHEN ANY
+      PERFORM SCREEN-IO
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-REPEAT
+*
+END-SUBROUTINE /* READ-ALL-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-GRANTED-REPORTS
+************************************************************************
+GRANT. REPEAT UNTIL END-OF-PROCESSING
+  RESET #I #COUNTER
+  RESET INITIAL END-OF-DATA NEW-SEARCH
+  #GR-TYPE-F          := 'R'
+  #GR-USERID-F := #G-USERID
+  #GR-OBJECT-F := #S-REPNAME (#PAGE)
+  #GR-TYPE-T          := 'R'
+  #GR-USERID-T := #G-USERID
+  #GR-OBJECT-T := #E-REPNAME
+  REAG. READ GRANTS BY GR-SUPER STARTING FROM #GR-FROM
+    IF GR-OBJECT-TYPE NE #GR-TYPE-T OR GR-USERID NE #GR-USERID-T OR
+        GR-OBJECT-NAME > #GR-OBJECT-T
+      ESCAPE BOTTOM (REAG.)
+    END-IF
+    FND. FIND REPORTS WITH R-REPNAME = GR-OBJECT-NAME
+      IF #I = #NOFLINES
+        PERFORM SCREEN-IO
+        IF END-OF-PROCESSING OR NEW-SEARCH
+          ESCAPE BOTTOM (REAG.)
+        END-IF
+      END-IF
+      ADD 1 TO #I
+      ADD 1 TO #COUNTER
+      PERFORM REPORT-TO-SCREEN
+    END-FIND
+  END-READ
+  DECIDE FOR FIRST CONDITION
+    WHEN #I > 0
+      END-OF-DATA := TRUE
+    WHEN #COUNTER  = 0
+      ESCAPE BOTTOM (GRANT.)
+    WHEN ANY
+      PERFORM SCREEN-IO
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-REPEAT
+*
+END-SUBROUTINE /* READ-GRANTED-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+IF #I < #NOFLINES
+  CV-MARK (#I+1:#NOFLINES) := (AD=DP)
+END-IF
+RESET END-OF-DISPLAY
+REPEAT
+  DECIDE FOR FIRST CONDITION
+    WHEN #ERC NE 0
+      IGNORE
+    WHEN END-OF-DATA AND #PAGE > 1
+      #ERC := 12                   /* bottom of data
+    WHEN END-OF-DATA AND #PAGE = 1
+      #ERC := 14                   /* all
+    WHEN NOT END-OF-DATA AND #PAGE = 1
+      #ERC := 11                   /* top of data
+    WHEN NONE
+      #ERC := 13                   /* more
+  END-DECIDE
+  IF NOT G-DISPLAY-LONG-NAMES
+    L-REPNAME-R(*) := H'FA'
+  END-IF
+  SET CONTROL 'WFC20L43B01/27'
+  SET CONTROL 'M17'
+  INPUT WITH TEXT *#ERC USING MAP 'HSELRPM&'
+  SET CONTROL 'M21'
+  RESET #ERC
+  PERFORM COMMAND-PF-KEY
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+RESET #I #SCREEN (*)
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE REPORT-TO-SCREEN
+************************************************************************
+MOVE REPORTS.R-REPNAME              TO L-REPNAME (#I)
+MOVE (AD=I)                      TO CV-MARK (#I)
+*
+END-SUBROUTINE /* REPORT-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+FOR #J = 1 TO #I
+  IF L-MARK (#J) NE ' '
+    IF G-DISPLAY-LONG-NAMES
+      MOVE L-REPNAME (#J) TO #REPNAME
+    ELSE
+      MOVE L-REPNAME-17 (#J) TO #REPNAME
+    END-IF
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+    ESCAPE ROUTINE
+  END-IF
+END-FOR
+DECIDE ON FIRST *PF-KEY
+  VALUE 'PF3'
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+  VALUE 'PF7'
+    IF #PAGE > 1
+      SUBTRACT 1 FROM #PAGE
+      END-OF-DATA := FALSE
+      END-OF-DISPLAY := NEW-SEARCH := TRUE
+    END-IF
+  VALUE 'PF8'
+    IF NOT END-OF-DATA
+      ADD 1 TO #PAGE
+      IF #PAGE > #NOFPAGES
+        #PAGE := #NOFPAGES
+        #S-REPNAME (1:19) := #S-REPNAME (2:20)
+      END-IF
+      #S-REPNAME (#PAGE) := REPORTS.R-REPNAME
+      END-OF-DISPLAY := TRUE
+    END-IF
+  NONE           IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+*
+END-SUBROUTINE /* PF-KEYS
+*
+END

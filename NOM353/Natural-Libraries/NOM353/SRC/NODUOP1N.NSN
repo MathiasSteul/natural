@@ -1,0 +1,808 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NODUOP1N - NOM API Maintenance of Mainframe nodes
+*
+* Maintenance:
+* CF      2017-08-07 NOMALL-2044 created ( basing on NODUOP-N )
+* SU1     2018-03-26             NOM 3.5: remove 'INTERNAL-NODE-ID'
+* CF1     2018-07-05 NOMALL-2123 Prevent RPC crash with invalid values
+* SU2     2018-07-27             NPR: handle 999 instead 5999
+* CF2     2018-08-06 NOMALL-2044 Code page required if diff. nodes
+* CF3     2018-11-14 NOMALL-2044 Emergency email moved to Monitor Def.
+* BLI     2018-11-19 NOMALL-2176 NOM node number: up to 65535
+* CF4     2018-11-21 NOMALL-2176 NOM node number: up to 65535
+* SU3     2020-06-04 NOMALL-2349 ON ERROR: show full msg
+* SU4     2020-06-04 NOMALL-2349 use N-ESYLG
+* SU5     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU6     2022-03-16 ES-32029    Spool Class "SYSOUT" optional
+* SU7     2022-10-19 NOMALL-2583 check BS2 copy/trigger for remote BS2
+* SU8     2024-03-07 ES-34613    NOM 3.6 Remove power
+* --------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NODUOP-A
+************************************************************************
+LOCAL USING VMONITUL
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL
+1 CHECK-MONITOR VIEW OF NRM-MF-NODES /*SU5 was NRM-MONITOR
+  2 MF-SPOOL-TYPE            (A8)
+  2 MF-MONITOR-ID            (A20)
+  2 MF-TYPE                  (A1)                 /* CF2
+1 SYS-INFO VIEW OF SYSTEM-INFO
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 NODE-ID
+  2 SPOOL-TYPE
+  2 SYSTEM-TYPE
+  2 PRODUCT-NAME
+1 UX-NODES VIEW OF NRM-UX-NODES
+1 NRM-MONITOR-CONTAINER VIEW OF NRM-MONITOR
+  2 M-COPY-FILES-V141       (1)
+  2 REDEFINE M-COPY-FILES-V141
+    3 M-CP-TAB              (1)
+      4 M-CP-DBID           (N5)
+      4 M-CP-FNR            (N5)
+      4 M-CP-IDENT          (A16)
+1 USER-EXITS VIEW OF NRM-MONITOR
+  2 M-USER-DEFAULTS
+  2 REDEFINE M-USER-DEFAULTS
+    3 M-NOMEXIT-ACTIVE      (A1/1:20)
+  2 M-TIME-SCHEDULE         (A1) /*Process trigger queue SU7
+  2 M-NATRPT-DBID-N5        (N5) /*SU7
+  2 M-NATRPT-FNR-N5         (N5) /*SU7
+*
+1 #MONITOR-ID               (A20) INIT <'R-'>
+1 REDEFINE #MONITOR-ID
+  2 FILLER                  2X
+  2 #NODE-NAME              (A16)
+1 #OLD-MONITOR-ID           (A20)
+1 REDEFINE #OLD-MONITOR-ID
+  2 FILLER                  2X
+  2 #OLD-NODE-NAME          (A16)
+1 #MONIT-ID                 (A16)
+1 #ES-CONTROL               (A250)
+1 #ES-INPUT-AREA            (A253/1:3)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+  2 REDEFINE #ES-MSG-FIELD-INDEX
+    3 #ES-MSG-FIELD-INDEX1  (N2)
+    3 #ES-MSG-FIELD-INDEX2  (N2)
+/*
+1 #ERC                      (N4)
+1 #ERT                      (A250)
+1 NOMEX007-FIELD-MODIFIABLE (A1)
+1 NOMEX007-FIELD-VALUE      (A54)
+1 NOMEX007-FUNC             (I2)  /* 01 - copy ; 02 - rename
+1 #OLD-SPOOL-TYPE           (A8)
+1 #INTERNAL-NODE-ID         (P11)
+1 #LIBRARY-ID               (A8)
+1 #ES-RC                    (N3)
+1 #ES-MSG-TXT               (A250)
+1 #ES-NUMBER                (N8)
+1 #CP-NAME                  (A60)
+1 #I                        (I4)       /* CF1
+1 #MONITOR-FOUND            (A1)       /* CF2
+1 #MONITOR-SPOOL-TYPE       (A8)       /* CF2
+1 #CALLER                   (A8) INIT <*PROGRAM>
+/*
+END-DEFINE
+/*
+************************************************************************
+* Main line
+************************************************************************
+/*
+ON ERROR
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+/*
+/* ------------------------------------------------------------------
+/*
+RESET ES-RC
+/*
+#ES-CONTROL       := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+#LIBRARY-ID       := ES-APP-SERVER-LIBRARY
+#NODE-NAME        := ES-KEY-PARM(1)
+/*
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+  VALUE ' '
+    PERFORM READ-RECORD
+    IF ES-RC NE 1
+      PERFORM CHECK-NODE-SPOOL-USAGE
+    END-IF
+  VALUE 'NEW'
+    PERFORM NEW-RECORD
+    IF ES-RC = 0
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  VALUE 'UPD'
+    PERFORM UPDATE-RECORD
+    IF ES-RC = 0
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  VALUE 'CHK'
+    PERFORM CHECK
+  VALUE 'NPR'
+    PERFORM CHECK-NPR-NODE
+  NONE VALUE IGNORE
+END-DECIDE
+/*
+************************************************************************
+*
+* Internal Subroutines
+*
+************************************************************************
+DEFINE SUBROUTINE READ-RECORD
+************************************************************************
+RESET NODU-PARMS #ES-MSG-FIELD #ES-MSG-NR
+NODU-NODE-TYPE := 'M'     /* Node type Mainframe
+/*
+FNDMF. FIND MF-NODE WITH MF-MONITOR-ID = #MONITOR-ID
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 2024    /* NODE DEFINITION DOES NOT EXIST
+    #ES-RC     := 1
+    PERFORM GET-MSG-TXT
+    ESCAPE BOTTOM(FNDMF.)
+  END-NOREC
+  IF MF-SPOOL-TYPE = 'POWER' OR='POWR' /*SU8
+    #ES-RC     := 1
+    #ES-MSG-NR := 4501 /*Invalid Spool Type: :1:
+    COMPRESS MF-SPOOL-TYPE '(' MF-SYSTEM-TYPE ')'
+      TO #ES-MSG-TXT LEAVING NO
+    PERFORM GET-MSG-TXT
+    ESCAPE BOTTOM
+  END-IF
+  /*
+  #MONITOR-ID           := MF-MONITOR-ID
+  NODU-NAME             := #NODE-NAME
+  NODU-INTERNAL-NODE-ID := MF-INTERNAL-NODE-ID
+  NODU-SUSPEND          := MF-TYPE
+  NODU-MCLASS           := *MACHINE-CLASS
+  NODU-DESCRIPTION      := MF-MONITOR-DESCRIPTION
+  NODU-REMOTE-CODEPAGE  := MF-REMOTE-CODEPAGE
+  NODU-LAST-UPDATE-USER := MF-LAST-UPDATE-USER
+  IF MF-LAST-UPDATE NE 0
+    MOVE EDITED MF-LAST-UPDATE (EM=YYYYMMDDHHIISST) TO NODU-LAST-UPDATE
+  END-IF
+  NODN-NODE-NUMBER      := MF-MONITOR-NODE
+  NODN-NPR-USERID       := MF-NPR-USERID
+/* NODN-EMAIL-RECIPIENTS(*):= NODE-SPOOL-DATA.M-EMAIL-RECIPIENTS(*) CF3
+  NODU-PRODUCT-NAME     := MF-PRODUCT-NAME
+  NODU-SYSTEM-TYPE      := MF-SYSTEM-TYPE
+  NODN-SPOOL-TYPE       := MF-SPOOL-TYPE
+  /* SPOOL TYPE SPECIFIC:
+  IF NODN-SPOOL-TYPE = 'SPOOL' OR= 'BS2000'                /* CF1 ->
+    /* Note: Provide NODN-BS2-DEST only if spooling system
+    /*       really SPOOL/BS2000.
+    /*       This is to prevent RPC crashes (NOM6971 type 9)
+    /*       because of high value (H'FFFFFF...') in field.
+    NODN-BS2-DEST(*)      := MF-BS2-DEST(*)
+    EXAMINE FULL VALUE OF NODN-BS2-DEST (*)
+      FOR FULL VALUE OF H'FFFFFFFFFFFFFFFF' REPLACE WITH '        '
+    /*
+    NODN-TIME-SCHEDULE    := MF-TIME-SCHEDULE
+    PERFORM VERIFY-NOM-EXIT-007
+  ELSE /* For JES2, JES3 spool types:
+    NODN-CLASSES(*)       := MF-CLASSES(*)
+    NODN-JES3-OUTPUT-CLASSES(*) := MF-JES3-OUTPUT-CLASSES(*)
+    NODN-TEMP-CLASS       := MF-TEMP-CLASS
+    NODN-PRINT-CLASS      := MF-PRINT-CLASS
+    NODN-ERR-CLASS        := MF-ERR-CLASS
+  END-IF                                                   /* CF1 <-
+  /*
+  PERFORM GET-NPR-NODE
+  IF #ES-RC = 1
+    ES-RC        := 2
+    ES-MSG-NR    := #ES-MSG-NR
+    ES-MSG-TXT   := #ES-MSG-TXT
+    ES-MSG-FIELD := #ES-MSG-FIELD
+  END-IF
+  /*
+  RESET NODU-OPTIONS(*)
+END-FIND
+/*
+END-SUBROUTINE /* READ-RECORD
+/*
+************************************************************************
+DEFINE SUBROUTINE NEW-RECORD
+************************************************************************
+PERFORM VALIDATION-S
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+/*
+PERFORM GET-NPR-NODE
+IF #ES-RC = 1
+  ES-RC        := 2
+  ES-MSG-NR    := #ES-MSG-NR
+  ES-MSG-TXT   := #ES-MSG-TXT
+  ES-MSG-FIELD := #ES-MSG-FIELD
+  ESCAPE ROUTINE
+END-IF
+/* Move node values to NODE-SPOOL-DATA view
+#NODE-NAME    := NODU-NAME
+MF-NODE.MF-MONITOR-ID := #MONITOR-ID
+PERFORM ASSIGN-ATTRIBUTE-VALUES
+/* Get internal node ID
+CALLNAT 'RMNOID-N' MF-NODE.MF-INTERNAL-NODE-ID
+STORE1. STORE MF-NODE
+RESET NODU-OPTIONS(*)
+/*
+END-SUBROUTINE /* NEW-RECORD
+/*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+FNDMOD. FIND MF-NODE WITH MF-INTERNAL-NODE-ID = NODU-INTERNAL-NODE-ID
+/*SU1  AND M-MONITOR-ID NE 'INTERNAL-NODE-ID'
+  IF NO RECORD FOUND
+    #ES-MSG-NR := 2024        /* Node definition does not exist
+    #ES-RC     := 2
+    PERFORM GET-MSG-TXT
+    ESCAPE BOTTOM(FNDMOD.)
+  END-NOREC
+  /*
+  #OLD-MONITOR-ID := MF-MONITOR-ID
+  #OLD-SPOOL-TYPE := MF-SPOOL-TYPE
+  /*
+  PERFORM VALIDATION-S
+  IF #ES-MSG-NR NE 0
+    PERFORM GET-MSG-TXT
+    ESCAPE BOTTOM(FNDMOD.)
+  END-IF
+  /*
+  PERFORM GET-NPR-NODE
+  IF #ES-RC = 1
+    ES-RC        := 2
+    ES-MSG-NR    := #ES-MSG-NR
+    ES-MSG-TXT   := #ES-MSG-TXT
+    ES-MSG-FIELD := #ES-MSG-FIELD
+    ESCAPE BOTTOM(FNDMOD.)
+  END-IF
+  /*
+  GETMOD. GET MF-NODE *ISN(FNDMOD.)
+  /* Move node values to NODE-SPOOL-DATA view
+  #NODE-NAME    := NODU-NAME
+  MF-MONITOR-ID := #MONITOR-ID
+  PERFORM ASSIGN-ATTRIBUTE-VALUES
+  UPDATE (GETMOD.)
+END-FIND
+/*
+RESET NODU-OPTIONS(*)
+/*
+END-SUBROUTINE /* UPDATE-RECORD
+/*
+************************************************************************
+DEFINE SUBROUTINE CHECK
+************************************************************************
+IF ES-ORIG-FUNCTION NE 'NW'
+  #INTERNAL-NODE-ID := NODU-INTERNAL-NODE-ID
+  FNDCHK. FIND CHECK-MONITOR WITH MF-INTERNAL-NODE-ID =#INTERNAL-NODE-ID
+    IF NO RECORD FOUND
+      #ES-MSG-NR := 2024        /* Node definition does not exist
+      #ES-RC     := 2
+      PERFORM GET-MSG-TXT
+      ESCAPE ROUTINE
+    END-NOREC
+    /*
+    #OLD-MONITOR-ID := CHECK-MONITOR.MF-MONITOR-ID
+    #OLD-SPOOL-TYPE := CHECK-MONITOR.MF-SPOOL-TYPE
+    /*
+  END-FIND /* (FNDCHK.)
+END-IF
+/*
+PERFORM VALIDATION-S
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+/*
+PERFORM GET-NPR-NODE
+IF #ES-RC = 1
+  ES-RC        := 2
+  ES-MSG-NR    := #ES-MSG-NR
+  ES-MSG-TXT   := #ES-MSG-TXT
+  ES-MSG-FIELD := #ES-MSG-FIELD
+  ESCAPE ROUTINE
+END-IF
+/*
+END-SUBROUTINE /* CHECK
+/*
+************************************************************************
+DEFINE SUBROUTINE CHECK-NPR-NODE
+************************************************************************
+IF NOT (NODN-NODE-NUMBER = 1 THRU 65535)               /* CF4 ->
+  ES-MSG-NR    := 0641
+  ES-MSG-FIELD := 'NODE'
+  ESCAPE ROUTINE
+END-IF                                                 /* CF4 <-
+/*
+#OLD-SPOOL-TYPE := NODN-SPOOL-TYPE
+RESET NODN-SPOOL-TYPE NODN-ERROR-INFO NODU-SUSPEND
+NODU-SYSTEM-TYPE := NODU-PRODUCT-NAME := 'Mainframe'
+/*
+CHKNPR. FIND SYS-INFO WITH NODE = NODN-NODE-NUMBER
+  IF SYS-INFO.ERROR-CODE NE 0
+    DECIDE ON FIRST VALUE OF SYS-INFO.ERROR-CODE
+      VALUE 999 NODU-SUSPEND :='I' /*'down'  SU2 was 5999
+      NONE      NODU-SUSPEND :='F' /*'error'
+    END-DECIDE
+    NODN-ERROR-INFO := SYS-INFO.ERROR-TEXT
+    ES-MSG-NR       := SYS-INFO.ERROR-CODE
+    ES-MSG-TXT      := SYS-INFO.ERROR-TEXT
+    ES-MSG-FIELD    := 'SUSPEND'
+    ES-RC           := 1
+    ESCAPE BOTTOM
+  END-IF
+  /*
+  IF #OLD-SPOOL-TYPE NE SYS-INFO.SPOOL-TYPE
+    PERFORM CHECK-NODE-SPOOL-USAGE
+    IF ES-RC NE 0
+      ES-MSG-FIELD  := 'NODE'
+      ES-KEY-PARM(1):= SYS-INFO.SPOOL-TYPE
+      ES-KEY-PARM(2):= SYS-INFO.SYSTEM-TYPE
+      ESCAPE BOTTOM
+    END-IF
+  END-IF
+  NODN-SPOOL-TYPE   := SYS-INFO.SPOOL-TYPE
+  NODU-SYSTEM-TYPE  := SYS-INFO.SYSTEM-TYPE
+  NODU-PRODUCT-NAME := SYS-INFO.PRODUCT-NAME
+  NODU-DESCRIPTION  := SYS-INFO.NODE-ID
+  /*
+  IF NODN-SPOOL-TYPE = ' '             /* NPR is down
+    NODU-SUSPEND := 'I'                /* = 'down'
+    ESCAPE BOTTOM
+  END-IF
+  NODU-SUSPEND := 'A'                  /* = 'node is up'
+  PERFORM LOGON-TO-ESY
+  IF #ERC NE 0
+    ES-MSG-NR       := #ERC
+    ES-MSG-TXT      := #ERT
+    ES-MSG-FIELD    := 'SUSPEND'
+    ES-RC           := 1
+    ESCAPE BOTTOM
+  END-IF
+  /*
+END-FIND
+/*
+END-SUBROUTINE /* CHECK-NPR-NODE
+/*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-ATTRIBUTE-VALUES
+************************************************************************
+IF NODU-PRODUCT-NAME = 'Mainframe'
+  MF-NODE.MF-PRODUCT-NAME := ' '
+ELSE
+  MF-NODE.MF-PRODUCT-NAME := NODU-PRODUCT-NAME
+END-IF
+MF-NODE.MF-LAST-UPDATE         := *TIMX
+MF-NODE.MF-LAST-UPDATE-USER    := ES-USER
+/*NODE-SPOOL-DATA.M-EMAIL-RECIPIENTS(*):= NODN-EMAIL-RECIPIENTS(*)  CF3
+MF-NODE.MF-TYPE                := NODU-SUSPEND
+MF-NODE.MF-REMOTE-CODEPAGE     := NODU-REMOTE-CODEPAGE
+MF-NODE.MF-NPR-USERID          := NODN-NPR-USERID
+MF-NODE.MF-MONITOR-DESCRIPTION := NODU-DESCRIPTION
+MF-NODE.MF-MONITOR-NODE        := NODN-NODE-NUMBER
+MF-NODE.MF-SPOOL-TYPE          := NODN-SPOOL-TYPE
+IF NODU-SYSTEM-TYPE = 'Mainframe' OR= 'Mainfram'
+  MF-NODE.MF-SYSTEM-TYPE    := ' '
+ELSE
+  MF-NODE.MF-SYSTEM-TYPE    := NODU-SYSTEM-TYPE
+END-IF
+/* SPOOL TYPE SPECIFIC:
+IF NODN-SPOOL-TYPE = 'SPOOL' OR= 'BS2000'                /* CF1 ->
+  FOR #I = 1 TO 4
+    IF NODN-BS2-DEST(#I) = ' '
+      /* Set high value for empty null-supr. MU DB field
+      MF-NODE.MF-BS2-DEST(#I) := H'FFFFFFFFFFFFFFFF'
+    ELSE
+      MF-NODE.MF-BS2-DEST(#I) := NODN-BS2-DEST(#I)
+    END-IF
+  END-FOR
+  /*
+  /* M-TIME-SCHEDULE can be K = copy, Y = rename, N = nothing
+  MF-NODE.MF-TIME-SCHEDULE          := NODN-TIME-SCHEDULE
+ELSE
+  /* For JES2, JES3 spool types:
+  MF-NODE.MF-TEMP-CLASS             := NODN-TEMP-CLASS
+  MF-NODE.MF-PRINT-CLASS            := NODN-PRINT-CLASS
+  MF-NODE.MF-CLASSES(*)             := NODN-CLASSES(*)
+  MF-NODE.MF-JES3-OUTPUT-CLASSES(*) := NODN-JES3-OUTPUT-CLASSES(*)
+  MF-NODE.MF-ERR-CLASS              := NODN-ERR-CLASS
+END-IF                                                   /* CF1 <-
+/*
+END-SUBROUTINE /* ASSIGN-ATTRIBUTE-VALUES
+/*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION-S
+************************************************************************
+PERFORM VALIDATION
+ES-CONTROL       := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+IF #ES-MSG-NR NE 0
+  #ES-RC := 2
+END-IF
+/*
+END-SUBROUTINE /* VALIDATION-S
+/*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+RESET #ES-MSG-NR #ES-MSG-FIELD
+DECIDE FOR EVERY CONDITION
+  WHEN NODU-NAME = ' '
+    #ES-MSG-NR         := 2000         /* Please, enter name
+    #ES-MSG-FIELD-NAME := 'NAME'
+    ESCAPE ROUTINE
+  WHEN NODU-NAME NE #OLD-NODE-NAME
+    #NODE-NAME := NODU-NAME
+    FIND-NUM. FIND NUMBER CHECK-MONITOR WITH MF-MONITOR-ID =#MONITOR-ID
+    IF *NUMBER(FIND-NUM.) NE 0
+      #ES-MSG-NR         := 2022       /* Name already exists
+      #ES-MSG-FIELD-NAME := 'NAME'
+      ESCAPE ROUTINE
+    END-IF
+    /* Check if node name exists as UNIX node
+    FIND-UX. FIND NUMBER UX-NODES WITH UX-NODE-NAME = NODU-NAME
+    IF *NUMBER(FIND-UX.) NE 0
+      #ES-MSG-NR         := 2022       /* Name already exists
+      #ES-MSG-FIELD-NAME := 'NAME'
+      ESCAPE ROUTINE
+    END-IF
+  WHEN NOT (NODN-NODE-NUMBER = 1 THRU 65535)               /* BLI
+    #ES-MSG-NR         := 0641
+    #ES-MSG-FIELD-NAME := 'NODE'
+    ESCAPE ROUTINE
+  WHEN NODN-NPR-USERID = ' '
+    #ES-MSG-NR         := 2020
+    #ES-MSG-FIELD-NAME := 'NPR-USERID'
+    ESCAPE ROUTINE
+  WHEN NOT (NODU-SUSPEND = 'A' OR = 'D' OR = 'M')
+    #ES-MSG-NR         := 9213
+    #ES-MSG-FIELD-NAME := 'STATUS'
+    ESCAPE ROUTINE
+  WHEN NODU-REMOTE-CODEPAGE = ' '                          /* CF2 ->
+    /* SPOOL Type of Monitor node ...
+    /* SPOOL Type of current node ...
+    /* --> Codepage is required if Spool types are different
+    PERFORM GET-MONITOR-SPOOL-TYPE
+/*SU7 IF NODN-SPOOL-TYPE NE #MONITOR-SPOOL-TYPE
+    IF NOT (NODN-SPOOL-TYPE = #MONITOR-SPOOL-TYPE /*SU7
+    OR (NODN-SPOOL-TYPE = 'SPOOL' OR= 'BS2000'                        /*
+    AND #MONITOR-SPOOL-TYPE = 'SPOOL' OR= 'BS2000'))                  /*
+      #ES-MSG-NR         := 4603 /*Code page is required.
+      #ES-MSG-FIELD-NAME := 'REMOTE-CODEPAGE'
+      ESCAPE ROUTINE
+    END-IF                                                 /* CF2 <-
+  WHEN NODU-REMOTE-CODEPAGE NE ' '
+    #CP-NAME := NODU-REMOTE-CODEPAGE
+    CALLNAT 'N-CP-CH2' #CP-NAME #ES-MSG-NR #ES-MSG-TXT
+    IF #ES-MSG-NR NE 0
+      #ES-MSG-FIELD-NAME := 'REMOTE-CODEPAGE'
+      ESCAPE ROUTINE
+    END-IF
+  WHEN NODN-SPOOL-TYPE = ' '
+    #ES-MSG-NR         := 4501
+    #ES-MSG-FIELD-NAME := 'SPOOL-TYPE'
+    ESCAPE ROUTINE
+  WHEN NODU-SUSPEND = 'M' /*SU7 AND NODN-SPOOL-TYPE NE #OLD-SPOOL-TYPE
+  AND NOT(NODN-SPOOL-TYPE = #MONITOR-SPOOL-TYPE /*SU7                 /*
+  OR (NODN-SPOOL-TYPE = 'SPOOL' OR= 'BS2000'                          /*
+  AND #MONITOR-SPOOL-TYPE = 'SPOOL' OR= 'BS2000'))                    /*
+    PERFORM GET-MONITOR-SPOOL-TYPE /*SU7
+    #ES-MSG-NR         := 2058
+    #ES-MSG-FIELD-NAME := 'STATUS'
+    ESCAPE ROUTINE
+  WHEN NODN-SPOOL-TYPE = 'JES3'
+    DECIDE FOR FIRST CONDITION
+/*SU6 -> WHEN NOT (NODN-CLASSES(*) NE ' ') AND
+/*        NOT (NODN-JES3-OUTPUT-CLASSES(*) NE ' ')
+/*      #ES-MSG-NR         := 0629
+/*SU6 <- #ES-MSG-FIELD-NAME := 'CLASSES'
+      WHEN NODN-TEMP-CLASS = ' ' AND NODN-JES3-OUTPUT-CLASSES(*) NE ' '
+        #ES-MSG-NR         := 0627
+        #ES-MSG-FIELD-NAME := 'TEMP-CLASS'
+      WHEN NODN-TEMP-CLASS NE ' ' AND (NODN-TEMP-CLASS =NODN-PRINT-CLASS
+      OR NODN-TEMP-CLASS = NODN-JES3-OUTPUT-CLASSES(*))               /*
+        #ES-MSG-NR         := 0626
+        #ES-MSG-FIELD-NAME := 'TEMP-CLASS'
+      WHEN NODN-ERR-CLASS NE ' ' AND (NODN-ERR-CLASS = NODN-PRINT-CLASS
+      OR= NODN-JES3-OUTPUT-CLASSES(*))                                /*
+        #ES-MSG-NR         := 0640
+        #ES-MSG-FIELD-NAME := 'ERR-CLASS'
+      WHEN NODN-PRINT-CLASS = ' '
+        #ES-MSG-NR         := 0622
+        #ES-MSG-FIELD-NAME := 'PRINT-CLASS'
+      WHEN NODN-PRINT-CLASS = NODN-JES3-OUTPUT-CLASSES(*)
+        #ES-MSG-NR         := 0623
+        #ES-MSG-FIELD-NAME := 'PRINT-CLASS'
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+  WHEN NODN-SPOOL-TYPE = 'JES2' /*SU8 OR= 'POWER' OR= 'POWR'
+    DECIDE FOR FIRST CONDITION
+/*SU6 -> WHEN NOT (NODN-CLASSES(*) NE ' ')
+/*       #ES-MSG-NR         := 0629
+/*SU6 <- #ES-MSG-FIELD-NAME := 'CLASSES'
+      WHEN NODN-TEMP-CLASS = ' '
+        #ES-MSG-NR         := 0627
+        #ES-MSG-FIELD-NAME := 'TEMP-CLASS'
+      WHEN NODN-TEMP-CLASS = NODN-CLASSES(*)
+        #ES-MSG-NR         := 0626
+        #ES-MSG-FIELD-NAME := 'TEMP-CLASS'
+      WHEN NODN-PRINT-CLASS = ' '
+        #ES-MSG-NR         := 0622
+        #ES-MSG-FIELD-NAME := 'PRINT-CLASS'
+      WHEN NODN-PRINT-CLASS = NODN-CLASSES(*)
+      OR NODN-PRINT-CLASS = NODN-TEMP-CLASS                           /*
+        #ES-MSG-NR         := 0623
+        #ES-MSG-FIELD-NAME := 'PRINT-CLASS'
+      WHEN NODN-ERR-CLASS NE ' '
+      AND (NODN-ERR-CLASS = NODN-PRINT-CLASS OR= NODN-CLASSES(*))     /*
+        #ES-MSG-NR         := 0640
+        #ES-MSG-FIELD-NAME := 'ERR-CLASS'
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+  WHEN NODN-SPOOL-TYPE = 'SPOOL' OR= 'BS2000'
+    IF NODN-TIME-SCHEDULE = 'K' /*BS2-COPY := 'Y'
+      IF NODU-SUSPEND = 'M' /*Monitor: check Container file 8.1.2/PF7
+        #MONIT-ID := F#MONITOR-TASK-ID1 (<>)
+        FNDR. FIND NRM-MONITOR-CONTAINER WITH M-MONITOR-ID = #MONIT-ID
+        END-FIND
+        IF (M-CP-DBID (1) = 0 OR M-CP-FNR (1) = 0)
+          #ES-MSG-NR         := 9212 /* enter a container file for copy
+          #ES-MSG-FIELD-NAME := 'BS-COPY'
+          ESCAPE ROUTINE
+        END-IF
+      ELSE /*remote node:check trigger-container in 8.1.10 /*SU7 ->
+        IF NODU-SUSPEND NE 'D' /*node active - avoid errs
+          FIND (1) USER-EXITS WITH M-MONITOR-ID = 'API-DEFS'
+          END-FIND
+          IF USER-EXITS.M-TIME-SCHEDULE = 'N' /*no trigger
+          OR M-NATRPT-DBID-N5 < 1 OR M-NATRPT-FNR-N5 < 1              /*
+            #ES-MSG-NR         := 9217 /*Remote node:define trigger
+            #ES-MSG-FIELD-NAME := 'BS-COPY' /*CUI msg:9216
+            ESCAPE ROUTINE
+          END-IF
+        END-IF
+      END-IF
+    ELSE /*BS2 copy=N
+      IF NODU-SUSPEND NE 'M' /*remote node: BS2-COPY must be 'Y'
+        NODN-TIME-SCHEDULE := 'K' /*BS2-COPY := 'Y'
+        #ES-MSG-NR := 9218 /*Remote Node: 'Copy files' must be active.
+        #ES-MSG-FIELD-NAME := 'BS-COPY' /*CUI msg: 4208
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+  WHEN NONE IGNORE
+END-DECIDE
+/*
+END-SUBROUTINE /* VALIDATION
+/*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND    := 'U'
+NADA2000.ERROR-NUMBER   := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+NADA2000.LIBRARY        := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+IF NOT (#ES-MSG-NR = 2032 OR = 2047 OR = 2031 OR = 2049 )
+  ES-RC        := #ES-RC
+  ES-MSG-FIELD := #ES-MSG-FIELD
+  ES-MSG-NR    := #ES-MSG-NR
+  ES-MSG-TXT   := SHORT-MSG
+  EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT /*SU8 was ' '
+END-IF
+/*
+END-SUBROUTINE /* GET-MSG-TXT
+/*
+************************************************************************
+DEFINE SUBROUTINE GET-NPR-NODE
+************************************************************************
+IF NODU-SYSTEM-TYPE = ' '
+  NODU-SYSTEM-TYPE  := 'Mainframe'
+END-IF
+IF NODU-PRODUCT-NAME = ' '
+  NODU-PRODUCT-NAME := 'Mainframe'
+END-IF
+EXAMINE NODU-PRODUCT-NAME FOR 'OSD' REPLACE WITH 'BS2000'
+RESET NODN-ERROR-INFO
+IF NODU-SUSPEND = 'D'
+  ESCAPE ROUTINE
+END-IF
+/*
+FNDNPR. FIND SYS-INFO WITH NODE = NODN-NODE-NUMBER
+  IF SYS-INFO.ERROR-CODE NE 0
+    DECIDE ON FIRST VALUE OF SYS-INFO.ERROR-CODE
+      VALUE 999 NODU-SUSPEND :='I' /*'down'  ('-') SU2 was 5999
+      NONE      NODU-SUSPEND :='F' /*'error' ('E')
+    END-DECIDE
+    NODN-ERROR-INFO    := SYS-INFO.ERROR-TEXT
+    #ES-MSG-NR         := SYS-INFO.ERROR-CODE
+    #ES-MSG-TXT        := SYS-INFO.ERROR-TEXT
+    #ES-MSG-FIELD-NAME := 'SUSPEND'
+    #ES-RC             := 1
+    ESCAPE BOTTOM
+  END-IF
+  /*
+  NODN-SPOOL-TYPE   := SYS-INFO.SPOOL-TYPE
+  NODU-SYSTEM-TYPE  := SYS-INFO.SYSTEM-TYPE
+  NODU-PRODUCT-NAME := SYS-INFO.PRODUCT-NAME
+  IF NODU-DESCRIPTION = ' '
+    NODU-DESCRIPTION  := SYS-INFO.NODE-ID
+  END-IF
+  /*
+  /* Do ESY test only if NOT Deactivated/Monitor/Suspended:
+  IF NOT(NODU-SUSPEND ='D' OR='M' OR='S')
+    IF NODN-SPOOL-TYPE = ' '           /* NPR is down
+      NODU-SUSPEND := 'I'              /* = 'down' ('-')
+      ESCAPE ROUTINE
+    END-IF
+    NODU-SUSPEND := 'A'                /* = 'node is up'
+    PERFORM LOGON-TO-ESY
+    IF #ERC NE 0
+      #ES-MSG-NR         := #ERC
+      #ES-MSG-TXT        := #ERT
+      #ES-MSG-FIELD-NAME := 'SUSPEND'
+      #ES-RC             := 1
+      ESCAPE BOTTOM
+    END-IF
+  END-IF
+  /*
+END-FIND
+/*
+END-SUBROUTINE /* GET-NPR-NODE
+/*
+************************************************************************
+DEFINE SUBROUTINE LOGON-TO-ESY
+************************************************************************
+CALLNAT 'N-ESYLG' 1X NODN-NODE-NUMBER NODN-NPR-USERID #CALLER
+  #ERC #ERT 1X
+IF #ERC NE 0
+  DECIDE ON FIRST VALUE OF #ERC
+    VALUE 3148,5999  NODU-SUSPEND := 'I' /* = 'inactive/down' ('-')
+    NONE             NODU-SUSPEND := 'F'   /* = 'error' ('E')
+  END-DECIDE
+  NODN-ERROR-INFO := #ERT
+END-IF
+/*
+END-SUBROUTINE /* LOGON-TO-ESY
+/*
+************************************************************************
+DEFINE SUBROUTINE VERIFY-NOM-EXIT-007
+************************************************************************
+/* Get BS2-COPY and BS2-RENAME values from user exit
+CALLNAT 'NOMGSTEP' '*' #ERC
+FIND (1) USER-EXITS WITH M-MONITOR-ID = 'API-DEFS'
+  IF USER-EXITS.M-NOMEXIT-ACTIVE(7) = 'Y'
+    NOMEX007-FUNC := 0002 /* Rename
+    RESET NOMEX007-FIELD-MODIFIABLE
+    CALLNAT 'NOMEX007' NOMEX007-FUNC
+      NOMEX007-FIELD-MODIFIABLE NOMEX007-FIELD-VALUE
+      #ERC #ERT
+    DECIDE ON EVERY VALUE OF NOMEX007-FIELD-MODIFIABLE
+      VALUE 'Y' , ' '
+        ES-KEY-PARM(2) := 'Y'
+      VALUE 'Y' , 'N'
+        NODN-TIME-SCHEDULE := NOMEX007-FIELD-VALUE
+      VALUE 'N'            /* not modifiable
+        ES-KEY-PARM(2) := 'N'
+      NONE IGNORE
+    END-DECIDE
+*
+    NOMEX007-FUNC := 0001 /* Copy
+    RESET NOMEX007-FIELD-MODIFIABLE
+    CALLNAT 'NOMEX007' NOMEX007-FUNC
+      NOMEX007-FIELD-MODIFIABLE NOMEX007-FIELD-VALUE
+      #ERC #ERT
+    DECIDE ON EVERY VALUE OF NOMEX007-FIELD-MODIFIABLE
+      VALUE 'Y', ' '
+        ES-KEY-PARM(1) := 'Y'
+      VALUE 'Y' , 'N'
+        IF NOMEX007-FIELD-VALUE = 'K'
+          NODN-TIME-SCHEDULE := NOMEX007-FIELD-VALUE
+        END-IF
+      VALUE 'N'              /* not modifiable
+        ES-KEY-PARM(1) := 'N'
+      NONE IGNORE
+    END-DECIDE
+  END-IF
+END-FIND
+/*
+END-SUBROUTINE /* VERIFY-NOM-EXIT-007
+/*
+/*
+************************************************************************
+DEFINE SUBROUTINE CHECK-NODE-SPOOL-USAGE
+************************************************************************
+IF NODU-INTERNAL-NODE-ID LE 0
+  ESCAPE ROUTINE
+END-IF
+/* Backup original buffers
+RESET #ES-RC
+#ES-CONTROL       := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+ES-SELECT         := NODU-INTERNAL-NODE-ID
+/*
+CALLNAT 'NORPND-N' ES-CONTROL ES-INPUT
+/*
+IF ES-RC NE 0
+  #ES-RC        := ES-RC
+  #ES-MSG-NR    := ES-MSG-NR
+  #ES-MSG-TXT   := ES-MSG-TXT
+  #ES-MSG-FIELD := ES-MSG-FIELD
+  #ES-NUMBER    := ES-NUMBER
+END-IF
+/* Restore original buffers
+ES-CONTROL       := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+/*
+IF #ES-RC NE 0
+  ES-RC        := #ES-RC
+  ES-MSG-NR    := #ES-MSG-NR
+  ES-MSG-TXT   := #ES-MSG-TXT
+  ES-MSG-FIELD := #ES-MSG-FIELD
+  ES-NUMBER    := #ES-NUMBER
+  IF #ES-RC = 2
+    #ES-RC := 1
+    PERFORM GET-MSG-TXT
+  END-IF
+END-IF
+/*
+END-SUBROUTINE /* CHECK-NODE-SPOOL-USAGE
+/*
+************************************************************************
+DEFINE SUBROUTINE GET-MONITOR-SPOOL-TYPE                   /* CF2 ->
+************************************************************************
+RESET #MONITOR-FOUND #MONITOR-SPOOL-TYPE
+** 1. Search in NODE-DATA (MF) for the currently active monitor
+MFMON. FIND CHECK-MONITOR WITH MF-TYPE-ID = 'MR-'-H'00' THRU 'MR-'-H'FF'
+  #MONITOR-FOUND        := CHECK-MONITOR.MF-TYPE
+  #MONITOR-SPOOL-TYPE   := CHECK-MONITOR.MF-SPOOL-TYPE
+END-FIND
+** 2. Search in UX for the currently active monitor
+IF #MONITOR-FOUND NE 'M'
+  /* Check for monitor type 'M' (via RPC)
+  UXMON. FIND UX-NODES WITH UX-SUSP-NAME = 'M'-H'00' THRU 'M'-H'FF'
+    #MONITOR-FOUND        := 'M'
+    #MONITOR-SPOOL-TYPE   := 'UNIX'
+  END-FIND
+END-IF
+** 3. Check for monitor type 'L' (via none-RPC)
+IF #MONITOR-FOUND NE 'M'
+  UXLOC. FIND UX-NODES WITH UX-SUSP-NAME = 'L'-H'00' THRU 'L'-H'FF'
+    #MONITOR-FOUND        := 'M'
+    #MONITOR-SPOOL-TYPE   := 'UNIX'
+  END-FIND
+END-IF
+/*
+END-SUBROUTINE /* GET-MONITOR-SPOOL-TYPE                   /* CF2 <-
+/*
+END

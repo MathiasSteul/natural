@@ -1,0 +1,402 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOEVOP-N - NOM API Maintenance of Email Messages
+*            (former Event Descriptions)
+*
+* Maintenance:
+* CF      2017-12-17 NOMALL-2062 Created
+* fhi     2018-03-24 NOMALL-1918 Add CP from text member in SYSNOMU
+*                                ÜÜÜ To be checked by SU ÜÜÜ
+* SU1     2018-03-26             NOM 3.5: remove 'INTERNAL-NODE-ID'
+* CF1     2018-11-13 NOMALL-2062 Redesign to Email Messages
+* CF2     2019-07-22 NOMALL-2300 Send (a) for emails on MF to client
+* ----- Clean-up the source - for former changes see old coding ------
+* CF3     2019-11-12 NOMALL-2331 Test function for Email addresses
+* SU2     2024-04-29 NOM 36      remove unused
+* --------------------------------------------------------------------
+/*
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOEVOP-A
+************************************************************************
+LOCAL USING VEMAIL-L
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING XXEMAILP         /* CF3
+LOCAL
+1 #MONITOR-ID                (A20) INIT <'E-'>
+1 REDEFINE #MONITOR-ID
+  2 FILLER                   2X
+  2 #NODE-NAME               (A16)
+1 #OLD-MONITOR-ID            (A20)
+1 REDEFINE #OLD-MONITOR-ID
+  2 FILLER                   2X
+  2 #OLD-NODE-NAME           (A16)
+/*SU2 1 #NODE-MONITOR-ID (A20) 1 REDEFINE #NODE-MONITOR-ID 2 FILLER 2X
+/*SU2 2 #NODE-NODE-NAME (A16) 1 NODE-DATA VIEW OF NRM-MONITOR
+/*SU2 1 #IS-MAINFRAME (L) 1 #N1 (I2) 1 #N2 (I2) 1 #RC (N4)
+/*SU2 1 #SINGLE-ADDRESS (L) 1 #CP-MSG-NR (N4)
+/*SU2 1 #CP-MSG-TXT (A) DYNAMIC
+1 #ES-MSG-PREF               (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM              (A3)
+  2 #ES-MSG-NR               (N4)
+1 #ES-MSG-FIELD              (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME       (A28)
+  2 #ES-MSG-FIELD-INDEX      (N4)
+/*
+1 #MAIL-ADDRESS              (A250)
+1 #LIBRARY-ID                (A8)
+1 #ES-RC                     (N3)
+1 #EXTENDED-MSG              (A250/1:3)          /* CF3
+1 #SI                        (I1)                /* CF3
+1 #II                        (I1)      /* CF2
+END-DEFINE
+/*
+************************************************************************
+* Main line
+************************************************************************
+/*
+RESET ES-RC
+/*
+#LIBRARY-ID := ES-APP-SERVER-LIBRARY
+#NODE-NAME  := ES-KEY-PARM(1)
+/*
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+  VALUE ' '
+    PERFORM READ-RECORD
+  VALUE 'NEW'
+    PERFORM NEW-RECORD
+    IF ES-RC = 0
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  VALUE 'UPD'
+    PERFORM UPDATE-RECORD
+    IF ES-RC = 0
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  VALUE 'CHK'
+    PERFORM CHECK
+  VALUE 'TEM'                          /* CF3
+    PERFORM TEST-EMAIL                 /* CF3
+  NONE VALUE IGNORE
+END-DECIDE
+/*
+************************************************************************
+*
+* Internal Subroutines
+*
+************************************************************************
+DEFINE SUBROUTINE READ-RECORD
+************************************************************************
+/*
+RESET NOEV-PARMS #ES-MSG-FIELD #ES-MSG-NR
+/*
+FNDEV. FIND EMAIL-EVENTS WITH EM-MONITOR-ID = #MONITOR-ID
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 2064    /* Event definition does not exist
+    #ES-RC     := 1
+    PERFORM GET-MSG-TXT
+    ESCAPE BOTTOM(FNDEV.)
+  END-NOREC
+  /*
+  #MONITOR-ID := EM-MONITOR-ID
+  NOEV-NAME   := #NODE-NAME
+  /*
+  NOEV-SUBJECT          := EM-EMAIL-SUBJECT
+  NOEV-EMAIL-FROM       := EM-EMAIL-FROM-REPLY(1)
+  NOEV-EMAIL-REPLY      := EM-EMAIL-FROM-REPLY(2)
+  NOEV-RECIPIENTS       := EM-EMAIL-RECIPIENTS(1)
+  NOEV-RECIPIENTS-CC    := EM-EMAIL-RECIPIENTS(2)
+  NOEV-RECIPIENTS-BCC   := EM-EMAIL-RECIPIENTS(3)
+  /*
+  NOEV-TEXT-LIBRARY     := EM-EMAIL-LIBRARY
+  NOEV-TEXT-MEMBER      := EM-EMAIL-MEMBER
+  NOEV-EVENT-REASON(*)  := EM-EMAIL-EVENTS(*)
+  NOEV-CHECK-PERIOD     := EM-CHECK-PERIOD
+  IF EM-LAST-ACTIVE NE 0
+    MOVE EDITED EM-LAST-ACTIVE (EM=YYYYMMDDHHIISST) TO NOEV-CHECK-LAST
+  END-IF
+  /*
+  NOEV-LAST-UPDATE-USER := EM-LAST-UPDATE-USER
+  IF EM-LAST-UPDATE NE 0
+    MOVE EDITED EM-LAST-UPDATE (EM=YYYYMMDDHHIISST) TO NOEV-LAST-UPDATE
+  END-IF
+  /*
+END-FIND
+/*
+END-SUBROUTINE /* READ-RECORD
+/*
+************************************************************************
+DEFINE SUBROUTINE NEW-RECORD
+************************************************************************
+/*
+PERFORM VALIDATION-S
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+/*
+/* Move Event values to EMAIL-EVENTS view
+#NODE-NAME    := NOEV-NAME
+EM-MONITOR-ID := #MONITOR-ID
+PERFORM ASSIGN-ATTRIBUTE-VALUES
+/*
+STORE1. STORE EMAIL-EVENTS
+/*
+END-SUBROUTINE /* NEW-RECORD
+/*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+/*
+FNDMOD. FIND EMAIL-EVENTS WITH EM-MONITOR-ID = #MONITOR-ID
+  IF NO RECORD FOUND
+    #ES-MSG-NR := 2064        /* Event definition does not exist
+    #ES-RC     := 2
+    PERFORM GET-MSG-TXT
+    ESCAPE BOTTOM(FNDMOD.)
+  END-NOREC
+  /*
+  #OLD-MONITOR-ID := EM-MONITOR-ID
+  /*
+  PERFORM VALIDATION-S
+  IF #ES-MSG-NR NE 0
+    PERFORM GET-MSG-TXT
+    ESCAPE BOTTOM(FNDMOD.)
+  END-IF
+  /*
+  GETMOD. GET EMAIL-EVENTS *ISN(FNDMOD.)
+  /* Move Event values to EMAIL-EVENTS view
+  #NODE-NAME    := NOEV-NAME
+  EM-MONITOR-ID := #MONITOR-ID
+  PERFORM ASSIGN-ATTRIBUTE-VALUES
+  /*
+  UPDATE (GETMOD.)
+  /*
+END-FIND
+/*
+END-SUBROUTINE /* UPDATE-RECORD
+/*
+************************************************************************
+DEFINE SUBROUTINE CHECK
+************************************************************************
+/*
+IF ES-ORIG-FUNCTION NE 'NW'
+  FNDCHK. FIND EMAIL-EVENTS WITH EM-MONITOR-ID = #MONITOR-ID
+    IF NO RECORD FOUND
+      #ES-MSG-NR := 2064        /* Event definition does not exist
+      #ES-RC     := 2
+      PERFORM GET-MSG-TXT
+      ESCAPE ROUTINE
+    END-NOREC
+    /*
+    #OLD-MONITOR-ID := EM-MONITOR-ID
+    /*
+  END-FIND /* (FNDCHK.)
+END-IF
+/*
+PERFORM VALIDATION-S
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+/*
+END-SUBROUTINE /* CHECK
+/*
+/*
+************************************************************************
+DEFINE SUBROUTINE TEST-EMAIL                     /* CF3 ->
+************************************************************************
+/*
+REDUCE ARRAY #EM-EMAIL-BODY (*) TO 0
+#EM-FUNCTION      := 'T' /* Send Natural member with array for Test
+#EM-MSG-NAME      := NOEV-NAME
+#EM-SUBJECT       := NOEV-SUBJECT
+#EM-FROM-NAME     := NOEV-EMAIL-FROM
+#EM-REPLY-TO      := NOEV-EMAIL-REPLY
+#EM-RECIPIENTS    := NOEV-RECIPIENTS
+#EM-CC-RECIPIENTS := NOEV-RECIPIENTS-CC
+#EM-BCC-RECIPIENTS:= NOEV-RECIPIENTS-BCC
+#EM-EMAIL-LIBRARY := NOEV-TEXT-LIBRARY
+#EM-EMAIL-MEMBER  := NOEV-TEXT-MEMBER
+COMPRESS '&LAST=' *DAT4I ',' *TIME TO #EM-VARIABLES LEAVING NO
+/*
+/*#EM-TRACING :=
+CALLNAT 'XXEMAIL' #EM-PARAMS #EXTENDED-MSG (*)
+/*
+NOEV-PARM-AREA(8)    := #EM-ERROR-TEXT
+NOEV-PARM-AREA(9:11) := #EXTENDED-MSG(1:3)
+/*
+IF #EM-ERROR-CODE = 0
+  /* Success:      Email sent to :1: with subject :2:
+  ES-MSG-NR  := 1576
+  NOEV-PARM-AREA(8) := #EM-SUBJECT
+ELSE
+  /* Error:        ESY Error: NOM1577 Email to :1: failed with :2:
+  ES-MSG-NR   := 5
+END-IF
+/*
+END-SUBROUTINE /* TEST-EMAIL                     /* CF3 <-
+/*
+/*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-ATTRIBUTE-VALUES
+************************************************************************
+/*
+EM-EMAIL-EVENTS(*)       := NOEV-EVENT-REASON(*)
+EM-EMAIL-RECIPIENTS(1)   := NOEV-RECIPIENTS
+EM-EMAIL-RECIPIENTS(2)   := NOEV-RECIPIENTS-CC
+EM-EMAIL-RECIPIENTS(3)   := NOEV-RECIPIENTS-BCC
+#NODE-NAME               := NOEV-NAME
+EM-MONITOR-ID            := #MONITOR-ID
+/*
+EM-EMAIL-SUBJECT         := NOEV-SUBJECT
+EM-CHECK-PERIOD          := NOEV-CHECK-PERIOD
+EM-EMAIL-MEMBER          := NOEV-TEXT-MEMBER
+EM-EMAIL-LIBRARY         := NOEV-TEXT-LIBRARY
+/*
+EM-EMAIL-FROM-REPLY(1)   := NOEV-EMAIL-FROM
+EM-EMAIL-FROM-REPLY(2)   := NOEV-EMAIL-REPLY
+/*
+IF *MACHINE-CLASS = 'MAINFRAME'                            /* CF3 ->
+  #SI := 2  /* Mainframe : no Email-From check
+ELSE
+  #SI := 1  /* UNIX      : do Email-From check
+END-IF                                                     /* CF3 <-
+FOR #II = #SI TO 2                                         /* CF2 ->
+  #MAIL-ADDRESS := EM-EMAIL-FROM-REPLY(#II)
+  PERFORM CLEAN-EMAIL-ADDRESS-LINE
+  EM-EMAIL-FROM-REPLY(#II) := #MAIL-ADDRESS
+END-FOR
+FOR #II = 1 TO 3
+  #MAIL-ADDRESS := EM-EMAIL-RECIPIENTS(#II)
+  PERFORM CLEAN-EMAIL-ADDRESS-LINE
+  EM-EMAIL-RECIPIENTS(#II) := #MAIL-ADDRESS
+END-FOR                                                    /* CF2 <-
+/*
+EM-LAST-UPDATE           := *TIMX
+EM-LAST-UPDATE-USER      := ES-USER
+/*
+END-SUBROUTINE /* ASSIGN-ATTRIBUTE-VALUES
+/*
+************************************************************************
+DEFINE SUBROUTINE CLEAN-EMAIL-ADDRESS-LINE                 /* CF2 ->
+************************************************************************
+/*
+/* Remove blanks and multiple ';' from the Email fields
+EXAMINE #MAIL-ADDRESS FOR ' ' REPLACE ';'
+REPEAT
+  UNTIL #MAIL-ADDRESS NE SCAN(';;')
+  EXAMINE #MAIL-ADDRESS FOR ';;' REPLACE ';'
+END-REPEAT
+REPEAT
+  UNTIL SUBSTR(#MAIL-ADDRESS,1,1) NE ';'
+  EXAMINE #MAIL-ADDRESS FOR ';' DELETE FIRST
+END-REPEAT
+/*
+END-SUBROUTINE /* CLEAN-EMAIL-ADDRESS-LINE                 /* CF2 <-
+/*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION-S
+************************************************************************
+/*
+PERFORM VALIDATION
+IF #ES-MSG-NR NE 0
+  #ES-RC := 2
+END-IF
+/*
+END-SUBROUTINE /* VALIDATION-S
+/*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+/*
+RESET #ES-MSG-NR #ES-MSG-FIELD
+DECIDE FOR EVERY CONDITION
+  WHEN NOEV-NAME = ' '
+    #ES-MSG-NR         := 2000         /* Please, enter name
+    #ES-MSG-FIELD-NAME := 'NAME'
+    ESCAPE ROUTINE
+  WHEN NOEV-NAME NE #OLD-NODE-NAME
+    #NODE-NAME := NOEV-NAME
+    FIND-NUM. FIND NUMBER EMAIL-EVENTS WITH EM-MONITOR-ID = #MONITOR-ID
+    IF *NUMBER(FIND-NUM.) NE 0
+      #ES-MSG-NR         := 2065       /* Name already exists
+      #ES-MSG-FIELD-NAME := 'NAME'
+      ESCAPE ROUTINE
+    END-IF
+  WHEN NOEV-SUBJECT = ' '
+    #ES-MSG-NR         := 2020
+    #ES-MSG-FIELD-NAME := 'EMAIL-SUBJECT'
+    ESCAPE ROUTINE
+  WHEN NOT (NOEV-EVENT-REASON(*) = SCAN ('NAT') OR = SCAN ('NOM'))
+    #ES-MSG-NR         := 2057
+    #ES-MSG-FIELD-NAME := 'EVENT-REASON'
+    ESCAPE ROUTINE
+  WHEN NOEV-CHECK-PERIOD > 2880
+    #ES-MSG-NR         := 2060
+    #ES-MSG-FIELD-NAME := 'CHECK-PERIOD'
+    ESCAPE ROUTINE
+  WHEN NOEV-TEXT-LIBRARY = ' '
+    #ES-MSG-NR         := 2020
+    #ES-MSG-FIELD-NAME := 'EMAIL-LIBRARY'
+    ESCAPE ROUTINE
+  WHEN NOEV-TEXT-MEMBER = ' '
+    #ES-MSG-NR         := 2020
+    #ES-MSG-FIELD-NAME := 'EMAIL-MEMBER'
+    ESCAPE ROUTINE
+  WHEN NOEV-RECIPIENTS = ' '
+    /* Correctness validation of the Email addresses
+    /* is done on client side to prevent code page
+    /* problems with special characters
+    #ES-MSG-NR         := 2020
+    #ES-MSG-FIELD-NAME := 'RECIPIENTS'
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+/*
+END-SUBROUTINE /* VALIDATION
+/*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+/*
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND    := 'U'
+NADA2000.ERROR-NUMBER   := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+NADA2000.LIBRARY        := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+IF NOT (#ES-MSG-NR = 2032 OR = 2047 OR = 2031 OR = 2049 )
+  ES-RC        := #ES-RC
+  ES-MSG-FIELD := #ES-MSG-FIELD
+  ES-MSG-NR    := #ES-MSG-NR
+  ES-MSG-TXT   := SHORT-MSG
+  EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+END-IF
+/*
+END-SUBROUTINE /* GET-MSG-TXT
+/*
+/* ------------------------------------------------------------------
+/*
+ON ERROR
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+/*
+END

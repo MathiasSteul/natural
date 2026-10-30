@@ -1,0 +1,804 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPROCRP - Process Source and create active Reports
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* mrs 93-01-08           rewritten to process only one order
+* mrs 93-10-06 s(172286) log separation exit usage
+* mrs 93-10-26 s(172286) set STEPLIB implemented
+* mrs 93-12-10 s(999999) read source if only if neccessary
+* gw  95-02-06 s(999999) delete order if ar-create-ok
+* mrs 95-11-27 s(999999) extended spool attributes
+* gw  96-06-07 s(999999) extended spool attributes increased array dim.
+* gw  96-07-18 p(155680) correct steplib handling
+* jwo 97-06-10 p(162903) avoid multiple count orders for same file
+* gw  98-05-14 p(168326) number of lines gt 9999999
+* jvd 98-05-04 p(168326)  Increase display size to show lines > 10m
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+*                        p(168326) is now in p(164220)so I have removed
+*                        all refferance to P(168326) to make easier
+*                        reading
+* sju 00-03-24 p(191368)       monitor multitasking
+* xsiszha 2000-07-31 (CE7461)  Extend Report and Bundle Names
+* fhi     2000-08-24 QA03      Use NAT23006 for error values
+* fhi     2000-12-20 s(204275) Wrong records in REPORT-CONTENS, rep. mis
+*                              Fix not yet tested, don't release.
+* jwo     2000-12-21 s(204275) When BS2 files are not yet counted
+*                              when active
+*                              report has to be created. We postpone
+*                              this order to next monitor cycle.
+*                              Fix FHI from 2000-12-20 backed out
+* fhi     2002-09-25 p(218246) Monitor error recovery
+* fhi     2002-11-07 p(200224) Improve error messages
+* xsetggr 03-02-20 p(219991)   improving err msg handling
+* sju 03-06-02 p(241125) not all lines of separated report printed
+* sju 03-06-26 p(230407) correct retry handling
+* xsetggr 03-11-27 p(246658)   correct finding steplib
+* sju 04-11-29 nom31     restow for changed NRM-ORDER
+* sju 04-12-06 NOM31     Add date and time (tenths of second) to trace
+* xsetggr 2005-10-26 p(270950) Field G-ACTIVE-ISN must be P10, not P8
+* fhi     2007-06-04 FHI233 Avoid error 1078 with parallel report exits
+* fhi     2007-06-18 FHI235    Add processed time to trace
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-04-09 p(303829) do not use retry handling for reports
+*                             rejected by NOMEX013
+* fhi     2008-05-13 P303573 Correct FHI233, old comments deleted
+* xsetggr 2009-02-24 P300323 make steplib handling unix compliant
+* fhi     2009-02-27 P300323 Rename RGETSTEP to NOMGSTEP delivered in SYSTEM
+* fhi     2009-05-26 N3463   Extend metadata for OPO
+* xsetggr 2010-05-27 P325643 prevent postponed bs2 files if wrong source
+*                            is saved
+* fhi     2010-06-14 NOMALL-815  Use RMSETTIM instead of *TIMD for Ux
+* fhi     2010-08-31 NOMALL-93 Introduce trace levels                   STEM
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-10-08 NOMALL-97 Use dynamic memory handling
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* xsetggr 2011-03-21 NOMALL-878 correctione for solution of P325643
+* xsetggr 2011-05-16 NOMALL-989 use right subroutine name ecord
+* raya    2011-07-20 NOMALL-1034 avoid err82 when exitmem not exist
+* raya    2012-02-01 NOMALL-1096 error-text a250 in NOMWK--P stow only
+* xsetggr 2012-02-23 NOMALL-1072 delete order when report rejected by
+*                                NOMEX013
+* raya    2012-02-28 NOMALL-98 when error 1585 do not retry (no exitmem)
+*                              and delete order
+* raya    2012-04-16 NOMALL-98 change error 1585
+* raya    2012-04-18 NOMALL-98 change remove-stpelib
+* fhi      2012-11-09 NOMALL-1143 Add cpu time output
+* raya     2013-01-07 NOMALL-1214 check cat date of user exit
+* xsetggr 2013-01-31 NOMALL-1227 prevent NAT3113 and loosing data
+* fhi      2013-03-15 NOMALL-1004 Honour converted reports
+* fhi      2013-04-17 NOMALL-1004 Fill conv-fileid correctly.
+* xsetggr  2013-05-13 NOMALL-1228 change iTrac number from NOMALL-1227
+* raya     2013-09-10 NOMALL-932  use dynamic instead of array
+* SU2     2013-11-22 NOMALL-82 error class: No tags, only restructured
+* fhi     2014-03-03 NOMALL-1363 Get cat cate into trace messages
+* fhi     2014-03-19 NATOS-6387  Avoid AIVs for ext subroutine call
+* fhi     2014-09-18 NOMALL-1488 Meta data disappeared.
+* SU3     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU4     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* SU5     2016-07-25 NOM 3.5: remove unused code
+* fhi     2016-08-01 NOMALL-1748 Backout Report Formatting
+* fhi     2017-01-11 NOMALL-1961 Change descriptor of NRM-ORDER
+* fhi     2017-01-20 NOMALL-1916 Provide REMOTE-CODEPAGE
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* SU6     2018-02-13 NOMALL-1823 NOM 3.5: remove CONNECT
+* fhi     2018-07-18 NOMALL-2008 Delete order sources
+* fhi     2018-08-06 NOMALL-2135 Make processing node dependent
+* SU7     2018-08-30 NOMALL-2130 sep.var.:GDA MONIT-GL -> PDA RMEXSEPA
+* fhi     2018-12-14 NOM 3.5     Improve CPU measures, no tags
+* fhi     2019-06-05 NOMALL-2267 More details if '0 records loaded'
+* fhi     2019-08-14 NOMALL-2294 Introduce TRACE-ORDER in JOBCARDs
+* SU8     2020-05-18 NOMALL-2349 use N-CHKCAT
+* SU9     2022-08-12             remove comments
+* SU10    2023-08-16 NOMALL-2647 Steplib table full -> show steplibs
+* BLI1    2024-02-15 NOMALL-2663 Error handling
+* SU11    2024-06-04 NOMALL-2680 avoid "Steplib table full"/correct SU10
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+*
+INDEPENDENT
+1 +G-SPOOL-ATTR-EXTENDED   (A) DYNAMIC
+/*SU7 1 +#MASTER-ISN             (P10)
+1 +IN-SEPARATION           (L)
+1 +WAKE-PRINTOUTS          (L)
+1 +CMRDC                   (A1)
+1 +NOD-CURRENT-INTERNAL-ID (P11)
+1 +NOD-CURRENT-NAME        (A16)
+1 +TRACE-ORDER             (A1)
+* *****
+LOCAL USING RMSR---E
+LOCAL USING RMSR---L
+LOCAL USING RMODTY-E
+LOCAL USING RLOG-L
+LOCAL USING SAT00009
+LOCAL USING NOMWK--P
+LOCAL USING RMTASK-E
+LOCAL USING NOMFNC-E
+LOCAL USING RMEXSEPA /*SU7
+*
+LOCAL
+1 RELATED-SOURCE VIEW OF NRM-SOURCE
+  2 SR-NUMBER-OF-LINES
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-TYPE
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-SPOOL-ATTRIBUTES
+  2 SR-REMOTE-CODEPAGE
+  2 SR-CC-TYPE
+  2 SR-RECORD-LENGTH
+  2 SR-NUMBER-OF-LINES
+  2 SR-RELATED-ID
+  2 SR-SPOOL-ATTR-EXTENDED (1:120)
+1 UPDATE-ORDER VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-TYPE
+  2 OD-SOURCE-ID
+  2 OD-TIME-PROCESSED
+  2 OD-TIME-CREATED
+  2 OD-TIME-SCHEDULED
+  2 OD-PARAMETER           (1)
+  2 REDEFINE OD-PARAMETER
+    3 OD-MASTER            (A25)
+  2 OD-ERROR-CODE
+  2 OD-ERROR-TEXT
+  2 OD-MAX-RETRIES
+  2 OD-RETRY-INTERVAL
+  2 OD-RETRY-NUMBER
+  2 OD-INTERNAL-NODE-ID
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-MONITOR-ID
+  2 OD-TYPE
+  2 OD-TIME-CREATED
+  2 OD-TIME-SCHEDULED
+  2 OD-PARAMETER           (1)
+  2 REDEFINE OD-PARAMETER
+    3 OD-MASTER            (A25)
+  2 OD-SOURCE-ID           (P10)
+  2 OD-INTERNAL-NODE-ID
+1 PRINTOUTS VIEW OF NRM-PRINTOUTS
+  2 PO-STATUS
+* *****
+1 SAG-SEPARATION           (L)
+1 USER-SEPARATION          (L)
+1 ORDER-FOUND              (L)
+1 ORDER-POSTPONED          (L)
+1 #OD-TYPE-TIME            (A9)
+1 REDEFINE #OD-TYPE-TIME
+  2 #OD-TYPE               (B2)
+  2 #OD-TIME               (T)
+1 LFILE                    (L)
+1 #LFILE-RC                (I4)
+1 #LFILE-OLDDBID           (P5)
+1 #LFILE-OLDFILE           (P5)
+1 #LFILE-NEWDBID           (P5)
+1 #LFILE-NEWFILE           (P5)
+1 #TARGET-DBID             (N5)
+1 #TARGET-FNR              (N5)
+1 STEPLIB-ADDED            (L)
+1 #CURRENT-SOURCE-ID       (P10)
+1 #G-SOURCE-TYPE-BIN       (B2)
+1 #STEPLIB-EXIST           (L)
+1 RMSETTIM
+  2 FUNCTION               (A1)
+  2 ERC                    (N4)
+  2 MSG                    (A250)
+  2 TIME                   (I4)
+1 #TRACING                 (L)
+1 #CAT-DATE-1              (A10)
+1 #CAT-DATE-2              (A10)
+1 #CATDATE                 (A19)
+1 #G-SPOOL-ATTR-EXTENDED   (A) DYNAMIC
+1 #TYPE-I                  (I2)
+1 #CALLER                  (A8) INIT <*PROGRAM>
+1 #UPDATE-ORDER-FLAG       (L)  /* BLI1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=100
+*
+IF G-TRACE GE *LEVEL AND G-TRACE-SET = SCAN ('CREATE')
+  #TRACING := TRUE
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS 'Start' *PROGRAM 'cataloged at'  #CATDATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+IF +TRACE-ORDER = ' ' /* not yet determined from jobcards
+  PERFORM RMGTRACE-GET-SETTINGS
+END-IF
+INCLUDE CMRDC
+*
+MAIN. REPEAT
+  IF #TRACING
+    RMSETTIM.FUNCTION := 'S'
+    PERFORM RMSETTIM-SETTIME RMSETTIM
+  END-IF
+*
+  RESET G-NATRP-ERC G-NATRP-ERT
+  PERFORM GET-NEXT-ORDER
+  IF NOT ORDER-FOUND
+    ESCAPE BOTTOM (MAIN.)
+  END-IF
+*
+  G-CYCLE-WAS-IDLE := FALSE
+  RESET ORDER-POSTPONED
+*
+  PERFORM INIT-FUNCTION
+  IF ORDER-POSTPONED          /* process this order next cycle
+    PERFORM POSTPONE-CURRENT-ORDER
+    ESCAPE TOP /* get next order
+  END-IF
+  IF G-NATRP-ERC = 0
+    PERFORM PROCESS-SOURCE
+  END-IF
+*
+  #UPDATE-ORDER-FLAG := TRUE /* BLI1
+  PERFORM UPDATE-CURRENT-ORDER
+  RESET #UPDATE-ORDER-FLAG   /* BLI1
+*
+  IF +IN-SEPARATION AND +WAKE-PRINTOUTS
+    RESET +IN-SEPARATION +WAKE-PRINTOUTS
+* Lower case characters in next line are very important Ü
+    UPDPO. FIND PRINTOUTS WITH PO-STATUS = 'a' THRU 'z'
+      EXAMINE PO-STATUS TRANSLATE INTO UPPER
+      UPDATE (UPDPO.)
+      END TRANSACTION
+    END-FIND
+    NOMWK-TASK-TYPE:= EQU-MANAGE-PRINTOUTS
+    CALLNAT NOM-WAKE-MONITOR NOMWK-NOMVERS NOMWK-PARMS (*)
+  END-IF
+*
+  IF #TRACING
+    RMSETTIM.FUNCTION := 'G'
+    PERFORM RMSETTIM-SETTIME RMSETTIM
+    COMPRESS 'Order' G-ORDER-ID 'consumed CPU:' TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+  END-IF
+*
+END-REPEAT
+*
+IF #TRACING
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  COMPRESS 'Whole program consumed CPU:' TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+  COMPRESS 'Ended with --->' G-NATRP-ERC-A G-NATRP-ERT TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-FUNCTION
+************************************************************************
+IF #TRACING
+  WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+    'Initialization'
+END-IF
+*
+RESET +IN-SEPARATION +WAKE-PRINTOUTS
+DECIDE FOR EVERY CONDITION
+  WHEN G-NATRP-ERC = 0
+    PERFORM READ-SOURCE-ATTRIBUTES
+  WHEN G-NATRP-ERC = 0 AND ORDER-POSTPONED EQ FALSE
+    PERFORM READ-MASTER-DEFINITION
+  WHEN NONE IGNORE
+END-DECIDE
+IF SAG-SEPARATION OR USER-SEPARATION
+  +IN-SEPARATION:= TRUE
+END-IF
+*
+END-SUBROUTINE /* INIT-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-SOURCE
+************************************************************************
+IF #TRACING
+  WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+    'Process Source'
+END-IF
+*
+IF RMEX-SOURCE-TYPE = NOM-DATA-BASE
+  PERFORM SET-LOGICAL-FILE-NUMBER
+  IF G-NATRP-ERC NE 0
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+IF SAG-SEPARATION
+  PERFORM LOG-SEPARATION-EXIT-USAGE
+END-IF
+DECIDE FOR FIRST CONDITION
+  WHEN SAG-SEPARATION
+    DECIDE ON FIRST R-EXITMEM
+      VALUE 'STD1'
+        PERFORM STD-EXIT-001 #RMEXSEPA /*RMEX001
+      VALUE 'STD2'
+        PERFORM STD-EXIT-002 #RMEXSEPA /*RMEX002
+      VALUE 'STD3'
+        PERFORM STD-EXIT-003 #RMEXSEPA /*RMEX003
+      NONE
+        G-NATRP-ERC := 0005
+        COMPRESS 'invalid exit name:' R-EXITMEM TO G-NATRP-ERT /*SU10
+    END-DECIDE
+  WHEN USER-SEPARATION
+    PERFORM ADD-STEPLIB
+    IF G-NATRP-ERC = 0
+      CALLNAT 'N-CHKCAT' G-NATRP-ERC G-NATRP-ERT ##EXITMEM /*SU8
+        ##EXITLIB #CALLER #CAT-DATE-1 #CAT-DATE-2
+      PERFORM LOG-SEPARATION-EXIT-USAGE
+      IF G-NATRP-ERC = 0
+        PERFORM PROCESS-USER-SEPARATION #RMEXSEPA /*RMEXUSR
+      ELSE
+        COMPRESS ##EXITLIB '(' ##EXITMEM ')' TO LG-MSG LEAVING NO
+        COMPRESS '1585' G-REPORT LG-MSG TO LG-MSG
+        LG-USERID := G-LG-USERID
+        LG-CODE   := 'MO'
+        CALLNAT 'RLOG' PL-PARMS
+      END-IF
+      PERFORM REMOVE-STEPLIB
+    END-IF
+  WHEN NONE /*SU10 WHEN NOT SAG-SEPARATION AND NOT USER-SEPARATION
+    P-REPNAME  := G-REPORT
+    P-FROMLINE := 1
+    P-TOLINE   := RMEX-SOURCE-REC-COUNT
+    PERFORM CREATE-REPORT #RMEXSEPA /*RMCRTREP
+/*SU10 G-NATRP-ERC := 0005
+/*SU10 G-NATRP-ERT := 'Trap error in process source'
+END-DECIDE
+*
+IF RMEX-SOURCE-TYPE = NOM-DATA-BASE
+  PERFORM REFRESH-LFILE
+END-IF
+*
+END-SUBROUTINE /* PROCESS-SOURCE
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SOURCE-ATTRIBUTES
+************************************************************************
+IF #TRACING
+  WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+    'Read source attributes' '=' #CURRENT-SOURCE-ID '=' RMEX-SOURCE-ID
+END-IF
+IF #CURRENT-SOURCE-ID = RMEX-SOURCE-ID
+  ESCAPE ROUTINE
+END-IF
+*
+FNDSR. FIND SOURCE WITH SR-ID = RMEX-SOURCE-ID
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 0005
+    COMPRESS  'Unable to read Source' RMEX-SOURCE-ID TO G-NATRP-ERT
+    ESCAPE BOTTOM (FNDSR.)
+  END-NOREC
+  #CURRENT-SOURCE-ID  := RMEX-SOURCE-ID
+  RMEX-SOURCE-ISN     := *ISN (FNDSR.)
+  RMEX-SOURCE-ATTRIBUTES := SR-ATTRIBUTES-IDENT
+  RMEX-SOURCE-CODEPAGE   := SR-REMOTE-CODEPAGE
+  RMEX-SPOOL-ATTRIBUTES  := SR-SPOOL-ATTRIBUTES
+  PERFORM XXMVAR-S-MOVE-ARRAY #G-SPOOL-ATTR-EXTENDED
+    SR-SPOOL-ATTR-EXTENDED (1:120)
+  +G-SPOOL-ATTR-EXTENDED := #G-SPOOL-ATTR-EXTENDED
+  RMEX-SOURCE-TYPE       := SR-TYPE
+  CALLNAT 'RMSR7--N' RMEX-SOURCE-ATTRIBUTES SR-TYPE /*Jobnumber N5->N7
+  RMEX-SOURCE-CC-TYPE    := SR-CC-TYPE
+  RMEX-SOURCE-LRECL      := SR-RECORD-LENGTH
+  RMEX-SOURCE-REC-COUNT  := SR-NUMBER-OF-LINES
+  IF RMEX-SOURCE-REC-COUNT = 0 AND SR-RELATED-ID NE 0
+    IF #TRACING
+      WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+        'Find related source - id:' SR-RELATED-ID
+    END-IF
+    FNDRE. FIND RELATED-SOURCE WITH SR-ID = SR-RELATED-ID
+      RMEX-SOURCE-REC-COUNT := RELATED-SOURCE.SR-NUMBER-OF-LINES
+      IF #TRACING
+        WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+          'Related record count:' RMEX-SOURCE-REC-COUNT
+      END-IF
+    END-FIND
+    IF RMEX-SOURCE-REC-COUNT NE 0
+      SOURCE.SR-NUMBER-OF-LINES := RMEX-SOURCE-REC-COUNT
+      UPDATE (FNDSR.) /*SU all records set in hold Ü?
+      END OF TRANSACTION
+      IF #TRACING
+        WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+          'Order' G-ORDER-ID 'src' SR-ID 'rel-src' SR-RELATED-ID /
+          'num-of-records' RMEX-SOURCE-REC-COUNT
+      END-IF
+    ELSE  /* RMEX-SOURCE-COUNT = 0
+      IF #TRACING
+        WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+          'Order' G-ORDER-ID 'src' SR-ID 'rel-src' SR-RELATED-ID /
+          'num-of-records' RMEX-SOURCE-REC-COUNT
+          'source-type(7)' RMEX-SOURCE-TYPE
+      END-IF
+      ORDER-POSTPONED := TRUE
+    END-IF
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-SOURCE-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-MASTER-DEFINITION
+************************************************************************
+IF #TRACING
+  WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+    'Read Master Definition'
+END-IF
+*
+FNDRP. FIND REPORTS WITH R-REPNAME = G-MASTER-DEFINITION
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 0005
+    COMPRESS 'Unable to read Master Definition'
+      G-MASTER-DEFINITION TO G-NATRP-ERT
+    ESCAPE BOTTOM (FNDRP.)
+  END-NOREC
+*
+  G-MASTER-DEFINITION-ISN   := *ISN (FNDRP.)
+/*SU7 +#MASTER-ISN              := *ISN (FNDRP.)
+  ##MASTER-RETENTION-UNIT   := R-RETENTION-UNIT
+  ##MASTER-RETENTION-NUM    := R-RETENTION-NUM
+  ##MASTER-RETENTION-ACTION := R-RETENTION-ACTION
+  ##MASTER-SEPMEM           := R-SEPMEM
+  ##MASTER-SEPNO            := R-SEPNO
+  ##MASTER-REPNAME          := R-REPNAME
+  ##MASTER-OWNER            := R-USERID
+  ##MASTER-DIST (*)         := R-NATRPT-DIST (*)
+  ##MASTER-CDIST            := C*R-NATRPT-DIST
+  ##MASTER-STORE-NRM        := R-STORE-NATRPT
+*
+  G-REPORT                  := R-REPNAME
+  G-JOBUSERID               := R-USERID
+  G-USERID                  := R-USERID
+*
+  RESET ##REPORT-CONTROL-RECORD G-PROCESSING-PARMS P-EXIT-PARMS
+  RESET SAG-SEPARATION USER-SEPARATION
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN R-EXITMEM = MASK ('STD'.....)
+      RESET P-EXIT-PARMS G-PROCESSING-PARMS
+      SAG-SEPARATION := TRUE
+    WHEN R-EXITMEM NE ' '
+      ##FILTER-BY-ASM := FALSE
+      ##FILTER-BY-NAT := TRUE
+      IF R-EXITLIB = ' '
+        CALLNAT 'RGETLIB' R-EXITLIB
+      END-IF
+      ##EXITMEM := R-EXITMEM
+      ##EXITLIB := R-EXITLIB
+      USER-SEPARATION := TRUE
+    WHEN R-ASM-EXIT NE ' '
+      ##FILTER-BY-ASM := TRUE
+      ##FILTER-BY-NAT := FALSE
+      USER-SEPARATION := TRUE
+    WHEN NONE
+      RESET ##FILTER-BY-ASM ##FILTER-BY-NAT
+  END-DECIDE
+*
+  RESET  ##IN-NRM /*SU6##IN-CONNECT
+*
+END-FIND
+*
+END-SUBROUTINE /* READ-MASTER-DEFINITION
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NEXT-ORDER
+************************************************************************
+RESET ORDER-FOUND
+#OD-TYPE := OD-CREATE-AR
+RESET  #OD-TIME
+*
+FNDOD. READ ORDER BY OD-TYPE-TIME = #OD-TYPE-TIME
+  IF OD-TYPE NE #OD-TYPE OR OD-TIME-SCHEDULED  > *TIMX
+    BACKOUT TRANSACTION
+    ESCAPE BOTTOM
+  END-IF
+  IF NOT(OD-INTERNAL-NODE-ID =0 OR=+NOD-CURRENT-INTERNAL-ID)
+    ESCAPE TOP
+  END-IF
+*
+  G-ORDER-ID          := OD-ID
+  G-ORDER-ISN         := *ISN (FNDOD.)
+  RMEX-SOURCE-ID      := OD-SOURCE-ID
+  G-MASTER-DEFINITION := ORDER.OD-MASTER /*read, written in RMSRCP
+  OD-TYPE             := OD-CREATE-AR-IN-PROCESS
+  OD-MONITOR-ID       := G-MONITOR-ID
+  OD-INTERNAL-NODE-ID := +NOD-CURRENT-INTERNAL-ID
+  UPDATE (FNDOD.)
+  IF +TRACE-ORDER = 'Y' /* TRACE-ORDER found in jobcards
+    #TYPE-I := ORDER.OD-TYPE
+    COMPRESS *PROGRAM 'updates order:' ORDER.OD-ID '- type' #TYPE-I
+      '- created'   ORDER.OD-TIME-CREATED
+      '- scheduled' ORDER.OD-TIME-SCHEDULED TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  END OF TRANSACTION
+  ORDER-FOUND := TRUE
+  ESCAPE BOTTOM (FNDOD.)
+END-READ
+*
+END-SUBROUTINE /* GET-NEXT-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-CURRENT-ORDER
+************************************************************************
+UPDOD. FIND UPDATE-ORDER WITH OD-ID = G-ORDER-ID
+  DECIDE FOR FIRST CONDITION
+    WHEN G-NATRP-ERC = 0
+      OD-TYPE := OD-CREATE-AR-OK
+      RESET  OD-SOURCE-ID
+    WHEN NOT(G-NATRP-ERC =0 OR=1020 OR=1079 OR=21 OR=999)        /* BLI1
+    AND AR-STATUS NE 'B' AND OD-RETRY-NUMBER LT OD-MAX-RETRIES        /*
+      ADD 1 TO OD-RETRY-NUMBER
+      OD-TIME-SCHEDULED := OD-TIME-SCHEDULED + (OD-RETRY-INTERVAL * 10)
+      OD-TYPE:= OD-CREATE-AR
+      COMPRESS '7018' OD-ID G-NATRP-ERC +NOD-CURRENT-NAME
+        UPDATE-ORDER.OD-MASTER OD-RETRY-NUMBER TO LG-MSG
+      LG-USERID := G-LG-USERID
+      LG-CODE   := 'MO'
+      CALLNAT 'RLOG' PL-PARMS
+      COMPRESS '7021' '7018' G-NATRP-ERT TO LG-MSG
+      LG-USERID := G-LG-USERID
+      LG-CODE   := 'MO'
+      CALLNAT 'RLOG' PL-PARMS
+      WRITE NOTITLE NOHDR / *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Order Id' OD-ID 'received error ' G-NATRP-ERC
+      PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Error-Text:' G-NATRP-ERT /*SU8 (AL=70)
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Current Active Report' G-REPORT
+      PRINT NOTITLE NOHDR (AD=L) *PROGRAM
+        *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Retry number' OD-RETRY-NUMBER 'of' OD-MAX-RETRIES
+      RESET G-NATRP-ERC G-NATRP-ERT
+    WHEN NONE
+      OD-TYPE := OD-CREATE-AR-FAILED
+      OD-ERROR-CODE := G-NATRP-ERC
+      OD-ERROR-TEXT := G-NATRP-ERT
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Error during Processing of Definition' G-MASTER-DEFINITION
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Current Active Report' G-REPORT
+      PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Error number/text' G-NATRP-ERC G-NATRP-ERT /*SU8 (AL=70)
+  END-DECIDE
+  OD-TIME-PROCESSED := *TIMX
+  OD-INTERNAL-NODE-ID := +NOD-CURRENT-INTERNAL-ID
+*
+  IF OD-TYPE = OD-CREATE-AR-OK
+      OR OD-ERROR-CODE =1020 OR=1079 OR=21 OR=999 /* BLI1
+    IF +TRACE-ORDER = 'Y' /* TRACE-ORDER found in jobcards
+      #TYPE-I := UPDATE-ORDER.OD-TYPE
+      COMPRESS 'Task' G-TASK-NUMBER *PROGRAM
+        'Order being deleted:' UPDATE-ORDER.OD-ID '- type' #TYPE-I
+        '- created'   UPDATE-ORDER.OD-TIME-CREATED
+        '- scheduled' UPDATE-ORDER.OD-TIME-SCHEDULED TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+    DELETE (UPDOD.)
+    CALLNAT 'RMPRGOS' OD-ID
+  ELSE
+    OD-MONITOR-ID := G-MONITOR-ID
+    IF +TRACE-ORDER = 'Y' /* TRACE-ORDER found in jobcards
+      #TYPE-I := UPDATE-ORDER.OD-TYPE
+      COMPRESS 'Task' G-TASK-NUMBER *PROGRAM
+        'Order being updated:' UPDATE-ORDER.OD-ID '- type' #TYPE-I
+        '- created'   UPDATE-ORDER.OD-TIME-CREATED
+        '- scheduled' UPDATE-ORDER.OD-TIME-SCHEDULED TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+    UPDATE (UPDOD.)
+  END-IF
+  IF #TRACING
+    PRINT (AD=L) *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Order processed: id:' OD-ID 'type:' OD-TYPE 'time:'
+      OD-TIME-PROCESSED
+  END-IF
+END-FIND
+*
+FNDNEXT. FIND (1) UPDATE-ORDER WITH  OD-SOURCE-ID = RMEX-SOURCE-ID
+WHERE OD-TYPE = OD-CREATE-AR AND OD-RETRY-NUMBER = 0                  /*
+  GETNEXT. GET UPDATE-ORDER *ISN (FNDNEXT.)
+  UPDATE-ORDER.OD-TIME-SCHEDULED := *TIMX
+  IF +TRACE-ORDER = 'Y' /* TRACE-ORDER found in jobcards
+    #TYPE-I := UPDATE-ORDER.OD-TYPE
+    COMPRESS 'Task' G-TASK-NUMBER *PROGRAM
+      'Next Order being updated:' UPDATE-ORDER.OD-ID '- type' #TYPE-I
+      '- created'   UPDATE-ORDER.OD-TIME-CREATED
+      '- scheduled' UPDATE-ORDER.OD-TIME-SCHEDULED TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  UPDATE (GETNEXT.)
+END-FIND
+END OF TRANSACTION
+*
+END-SUBROUTINE /* UPDATE-CURRENT-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE POSTPONE-CURRENT-ORDER
+************************************************************************
+UPDOD1. FIND UPDATE-ORDER WITH OD-ID = G-ORDER-ID
+  OD-TIME-SCHEDULED := *TIMX + 100
+  OD-TYPE:= OD-CREATE-AR
+  IF #TRACING
+    WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Order' G-ORDER-ID 'postponed to' OD-TIME-SCHEDULED
+  END-IF
+  UPDATE (UPDOD1.)
+END-FIND
+*
+END OF TRANSACTION
+*
+END-SUBROUTINE /* POSTPONE-CURRENT-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LOGICAL-FILE-NUMBER
+************************************************************************
+#SOURCE-ATTRIBUTES := RMEX-SOURCE-ATTRIBUTES
+#G-SOURCE-TYPE-BIN := RMEX-SOURCE-TYPE
+CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES #G-SOURCE-TYPE-BIN  /*Jobnr N5->N7
+#TARGET-DBID := #NOMDB-DBID
+#TARGET-FNR  := #NOMDB-FNR
+*
+PERFORM GET-LFILE
+IF G-NATRP-ERC = 0
+  PERFORM SET-LFILE
+END-IF
+*
+END-SUBROUTINE /* SET-LOGICAL-FILE-NUMBER
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+IF NOT LFILE
+  #LFILE-NEWDBID := #TARGET-DBID
+  #LFILE-NEWFILE := #TARGET-FNR
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-NEWDBID #LFILE-NEWFILE
+  IF #LFILE-RC NE 0
+    G-NATRP-ERC := 4007
+    G-NATRP-ERT := #LFILE-RC
+  ELSE
+    LFILE := TRUE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE REFRESH-LFILE
+************************************************************************
+IF LFILE
+  RESET #LFILE-RC
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+  IF #LFILE-RC NE 0
+    G-NATRP-ERC := 4008
+    G-NATRP-ERT := #LFILE-RC
+  ELSE
+    LFILE := FALSE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* REFRESH-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-LFILE
+************************************************************************
+RESET #LFILE-RC
+CALLNAT 'RMIGGFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+*
+END-SUBROUTINE /* GET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE LOG-SEPARATION-EXIT-USAGE
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN SAG-SEPARATION
+    COMPRESS '7015' R-EXITMEM G-MASTER-DEFINITION TO LG-MSG
+  WHEN USER-SEPARATION
+    COMPRESS R-EXITMEM '/' R-EXITLIB TO LG-MSG LEAVING NO
+    COMPRESS '7015' LG-MSG G-MASTER-DEFINITION TO LG-MSG
+  WHEN ANY
+    LG-USERID := G-LG-USERID
+    LG-CODE   := 'MO'
+    CALLNAT 'RLOG' PL-PARMS
+    END TRANSACTION
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* LOG-SEPARATION-EXIT-USAGE
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-STEPLIB
+************************************************************************
+** check existence of po-exitlib in steplib table
+CALLNAT 'RLIBACT' ##EXITLIB #STEPLIB-EXIST
+/*SU11 RESET #STEPLIB-EXIST /*?????
+IF NOT #STEPLIB-EXIST
+  NAT00009-LIBRARY := ##EXITLIB
+  RESET  NAT00009-FNR NAT00009-DBID
+  CALLNAT 'RGETLIB' NAT00009-APPLIC
+  NAT00009-FUNCTION := 08
+  CALLNAT 'NAT00009' NAT00009-PARMS
+**NAT00009-RESPONSE := 1234 /*ÜÜÜÜ
+  IF NAT00009-RESPONSE NE 0 /* ÜÜ sep. exit not executed ÜÜ SU10
+    G-NATRP-ERC := 1078     /*SU10 just msg - is this enough ???
+    LG-USERID   := G-LG-USERID
+    LG-CODE     := 'MO'
+    COMPRESS  '1078'  ##EXITLIB TO LG-MSG
+    CALLNAT 'RLOG' PL-PARMS
+    END TRANSACTION
+    SET CONTROL '<TECH' /*show steplibs SU10
+/*SU10 -> IF #TRACING
+    WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Unable to add steplib' ##EXITLIB 'mem:' ##EXITMEM
+    PRINT (AD=L) 'resp:' NAT00009-RESPONSE
+      'Definition:' G-MASTER-DEFINITION 'AR:' G-REPORT
+    COMPRESS NUMERIC '1078' 'steplib:' ##EXITLIB 'member:' ##EXITMEM
+      TO G-TRACE-MSG /*NOM1078 Error adding steplib :1:...
+    PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+    COMPRESS NUMERIC '0040' 'rsp:' NAT00009-RESPONSE 'Def.:'
+      G-MASTER-DEFINITION 'AR:' G-REPORT TO G-TRACE-MSG /*NOM0040 :1:
+    PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+/*SU10 <- END-IF
+  ELSE
+    STEPLIB-ADDED := TRUE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* ADD-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE REMOVE-STEPLIB
+************************************************************************
+IF NOT STEPLIB-ADDED
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'RLIBACT' ##EXITLIB #STEPLIB-EXIST
+IF #STEPLIB-EXIST
+  NAT00009-LIBRARY  := ##EXITLIB
+  CALLNAT 'RGETLIB' NAT00009-APPLIC
+  NAT00009-FUNCTION := 16
+  CALLNAT 'NAT00009' NAT00009-PARMS
+END-IF
+STEPLIB-ADDED := FALSE
+*
+END-SUBROUTINE /* REMOVE-STEPLIB
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  IF LFILE
+    CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+    LFILE := FALSE
+  END-IF
+  PERFORM REMOVE-STEPLIB
+*
+  CALLNAT 'C-NATERN' G-NATRP-ERT
+  G-NATRP-ERC := 21
+*
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Error during Processing of Definition' G-MASTER-DEFINITION
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Current Active Report' G-REPORT
+*
+  IF NOT (*ERROR-NR = 3000 THRU 3255)
+      AND NOT #UPDATE-ORDER-FLAG      /* BLI1
+    PERFORM UPDATE-CURRENT-ORDER
+  END-IF
+END-ERROR
+*
+END

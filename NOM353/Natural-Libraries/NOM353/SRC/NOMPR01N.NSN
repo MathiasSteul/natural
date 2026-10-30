@@ -1,0 +1,236 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMPR01N - Add logical printer
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* gw  94-10-19 s(999999) created
+* gw  97-01-31 s(261228) NOM0126 when no special attributes specified
+* gw  98-05-27 s(275632) DOCFORMAT sometimes overwritten by FORM
+* jvd 98-09-14 p(164220) NOM141ÖNAT23
+* jvd 99-11-08 p(188663) Put an end transaction when printer is added
+* jvd 99-12-17 p(190201) Comment out print message
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* xsiszha 2000-09-06 (CE7760) Use old PDA NOMPR14P for version < 2.1
+*                             PDA NOMPR--P is changed for version 2.1
+* xsetggr 2005-06-30 p(265613) evaluate eom-library, eom-def-user
+* xsetggr 2007-05-18 p(289847) restore NOM lfile when error occurs
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2009-05-26 P317780   adapt for version 32
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* raya    2012-01-29 NOMALL-1096 error-text 250 in nompr14p stow only
+* xsetggr 2012-08-09 NOMALL-1162 substitute variables in error msgs
+* SU1     2014-06-10 NOMALL-1281 show last update user+date
+* SU2     2018-04-06 NOMALL-1961 Use new task IDs
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING NOMPR14P
+* *****
+LOCAL USING EOM----P
+LOCAL USING EOMPRM-P
+LOCAL USING EOMPRM-E
+LOCAL USING EOM----E
+LOCAL USING EOMMSG-P
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+LOCAL
+1 #LFILE-CHANGED             (L)
+1 #NOM-DBID                  (N5)
+1 #NOM-FNR                   (N5)
+1 #I                         (I4)
+1 #J                         (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET NOMPR-ERROR-CODE NOMPR-ERROR-TEXT
+PERFORM GET-NOM-LFILE
+DECIDE FOR EVERY CONDITION
+  WHEN NOMPR-NOM-FNR NE 0 AND NOMPR-NOM-DBID NE 0
+    PERFORM SET-NOM-LFILE
+    #LFILE-CHANGED := TRUE
+  WHEN SATLF-ERROR-CODE = 0
+    PERFORM ADD-LOGICAL-PRINTER
+  WHEN #LFILE-CHANGED
+    PERFORM SET-OLD-NOM-LFILE
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NOM-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'GET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+#NOM-DBID := SATLF-DBID-N5
+#NOM-FNR  := SATLF-FNR-N5
+*
+END-SUBROUTINE /* GET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'SET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := NOMPR-NOM-DBID
+SATLF-FNR-N5  := NOMPR-NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-OLD-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5  := #NOM-DBID
+SATLF-FNR-N5   := #NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-OLD-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-INTERNAL-API
+************************************************************************
+RESET EOMMSG-PARMS
+CALLNAT 'EOMPRM-N' EOM-PARMS EOMPRM-PARMS EOMMSG-PARMS
+*
+END-SUBROUTINE /* CALL-INTERNAL-API
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-LOGICAL-PRINTER
+************************************************************************
+* Add logical printer with general attributes specified in NOPR-PARMS
+* abd predefined special attributes
+*
+EOMPRM-I-ATTRIBUTE-TYPE := PRINTER-GENERAL-ATTRIBUTES
+RESET EOMPRM-ATTR-GENERAL
+EOMPRM-I-TARGET-DBID    := NOMPR-NOM-DBID
+EOMPRM-I-TARGET-FNR     := NOMPR-NOM-FNR
+EOMPRM-I-NAME           := NOMPR-PRINTER-ID
+EOMPRM-PHYSICAL-NAME    := NOMPR-PHYSICAL-NAME
+EOMPRM-DESC             := NOMPR-DESC
+EOMPRM-EXITMEM          := NOMPR-EXITMEM
+EOMPRM-EXITLIB          := NOMPR-EXITLIB
+EOMPRM-COPIES           := NOMPR-COPIES
+EOMPRM-PRIORITY         := NOMPR-PRIORITY
+EOMPRM-JOBCARDS (*)     := NOMPR-JOBCARDS (*)
+EOMPRM-I-CHECK-FUNCTION := EOM-ADD
+EOM-FUNCTION            := EOM-ADD
+EOM-USER                := *USER
+EOM-LOG-TYPES (1)       := 'P'
+EOMPRM-LAST-UPDATE-USER := EOM-USER /*SU1
+EOMPRM-LAST-UPDATE      := *TIMX /*SU1
+*
+CALLNAT 'RGETLIB' EOM-LIBRARY
+COMPRESS EOM-LIBRARY 'U' TO EOM-USER-LIBRARY LEAVING NO
+EOM-DEF-USER := F#MONITOR-USER-AUTODEF (<>) /*SU2
+PERFORM CALL-INTERNAL-API  /* Add Logical Printer
+*
+IF EOMMSG-NR NE 0
+  NOMPR-ERROR-CODE := EOMMSG-NR
+  PERFORM GET-MSG-TEXT
+  ESCAPE ROUTINE
+END-IF
+END TRANSACTION
+*
+* Modify onherited special attributes of logical printer to attributes
+* specifies in NOMPR-PARMS
+*
+EOMPRM-I-ATTRIBUTE-TYPE := PRINTER-SPECIAL-ATTRIBUTES
+EOMPRM-I-NAME           := NOMPR-PRINTER-ID
+EOM-FUNCTION            := EOM-MODIFY
+FOR #I 1 25
+  IF NOMPR-ATTR-VAR (#I) = ' '
+    ESCAPE TOP
+  END-IF
+  IF EOMPRM-ATTR-VAR (*) = NOMPR-ATTR-VAR (#I)
+    EXAMINE FULL EOMPRM-ATTR-VAR (*) FOR FULL NOMPR-ATTR-VAR (#I)
+      GIVING INDEX  #J
+    IF #J NE 0
+      EOMPRM-ATTR-VALUE (#J) := NOMPR-ATTR-VALUE (#I)
+    END-IF
+  ELSE
+    NOMPR-ERROR-CODE := 126
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+IF NOMPR-ERROR-CODE NE 0
+  IF NOT (NOMPR-ATTR-VAR (*) NE ' ')
+    NOMPR-ERROR-TEXT := '???'
+  ELSE
+    NOMPR-ERROR-TEXT := NOMPR-ATTR-VAR (#I)
+  END-IF
+  NOMPR-ERROR-CODE := 126
+  EOM-FUNCTION     := EOM-BACKOUT
+  EOMPRM-I-NAME    := NOMPR-PRINTER-ID
+  PERFORM CALL-INTERNAL-API
+  ESCAPE ROUTINE
+END-IF
+*
+PERFORM CALL-INTERNAL-API  /* Modify Printer Attributes
+*
+IF EOMMSG-NR NE 0
+  NOMPR-ERROR-CODE := EOMMSG-NR
+  PERFORM GET-MSG-TEXT
+  EOM-FUNCTION  := EOM-BACKOUT
+  EOMPRM-I-NAME := NOMPR-PRINTER-ID
+  PERFORM CALL-INTERNAL-API
+  ESCAPE ROUTINE
+END-IF
+*
+* commit all changes
+*
+EOM-FUNCTION  := EOM-COMMIT
+EOMPRM-I-NAME := NOMPR-PRINTER-ID
+*
+PERFORM CALL-INTERNAL-API
+*
+IF EOMMSG-NR NE 0
+  NOMPR-ERROR-CODE := EOMMSG-NR
+  PERFORM GET-MSG-TEXT
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* ADD-LOGICAL-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TEXT
+************************************************************************
+IF EOMMSG-TEXT = ' '
+  NOMPR-ERROR-TEXT := F#GETMSG (<EOMMSG-NR, EOMMSG-TOKEN(1:3)>)
+ELSE
+  NOMPR-ERROR-TEXT := EOMMSG-TEXT
+END-IF
+*
+END-SUBROUTINE /* GET-MSG-TEXT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF #LFILE-CHANGED
+    PERFORM SET-OLD-NOM-LFILE
+  END-IF
+  NOMPR-ERROR-CODE := 9250
+  CALLNAT 'C-NATERN' NOMPR-ERROR-TEXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

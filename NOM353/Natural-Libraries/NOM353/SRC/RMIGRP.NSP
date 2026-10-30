@@ -1,0 +1,544 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RCTPRP
+* Function:  copy reports from source to target environment
+*
+* Maintenance
+* mrs 91-12-29 s(141159) support languages other than english
+* mrs 92-04-22  s(149179) dynamic definition creation (new Field)
+* mrs 93-09-17 s(999999) translate some texts
+* mrs 93-10-11 s(999999) translate some texts
+* jvd 97-07-16 p(163796) Set Lfile error - NOM4007 - RC=4
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* sju 00-03-24 p(191368) use N-HEADER instead of C-HEADER
+* xsiszha 2000-08-15 (CE7461) More than 5 printers
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* fhi     2003-07-29 P(227985) Clear unused modules
+* sju 04-06-22 p(252751) Transfer authorizations
+* xsetggr 2008-10-30 p(309496) err msg if target env not initialized
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2021-01-08 NOMALL-2443 recat VMREP-L
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING RLC----L
+LOCAL USING RPFK---L
+LOCAL USING ROT----L
+LOCAL USING VMREP-L
+LOCAL USING RTXT---L
+LOCAL
+*
+1 MIGRATE-REPORTS VIEW OF NRM-MIGRATE-REPORTS
+1 LFILE                (L)
+1 #LFILE-RC            (I4)             /*  error-code
+1 #LFILE-OLDDBID       (P5)             /*  old DBID
+1 #LFILE-OLDFILE       (P5)             /*  old File-Number
+1 #LFILE-NEWDBID       (P5)             /*  new DBID
+1 #LFILE-NEWFILE       (P5)             /*  new File-Number
+1 #FATHER-PROG         (A8)   INIT <'RTRANS'>
+1 #I                   (P2)
+1 #J                   (P2)
+1 #NOFLINES            (I2)   CONST <12>
+1 L-SCREEN (1:#NOFLINES)
+  2 L-IDENT (I2)
+  2 L-MARK             (A2)
+  2 CV-MARK            (C)
+  2 L-REPORT           (A25)
+  2 L-DESC             (A50)
+  2 L-JOBNAME          (A8)
+  2 L-WRITER           (A8)
+  2 L-ISN              (P10)
+  2 L-EXIST            (A4)
+  2 EXIST              (L)
+  2 L-MSG              (A7)
+1 L-HEADER             (A78)
+1 CV-TO                (C)          INIT <(AD=I)>
+1 CV-LINES             (C)
+1 CV-SELECTION         (C/1:1)
+1 REDEFINE CV-SELECTION
+  2 CV-SREP            (C)
+1 #FROM-DB             (P5)
+1 #FROM-FILE           (P5)
+1 #OLD-DB              (P5)   INIT <999>
+1 #OLD-FILE            (P5)   INIT <999>
+1 CONFIRMED            (L)
+1 COPIED               (L)
+1 END-OF-PROCESSING    (L)
+1 END-OF-DISPLAY       (L)
+1 END-OF-DATA          (L)
+1 NEW-SEARCH           (L)
+1 #CF-OBJECT           (A25)
+1 #O-REPNAME           (A25)
+1 #S-REPNAME           (A25) INIT <'*'>
+1 #PAGE                (P2)  INIT <1>
+1 #NOFPAGES            (I2)  CONST <20>
+1 #F-REPNAME           (A25/1:#NOFPAGES)
+1 #T-REPNAME           (A25)
+1 #LEN                 (N3)
+1 #XREF
+  2 #XREF-REPORT       (A25)
+  2 #XREF-USER         (10)
+    3 #XREF-USERID     (A8)
+    3 #XREF-USER-MSG   (A4)
+  2 #XREF-PRINTER      (20)
+    3 #XREF-PRINTER-ID (A8)
+    3 #XREF-PRINTER-MSG(A4)
+1 F                    (P2)
+1 I                    (P2)
+1 #LANGUAGE            (I1)
+1 #LAN-TAB             (1:6)
+  2 #LAN-IDENT         (I2)
+  2 #LAN-TEXT          (A70)
+1 #COPY-AUTH           (A1) INIT <'N'>
+1 #ERC                 (N4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM INITIALISATION
+MAIN. REPEAT
+  UNTIL END-OF-PROCESSING
+  RESET #I
+  RESET INITIAL NEW-SEARCH END-OF-DATA
+  REA. READ REPORTS BY R-REPNAME=#F-REPNAME (#PAGE) ENDING AT #T-REPNAME
+      WHERE R-REPNAME NE 'NOM-CONTROL-REC'
+    IF #I = #NOFLINES
+      PERFORM SCREEN-IO
+      IF END-OF-PROCESSING OR NEW-SEARCH
+        ESCAPE BOTTOM (REA.)
+      END-IF
+    END-IF
+    ADD 1 TO #I
+    PERFORM REPORT-TO-SCREEN
+  END-READ
+  IF #I > 0 OR *COUNTER (REA.) = 0
+    END-OF-DATA := TRUE
+    PERFORM SCREEN-IO
+  END-IF
+END-REPEAT
+PERFORM REFRESH-LFILE
+FETCH #FATHER-PROG
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+IF #I < #NOFLINES
+  CV-MARK (#I+1:#NOFLINES) := (AD=DP)
+END-IF
+CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RCTPRPM&'
+RESET END-OF-DISPLAY
+PERFORM REFRESH-LFILE
+REPEAT
+  IF #LANGUAGE NE *LANGUAGE
+    #LANGUAGE := *LANGUAGE
+    CALLNAT 'ROTINI-N' ##EQO-REPORT G-OBJ-TYPE G-OTB
+    PERFORM INIT-LINECOM
+    PERFORM PF-KEYS
+    INCLUDE RMVHLP-C
+    PERFORM INIT-TEXT
+    NEW-SEARCH := TRUE
+    ESCAPE BOTTOM
+  END-IF
+  SET CONTROL 'M21'
+  DECIDE FOR FIRST CONDITION
+    WHEN G-NATRP-ERC NE 0
+      IGNORE
+    WHEN END-OF-DATA AND #PAGE > 1
+      G-NATRP-ERC := 12                   /* bottom of data
+    WHEN END-OF-DATA AND #PAGE = 1
+      G-NATRP-ERC := 14                   /* all
+    WHEN NOT END-OF-DATA AND #PAGE = 1
+      G-NATRP-ERC := 11                   /* top of data
+    WHEN NONE
+      G-NATRP-ERC := 13                   /* more
+  END-DECIDE
+  PERFORM FLIP-DISPLAY
+  IF G-DISPLAY-LONG-NAMES
+    INPUT WITH TEXT *G-NATRP-ERC, G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RMIGRPL&'
+  ELSE
+    INPUT WITH TEXT *G-NATRP-ERC, G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RMIGRPM&'
+  END-IF
+  IF NOT (#COPY-AUTH = ' ' OR = 'Y' OR = 'N')
+    REINPUT *1099 MARK*#COPY-AUTH
+  END-IF
+  RESET G-NATRP-ERC G-NATRP-ERT
+  PERFORM COMMAND-PF-KEY
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+RESET #I L-SCREEN (*)
+IF NOT END-OF-PROCESSING
+  PERFORM SET-LFILE
+END-IF
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE REPORT-TO-SCREEN
+************************************************************************
+L-REPORT  (#I) := REPORTS.R-REPNAME
+L-DESC    (#I) := REPORTS.R-DESC
+L-JOBNAME (#I) := REPORTS.R-IDENT-JOB-NAME
+L-WRITER  (#I) := REPORTS.R-IDENT-WRITER
+L-ISN     (#I) := *ISN (REA.)
+L-MSG     (#I) := ' '
+CV-MARK   (#I) := (AD=I)
+FNDN. FIND NUMBER MIGRATE-REPORTS WITH R-REPNAME = REPORTS.R-REPNAME
+IF *NUMBER (FNDN.) > 0
+  L-EXIST (#I) := #LAN-TEXT (1)
+  EXIST   (#I) := TRUE
+ELSE
+  L-EXIST (#I) := #LAN-TEXT (2)
+END-IF
+*
+END-SUBROUTINE /* REPORT-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-LINECOM
+************************************************************************
+G-LC-IDENT (01) := ##EQU-COPY
+G-LC-IDENT (02) := ##EQU-XREF
+G-LC-IDENT (03) := ##EQU-AUTHORIZE
+G-LC-NUM        := 3
+CALLNAT 'RLCINI-N' G-OBJ-TYPE G-LC G-LCB
+CALLNAT 'RFLIPG-N' G-LC G-LINECOM (*)
+*
+END-SUBROUTINE /* INIT-LINECOM
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+PERFORM INIT-PFKEYS
+PERFORM SET-PFKEYS
+*
+END-SUBROUTINE /* PF-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-SELECTION-KEYS
+************************************************************************
+#LEN := 25
+CALLNAT 'SELALPHA' #S-REPNAME #F-REPNAME (1) #T-REPNAME #LEN
+*
+END-SUBROUTINE /* INIT-SELECTION-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+IF G-DIRECT-COMMAND = ' '
+  PERFORM CHECK-PF-KEY
+END-IF
+DECIDE ON FIRST VALUE OF G-DIRECT-COMMAND
+  VALUE 'EXIT'
+    END-OF-PROCESSING := END-OF-DISPLAY    := TRUE
+  VALUE 'MENU'
+    END-OF-PROCESSING := END-OF-DISPLAY    := TRUE
+  VALUE 'UP'
+    PERFORM CHECK-MODIFICATIONS
+    IF #PAGE > 1 AND NOT NEW-SEARCH
+        AND NOT COPIED
+      SUBTRACT 1 FROM #PAGE
+      END-OF-DATA := FALSE
+      END-OF-DISPLAY := NEW-SEARCH := TRUE
+    END-IF
+  VALUE 'DOWN'   PERFORM CHECK-MODIFICATIONS
+    IF NOT END-OF-DATA AND NOT NEW-SEARCH AND NOT COPIED
+      ADD 1 TO #PAGE
+      IF #PAGE > #NOFPAGES
+        #PAGE := #NOFPAGES
+        #F-REPNAME (1:19) := #F-REPNAME (2:20)
+      END-IF
+      #F-REPNAME (#PAGE) := REPORTS.R-REPNAME
+      END-OF-DISPLAY     := TRUE
+    END-IF
+  VALUE 'EXT'    IF G-DISPLAY-LONG-NAMES
+      G-DISPLAY-LONG-NAMES := FALSE
+    ELSE
+      G-DISPLAY-LONG-NAMES := TRUE
+    END-IF
+    RESET #LANGUAGE
+  VALUE 'FLIP'   PERFORM FLIP-HANDLE
+  VALUE 'HELP'   REINPUT USING HELP
+  VALUE 'FOLLOW' PERFORM FOLLOW-MONITOR
+  VALUE ' '      PERFORM CHECK-MODIFICATIONS
+  ANY            RESET G-DIRECT-COMMAND
+  NONE           PERFORM EXECUTE-DIRECT-COMMAND
+END-DECIDE
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-PF-KEY
+************************************************************************
+G-PF-KEY := *PF-KEY
+EXAMINE G-PF-KEY FOR 'PF' REPLACE ' '
+MOVE LEFT G-PF-KEY TO G-PF-KEY
+IF G-PF-KEY IS (N4)
+  G-PF-IND := VAL (G-PF-KEY)
+  G-DIRECT-COMMAND := G-PF-CODE (G-PF-IND)
+ELSE
+  G-PF-FUNC := *PF-KEY
+END-IF
+*
+END-SUBROUTINE /* CHECK-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE EXECUTE-DIRECT-COMMAND
+************************************************************************
+MOVE LEFT G-DIRECT-COMMAND TO G-DIRECT-COMMAND
+IF G-DIRECT-COMMAND IS (N2.1) AND G-DIRECT-COMMAND NE '.'
+  COMPRESS '>' G-DIRECT-COMMAND INTO G-DIRECT-COMMAND LEAVING NO
+END-IF
+FETCH RETURN 'NRMCPR'
+SET CONTROL 'WMB'
+DECIDE ON FIRST VALUE OF G-NATRP-ERC
+  VALUE 0,5,419,420,9998 IGNORE
+  VALUE 9997        RESET G-NATRP-ERC
+  VALUE 9999
+    RESET G-NATRP-ERC
+    END-OF-DISPLAY := END-OF-PROCESSING := TRUE
+  NONE
+    REINPUT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND ALARM
+END-DECIDE
+*
+END-SUBROUTINE /* EXECUTE-DIRECT-COMMAND
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-MODIFICATIONS
+************************************************************************
+DECIDE FOR EVERY CONDITION
+  WHEN #O-REPNAME NE #S-REPNAME
+    PERFORM INIT-SELECTION-KEYS
+    #O-REPNAME := #S-REPNAME
+  WHEN #OLD-DB NE G-TARGET-DBID OR #OLD-FILE NE G-TARGET-FNR
+    PERFORM CHANGE-LOGICAL-FILE
+    #OLD-DB := G-TARGET-DBID
+    #OLD-FILE := G-TARGET-FNR
+  WHEN ANY
+    RESET INITIAL #PAGE
+    NEW-SEARCH := END-OF-DISPLAY := TRUE
+  WHEN NONE
+    COPIED := FALSE
+    RESET L-IDENT (*)
+    INCLUDE RLCMTI-C
+    FOR #J = 1 TO #I
+      DECIDE ON FIRST VALUE OF L-IDENT (#J)
+        VALUE ##EQU-COPY
+          RESET L-MARK (#J)
+          IF G-CONFIRM AND EXIST (#J)
+            RESET CONFIRMED
+            #CF-OBJECT := L-REPORT (#J)
+            CALLNAT 'RMIGCF' #CF-OBJECT 'R'
+              G-DISPLAY-LONG-NAMES CONFIRMED
+          ELSE
+            CONFIRMED := TRUE
+          END-IF
+          IF CONFIRMED
+            PERFORM MIGRATION
+          END-IF
+          IF G-NATRP-ERC NE 0
+            ESCAPE BOTTOM
+          END-IF
+        VALUE ##EQU-XREF
+          RESET L-MARK (#J) #XREF
+          #XREF-REPORT := L-REPORT (#J)
+          PERFORM SET-LFILE
+          CALLNAT 'RMIGRPXR' G-NATRP-ERC #XREF #LAN-TEXT (*)
+          PERFORM REFRESH-LFILE
+          IF G-NATRP-ERC = 0
+            SET CONTROL 'WMFL56C18B04/12'
+            INPUT USING MAP 'RMIGRPW&'
+            SET CONTROL 'WMB'
+          END-IF
+        VALUE ##EQU-AUTHORIZE
+          RESET L-MARK(#J)
+          G-FATHER-PROG:= *PROGRAM
+          G-C-OBJTYPE:= 'R'
+          G-C-OBJNAME:= L-REPORT(#J)
+          FETCH RETURN 'RLISGR'
+        NONE IGNORE
+      END-DECIDE
+    END-FOR
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-MODIFICATIONS
+*
+************************************************************************
+DEFINE SUBROUTINE CHANGE-LOGICAL-FILE
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN G-TARGET-DBID < 1
+    REINPUT *0635 MARK *G-TARGET-DBID  /* reinput valid dbid
+  WHEN G-TARGET-FNR < 1
+    REINPUT *0636 MARK *G-TARGET-FNR   /* reinput file-number
+  WHEN G-TARGET-FNR  = #FROM-FILE AND G-TARGET-DBID = #FROM-DB
+    REINPUT *4004 MARK *G-TARGET-DBID  /* same environment
+  WHEN NONE
+    PERFORM SET-LFILE
+    FNDC. FIND NUMBER MIGRATE-REPORTS WITH R-REPNAME = 'NOM-CONTROL-REC'
+    IF *NUMBER (FNDC.) = 0
+      PERFORM REFRESH-LFILE
+      REINPUT *4005 MARK *G-TARGET-DBID
+    END-IF
+    CALLNAT 'RMIGCHKU' G-USERID #ERC
+    IF #ERC NE 0
+      PERFORM REFRESH-LFILE
+    END-IF
+    IF #ERC =4032 OR=4033
+      REINPUT *#ERC,G-USERID MARK *G-TARGET-DBID
+    END-IF
+END-DECIDE
+*
+END-SUBROUTINE /* CHANGE-LOGICAL-FILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+IF NOT LFILE AND G-TARGET-FNR > 0
+  #LFILE-NEWDBID := G-TARGET-DBID
+  #LFILE-NEWFILE := G-TARGET-FNR
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-NEWDBID #LFILE-NEWFILE
+  IF #LFILE-RC NE 0
+    G-NATRP-ERC := 4007
+    G-NATRP-ERT := #LFILE-RC
+  ELSE
+    LFILE := TRUE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE REFRESH-LFILE
+************************************************************************
+IF LFILE
+  RESET #LFILE-RC
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+  IF #LFILE-RC NE 0
+    G-NATRP-ERC := 4008
+    G-NATRP-ERT := #LFILE-RC
+  ELSE
+    LFILE := FALSE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* REFRESH-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-LFILE
+************************************************************************
+RESET #LFILE-RC
+CALLNAT 'RMIGGFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+IF #LFILE-RC NE 0
+  G-NATRP-ERC := 4006
+  G-NATRP-ERT := #LFILE-RC
+END-IF
+*
+END-SUBROUTINE /* GET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE INITIALISATION
+************************************************************************
+IF G-USER-TYPE NE 'A'
+  G-NATRP-ERC       := 0020
+  #FATHER-PROG      := 'RMENU'
+  END-OF-PROCESSING := TRUE
+END-IF
+DECIDE FOR EVERY CONDITION
+  WHEN NOT END-OF-PROCESSING
+    INCLUDE CVIDEO
+    G-FLIP-STATUS := 'P'
+    #FROM-DB      := G-NATRP-DBID
+    #FROM-FILE    := G-NATRP-FNR
+    END-OF-DATA   := TRUE
+  WHEN NOT END-OF-PROCESSING
+    PERFORM GET-LFILE /* get physical DBID,File of logical file 186
+    IF #LFILE-RC NE 0
+      END-OF-PROCESSING := TRUE
+    END-IF
+  WHEN NOT END-OF-PROCESSING
+    IF G-NATRP-ERC = 0
+      G-NATRP-ERC := 4000 /* please enter target
+    END-IF
+    PERFORM SCREEN-IO
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* INITIALISATION
+*
+************************************************************************
+DEFINE SUBROUTINE MIGRATION
+************************************************************************
+PERFORM SET-LFILE
+CALLNAT 'RMIGRPCO' G-NATRP-ERC G-USERID L-REPORT (#J) #COPY-AUTH
+PERFORM REFRESH-LFILE
+DECIDE FOR FIRST CONDITION
+  WHEN G-NATRP-ERC NE 0
+    L-MSG (#J) := #LAN-TEXT (3)
+  WHEN EXIST (#J)
+    L-MSG (#J) := #LAN-TEXT (5)
+  WHEN NONE
+    L-MSG (#J) := #LAN-TEXT (4)
+    EXIST (#J) := TRUE
+    L-EXIST (#J) := #LAN-TEXT (1)
+END-DECIDE
+COPIED := TRUE
+*
+END-SUBROUTINE /* MIGRATION
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-TEXT
+************************************************************************
+#LAN-IDENT (1) := ##TXT-YES
+#LAN-IDENT (2) := ##TXT-NO
+#LAN-IDENT (3) := ##TXT-ERROR
+#LAN-IDENT (4) := ##TXT-COPIED
+#LAN-IDENT (5) := ##TXT-REPLACED
+#LAN-IDENT (6) := ##TXT-NO-ENTRIES
+*
+FOR I = 1 TO 6
+  CALLNAT 'RLTINI-N' #LAN-IDENT (I) #LAN-TEXT  (I) G-TXB
+END-FOR
+*
+END-SUBROUTINE /* INIT-TEXT
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFBRW-C
+INCLUDE RPFEXT-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  IF LFILE
+    CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+    LFILE := FALSE
+  END-IF
+  DECIDE ON FIRST *ERROR-NR
+    VALUE 3017   G-NATRP-ERC := 4001
+    VALUE 3148   G-NATRP-ERC := 4001
+    VALUE 3061   G-NATRP-ERC := 4005
+    ANY          FETCH 'RMIGRP'
+    NONE         IGNORE
+  END-DECIDE
+END-ERROR
+*
+INCLUDE RPFSET-C /* SET-PFKEYS
+*
+END

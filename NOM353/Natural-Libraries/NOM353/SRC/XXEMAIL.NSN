@@ -1,0 +1,735 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* XXEMAIL - Send Emails on Mainframe and on Unix (Template:RMPREML)
+*
+*
+* Maintenance
+* uuuuuuuu yyyy-mm-dd iTrac       Remark
+* fhi      2016-10-11 NOMALL-1934 Created from RMPREML
+* bli      2019-05-03 NOMALL-2261 NPR 2.1.12 buffer, lda, pda
+* fhi      2019-05-16 NOMALL-2276 Enhance trace and error messages
+* SU1     2019-08-23 NOMALL-2322 remove fields+use local monitor
+*           instead + avoid NAT1257(member does not exist) +Unix:(a)->§
+* SU2     2019-11-14 NOMALL-2317 show msg name with TEST
+* SU3     2020-04-27 NOMALL-2349 remove unused
+* SU4     2020-12-01 NOMALL-2440 del. UX-EMAIL-RECIPIENTS
+* SU5     2023-12-20 NOMALL-???? avoid shortcut of msg(len 85)
+*  SU 2023-11-15 08:53:21.2 NAT0082 Ungueltiges Kommando; oder
+*   Unterprogramm #SU_EX nicht in der
+* ----------------------------------------------------------------------
+* This subprogram sends E-Mail messages using the SEND-MAIL view of
+* NPR Mainframe or the 'sendmail' command on NPR Unix.
+* The mail body can be X-ARRAY 'EM-EMAIL-BODY'
+* or a Natural text member.
+* It can contain user defined variables of format &name which
+* are substituted by the given values during sending.
+* An email body member is read to EM-EMAIL-BODY first and then sent
+* to the desired MF/Unix-Node.
+* This routine is called once. The whole mail must be passed to this
+* module. On MF datasets can be attached as text, on Unix all file
+* types can be attached.
+* This routine writes to log but does no END TRANSACTION
+* ----------------------------------------------------------------------
+* Parameter usage:
+*  EM-FUNCTION             Format (A1)
+*                          A=Send array EM-EMAIL-BODY
+*                          M=Send EM-EMAIL-MEMBER (Natural text member)
+*                          B=Both: Read EM-EMAIL-MEMBER and look for
+*                                  variable &MESSAGES. Insert the whole
+*                                  contents of EM-EMAIL-BODY there.
+*                          T=Test: Both + ..
+*  EM-SUBJECT              Subject line of the message
+*  EM-FROM-NAME            E-Mail address of sender
+*  EM-REPLY-TO             Return emails to this address
+*  EM-RECIPIENTS           Email recipients   separated by ';'
+*  EM-CC-RECIPIENTS        Recipients in cc   separated by ';'
+*  EM-BCC-RECIPIENTS       Recipients in bcc  separated by ';'
+*  EM-EMAIL-LIBRARY        Natural library of the member to be sent
+*                          with function 'M' (email BODY)
+*  EM-EMAIL-MEMBER         Natural member to be sent with
+*                          function 'M' (email BODY)
+*  EM-EMAIL-BODY           X-Array to be sent with function 'A'
+*                          will also be filled with function 'M' but
+*                          not returned
+*  EM-VARIABLES            Field in format:
+*                          &variable1=value1;&variabe2=value2;...
+*                          Will substitute the variables in array
+*                          EM-EMAIL-BODY or in EM-EMAIL-MEMBER
+*  EM-ERROR-CODE           Return code:
+*                           0 = successful completion
+*                           n = NOMnnnn error message number
+*  EM-ERROR-TEXT           Error text of EM-ERROR-CODE
+*  EM-TRACING              Optional: Set flag for tracing
+*  EM-MSG-NAME             Name of the message in NOM (8.1.14)
+************************************************************************
+/*SU1 removed fields:
+*  EM-NODE                 Node number (N5) of the sending MF-NPR
+*                          Has to be 0 for NPR Unix to be accessed
+*  EM-UX-NODE              Node name of the sending NPR Unix node
+*                          if EM-NODE is set to 0
+*  EM-HOST-CODE-PAGE       Codepage of the sending NPR node (only MF)
+*  EM-ATTACHMENT           Attached file on Unix, attached dataset
+*                          on MF. On MF text or html only.
+* ----------------------------- Parameter ------------------------------
+DEFINE DATA
+PARAMETER USING XXEMAILP
+PARAMETER 1 #EXTENDED-MSG (A250/1:3) OPTIONAL /*SU1
+************************************************************************
+INDEPENDENT
+1 +NOD-LOCAL-NAME (A16) /*for GUI: both fields will be filled if empty
+1 +NOD-LOCAL-NODE (N5)  /*
+* *****
+LOCAL USING XXUX---P
+LOCAL USING VUXDEF-L
+LOCAL USING NAD-MSG   /* Data for message exchange
+LOCAL USING NAD-FLD   /* Description of the field in error
+LOCAL USING XXGMSG-A  /* Get dynamic messages
+LOCAL USING XXSUBS-A  /* Replae placeholders in message string
+*
+LOCAL
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU1 SU4 was NRM-MONITOR
+  2 MF-MONITOR-NODE
+1 SEND-EMAIL VIEW OF SEND-EMAIL
+  2 ERROR-TEXT
+  2 ERROR-CODE
+  2 EXTENDED-TEXT             (A250/1:3) /*SU1
+/*SU3 2 SUBJECT 2 RECORD 2 FROM-NAME 2 REPLY-TO 2 FUNCTION
+/*SU3 2 NODE 2 NODE-NAME 2 SYSTEM-CODE 2 SYSTEM-MESSAGE-CODE
+/*SU3 2 RECIPIENT (1:20) 2 CC-RECIPIENT (1:20) 2 BCC-RECIPIENT (1:20)
+/*SU1 2 HOST-CODE-PAGE 2 DSNAME 2 ELEMENT 2 MEMBER 2 LIBRARY
+/*SU1 2 SUB-LIBRARY
+*
+1 V                           (I1) CONST <20>
+1 NADA1100
+  2 OBJECT-KEY
+    3 DBID                    (N5)
+    3 FNR                     (N5)
+    3 PASSWORD                (A8)
+    3 CIPHERCODE              (N8)
+    3 OBJECT-CLASS            (I1)
+    3 LIBRARY                 (A8)
+    3 OBJECT-NAME             (A32)
+    3 OBJECT-TYPE             (A2)
+    3 OBJECT-KIND             (A1)
+  2 INPUTS
+    3 OPT-ACCESS              (A1)
+    3 OPT-ET                  (L)
+    3 OPT-REPLACE             (A1)
+    3 OPT-LINE-NUM            (A1)
+    3 OPT-STEPLIBS            (L)
+    3 OPT-REDEF-DIR           (L)
+    3 OPT-STREAM              (A1)
+    3 OPT-AMOUNT              (I2)
+    3 OPT-LINESIZE            (I2)
+  2 INPUT-OUTPUTS
+    3 INT-HANDLE              (I4)
+    3 NEXT-SEQ                (I4)
+    3 NEXT-NUM                (I2)
+  2 OUTPUTS
+    3 RETURNED                (I2)
+    3 SRC-NUM                 (I2/1:V)
+    3 SRC-TEXT                (A1/1:V,1:92)
+    3 REDEFINE SRC-TEXT
+      4 SRC-GROUP             (1:V)
+        5 SRC-LINE            (A92)
+    3 SRC-SEQ                 (I4/1:V)
+    3 SRC-LONG                (A1/1:V)
+      /*
+1 NATA1100
+  2 VERSION                   (I1) INIT <3>
+  2 V1-NSC-CKECK              (A1)
+  2 V2-COUNT-LINES            (A1)
+  2 V3-EMPTY-BLANK            (A1) /* 'Y' = return empty lines on mainframe
+    /*       with blank instead of H'00'
+1 REDEFINE NATA1100
+  2 EXTENDED-PARMS
+    3 EXTENDED-DATA           (A1/1:4)
+*
+1 #RECIPIENT                  (A/20)  DYNAMIC
+1 #CC-RECIPIENT               (A/20)  DYNAMIC
+1 #BCC-RECIPIENT              (A/20)  DYNAMIC
+/*SU3 1 #BOUNDARY                   (A80)
+1 #LINE                       (A)     DYNAMIC
+1 #RECORD                     (A)     DYNAMIC
+1 #STRING                     (A)     DYNAMIC
+1 #TEMP-FILE                  (A)     DYNAMIC
+1 #LOG-FILE                   (A)     DYNAMIC
+1 #UX-FUNCTION                (A8)
+1 #SEND-EMAIL-FUNCTION        (A80)
+1 IX                          (I2)
+* Variables for XXTABLE handling email-body
+1 #BODY-FUNCTION              (A1)
+1 #BODY-LINE                  (A)     DYNAMIC
+1 #BODY-CURRENT-IX            (I4)
+1 #BODY-LAST-IX               (I4)
+1 #BODY-TEMP1                 (I4)
+1 #BODY-TEMP2                 (I4)
+1 #BODY-RC                    (N4)
+*
+* Variables for XXTABLE handling contents of EM-EMAIL-MEMBER
+1 #MEMBER-FUNCTION            (A1)
+1 #MEMBER-ARRAY               (A/*)   DYNAMIC
+1 #MEMBER-LINE                (A)     DYNAMIC
+1 #MEMBER-CURRENT-IX          (I4)
+1 #MEMBER-LAST-IX             (I4)
+1 #MEMBER-TEMP1               (I4)
+1 #MEMBER-TEMP2               (I4)
+1 #MEMBER-RC                  (N4)
+*
+* Variables for XXTABLE2 handling substiution variables
+1 #VARIABLE-COLUMNS          (I4) CONST <2>
+1 #VARIABLE-FUNCTION         (A1)
+1 #VARIABLES                 (A/*,#VARIABLE-COLUMNS) DYNAMIC
+1 #VARIABLE                  (A/  #VARIABLE-COLUMNS) DYNAMIC
+1 #VARIABLE-CURRENT-IX       (I4)
+1 #VARIABLE-LAST-IX          (I4)
+1 #VARIABLE-TEMP1            (I4)
+1 #VARIABLE-TEMP2            (I4)
+1 #VARIABLE-RC               (I4)
+1 ##EM-VARIABLE              (A)      DYNAMIC
+1 ##EM-SUBJECT               (A)      DYNAMIC
+/*SU1 1 #POS                       (I4)
+1 #OCC                       (I4)
+*
+1 #TRACING                   (L)
+1 #TRACE-MSG                 (A250)
+*                                                                       *
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF #EM-TRACING SPECIFIED
+  #TRACING := #EM-TRACING
+END-IF
+/*SU5 PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG
+RESET #EM-ERROR-CODE #EM-ERROR-TEXT
+DECIDE ON EVERY VALUE OF #EM-ERROR-CODE
+  VALUE 0
+    IF #EM-FUNCTION ='T' /*SU1
+      COMPRESS 'Test NOM Mail:' #EM-SUBJECT TO ##EM-SUBJECT
+      #EM-SUBJECT := ##EM-SUBJECT
+    ELSE
+      ##EM-SUBJECT := #EM-SUBJECT
+    END-IF
+    DECIDE ON EVERY VALUE OF #EM-FUNCTION
+      VALUES 'A','B','T' /*SU1
+        #BODY-LAST-IX := *OCC(#EM-EMAIL-BODY)
+        IF #EM-FUNCTION ='T' AND #BODY-LAST-IX = 0 /*SU1
+          EXPAND ARRAY #EM-EMAIL-BODY TO (1:1)
+          COMPRESS 'Test for message name ''' #EM-MSG-NAME '''' /*SU2
+            ' &MESSAGES' TO #EM-EMAIL-BODY (1)
+          #BODY-LAST-IX := *OCC(#EM-EMAIL-BODY)
+        END-IF
+      VALUES 'M','B','T'
+        PERFORM GET-EMAIL-MEMBER
+        #BODY-FUNCTION := 'K' /* reset body array
+        INCLUDE XXTABLE '#BODY-FUNCTION'   '#EM-EMAIL-BODY'
+          '#BODY-LINE'  '#BODY-CURRENT-IX' '#BODY-LAST-IX'
+          '#BODY-TEMP1' '#BODY-TEMP2'      '#BODY-RC'
+        #OCC := *OCC(#MEMBER-ARRAY)
+        EXPAND ARRAY #EM-EMAIL-BODY TO (1:#OCC)
+        MOVE #MEMBER-ARRAY(*)   TO #EM-EMAIL-BODY(*)
+        MOVE #MEMBER-LAST-IX    TO #BODY-LAST-IX
+      NONE
+        #EM-ERROR-TEXT := #EM-ERROR-CODE := 2600 /* invalid function
+        PERFORM XXRLOG-WRITE-LOG 'W' #EM-ERROR-TEXT
+    END-DECIDE
+  VALUE 0
+    PERFORM REPLACE-VARIABLES
+/*SU5 -> VALUE 0 * fhi      2019-05-16 NOMALL-2276 start insertion
+/*  IF #EM-NODE = 0 AND #EM-UX-NODE = ' '
+/*    P-ERC := #EM-ERROR-TEXT := #EM-ERROR-CODE := 2019
+/*SU5 <- COMPRESS #EM-ERROR-TEXT #LASTPROG TO #EM-ERROR-TEXT END-IF
+  VALUE 0
+    IF *MACHINE-CLASS = 'MAINFRAME' /*SU1 IF #EM-NODE = 0
+      PERFORM SEND-EMAIL-MF
+    ELSE
+      PERFORM SEND-EMAIL-UNIX
+    END-IF
+  NONE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SEND-EMAIL-MF
+************************************************************************
+IF +NOD-LOCAL-NODE = 0 /*GUI ? -> get it Ü /*SU1
+  RDLOC. READ(1) MF-NODE BY MF-TYPE-ID = 'MR-' /*see RMSWNODE SU4
+    +NOD-LOCAL-NODE := MF-MONITOR-NODE
+  END-READ
+END-IF
+SEPARATE #EM-RECIPIENTS INTO #RECIPIENT(*) IGNORE WITH DELIMITER ';'
+SEPARATE #EM-CC-RECIPIENTS INTO
+  #CC-RECIPIENT(*) IGNORE WITH DELIMITER ';'
+SEPARATE #EM-BCC-RECIPIENTS INTO
+  #BCC-RECIPIENT(*) IGNORE WITH DELIMITER ';'
+*
+#BODY-FUNCTION := 'S' /* Set sequential read to 1st table entry
+INCLUDE XXTABLE '#BODY-FUNCTION'   '#EM-EMAIL-BODY'
+  '#BODY-LINE'  '#BODY-CURRENT-IX' '#BODY-LAST-IX'
+  '#BODY-TEMP1' '#BODY-TEMP2'      '#BODY-RC'
+READ-BODY. REPEAT
+  #BODY-FUNCTION := 'R' /* Read X-Array
+  INCLUDE XXTABLE '#BODY-FUNCTION'   '#EM-EMAIL-BODY'
+    '#LINE'       '#BODY-CURRENT-IX' '#BODY-LAST-IX'
+    '#BODY-TEMP1' '#BODY-TEMP2'      '#BODY-RC'
+  IF #BODY-RC = 1
+    ESCAPE BOTTOM (READ-BODY.)
+  END-IF
+**PRINT (AD=L) *PROGRAM *LINE 'len:' *LENGTH(#LINE) 'l:' #LINE
+  PERFORM SEND-TO-MF
+  IF #EM-ERROR-CODE NE 0
+    ESCAPE ROUTINE
+  END-IF
+END-REPEAT
+RESET #LINE
+#SEND-EMAIL-FUNCTION := 'CLOSE'
+PERFORM SEND-TO-MF
+*
+END-SUBROUTINE /* SEND-EMAIL-MF
+*
+************************************************************************
+DEFINE SUBROUTINE SEND-EMAIL-UNIX
+************************************************************************
+RESET P-ERC P-ERT
+DECIDE ON EVERY VALUE OF P-ERC
+  VALUE 0
+/*SU1 -> FIND-UX. FIND UX-NODES WITH UX-NODE-NAME = #EM-UX-NODE
+/*    IF NO RECORDS FOUND
+/*      P-ERC := #EM-ERROR-TEXT := #EM-ERROR-CODE := 2028
+/*      COMPRESS #EM-ERROR-TEXT #EM-UX-NODE #LASTPROG TO #EM-ERROR-TEXT
+/*      PERFORM XXRLOG-WRITE-LOG 'W' #EM-ERROR-TEXT
+/*      ESCAPE BOTTOM (FIND-UX.)
+/*SU1 <-  END-NOREC
+    IF +NOD-LOCAL-NAME = ' ' /*GUI ? -> get it Ü /*SU1
+      RDUX. READ (1) UX-NODES BY UX-SUSP-NAME = 'L' /*see RMSWNODE
+        IF UX-NODE-SUSPEND NE 'M' AND UX-NODE-SUSPEND NE 'L'
+          ESCAPE BOTTOM (RDUX.)
+        END-IF
+        +NOD-LOCAL-NAME := UX-NODE-NAME
+      END-READ
+    END-IF
+    FIND-UX. FIND UX-NODES WITH UX-NODE-NAME = +NOD-LOCAL-NAME
+      /*local node MUST be filled and exist ÜÜ
+      XXUX---P.P-NODE-NAME       := UX-NODE-NAME
+      XXUX---P.P-USERID          := UX-NODE-USERID
+      XXUX---P.P-CIPHER-PASSWORD := UX-NODE-PASSWORD
+      XXUX---P.P-GROUP           := UX-NODE-GROUP
+      XXUX---P.P-NODE-SUSPEND    := UX-NODE-SUSPEND
+      COMPRESS UX-NODE-TEMPDIR '/.email-' *PID TO  #TEMP-FILE LEAVING NO
+      PERFORM XXCHKFN-CHECK-FILENAME #TEMP-FILE P-ERC
+      IF P-ERC > 1
+        COMPRESS 'Wrong filename:' #TEMP-FILE TO P-ERT
+      ELSE
+        RESET P-ERC
+      END-IF
+      COMPRESS #TEMP-FILE '.log' TO #LOG-FILE LEAVING NO
+    END-FIND
+  VALUE 0
+    #BODY-FUNCTION := 'S' /* Set sequential read to 1st table entry
+    INCLUDE XXTABLE '#BODY-FUNCTION'   '#EM-EMAIL-BODY'
+      '#BODY-LINE'  '#BODY-CURRENT-IX' '#BODY-LAST-IX'
+      '#BODY-TEMP1' '#BODY-TEMP2'      '#BODY-RC'
+    READ-BODY3. REPEAT
+      #BODY-FUNCTION := 'R' /* Read X-Array
+      INCLUDE XXTABLE '#BODY-FUNCTION'   '#EM-EMAIL-BODY'
+        '#LINE'       '#BODY-CURRENT-IX' '#BODY-LAST-IX'
+        '#BODY-TEMP1' '#BODY-TEMP2'      '#BODY-RC'
+      IF #BODY-RC = 1
+        ESCAPE BOTTOM (READ-BODY3.)
+      END-IF
+      P-FILE-NAME       := #TEMP-FILE
+      XXUX---P.P-RECORD := #LINE
+      #UX-FUNCTION      := 'WRITE'
+      PERFORM UNIX-FUNCTION
+      IF P-ERC NE 0
+        ESCAPE BOTTOM (READ-BODY3.)
+      END-IF
+    END-REPEAT
+  VALUE 0
+    P-FILE-NAME := #TEMP-FILE
+    #UX-FUNCTION := 'CLOSE'
+    PERFORM UNIX-FUNCTION
+  VALUE 0
+    #UX-FUNCTION := 'PUTENV'
+    DECIDE FOR EVERY CONDITION
+      WHEN #EM-FROM-NAME NE ' '
+        P-FILE-NAME := 'EMAIL'
+        P-RECORD    := #EM-FROM-NAME
+        PERFORM UNIX-FUNCTION
+      WHEN #EM-REPLY-TO NE ' '
+        P-FILE-NAME := 'REPLYTO'
+        P-RECORD    := #EM-REPLY-TO
+        EXAMINE P-RECORD FOR '(a)' REPLACE '§' /*SU1
+        PERFORM UNIX-FUNCTION
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+  VALUE 0
+    #RECORD := 'mutt '
+    DECIDE FOR EVERY CONDITION
+/*SU1 WHEN #EM-ATTACHMENT NE ' '
+/*SU1   COMPRESS #RECORD '-a' #EM-ATTACHMENT TO #RECORD
+      WHEN ##EM-SUBJECT NE ' '
+        COMPRESS #RECORD '-s "' ##EM-SUBJECT '"' TO #RECORD
+      WHEN #EM-BCC-RECIPIENTS NE ' '
+        REPEAT UNTIL #EM-BCC-RECIPIENTS = ' '
+          SEPARATE #EM-BCC-RECIPIENTS INTO #STRING
+            REMAINDER #EM-BCC-RECIPIENTS WITH DELIMITER ';'
+          EXAMINE #STRING FOR '(a)' REPLACE '§' /*SU1
+          COMPRESS #RECORD '-b' #STRING TO #RECORD
+        END-REPEAT
+      WHEN #EM-CC-RECIPIENTS NE ' '
+        REPEAT UNTIL #EM-CC-RECIPIENTS = ' '
+          SEPARATE #EM-CC-RECIPIENTS INTO #STRING
+            REMAINDER #EM-CC-RECIPIENTS WITH DELIMITER ';'
+          EXAMINE #STRING FOR '(a)' REPLACE '§' /*SU1
+          COMPRESS #RECORD '-c' #STRING TO #RECORD
+        END-REPEAT
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+    REPEAT UNTIL #EM-RECIPIENTS = ' '
+      SEPARATE #EM-RECIPIENTS INTO #STRING
+        REMAINDER #EM-RECIPIENTS WITH DELIMITER ';'
+      EXAMINE #STRING FOR '(a)' REPLACE '§' /*SU1
+      COMPRESS #RECORD #STRING TO #RECORD
+    END-REPEAT
+    COMPRESS #RECORD '<' #TEMP-FILE TO #RECORD
+    P-RECORD     := #RECORD
+    IF *LENGTH(#RECORD) > 250
+      P-COMMAND-PART-2-3 := SUBSTR(#RECORD,251) /* NOMALL-2261
+    END-IF
+    P-FILE-NAME  := #LOG-FILE
+    #UX-FUNCTION := 'COMMAND'
+    PERFORM UNIX-FUNCTION
+    IF P-EXIT-CODE NE 0
+      P-ERC := P-EXIT-CODE
+      SEPARATE P-RECORD INTO P-RECORD IGNORE
+      COMPRESS 'Exit code of command' P-RECORD 'is' P-ERC TO P-ERT
+    END-IF
+  VALUE 0
+    P-FILE-NAME  := #TEMP-FILE
+    #UX-FUNCTION := 'DELETE'
+    PERFORM UNIX-FUNCTION
+  VALUE 0
+    P-FILE-NAME  := #LOG-FILE
+    #UX-FUNCTION := 'DELETE'
+    PERFORM UNIX-FUNCTION
+  ANY
+    IF P-ERC NE 0
+      #XX-GMSG-PARMS.#XX-ERROR-CODE   := #EM-ERROR-CODE := 2144
+      #XX-GMSG-PARMS.#XX-MSG-DYNA (1) := #UX-FUNCTION
+      #XX-GMSG-PARMS.#XX-MSG-DYNA (2) := P-ERT
+      #XX-GMSG-PARMS.#XX-MSG-DYNA (3) := 'done'
+      CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+      #EM-ERROR-TEXT := #XX-GMSG-PARMS.#XX-SHORT-TEXT
+      PERFORM XXRLOG-WRITE-LOG 'W' #EM-ERROR-TEXT
+    END-IF
+  NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* SEND-EMAIL-UNIX
+*
+************************************************************************
+DEFINE SUBROUTINE GET-EMAIL-MEMBER
+************************************************************************
+* Here we'll use NATA1100 to retrieve a TEXT object into #MEMBER-ARRAY
+RESET #EM-ERROR-CODE #EM-ERROR-TEXT MSG-NR
+#MEMBER-FUNCTION := 'K' /* Reset X-Array
+INCLUDE XXTABLE   '#MEMBER-FUNCTION'   '#MEMBER-ARRAY'
+  '#MEMBER-LINE'  '#MEMBER-CURRENT-IX' '#MEMBER-LAST-IX'
+  '#MEMBER-TEMP1' '#MEMBER-TEMP2'      '#MEMBER-RC'
+IF #EM-EMAIL-LIBRARY = ' ' OR #EM-EMAIL-MEMBER = ' '
+  PERFORM NO-MEMBER /*-> show it without member SU1
+  ESCAPE ROUTINE
+END-IF
+* Prepare reading the TEXT member
+EXAMINE #EM-EMAIL-LIBRARY AND TRANSLATE INTO UPPER CASE /* FORCE UPPER
+EXAMINE #EM-EMAIL-MEMBER AND TRANSLATE INTO UPPER CASE
+*
+NADA1100.LIBRARY        := #EM-EMAIL-LIBRARY
+NADA1100.OBJECT-NAME    := #EM-EMAIL-MEMBER
+NADA1100.OPT-LINE-NUM   := 'Y'
+NADA1100.OPT-REDEF-DIR  := TRUE
+NADA1100.OPT-AMOUNT     := 20
+NADA1100.OPT-LINESIZE   := 92
+NADA1100.OPT-STREAM     := 'B'
+NADA1100.OBJECT-TYPE    := 'T'
+NATA1100.V1-NSC-CKECK   := 'Y'
+NATA1100.V2-COUNT-LINES := 'Y'
+NATA1100.V3-EMPTY-BLANK := 'Y'
+NADA1100.OPT-ACCESS     := 'O'  /* OPEN
+CALLNAT 'NATA1100' NADA1100  NATA1100.EXTENDED-PARMS NAD-MSG   NAD-FLD
+IF MSG-NR NE 0 /* -> show it without member
+* 1006 Source does not exist ->
+* -806 = NAT0806 Library not found.
+* -807 = NAT0807 * Logon to this library is not permitted.
+  #XX-SUBS-PARMS.#XX-SHORT-TEXT     := NAD-MSG.MSG
+  #XX-SUBS-PARMS.#XX-MSG-DYNA (1:3) := NAD-MSG.MSG-DATA (1:3)
+  CALLNAT 'XXSUBS-N' #XX-SUBS-PARMS
+  COMPRESS '0005' #XX-SUBS-PARMS.#XX-SHORT-TEXT
+    'LIB:' #EM-EMAIL-LIBRARY 'MEM:' #EM-EMAIL-MEMBER TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+  PERFORM NO-MEMBER /*-> show it without member
+  ESCAPE ROUTINE
+END-IF
+*
+NADA1100.OPT-ACCESS := 'R'     /* Read the text member
+REPEAT WHILE MSG-NR = 0
+  CALLNAT 'NATA1100' NADA1100 NATA1100.EXTENDED-PARMS NAD-MSG NAD-FLD
+  DECIDE ON FIRST VALUE OF MSG-NR
+    VALUES 0, 100 /* If returned OK or END-OF-DATA
+      RESET #EM-ERROR-CODE #EM-ERROR-TEXT
+      FOR IX = 1 TO RETURNED      /* Process all returned lines
+        IF NADA1100.SRC-NUM  (IX) > 0    /* (WHICH HAVE SOME SEQUENCE ?)
+          #MEMBER-LINE := NADA1100.SRC-LINE (IX)
+          IF #EM-FUNCTION ='B' OR='T'
+          AND #MEMBER-LINE =SCAN '&MESSAGES' /*SU1                    /*
+/*SU1       EXAMINE #MEMBER-LINE FOR '&MESSAGES' GIVING POSITION IN #POS
+/*SU1       IF #POS > 0
+            EXAMINE #MEMBER-LINE FOR '&MESSAGES' AND DELETE
+            #BODY-FUNCTION := 'S' /* set BODY array to 1st record
+            INCLUDE XXTABLE '#BODY-FUNCTION'   '#EM-EMAIL-BODY'
+              '#BODY-LINE'  '#BODY-CURRENT-IX' '#BODY-LAST-IX'
+              '#BODY-TEMP1' '#BODY-TEMP2'      '#BODY-RC'
+            PERFORM MSG-TO-EMAIL
+/*SU1       END-IF
+          END-IF
+          #MEMBER-FUNCTION := 'A'
+          INCLUDE XXTABLE '#MEMBER-FUNCTION'    '#MEMBER-ARRAY'
+            '#MEMBER-LINE' '#MEMBER-CURRENT-IX' '#MEMBER-LAST-IX'
+            '#MEMBER-TEMP1' '#MEMBER-TEMP2'     '#MEMBER-RC'
+        END-IF
+      END-FOR
+    NONE                         /* Returned ERR handling
+      #EM-ERROR-CODE := MSG-NR
+      #XX-SUBS-PARMS.#XX-SHORT-TEXT     := NAD-MSG.MSG
+      #XX-SUBS-PARMS.#XX-MSG-DYNA (1:3) := NAD-MSG.MSG-DATA (1:3)
+      CALLNAT 'XXSUBS-N' #XX-SUBS-PARMS
+      COMPRESS  '0005' #XX-SUBS-PARMS.#XX-SHORT-TEXT TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+      #EM-ERROR-TEXT := #TRACE-MSG
+      ESCAPE BOTTOM
+  END-DECIDE
+END-REPEAT
+*
+NADA1100.OPT-ACCESS := 'C'  /* CLOSE (FOR OS)
+CALLNAT 'NATA1100' NADA1100 NATA1100.EXTENDED-PARMS NAD-MSG NAD-FLD
+*
+END-SUBROUTINE /* GET-EMAIL-MEMBER
+*
+************************************************************************
+DEFINE SUBROUTINE NO-MEMBER /*SU1
+************************************************************************
+COMPRESS '"' #EM-EMAIL-LIBRARY '/' #EM-EMAIL-MEMBER '"'
+  TO #EM-ERROR-TEXT LEAVING NO
+COMPRESS 'Library/Member:' #EM-ERROR-TEXT 'last E-Mail: &LAST'
+  TO #MEMBER-LINE
+#MEMBER-FUNCTION := 'A' /*add message to email
+INCLUDE XXTABLE '#MEMBER-FUNCTION'    '#MEMBER-ARRAY'
+  '#MEMBER-LINE' '#MEMBER-CURRENT-IX' '#MEMBER-LAST-IX'
+  '#MEMBER-TEMP1' '#MEMBER-TEMP2'     '#MEMBER-RC'
+*
+DECIDE FOR FIRST CONDITION
+  WHEN MSG-NR < 0 /*NAT error
+    MOVE EDITED MSG-NR (EM=9999) TO #MEMBER-LINE
+    COMPRESS 'NAT' #MEMBER-LINE TO #MEMBER-LINE LEAVING NO
+    COMPRESS #MEMBER-LINE NAD-MSG.MSG TO #MEMBER-LINE
+  WHEN MSG-NR > 0 /*NATA1100 error
+    #XX-SUBS-PARMS.#XX-SHORT-TEXT     := NAD-MSG.MSG
+    #XX-SUBS-PARMS.#XX-MSG-DYNA (1:3) := NAD-MSG.MSG-DATA (1:3)
+    CALLNAT 'XXSUBS-N' #XX-SUBS-PARMS
+    COMPRESS MSG-NR #XX-SUBS-PARMS.#XX-SHORT-TEXT TO #MEMBER-LINE
+  WHEN NONE /* MSG-NR = 0 mem does not exist
+    #MEMBER-LINE := F#GETMSG (<1079,#EM-ERROR-TEXT>)
+    COMPRESS '1079' #EM-ERROR-TEXT TO #TRACE-MSG /*lib/mem not found
+    PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+END-DECIDE
+#MEMBER-FUNCTION := 'A' /*add message to email
+INCLUDE XXTABLE '#MEMBER-FUNCTION'    '#MEMBER-ARRAY'
+  '#MEMBER-LINE' '#MEMBER-CURRENT-IX' '#MEMBER-LAST-IX'
+  '#MEMBER-TEMP1' '#MEMBER-TEMP2'     '#MEMBER-RC'
+*
+PERFORM MSG-TO-EMAIL
+RESET #EM-ERROR-CODE #EM-ERROR-TEXT /*no real error
+*
+END-SUBROUTINE /* NO-MEMBER
+*
+************************************************************************
+DEFINE SUBROUTINE MSG-TO-EMAIL /*SU1
+************************************************************************
+READ-BODY4. REPEAT
+  #BODY-FUNCTION := 'R' /* Read X-Array
+  INCLUDE XXTABLE '#BODY-FUNCTION'   '#EM-EMAIL-BODY'
+    '#BODY-LINE'  '#BODY-CURRENT-IX' '#BODY-LAST-IX'
+    '#BODY-TEMP1' '#BODY-TEMP2'      '#BODY-RC'
+  IF #BODY-RC = 1
+    ESCAPE BOTTOM (READ-BODY4.)
+  END-IF
+  #MEMBER-FUNCTION := 'A'
+  INCLUDE XXTABLE  '#MEMBER-FUNCTION'    '#MEMBER-ARRAY'
+    '#BODY-LINE'    '#MEMBER-CURRENT-IX' '#MEMBER-LAST-IX'
+    '#MEMBER-TEMP1' '#MEMBER-TEMP2'      '#MEMBER-RC'
+END-REPEAT
+*
+END-SUBROUTINE /* MSG-TO-EMAIL
+*
+************************************************************************
+DEFINE SUBROUTINE REPLACE-VARIABLES
+************************************************************************
+#VARIABLE-FUNCTION := 'K' /* Reset X-Array
+INCLUDE XXTABLE2    '#VARIABLE-FUNCTION'    '#VARIABLES'
+  '#VARIABLE'       '#VARIABLE-CURRENT-IX'  '#VARIABLE-LAST-IX'
+  '#VARIABLE-TEMP1' '#VARIABLE-TEMP2'       '#VARIABLE-COLUMNS'
+  '#VARIABLE-RC'
+REPEAT UNTIL #EM-VARIABLES = ' '
+  SEPARATE #EM-VARIABLES INTO ##EM-VARIABLE
+    REMAINDER #EM-VARIABLES WITH DELIMITER ';'
+  SEPARATE ##EM-VARIABLE INTO #VARIABLE(1) #VARIABLE(2) IGNORE
+    WITH DELIMITER '='
+  #VARIABLE-FUNCTION := 'A'
+  INCLUDE XXTABLE2    '#VARIABLE-FUNCTION'   '#VARIABLES'
+    '#VARIABLE'       '#VARIABLE-CURRENT-IX' '#VARIABLE-LAST-IX'
+    '#VARIABLE-TEMP1' '#VARIABLE-TEMP2'      '#VARIABLE-COLUMNS'
+    '#VARIABLE-RC'
+END-REPEAT
+*
+#BODY-FUNCTION := 'S' /* Set sequential read to 1st table entry
+INCLUDE XXTABLE '#BODY-FUNCTION'   '#EM-EMAIL-BODY'
+  '#BODY-LINE'  '#BODY-CURRENT-IX' '#BODY-LAST-IX'
+  '#BODY-TEMP1' '#BODY-TEMP2'      '#BODY-RC'
+READ-BODY2.
+REPEAT
+  #BODY-FUNCTION := 'R' /* Read X-Array
+  INCLUDE XXTABLE '#BODY-FUNCTION'   '#EM-EMAIL-BODY'
+    '#BODY-LINE'  '#BODY-CURRENT-IX' '#BODY-LAST-IX'
+    '#BODY-TEMP1' '#BODY-TEMP2'      '#BODY-RC'
+  IF #BODY-RC = 1
+    ESCAPE BOTTOM (READ-BODY2.)
+  END-IF
+  #VARIABLE-FUNCTION := 'S' /* Set sequential read to 1st table entry
+  INCLUDE XXTABLE2    '#VARIABLE-FUNCTION'   '#VARIABLES'
+    '#VARIABLE'       '#VARIABLE-CURRENT-IX' '#VARIABLE-LAST-IX'
+    '#VARIABLE-TEMP1' '#VARIABLE-TEMP2'      '#VARIABLE-COLUMNS'
+    '#VARIABLE-RC'
+  READ-VARS.
+  REPEAT
+    #VARIABLE-FUNCTION := 'R'
+    INCLUDE XXTABLE2    '#VARIABLE-FUNCTION'   '#VARIABLES'
+      '#VARIABLE'       '#VARIABLE-CURRENT-IX' '#VARIABLE-LAST-IX'
+      '#VARIABLE-TEMP1' '#VARIABLE-TEMP2'      '#VARIABLE-COLUMNS'
+      '#VARIABLE-RC'
+    IF #VARIABLE-RC = 1
+      ESCAPE BOTTOM (READ-VARS.)
+    END-IF
+**PRINT (AD=L) *PROGRAM *LINE 'bl:' #BODY-LINE 'v:' #VARIABLE (1)
+**'REP:' #VARIABLE (2)
+    EXAMINE #BODY-LINE FOR #VARIABLE (1) REPLACE WITH #VARIABLE (2)
+    EXAMINE ##EM-SUBJECT FOR #VARIABLE (1) REPLACE WITH #VARIABLE (2)
+    #BODY-FUNCTION := 'U' /* Update X-Array
+    INCLUDE XXTABLE '#BODY-FUNCTION'   '#EM-EMAIL-BODY'
+      '#BODY-LINE'  '#BODY-CURRENT-IX' '#BODY-LAST-IX'
+      '#BODY-TEMP1' '#BODY-TEMP2'      '#BODY-RC'
+  END-REPEAT
+END-REPEAT
+*
+END-SUBROUTINE /* REPLACE-VARIABLES
+*
+************************************************************************
+DEFINE SUBROUTINE UNIX-FUNCTION
+************************************************************************
+XXUX---P.P-FUNCTION := #UX-FUNCTION
+IF #TRACING
+  COMPRESS 'Executing Unix function:' #UX-FUNCTION
+    '-_Node:'        P-NODE-NAME '- User:'        P-USERID
+    '- Group:'       P-GROUP     '- Node-Status:' P-NODE-SUSPEND
+    '- Binary?'      P-BINARY
+    '- Record:'      SUBSTR (XXUX---P.P-RECORD,1,30)
+    '- File:'        SUBSTR (XXUX---P.P-FILE-NAME,1,70) TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+*
+CALLNAT 'XXUX---N' XXUX---P
+IF #TRACING
+  COMPRESS 'Unix function returned:' 'ERC:' XXUX---P.P-ERC
+    '- ERT:'    XXUX---P.P-ERT
+    '- Record:' SUBSTR (XXUX---P.P-RECORD,1,30) TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* UNIX-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE SEND-TO-MF
+************************************************************************
+* Maybe we should use the following NPR-Flag: /*SU1
+* IGNORE-RCPT-REJECT='YES' /* The e-mail is sent even if a specified
+* RECIPIENT is rejected by the SMTP server.
+/*SU1 FIND SEND-EMAIL WITH NODE = #EM-NODE
+/*SU1 AND HOST-CODE-PAGE =#EM-HOST-CODE-PAGE
+/*SU1 AND DSNAME       = #EM-ATTACHMENT
+**PRINT (AD=L) *PROGRAM *LINE 'len:' *LENGTH(#LINE) 'l:' #LINE
+FIND SEND-EMAIL WITH NODE = +NOD-LOCAL-NODE AND RECORD = #LINE
+AND FUNCTION = #SEND-EMAIL-FUNCTION  AND REPLY-TO     = #EM-REPLY-TO  /*
+AND SUBJECT      = ##EM-SUBJECT      AND FROM-NAME    = #EM-FROM-NAME /*
+AND RECIPIENT    = #RECIPIENT(01)    AND RECIPIENT    =   #RECIPIENT(02)
+AND RECIPIENT    = #RECIPIENT(03)    AND RECIPIENT    =   #RECIPIENT(04)
+AND RECIPIENT    = #RECIPIENT(05)    AND RECIPIENT    =   #RECIPIENT(06)
+AND RECIPIENT    = #RECIPIENT(07)    AND RECIPIENT    =   #RECIPIENT(08)
+AND RECIPIENT    = #RECIPIENT(09)    AND RECIPIENT    =   #RECIPIENT(10)
+AND RECIPIENT    = #RECIPIENT(11)    AND RECIPIENT    =   #RECIPIENT(12)
+AND RECIPIENT    = #RECIPIENT(13)    AND RECIPIENT    =   #RECIPIENT(14)
+AND RECIPIENT    = #RECIPIENT(15)    AND RECIPIENT    =   #RECIPIENT(16)
+AND RECIPIENT    = #RECIPIENT(17)    AND RECIPIENT    =   #RECIPIENT(18)
+AND RECIPIENT    = #RECIPIENT(19)    AND RECIPIENT    =   #RECIPIENT(20)
+AND CC-RECIPIENT = #CC-RECIPIENT(01) AND CC-RECIPIENT =#CC-RECIPIENT(02)
+AND CC-RECIPIENT = #CC-RECIPIENT(03) AND CC-RECIPIENT =#CC-RECIPIENT(04)
+AND CC-RECIPIENT = #CC-RECIPIENT(05) AND CC-RECIPIENT =#CC-RECIPIENT(06)
+AND CC-RECIPIENT = #CC-RECIPIENT(07) AND CC-RECIPIENT =#CC-RECIPIENT(08)
+AND CC-RECIPIENT = #CC-RECIPIENT(09) AND CC-RECIPIENT =#CC-RECIPIENT(10)
+AND CC-RECIPIENT = #CC-RECIPIENT(11) AND CC-RECIPIENT =#CC-RECIPIENT(12)
+AND CC-RECIPIENT = #CC-RECIPIENT(13) AND CC-RECIPIENT =#CC-RECIPIENT(14)
+AND CC-RECIPIENT = #CC-RECIPIENT(15) AND CC-RECIPIENT =#CC-RECIPIENT(16)
+AND CC-RECIPIENT = #CC-RECIPIENT(17) AND CC-RECIPIENT =#CC-RECIPIENT(18)
+AND CC-RECIPIENT = #CC-RECIPIENT(19) AND CC-RECIPIENT =#CC-RECIPIENT(20)
+    AND BCC-RECIPIENT=#BCC-RECIPIENT(01) AND BCC-RECIPIENT=#BCC-RECIPIENT(02)
+    AND BCC-RECIPIENT=#BCC-RECIPIENT(03) AND BCC-RECIPIENT=#BCC-RECIPIENT(04)
+    AND BCC-RECIPIENT=#BCC-RECIPIENT(05) AND BCC-RECIPIENT=#BCC-RECIPIENT(06)
+    AND BCC-RECIPIENT=#BCC-RECIPIENT(07) AND BCC-RECIPIENT=#BCC-RECIPIENT(08)
+    AND BCC-RECIPIENT=#BCC-RECIPIENT(09) AND BCC-RECIPIENT=#BCC-RECIPIENT(10)
+    AND BCC-RECIPIENT=#BCC-RECIPIENT(11) AND BCC-RECIPIENT=#BCC-RECIPIENT(12)
+    AND BCC-RECIPIENT=#BCC-RECIPIENT(13) AND BCC-RECIPIENT=#BCC-RECIPIENT(14)
+    AND BCC-RECIPIENT=#BCC-RECIPIENT(15) AND BCC-RECIPIENT=#BCC-RECIPIENT(16)
+    AND BCC-RECIPIENT=#BCC-RECIPIENT(17) AND BCC-RECIPIENT=#BCC-RECIPIENT(18)
+    AND BCC-RECIPIENT=#BCC-RECIPIENT(19) AND BCC-RECIPIENT=#BCC-RECIPIENT(20)
+  IF ERROR-CODE NE 0 /*SU1
+    #EM-ERROR-CODE := ERROR-CODE
+    #EM-ERROR-TEXT := ERROR-TEXT
+    IF #EXTENDED-MSG SPECIFIED
+      #EXTENDED-MSG (*) := EXTENDED-TEXT (*)
+    END-IF
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* SEND-TO-MF
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  CALLNAT 'C-NATERN' #EM-ERROR-TEXT
+  #EM-ERROR-CODE := 21
+  ESCAPE ROUTINE
+*
+END-ERROR
+END

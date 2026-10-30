@@ -1,0 +1,81 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDELBU - Delete a master bundle and it's contents
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  96-11-01 s(999999) cleanup
+* gw  96-11-01 s(252288) read by instead of find
+* xsiszha 2000-07-31 (CE7461) Extend Report and Bundle Names
+* XSETHZ  2003-09-05 (P241899)
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2011-09-14 NOMALL-901 log deletion
+* xsetggr 2012-02-01 NOMALL-1100 write language independant msgs in log
+* ----------------------------------------------------------------------
+*
+DEFINE DATA PARAMETER
+1 P-BUNDLE               (A25)
+1 G-USERID               (A8)
+1 G-DISPLAY-LONG-NAMES   (L)
+1 G-CONFIRM              (L)
+1 G-ERC                  (N4)
+************************************************************************
+LOCAL  USING  RLOG-L
+LOCAL
+1 BUNDLES VIEW OF NRM-BUNDLES
+  2 B-BUNDLE
+1 BUNDLE-REPORT    VIEW  OF  NRM-BUNDLE-REPORT
+  2 BR-BUNDLE
+  2 BR-REPNAME
+*
+1 #CONFIRMED             (L)
+1 G-ERT                  (A250)
+1 LOWER-CASE             (L) CONST <FALSE>
+1 #OBJECT-NAME           (A32)
+1 #NEWVAL                (B2)  /* in
+1 #OLDVAL                (B2)  /* out
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+G-ERC := 17
+FIND BUNDLES WITH B-BUNDLE = P-BUNDLE
+  IF G-CONFIRM
+    #OBJECT-NAME := P-BUNDLE
+    CALLNAT 'N-CNFRM' #OBJECT-NAME  'B' G-DISPLAY-LONG-NAMES
+      #CONFIRMED G-ERT LOWER-CASE
+  END-IF
+  IF #CONFIRMED OR NOT G-CONFIRM
+    #NEWVAL := 0  /* madio = 0 for no limit
+    CALLNAT 'SETMADIO' #NEWVAL #OLDVAL
+    DELBR. READ BUNDLE-REPORT BY BR-BUNDLE = P-BUNDLE
+      IF BR-BUNDLE NE P-BUNDLE
+        ESCAPE BOTTOM
+      END-IF
+      IF *COUNTER = 50
+        RESET *COUNTER
+        END TRANSACTION
+      END-IF
+      DELETE RECORD
+      PERFORM RMLOGDEL P-BUNDLE 'BUNDLE' G-USERID
+    END-READ
+    #NEWVAL := #OLDVAL
+    CALLNAT 'SETMADIO' #NEWVAL #OLDVAL
+    CALLNAT 'RDELGRT'  G-USERID 'B' P-BUNDLE
+    LG-USERID := G-USERID
+    LG-CODE := 'BM'
+    COMPRESS '2509' P-BUNDLE TO LG-MSG
+    LG-BUNDLE := LG-OBJECT-NAME := P-BUNDLE
+    CALLNAT 'RLOG' PL-PARMS
+    G-ERC := 18
+    DELETE RECORD
+  END-IF
+  END TRANSACTION
+END-FIND
+END

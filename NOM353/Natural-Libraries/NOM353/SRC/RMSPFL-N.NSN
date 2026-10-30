@@ -1,0 +1,614 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMSPFL-N - Flush Lines of an Separator Member
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-02-17 s(999999) created
+* mrs 93-11-01 s(999999) old version saved, conversion is now done
+*                        in the print program
+* mrs 94-12-12 p(134848) a cc-type indicator implemented
+* gw  96-10-16 s(999999) flush x'03' NOP if separator empty so that
+*                        mail distribution is done if type is Con-nect
+* SJU 97-04-22 P(162047) REPLACE H'00' IN FIRST COLUMN OF BLANK LINES
+*                        WITH SPACE (NAT EDITOR PUTS THE 00 IN)
+* xsisgg  2000-03-20 S(191368) NOM211 Development
+* fhi     2002-10-30 fhi101    switch on optimizer compiler
+* HH 05-01-19 use callnat NATA1100 instead of SYSTEM-FNAT/SYSTEM-FUSER
+* sju     2005-04-14 NOM31 QA  suppress comment lines
+* sju     2005-04-15 NOM31 QA  extra blank line at end of separator
+* sju     2005-06-06 p(265689) Separators printed a line at a time
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* xsetggr 2007-07-19 p(295731) supress printing empty lines if standard
+*                              separator member not found
+* splildav 2009-04-01 p(304366) Block character routine does not support
+*                               Ascii
+* xsetggr 2010-03-26 P307403   corrupted printouts with separators NONE
+*                              add trace print
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-12-21 NOMALL-865 restow due to changes in RMFL---P
+* fhi     2011-01-06 NOMALL-97 Correct CALLNAT
+* fhi     2012-03-02 NOMALL-926 Use minimum record length of 132
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* xsetggr 2012-07-25 NOMALL-1181 set trace option to off
+* fhi     2012-08-01 NOMALL-882 Ignore missing default separation pages
+* fhi     2013-03-08 NOMALL-1004 Correct end of file handling
+* fhi     2014-01-30 NOMALL-1335 Add trace to get reason for append
+* fhi     2014-08-21 NOMALL-1454 Restow, XXUX---P changed.
+* fhi     2014-08-29 NOMALL-1454 Restowed due to changes in XXUX---P
+* SU1     2015-02-27 NOMALL-1569 USR0620N (SYSEXT) => RMASCEBN (SYSNOM)
+* fhi     2015-09-03 NOMALL-1712 Display error correctly if RC 1006
+* SU2     2016-06-10 NOMALL-1870 VTAM:ignore no existing sep. page
+* SU2a    2016-08-05 backoutet due to side effects/itrac closed-deferred
+* SU3     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU4     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+*
+DEFINE DATA PARAMETER USING RMSPFL-P
+PARAMETER
+1 SUBST-PARMS
+  2 SUBST-ENTRIES           (P3)
+  2 SUBST-TAB               (1:40)
+    3 SUBST-VAR             (A20)
+    3 SUBST-TEXT            (A60)
+PARAMETER USING RMFL---P
+PARAMETER
+1 LINE-PARMS
+  2 LINE-CURRENT            (P3)
+  2 LINE-TAB                (1:100)
+    3 LINE                  (A251)
+    3 REDEFINE LINE
+      4 LINE-L              (A1/1:251)
+    3 LINE-NUMBER           (P10)
+1 P-ERROR-CODE              (N4)
+1 P-ERROR-TEXT              (A250)
+* -----------------------------Views------------------------------------
+LOCAL USING RCCTYP-E
+LOCAL USING RMBLKC-P
+LOCAL USING XXUX---P
+LOCAL USING NAD-MSG   /* Data for message exchange NATA1100
+LOCAL USING NAD-FLD   /* Description of the field in error NATA1100
+LOCAL USING EOMPHTYE
+LOCAL
+1 NADA1100
+  2 OBJEKT-KEY
+    3 DBID                  (N5)
+    3 FNR                   (N5)
+    3 PASSWORD              (A8)
+    3 CIPHERCODE            (N8)
+    3 OBJECT-CLASS          (I1)
+    3 LIBRARY               (A8)
+    3 OBJECT-NAME           (A32)
+    3 OBJECT-TYPE           (A2)
+    3 OBJECT-KIND           (A1)
+*
+  2 INPUTS
+    3 OPT-ACCESS            (A1)
+    3 OPT-ET                (L)
+    3 OPT-REPLACE           (A1)
+    3 OPT-LINE-NUM          (A1)
+    3 OPT-STEPLIBS          (L)
+    3 OPT-REDEF-DIR         (L)
+    3 OPT-STREAM            (A1)
+    3 OPT-AMOUNT            (I2)
+    3 OPT-LINESIZE          (I2)
+*
+  2 INPUT-OUTPUTS
+    3 INT-HANDLE            (I4)
+    3 NEXT-SEQ              (I4)
+    3 NEXT-NUM              (I2)
+*
+  2 OUTPUTS                        /* Ou
+    3 RETURNED              (I2)
+    3 SRC-NUM               (I2/1:20)
+    3 SRC-TEXT              (A1/1:20,1:92)
+    3 REDEFINE SRC-TEXT
+      4 SRC-GROUP           (1:20)
+        5 SRC-LINE          (A92)
+    3 SRC-SEQ               (I4/1:20)
+    3 SRC-LONG              (A1/1:20)
+*
+1 NATA1100
+  2 VERSION                 (I1) INIT <1>
+  2 V1-NSC-CHECK            (A1) /* Check ag
+1 REDEFINE NATA1100
+  2 EXTENDED-PARMS
+    3 EXTENDED-DATA         (A1/1:2)
+*
+1 NOR                       (P3)
+1 IX                        (P3)
+1 I                         (P3)
+*
+1 #DEFAULT-SEP              (A8/1:4)
+  INIT (V) <'RSNOMS-&','RSNOME-&','BSNOMS-&','BSNOME-&'>
+*
+1 #LANGUAGE                 (N1)
+1 REDEFINE #LANGUAGE
+  2 #LANGUAGE-A             (A1)
+*
+1 #S-SRCID                  (A18)
+1 REDEFINE #S-SRCID
+  2 #S-LIB                  (A8)
+  2 #S-MEMBER               (A8)
+  2 #S-SEQ                  (B2)
+*
+1 #E-SRCID                  (A18)
+1 REDEFINE #E-SRCID
+  2 #E-LIB                  (A8)
+  2 #E-MEMBER               (A8)
+  2 #E-SEQ                  (B2)
+*
+1 S                         (P3)
+1 R                         (P3)
+1 LAST-RECORD               (L)
+1 #FNUM                     (P3)
+1 #FCHAR                    (A1)
+1 #FOUND                    (P3)
+1 #COPIES                   (P3)
+1 #POS-START                (P3)
+1 #POS-END                  (P3)
+1 #POS                      (P3)
+1 #LINE-LENGTH              (N3) CONST <251>
+1 #LINES-IN-BUFFER          (P3) CONST <100>
+*
+1 #WORK-LINE                (A252)
+1 REDEFINE #WORK-LINE
+  2 #WORK-CC                (A1)
+  2 #WORK-TEXT              (A251)
+  2 REDEFINE #WORK-TEXT
+    3 #WORK-TEXT-250        (A250)
+1 REDEFINE #WORK-LINE
+  2 #WORK-FIL1              (A1)
+  2 #WORK-FCHAR             (A6)
+  2 REDEFINE #WORK-FCHAR
+    3 #WORK-FC              (A1)
+    3 #WORK-FCFIL1          (A1)
+    3 #WORK-FC3             (N3)
+    3 REDEFINE #WORK-FC3
+      4 #WORK-FC2           (N2)
+      4 REDEFINE #WORK-FC2
+        5  #WORK-FC1        (N1)
+    3 #WORK-FCFIL2          (A1)
+*
+1 C-FUNCTION                (A1)
+1 C-RC                      (N3)
+1 C-OWNER                   (A10)
+1 C-NETWORK                 (A10)
+1 C-RUN                     (P13)
+1 REDEFINE C-RUN
+  2 C-RUN-CH                (A7)
+1 C-SYMBOL-TABLE            (A10)
+1 C-SYMBOL-NAME             (A20)
+1 C-FORMAT                  (A1)
+1 C-VALUE                   (A80)
+1 C-USER                    (A8)
+1 C-TIME                    (T)
+*
+1 #OWNER                    (A12)
+1 #ACTIVE-TABLE             (A80)
+1 #FLUSH-SEGMENT            (A1)
+/*xsetggr 2012-07-25 NOMALL-1181 correct next line
+1 #TRACING                  (L)
+1 #FLUSH-NOP-LINE           (L)
+1 #TLINE                    (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF (FLUSH-PRINTER-TYPE = ##PHYS-UNIXLP   AND UNIXLP-TRACE = 'Y')
+OR (FLUSH-PRINTER-TYPE = ##PHYS-DISKUNIX AND DISKUNIX-TRACE = 'Y')    /*
+OR (FLUSH-PRINTER-TYPE = ##PHYS-NATUNIX  AND NATUNIX-TRACE = 'Y')     /*
+  #TRACING := TRUE
+END-IF
+IF RMSPFL-COPIES = 0 OR = 99
+  ESCAPE ROUTINE
+END-IF
+*
+PERFORM INIT-FUNCTION
+IF NAD-MSG.MSG-NR = 1006 /* SEPARATION PAGE DEFINITION NOT FOUND
+  IF FLUSH-SEG-BRACKET = 'F'
+    FLUSH-SEG-BRACKET := 'A'
+  ELSE
+    FLUSH-SEG-BRACKET := 'L'
+  END-IF
+  RESET #WORK-LINE
+  PERFORM FLUSH-RECORD /* force close of the printer
+  P-ERROR-CODE := 1079
+  COMPRESS '"' RMSPFL-LIBRARY '/' RMSPFL-MEMBER '"'
+    TO P-ERROR-TEXT LEAVING NO
+  COMPRESS '1079'  P-ERROR-TEXT TO P-ERROR-TEXT
+  PERFORM XXRLOG-WRITE-LOG 'W' P-ERROR-TEXT
+  P-ERROR-CODE := NAD-MSG.MSG-NR
+  ESCAPE ROUTINE           /* IGNORE IT (SAME AS NONE)
+END-IF
+IF NOR = 0
+  #FLUSH-NOP-LINE := TRUE
+END-IF
+#COPIES := RMSPFL-COPIES
+#FLUSH-SEGMENT:= FLUSH-SEGMENT
+*
+REPEAT
+  UNTIL P-ERROR-CODE NE 0 OR #COPIES < 1
+  PERFORM FLUSH-SEPARATOR-LINES
+  IF #FLUSH-NOP-LINE
+    PERFORM FLUSH-NOP-LINE            /* one line was flushed
+  END-IF
+  SUBTRACT 1 FROM #COPIES
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-FUNCTION
+************************************************************************
+FLUSH-SEG-BRACKET := 'F'
+*
+FLUSH-CC-TYPE := ASA-CODE
+IF NOT (RMSPFL-RECORD-LENGTH = 1 THRU 133)
+  RMSPFL-RECORD-LENGTH := 133
+END-IF
+/*SU4 IF RMSPFL-RECORD-LENGTH LT 133 AND *OPSYS = 'DOS/VS'
+/*SU4 RMSPFL-RECORD-LENGTH := 133 END-IF
+IF RMSPFL-MEMBER = ' '
+  RMSPFL-MEMBER := #DEFAULT-SEP (RMSPFL-TYPE)
+END-IF
+IF RMSPFL-LANGUAGE = 0
+  RMSPFL-LANGUAGE := *LANGUAGE
+END-IF
+#LANGUAGE := RMSPFL-LANGUAGE
+EXAMINE RMSPFL-MEMBER FOR '&' REPLACE WITH #LANGUAGE-A
+IF RMSPFL-LIBRARY = ' '
+  CALLNAT 'RGETLIB' RMSPFL-LIBRARY
+  COMPRESS RMSPFL-LIBRARY  'U' TO RMSPFL-LIBRARY LEAVING NO
+END-IF
+*
+#S-LIB    := RMSPFL-LIBRARY
+#S-MEMBER := RMSPFL-MEMBER
+#S-SEQ    := H'0000'
+#E-SRCID  := #S-SRCID
+#E-SEQ    := H'FFFF'
+*
+RESET  NOR  /* START NEW ROUTINE instead of FIND NUMBER */
+*
+LIBRARY       := RMSPFL-LIBRARY
+OBJECT-NAME   := RMSPFL-MEMBER
+OPT-LINE-NUM  := 'Y'
+OPT-AMOUNT    := 20
+OPT-LINESIZE  := 72
+OPT-STREAM    := 'B'
+V1-NSC-CHECK  := 'Y'
+OPT-ACCESS   := 'O'
+/*
+REPEAT
+  CALLNAT 'NATA1100' NADA1100 NATA1100.EXTENDED-PARMS NAD-MSG NAD-FLD
+  IF OPT-ACCESS = 'R'
+    NOR:= NOR + RETURNED
+  END-IF
+  OPT-ACCESS   := 'R'
+  DECIDE ON FIRST VALUE  OF NAD-MSG.MSG-NR
+    VALUE 0, 100 IGNORE
+    NONE VALUE
+      ESCAPE BOTTOM
+  END-DECIDE
+  IF NAD-MSG.MSG-NR = 100
+    OPT-ACCESS   := 'C'
+    CALLNAT 'NATA1100' NADA1100 NATA1100.EXTENDED-PARMS NAD-MSG NAD-FLD
+    ESCAPE BOTTOM
+  END-IF
+END-REPEAT      /* END NEW ROUTINE instead of FIND NUMBER */
+*
+END-SUBROUTINE /* INIT-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-SEPARATOR-LINES
+************************************************************************
+I := 1
+IF #TRACING
+  #TLINE := *LINE
+  PERFORM BRACKET-TRACE
+END-IF
+*
+DECIDE FOR FIRST CONDITION
+  WHEN NOR = 0
+    RESET #WORK-LINE
+    IF #COPIES = 1
+      LAST-RECORD := TRUE
+    END-IF
+    PERFORM BUILD-LINE
+  WHEN RMSPFL-LIBRARY = MASK('SYS'.....) AND
+      RMSPFL-LIBRARY NE 'SYSTEM'
+*   PERFORM READ-SYSTEM-FNAT
+    PERFORM READ-NATA1100
+  WHEN NONE
+*   PERFORM READ-SYSTEM-FUSER
+    PERFORM READ-NATA1100
+END-DECIDE
+*
+END-SUBROUTINE /* FLUSH-SEPARATOR-LINES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-NATA1100
+************************************************************************
+LIBRARY       := RMSPFL-LIBRARY
+OBJECT-NAME   := RMSPFL-MEMBER
+OPT-LINE-NUM  := 'Y'
+OPT-AMOUNT    := 20
+OPT-LINESIZE  := 72
+OPT-STREAM    := 'B'
+V1-NSC-CHECK  := 'Y'
+OPT-ACCESS   := 'O'
+RESET R
+/*
+REPEAT
+  CALLNAT 'NATA1100' NADA1100 NATA1100.EXTENDED-PARMS NAD-MSG NAD-FLD
+*
+  DECIDE ON FIRST VALUE  OF NAD-MSG.MSG-NR
+    VALUE 0, 100 IGNORE
+    NONE VALUE
+      ESCAPE BOTTOM
+  END-DECIDE
+  IF OPT-ACCESS NE 'R'
+    OPT-ACCESS:= 'R'
+    ESCAPE TOP
+  END-IF
+*
+  FOR IX 1 TO RETURNED
+    ADD 1 TO R
+    IF R = NOR AND #COPIES = 1
+      LAST-RECORD:= TRUE
+    END-IF
+    IF SRC-NUM(IX) > 0
+      #WORK-LINE := SRC-LINE (IX)
+      IF #WORK-CC NE '*'
+          OR LAST-RECORD AND #WORK-CC = '*'
+        PERFORM BUILD-LINE
+      END-IF
+      IF P-ERROR-CODE NE 0
+        ESCAPE BOTTOM
+      END-IF
+    END-IF
+  END-FOR
+  IF NAD-MSG.MSG-NR = 100
+    OPT-ACCESS   := 'C'
+    CALLNAT 'NATA1100' NADA1100 NATA1100.EXTENDED-PARMS NAD-MSG NAD-FLD
+    ESCAPE BOTTOM
+  END-IF
+END-REPEAT
+*
+END-SUBROUTINE /* READ-NATA1100
+*
+************************************************************************
+DEFINE SUBROUTINE BUILD-LINE
+************************************************************************
+FOR S = 1 TO SUBST-ENTRIES
+  REPEAT
+    EXAMINE #WORK-LINE FOR SUBST-VAR (S)
+      REPLACE WITH SUBST-TEXT (S)
+      GIVING NUMBER IN #FOUND
+    UNTIL #FOUND = 0
+  END-REPEAT
+END-FOR
+*
+RESET #FOUND #ACTIVE-TABLE #POS
+#POS-START := 1
+REPEAT
+  EXAMINE SUBSTR(#WORK-LINE,#POS-START) FOR PATTERN '§§*.*.*'
+    GIVING NUMBER IN #FOUND
+  IF NOT (#FOUND = 0)
+    EXAMINE SUBSTR(#WORK-LINE,#POS-START) FOR '§§' GIVING
+      POSITION IN #POS-START
+    IF #POS > 1
+      #POS-START := #POS + #POS-START - 1
+    END-IF
+    EXAMINE FULL SUBSTR(#WORK-LINE,#POS-START) FOR ' ' GIVING
+      POSITION #POS-END
+    SEPARATE SUBSTR(#WORK-LINE,#POS-START,#POS-END) LEFT INTO
+      #OWNER C-SYMBOL-TABLE C-SYMBOL-NAME REMAINDER #ACTIVE-TABLE
+      WITH DELIMITERS '.'
+    IF #ACTIVE-TABLE > ' '
+      SEPARATE #ACTIVE-TABLE LEFT INTO C-NETWORK C-RUN-CH
+        WITH DELIMITERS '.'
+    ELSE
+      RESET C-NETWORK C-RUN
+    END-IF
+    C-FUNCTION := 'T'
+    C-OWNER := SUBSTR(#OWNER,3)
+    RESET C-RC C-VALUE C-FORMAT
+    CALLNAT 'NOPUSY4N' C-FUNCTION C-RC C-OWNER C-NETWORK C-RUN
+      C-SYMBOL-TABLE C-SYMBOL-NAME C-FORMAT C-VALUE C-USER C-TIME
+    END TRANSACTION
+    IF C-RC=1 AND C-NETWORK > ' '
+      RESET C-NETWORK C-RUN C-RC C-VALUE C-FORMAT
+      C-FUNCTION := 'T'
+      CALLNAT 'NOPUSY4N' C-FUNCTION C-RC C-OWNER C-NETWORK C-RUN
+        C-SYMBOL-TABLE C-SYMBOL-NAME C-FORMAT C-VALUE C-USER C-TIME
+      END TRANSACTION
+    END-IF
+    IF C-RC=0
+      IF C-FORMAT='L'
+        EXAMINE C-VALUE TRANSLATE INTO UPPER CASE
+      END-IF
+      MOVE C-VALUE TO SUBSTR(#WORK-LINE,#POS-START,#POS-END)
+    END-IF
+  ELSE
+    ESCAPE BOTTOM
+  END-IF
+  #POS-START := #POS-END + #POS-START
+  #POS := #POS-START
+  IF #POS-START GE #LINE-LENGTH
+    ESCAPE BOTTOM
+  END-IF
+  RESET #POS-END #OWNER #ACTIVE-TABLE
+END-REPEAT
+*
+DECIDE FOR FIRST CONDITION
+  WHEN #WORK-FCHAR = MASK (.'(LS)'.)
+    #FNUM := RMSPFL-RECORD-LENGTH - 1
+  WHEN #WORK-FCHAR = MASK (.'('N')'..)
+    #FNUM := #WORK-FC1
+  WHEN #WORK-FCHAR = MASK (.'('NN')'.)
+    #FNUM := #WORK-FC2
+  WHEN #WORK-FCHAR = MASK (.'('NNN')')
+    #FNUM := #WORK-FC3
+  WHEN ANY
+    #FCHAR := #WORK-FC
+    IF #FNUM > RMSPFL-RECORD-LENGTH - 1
+      #FNUM := RMSPFL-RECORD-LENGTH - 1
+    END-IF
+    IF #FNUM = 0
+      #FNUM := 80
+    END-IF
+    RESET #WORK-TEXT
+    MOVE ALL #FCHAR TO #WORK-TEXT UNTIL #FNUM
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+IF #WORK-CC = 'T'
+  PERFORM CC-TYPE
+  IF LAST-RECORD
+    IF FLUSH-SEG-BRACKET = 'F'
+      FLUSH-SEG-BRACKET := 'A'
+    ELSE
+      FLUSH-SEG-BRACKET := 'L'
+    END-IF
+    RESET #WORK-LINE
+    PERFORM FLUSH-RECORD
+  END-IF
+ELSE
+  IF #WORK-CC = 'K'
+    PERFORM BLOCK-CHARACTER
+  ELSE
+    IF #WORK-CC = H'00' AND #WORK-TEXT = ' '
+      #WORK-CC:= ' '
+    END-IF
+    IF LAST-RECORD
+      IF FLUSH-SEG-BRACKET = 'F'
+        FLUSH-SEG-BRACKET := 'A'
+      ELSE
+        FLUSH-SEG-BRACKET := 'L'
+      END-IF
+    END-IF
+    PERFORM FLUSH-RECORD
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* BUILD-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE BLOCK-CHARACTER
+************************************************************************
+RMBLKC-IN-LENGTH := 17
+RMBLKC-OUT-LENGTH := RMSPFL-RECORD-LENGTH - 1
+*  if not MF, convert string to from Ascii to Ebcdic because subpogram
+*  RMBLKC-N which generates the block character is based in Ebcdic.
+IF *MACHINE-CLASS NE 'MAINFRAME'
+  CALLNAT 'RMASCEBN' 'A' #WORK-TEXT-250 /* ASCII -> EBCDIC
+END-IF
+RMBLKC-IN-STRING := #WORK-TEXT
+RESET  #WORK-CC
+FOR RMBLKC-IND = 1 TO 12
+  CALLNAT 'RMBLKC-N' RMBLKC-PARMS #WORK-TEXT P-ERROR-CODE P-ERROR-TEXT
+  IF *MACHINE-CLASS NE 'MAINFRAME' /*convert back to Ascii
+    CALLNAT 'RMASCEBN' 'E' #WORK-TEXT-250 /* ASCII -> EBCDIC
+  END-IF
+  IF P-ERROR-CODE NE 0
+    ESCAPE BOTTOM
+  END-IF
+  IF LAST-RECORD AND RMBLKC-IND = 12
+    IF FLUSH-SEG-BRACKET = 'F'
+      FLUSH-SEG-BRACKET := 'A'
+    ELSE
+      FLUSH-SEG-BRACKET := 'L'
+    END-IF
+  END-IF
+  PERFORM FLUSH-RECORD
+END-FOR
+*
+END-SUBROUTINE /* BLOCK-CHARACTER
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-RECORD
+************************************************************************
+ADD 1 TO LINE-CURRENT
+RESET LINE-NUMBER (LINE-CURRENT)
+LINE (LINE-CURRENT) := #WORK-LINE
+IF #TRACING
+  #TLINE := *LINE
+  PERFORM BRACKET-TRACE
+END-IF
+*
+IF LINE-CURRENT >= #LINES-IN-BUFFER OR FLUSH-SEG-BRACKET = 'L' OR = 'A'
+  IF FLUSH-SEG-BRACKET = 'L' OR = 'A' /* last segment for this copy
+    IF #FLUSH-SEGMENT = 'L'           /* last segment in printout
+      IF #COPIES = 1                  /* last copy
+        FLUSH-SEGMENT:= 'L'
+      ELSE
+        FLUSH-SEGMENT:= 'M'
+      END-IF
+    END-IF
+  END-IF
+  IF #TRACING
+    #TLINE := *LINE
+    PERFORM BRACKET-TRACE
+  END-IF
+  CALLNAT FLUSH-PROGRAM FLUSH-PARMS LINE-PARMS XXUX---P
+    P-ERROR-CODE P-ERROR-TEXT
+/*RMPRVTM RMPRWKF RMPRWKF RMPRWKF RMPRNAF RMPRCMA
+/*RMPRTCP RMPRNAT RMPREML RMPRDSK RMPRWSP
+  RESET LINE (*) LINE-CURRENT
+  FLUSH-SEG-BRACKET := 'M'
+END-IF
+*
+END-SUBROUTINE /* FLUSH-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE CC-TYPE
+************************************************************************
+DECIDE ON FIRST #WORK-TEXT
+  VALUE 'M'
+    FLUSH-CC-TYPE := MACHINE-CODE
+  VALUE 'E'
+    FLUSH-CC-TYPE := BS2000-CC
+  VALUE 'A'
+    FLUSH-CC-TYPE := ASA-CODE
+  NONE VALUE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CC-TYPE
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-NOP-LINE
+************************************************************************
+IF FLUSH-SEG-BRACKET = 'F'
+  FLUSH-SEG-BRACKET := 'A'
+ELSE
+  FLUSH-SEG-BRACKET := 'L'
+END-IF
+*
+FLUSH-CC-TYPE := MACHINE-CODE
+#WORK-LINE    := H'03'
+*
+PERFORM FLUSH-RECORD
+*
+END-SUBROUTINE /* FLUSH-NOP-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE BRACKET-TRACE
+************************************************************************
+WRITE 'Flush bracketing at line' #TLINE ':' /
+  '=' FLUSH-BRACKET '=' FLUSH-SEGMENT '=' FLUSH-SEG-BRACKET //
+*
+END-SUBROUTINE /* BRACKET-TRACE
+*
+END

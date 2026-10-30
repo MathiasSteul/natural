@@ -1,0 +1,301 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOCOTF-N - NOM API Transfer Folders to target environment
+* Input keys: ES-KEY-PARM(1) - transfer parms
+*             ES-KEY-PARM(2) - USER
+*
+* Maintenance:
+* XSETHZ  2011-04-15  NOMALL-958 created
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* CF1     2014-11-12 NOMALL-1528 Improve error stability
+* ------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOXXTF-A
+************************************************************************
+LOCAL USING NOXXTF-L
+LOCAL USING NOFOSL-A
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL                                                      /* CF1 +
+1 NAT23008-PARA
+  2 LFILE-NR           (B1)
+  2 FUNCTION           (A1)     /* 'S'=Set, 'R'=Reset
+  2 DBID               (B2)
+  2 FNR                (B2)
+  2 PASSWORD           (A8)
+  2 CIPHER             (A8)
+  2 VSAM-NAME          (A8)
+  2 DB-TYPE            (A1)
+  2 LFILE-IS-SET       (L)
+  2 RET_CODE           (I4)                               /* CF1 -
+LOCAL
+1 FOLDER VIEW OF NRM-FOLDER
+  2 FO-USER-NAME
+  2 FO-ID
+  2 FO-NAME
+1 MIGRATE-FOLDER VIEW OF NRM-MIGRATE-FOLDER
+/*SU 1 MIGRATE-REPORTS VIEW OF NRM-MIGRATE-REPORTS /*SU1 in
+*
+1 #LFILE-FIELDS
+  2 LFILE                   (L)
+  2 #LFILE-OLDDBID          (N5)             /*  old DBID
+  2 #LFILE-OLDFILE          (N5)             /*  old File-Number
+  2 #LFILE-NEWDBID          (N5)             /*  new DBID
+  2 #LFILE-NEWFILE          (N5)             /*  new File-Number
+1 #I2                       (I4)
+1 #IMAX                     (I4)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+1 #ES-MSG-TXT               (A58)
+1 #FO-USER-NAME             (A24)
+1 REDEFINE #FO-USER-NAME
+  2 #FO-USER                (A8)
+  2 #FO-NAME                (A16)
+1 #FO-USER-NAME-TO          (A24)
+1 #P-MSG                    (N4)
+1 #P-USER                   (A8)
+1 #P-ID                     (B2)
+1 #P-NAME                   (A25)
+1 #P-COPY-AUTH              (A1)
+1 #INBASKET                 (L)
+/*                                                         /* CF1 +
+1 #STRING                   (A250)
+1 #MESSAGE                  (A250)
+1 #MSG-TEXT                 (A79)
+1 #ERRORNUMBER              (N4)
+1 #LANGCODE                 (I1)
+1 #RESPCODE                 (N1)
+1 #FUNC                     (A1)
+1 #LFILE                    (N5) INIT<158> /* /* CF1 -
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+/*COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT/* CF1 +
+  MOVE *ERROR-NR TO #ERRORNUMBER
+  CALLNAT 'NAT00020' #ERRORNUMBER #LANGCODE #MSG-TEXT #RESPCODE
+  IF #RESPCODE NE 0
+    COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ELSE
+    COMPRESS #ERRORNUMBER #MSG-TEXT INTO ES-MSG-TXT
+  END-IF                                                        /* CF1 -
+  ESCAPE ROUTINE
+*
+END-ERROR
+************************************************************************
+RESET ES-RC
+#NOFOSL := ES-SELECT
+NOTF-PARM-1 := ES-KEY-PARM(1)
+/* Verify input parameters and switch LFILE 158 to target values
+PERFORM SET-LOGICAL-FILE
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ES-RC := 1
+  ES-MSG-FIELD := #ES-MSG-FIELD
+  COMPRESS '<#ERRORNUMBER' #ERRORNUMBER ':' #MESSAGE '>' TO ES-WORK
+ELSE
+/* Check appropriate objects and perform copy
+  PERFORM LIST
+  RESET #ES-MSG-NR
+  /* Switch LFILE 158 back to former values
+  PERFORM SWITCH-BACK-LFILE
+  IF #ES-MSG-NR NE 0
+    PERFORM GET-MSG-TXT
+    ES-RC := 2
+  END-IF
+END-IF                                                     /* CF1 -
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE LIST
+************************************************************************
+RESET ES-NUMBER ES-OPTION-COUNT ES-STARTINDEX ES-SORTKEY ES-SORTORDER
+  ES-EXPAND NOTF2-LIST(*)
+ES-EOF := 'X'
+#IMAX := 265
+ES-FIELD-COUNT := 2
+#FO-USER := ES-KEY-PARM(2)
+EXAMINE #NOFOSL.#NAME FOR '*' DELETE
+IF ES-NEXT-KEY-PARM(1) > #NOFOSL.#NAME
+  #FO-NAME := ES-NEXT-KEY-PARM(1)
+ELSE
+  #FO-NAME := #NOFOSL.#NAME
+  ES-STARTINDEX := 1
+  #ES-MSG-NR := 6106
+  PERFORM GET-MSG-TXT              /* Folder
+  NOTF2-HEADER(1) := LONG-MSG(1)
+  #ES-MSG-NR := 6102
+  PERFORM GET-MSG-TXT              /* message
+  NOTF2-HEADER(2) := LONG-MSG(13)
+END-IF
+COMPRESS #FO-USER-NAME H'FF' TO #FO-USER-NAME-TO LEAVING NO
+R. READ FOLDER BY FO-USER-NAME = #FO-USER-NAME
+ENDING AT #FO-USER-NAME-TO                                            /*
+  RESET #ES-MSG-NR #INBASKET
+  #FO-NAME := FOLDER.FO-NAME
+  FT. FIND NUMBER MIGRATE-FOLDER WITH FO-USER-NAME = #FO-USER-NAME
+  IF *NUMBER(FT.) = 0 AND (#FO-NAME = '#Inbasket' OR = '#Listeneingang')
+    IF #FO-NAME = '#Inbasket'
+      #FO-NAME := '#Listeneingang'
+    ELSE
+      #FO-NAME := '#Inbasket'
+    END-IF
+    FT2. FIND NUMBER MIGRATE-FOLDER WITH FO-USER-NAME = #FO-USER-NAME
+    IF *NUMBER(FT2.) > 0
+      #INBASKET := TRUE
+    END-IF
+  END-IF
+  IF (*NUMBER(FT.) > 0 OR #INBASKET) AND NOTF-OWERWR NE 'Y'
+    ADD 1 TO #I2
+    IF #I2 > #IMAX
+      ES-NEXT-KEY-PARM(1) := FOLDER.FO-NAME
+      ES-NUMBER := #IMAX
+      RESET ES-EOF
+      ESCAPE BOTTOM (R.)
+    END-IF
+    #ES-MSG-NR := 8855                   /* exist
+    PERFORM GET-MSG-TXT
+    NOTF2-MSG(#I2)    := SHORT-MSG
+    NOTF2-OBJECT(#I2) := FOLDER.FO-NAME
+    ES-NUMBER := #I2
+  ELSE
+    PERFORM COPY-FOLDER
+  END-IF
+  IF #I2 > #IMAX
+    ESCAPE BOTTOM (R.)
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* LIST
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LOGICAL-FILE                         /* CF1 +
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN NOTF-DBID-TO < 1
+    #ES-MSG-NR := 0635                      /* Invalid DBID
+    #ES-MSG-FIELD-NAME := 'DBID-TO'
+  WHEN NOTF-FNR-TO < 1
+    #ES-MSG-NR :=0636                       /* Invalid FNR
+    #ES-MSG-FIELD-NAME := 'FNR-TO'
+  WHEN NOTF-FNR-TO  = NOTF-FNR-FROM AND
+      NOTF-DBID-TO = NOTF-DBID-FROM
+    #ES-MSG-NR := 4004   /* Source and Target env must be different
+    #ES-MSG-FIELD-NAME := 'DBID-TO'
+  WHEN NONE
+    /*
+    /* Verify if NOM DBID/FNR are valid
+    #FUNC := 'S'
+    #LFILE-NEWDBID := NOTF-DBID-TO
+    #LFILE-NEWFILE := NOTF-FNR-TO
+    CALLNAT 'XXVNOM-N' #FUNC #LFILE #LFILE-NEWDBID #LFILE-NEWFILE
+      #LFILE-OLDDBID #LFILE-OLDFILE #MESSAGE #ERRORNUMBER
+    IF #ERRORNUMBER NE 0
+      #ES-MSG-NR := 4005        /* Specified File is not a NOM-File
+      #ES-MSG-FIELD-NAME := 'DBID-TO'
+      IF #ERRORNUMBER = 3 OR= 4  /* LFILE was switched
+        PERFORM SWITCH-BACK-LFILE
+      END-IF
+    END-IF
+END-DECIDE
+*
+END-SUBROUTINE /* SET-LOGICAL-FILE
+*
+************************************************************************
+DEFINE SUBROUTINE SWITCH-BACK-LFILE
+************************************************************************
+IF *MACHINE-CLASS NE 'PC' /* Set LFILE to former values (OLD...)
+  IF #LFILE-OLDDBID = 0 AND #LFILE-OLDFILE = 0
+    NAT23008-PARA.FUNCTION := 'R'    /* Reset LFILE
+  ELSE
+    NAT23008-PARA.FUNCTION := 'S'    /* Set back to former values
+  END-IF
+  /*
+  NAT23008-PARA.LFILE-NR := 158
+  NAT23008-PARA.DBID     := #LFILE-OLDDBID
+  NAT23008-PARA.FNR      := #LFILE-OLDFILE
+  CALLNAT 'NAT23008' NAT23008-PARA
+  /*
+  IF NAT23008-PARA.RET_CODE NE 0
+    COMPRESS 'NAT23008 response code:' NAT23008-PARA.RET_CODE TO #MESSAGE
+    #ES-MSG-NR := 4008       /* Refresh LFile error occured
+    #ES-MSG-TXT := NAT23008-PARA.RET_CODE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SWITCH-BACK-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-FOLDER
+************************************************************************
+RESET #P-MSG
+#P-USER := #FO-USER
+#P-ID := FOLDER.FO-ID
+#P-NAME := FOLDER.FO-NAME
+#P-COPY-AUTH := NOTF-AUTH
+CALLNAT 'RMIGFOCO' #P-MSG #P-USER #P-ID #P-NAME #P-COPY-AUTH
+IF #P-MSG NE 0
+  ADD 1 TO #I2
+  IF #I2 > #IMAX
+    ES-NEXT-KEY-PARM(1) := FOLDER.FO-NAME
+    ES-NUMBER := #IMAX
+    RESET ES-EOF
+  ELSE
+    #ES-MSG-NR := #P-MSG
+    PERFORM GET-MSG-TXT
+    /* Prevent NAT1308 when #P-NAME is too long for beeing   /* CF1 -
+    /* placed into message string NOTF2-MSG(#I2)
+    /*NOTF2-MSG(#I2)    := SHORT-MSG
+    /*EXAMINE NOTF2-MSG(#I2) FOR ':1:' REPLACE #P-NAME
+    #STRING := SHORT-MSG
+    EXAMINE #STRING FOR ':1:' REPLACE #P-NAME
+    NOTF2-MSG(#I2) := #STRING                                /* CF1 +
+    NOTF2-OBJECT(#I2) := FOLDER.FO-NAME
+    ES-NUMBER := #I2
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* COPY-FOLDER
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-TXT   := SHORT-MSG
+ES-MSG-NR    := #ES-MSG-NR
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+END

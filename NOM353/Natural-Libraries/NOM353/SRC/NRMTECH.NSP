@@ -1,0 +1,179 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    Display some technical info
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-10-26 s(999999) clean up
+* mrs 93-10-26 s(999999) display defined steplibs
+* gw  94-01-13 s(999999) get version from NOMVER-N
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* gw  98-10-27 s(999999) window size
+* sju 02-02-22 NOM221    Display lfile settings
+* fhi     08-03-26 fhi249    Replace NOMVER-P with NOMVER-A
+* XSETHZ  2009-02-04 P307593   Add Version date
+* fhi     2009-03-30 P315875   Check for valid date format
+* fhi     2009-09-02 P320056   Show version from SYSPROD
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* XSETHZ  2010-09-02 NOMALL-863
+* bli      2012-09-18 NOMALL-94 2 digit versions, remove old coding
+* SU1     2023-08-25 NOMALL-2647 more than 8 steplibs
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING EDIT-CB
+LOCAL USING SAT00009
+LOCAL USING NOMVER-A
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+LOCAL
+1 SYSTEM-INFO    VIEW OF SYSTEM-INFO
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 SYSTEM-TYPE
+  2 SYSTEM-RELEASE
+  2 SPOOL-TYPE
+  2 SYSTEM-ID
+  2 ESY-VERSION
+*
+1 #PRODUCT-DATE                (A8)
+1 #PRODUCT-VER                 (A13)
+1 #PROG                        (A8)
+1 #MAP                         (A8)
+1 #APPLIC-NAME                 (A32)
+1 #USER-NAME                   (A32)
+1 #SYS-LINE                    (A41)
+*
+1 PI                           (P2)
+1 #STEPLIB-LINE                (A20/1:9)
+1 #STEPLIB-LIBRARY             (A8)
+1 #STEPLIB-DBID                (N5)
+1 #STEPLIB-FNR                 (N5)
+1 #DATE-A8                     (A8)
+1 #NATDATE                     (D)
+1 #LFILE-TABLE                 (3)
+  2 #LFILE                     (N5) INIT <206,91,131>
+  2 #DBID-FNR                  (A11)
+1 REDEFINE #LFILE-TABLE
+  2 #LFILE-MASTER              (N5)
+  2 #DBID-FNR-MASTER           (A11)
+  2 #LFILE-ACTIVE              (N5)
+  2 #DBID-FNR-ACTIVE           (A11)
+  2 #LFILE-LOG                 (N5)
+  2 #DBID-FNR-LOG              (A11)
+1 P-ERC                        (N4)
+1 P-ERT                        (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+NOMVER-PRODUCTNAME := 'EOM'
+CALLNAT 'PRDVER-N' NOMVER-PARMS P-ERC P-ERT
+COMPRESS NOMVER-VERSION '.' NOMVER-RELEASE '.' NOMVER-SP
+  TO #PRODUCT-VER LEAVING NO
+IF NOMVER-CF > 0
+  COMPRESS #PRODUCT-VER '.' NOMVER-CF TO #PRODUCT-VER LEAVING NO
+END-IF
+#DATE-A8 := NOMVER-DATE
+IF #DATE-A8 IS (D)
+  MOVE EDITED #DATE-A8 TO #NATDATE (EM=YYYYMMDD)
+  MOVE EDITED #NATDATE (EM=YY'-'MM'-'DD) TO #PRODUCT-DATE
+ELSE
+  RESET #NATDATE #PRODUCT-DATE
+END-IF
+*
+SET KEY PF3
+ED-REQUEST := 'GETV'
+CALL 'EDITOR' EDIT-CB
+EXAMINE ED-MEMBER FOR 'V' DELETE
+*
+SET CONTROL 'WL78C20B03/01F'
+#PROG := G-CALLER
+*
+IF *APPLIC-NAME NE 'SYSTEM'
+  #APPLIC-NAME := *APPLIC-NAME
+END-IF
+*
+IF *USER-NAME NE 'SYSTEM'
+  #USER-NAME := *USER-NAME
+END-IF
+*
+COMPRESS *TPSYS *OPSYS TO #SYS-LINE
+*
+IF G-MONITOR-NODE NE 0 /*  SU 2018-03 G-NODE -> G-MONITOR-NODE
+  FIND (1) SYSTEM-INFO WITH NODE = G-MONITOR-NODE
+    IF ERROR-CODE = 0
+      COMPRESS *TPSYS SYSTEM-ID SYSTEM-TYPE SYSTEM-RELEASE SPOOL-TYPE
+        TO #SYS-LINE
+      RESET ERROR-TEXT
+    END-IF
+  END-FIND
+END-IF
+*
+RESET PI /*SU1 ->
+/* FOR PI = 1 TO 8
+#REP. REPEAT
+  ADD 1 TO PI /*SU1 <-
+  NAT00009-FUNCTION := 12
+  NAT00009-CURRENT-INDEX := PI
+  CALLNAT 'NAT00009' NAT00009-PARMS
+  IF PI > NAT00009-NUMBER-ACTIVE
+    ESCAPE BOTTOM
+  END-IF
+*
+  #STEPLIB-LIBRARY := NAT00009-LIBRARY
+  #STEPLIB-DBID    := NAT00009-DBID
+  #STEPLIB-FNR     := NAT00009-FNR
+  IF #STEPLIB-DBID = 255
+    SATLF-SATVERS  := 21
+    SATLF-FUNCTION := 'GET'
+    SATLF-LFILE := #STEPLIB-FNR
+    CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+    IF SATLF-ERROR-CODE = 0
+      #STEPLIB-DBID := SATLF-DBID-N5
+      #STEPLIB-FNR  := SATLF-FNR-N5
+    END-IF
+  END-IF
+*
+  IF PI LE *OCC(#STEPLIB-LINE)
+    COMPRESS #STEPLIB-LIBRARY '/' #STEPLIB-DBID '/' #STEPLIB-FNR
+      TO #STEPLIB-LINE (PI) LEAVING NO
+  ELSE /*more than 9 steplibs
+    IF PI = *OCC(#STEPLIB-LINE) + 1
+      WRITE 'additional steplibs:'
+    END-IF
+    PRINT (AD=L) PI #STEPLIB-LIBRARY '/' #STEPLIB-DBID '/' #STEPLIB-FNR
+  END-IF
+  IF PI GE NAT00009-NUMBER-ACTIVE /*SU1
+    ESCAPE BOTTOM
+  END-IF
+END-REPEAT
+SATLF-SATVERS  := 21
+SATLF-FUNCTION := 'GET'
+FOR PI = 1 TO 3
+  SATLF-LFILE := #LFILE(PI)
+  CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+  IF SATLF-ERROR-CODE NE 0 OR SATLF-DBID-N5 = 0 OR SATLF-FNR-N5 = 0
+    IF PI = 2
+      #DBID-FNR(PI):= #DBID-FNR(1)
+    ELSE
+      #DBID-FNR(PI):= '?????/?????'
+    END-IF
+  ELSE
+    COMPRESS SATLF-DBID-N5 '/' SATLF-FNR-N5 TO #DBID-FNR (PI) LEAVING NO
+  END-IF
+END-FOR
+REPEAT
+  INPUT USING MAP 'NRMTECH&'
+  IF *PF-KEY = 'PF3'
+    SET CONTROL 'WB'
+    ESCAPE ROUTINE
+  END-IF
+END-REPEAT
+*
+END

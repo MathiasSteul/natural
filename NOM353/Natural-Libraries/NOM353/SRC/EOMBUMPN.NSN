@@ -1,0 +1,187 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    EOMBUMPN
+* Version   2.1.1
+* Function  DB Interface EOM Object Bundle (printing attributes)
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* xsisgg  2000-03-31 created
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* XSETHZ  2004-01-29 P(249557) Separator Page not printed
+* xsetggr 2006-10-17 p(283614)change work of function READ-NEXT,
+*             READHOLD-NEXT and INIT, use of parameter EOMBUM-REP-INDEX
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2007-07-12 NOM3201   restow due changes in eombum-p
+* SU1     2014-03-05 NOMALL-1281 show last update user+date
+* fhi     2015-06-30 NOMALL-1655 Leave copies field as entered
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 EOM-FUNCTION   (I2)
+PARAMETER USING EOMBUM-P
+PARAMETER USING EOMMSG-P
+* -----------------------------LDAs-------------------------------------
+LOCAL USING EOM----E
+LOCAL USING VDEFBU-L
+LOCAL
+*
+1 BUNDLE VIEW OF NRM-BUNDLES
+  2 B-BUNDLE
+  2 B-HOLD
+  2 B-SEPNO
+  2 B-SEPMEM
+  2 REDEFINE B-SEPMEM
+    3 B-SEP-START             (A8)
+    3 B-SEP-END               (A8)
+  2 B-PRINT-LIST              (1:20)
+  2 REDEFINE B-PRINT-LIST
+    3 B-PRINT-LIST1           (1:20)
+      4 B-PRINTER             (A8)
+      4 B-PRINTER-COPIES      (N3)
+  2 B-PRINT-JOBCARD           (1:3)
+  2 B-FLAG-REPSEP
+  2 B-FLAG-PAGENO
+  2 B-JOBNAME
+  2 B-LAST-UPDATE-USER /*SU2
+  2 B-LAST-UPDATE /*SU2
+1 #PRINTER-NMB                (N2) CONST <20>
+1 #DEF-PRT-NMB                (N2) CONST <5>
+1 I                           (P2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-INIT
+    PERFORM INIT-PRINTING-ATTRIBUTES
+  VALUE EOM-READ, EOM-READHOLD, EOM-READ-NEXT, EOM-READHOLD-NEXT
+    PERFORM READ-PRINTING-ATTRIBUTES
+  VALUE EOM-MODIFY
+    PERFORM MODIFY-PRINTING-ATTRIBUTES
+  NONE  IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PRINTING-ATTRIBUTES
+************************************************************************
+RESET EOMBUM-PRINTING-ATTR (*)
+*
+PERFORM READ-BUNDLE-DEFAULTS
+*
+EOMBUM-HOLD-PRINT              := BUNDLE-DEFAULTS.B-HOLD
+EOMBUM-PRINTER(1:#DEF-PRT-NMB) := BUNDLE-DEFAULTS.B-PRINTER(*)
+EOMBUM-BUNDLE-PRINT-COPIES(1:#DEF-PRT-NMB) :=
+  BUNDLE-DEFAULTS.B-PRINTER-COPIES(*)
+EOMBUM-FLAG-REPSEP             := BUNDLE-DEFAULTS.B-FLAG-REPSEP
+EOMBUM-SEP-START               := BUNDLE-DEFAULTS.B-SEPSTART
+EOMBUM-SEP-END                 := BUNDLE-DEFAULTS.B-SEPEND
+EOMBUM-SEPARATOR-COPIES        := BUNDLE-DEFAULTS.B-SEPNO
+EOMBUM-JOBNAME                 := BUNDLE-DEFAULTS.B-JOBNAME
+*
+END-SUBROUTINE /* INIT-PRINTING-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-BUNDLE-DEFAULTS
+************************************************************************
+M-MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+FNDDEF. FIND BUNDLE-DEFAULTS WITH M-MONITOR-ID = M-MONITOR-ID
+END-FIND
+*
+END-SUBROUTINE /* READ-BUNDLE-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-PRINTING-ATTRIBUTES
+************************************************************************
+FNDBU. FIND BUNDLE WITH B-BUNDLE = EOMBUM-I-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR         := 0408
+    EOMMSG-FIELD-NAME := 'EOMBUM-I-NAME'
+    ESCAPE BOTTOM (FNDBU.)
+  END-NOREC
+  PERFORM READ-ATTR-VALUES
+  IF EOM-FUNCTION = EOM-READHOLD
+    UPD. GET BUNDLE *ISN (FNDBU.)
+    IF B-BUNDLE NE B-BUNDLE
+      UPDATE(UPD.)
+    END-IF
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* READ-PRINTING-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ATTR-VALUES
+************************************************************************
+EOMBUM-BUNDLE                 := BUNDLE.B-BUNDLE
+EOMBUM-HOLD-PRINT             := BUNDLE.B-HOLD
+EOMBUM-PRINTER(*)             := BUNDLE.B-PRINTER(*)
+EOMBUM-BUNDLE-PRINT-COPIES(*) := BUNDLE.B-PRINTER-COPIES(*)
+EOMBUM-FLAG-REPSEP            := BUNDLE.B-FLAG-REPSEP
+EOMBUM-FLAG-PAGENO            := BUNDLE.B-FLAG-PAGENO
+EOMBUM-SEP-START              := BUNDLE.B-SEP-START
+EOMBUM-SEP-END                := BUNDLE.B-SEP-END
+EOMBUM-SEPARATOR-COPIES       := BUNDLE.B-SEPNO
+EOMBUM-PRINT-JOBCARD(*)       := BUNDLE.B-PRINT-JOBCARD(*)
+EOMBUM-JOBNAME                := BUNDLE.B-JOBNAME
+*
+END-SUBROUTINE /* READ-ATTR-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-PRINTING-ATTRIBUTES
+************************************************************************
+FNDMOD. FIND BUNDLE WITH B-BUNDLE = EOMBUM-I-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0408
+    EOMMSG-FIELD-NAME := 'EOMBUM-I-NAME'
+    ESCAPE BOTTOM(FNDMOD.)
+  END-NOREC
+  FOR I=1 TO #PRINTER-NMB
+    IF EOMBUM-PRINTER(I)  = ' '
+      RESET B-PRINTER(I) B-PRINTER-COPIES(I)
+    ELSE
+      B-PRINTER(I)               := EOMBUM-PRINTER(I)
+      IF EOMBUM-BUNDLE-PRINT-COPIES(I) NE MASK (NNN)
+        RESET EOMBUM-BUNDLE-PRINT-COPIES(I)
+      END-IF
+      B-PRINTER-COPIES(I) := EOMBUM-BUNDLE-PRINT-COPIES(I)
+    END-IF
+  END-FOR
+  IF EOMBUM-SEPARATOR-COPIES NE MASK(NNN)
+    RESET EOMBUM-SEPARATOR-COPIES
+  END-IF
+*
+  B-LAST-UPDATE-USER   := *USER /*SU2
+  B-LAST-UPDATE        := *TIMX /*SU2
+  B-PRINT-JOBCARD(1:3) := EOMBUM-PRINT-JOBCARD(1:3)
+  B-HOLD               := EOMBUM-HOLD-PRINT
+  B-FLAG-REPSEP        := EOMBUM-FLAG-REPSEP
+  B-SEP-START          := EOMBUM-SEP-START
+  B-SEP-END            := EOMBUM-SEP-END
+  B-SEPNO              := EOMBUM-SEPARATOR-COPIES
+* fhi     2015-06-30 NOMALL-1655 start commenting
+* IF B-SEPNO = 0 AND (B-SEP-START NE ' ' OR B-SEP-END NE ' ')
+*   MOVE 1 TO B-SEPNO
+* END-IF
+* fhi     2015-06-30 NOMALL-1655 end   commenting
+*
+  UPDATE (FNDMOD.)
+*
+END-FIND
+*
+END-SUBROUTINE /* MODIFY-PRINTING-ATTRIBUTES
+* --------------------------------------- on error ---------------------
+INCLUDE C-EOMERR
+*
+END

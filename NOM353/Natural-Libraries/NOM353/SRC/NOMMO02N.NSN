@@ -1,0 +1,291 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMMO02N - Get monitor and task defaults
+*
+* Maintenance:
+* uuu     yyyy-mm-dd s(999999) ....
+* sju     2001-04-27 p(208729) created from NOMMO01N
+* sju     2003-03-04 NOM221    New lfile for active data
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-12-05 p(300323) add sat steplibs
+* xsetggr 2009-02-10 P300323   delete steplib handling, get NOM library
+*                              by RGETLIB
+* fhi     2009-02-27 P300323 Rename RGETSTEP to NOMGSTEP delivered in SYSTEM
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* SU1     2014-11-12 NOMALL-1527 getting rid of coding for old versions-
+*                                only restruct
+* fhi     2016-11-10 NOMALL-1917 use correct node number
+* fhi     2016-11-11 NOMALL-1961 Duplicate monitor copy task
+* SU2     2017-03-06 NOMALL-1961 Use new task IDs
+* fhi     2018-03-21 NOMALL-1918 Adapt to Unix
+* SU3     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU4     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER USING NOMMO02P
+************************************************************************
+INDEPENDENT
+1 +NOD-LOCAL-SPOOL-TYPE    (A8)
+1 +NOD-LOCAL-SYSTEM-TYPE   (A8)
+*
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+LOCAL USING RACTLF-A
+/*SU3 (LOCAL USING VMONITUL            /* NOMALL-1917
+LOCAL USING RMTASK-P
+LOCAL
+1 MONITOR VIEW OF NRM-MONITOR
+/*SU3  2 M-MONITOR-NODE
+  2 M-WAIT-CURRENT
+  2 M-WAIT-MAXIMUM
+  2 M-WAIT-MINIMUM
+  2 M-WAIT-INCREMENT
+  2 M-LAST-ACTIVE
+/*SU3  2 M-SPOOL-TYPE
+/*SU3  2 M-SYSTEM-TYPE
+  2 M-XCOM-JOBNAME
+  2 M-PRT-TASK-NO
+  2 M-DATE-FORMAT
+/*SU3  2 M-CLASSES (1:16)
+/*SU3  2 M-JES3-OUTPUT-CLASSES (1:16)
+/*SU3  2 M-TEMP-CLASS
+/*SU3  2 M-PRINT-CLASS
+/*SU3  2 M-BS2-DEST (1:10)
+  2 M-MONITOR-TASKS
+  2 REDEFINE M-MONITOR-TASKS
+    3 M-TASK-NUMBER          (N3/1:12)
+  2 REDEFINE M-MONITOR-TASKS
+    3 M-SPOOL-QUEUE          (N3)
+    3 M-COPY-SOURCE          (N3/2:10)
+    3 M-CREATE-REPORTS       (N3)
+    3 M-MANAGE-PRINTOUTS     (N3)
+1 NRM-SUBTASK-INFO VIEW OF NRM-SUBTASK-INFO
+  2 ST-LAST-ACTIVE
+  2 ST-WAIT-MINIMUM
+  2 ST-WAIT-MAXIMUM
+  2 ST-WAIT-INCREMENT
+  2 ST-WAIT-CURRENT
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU3
+  2 MF-TYPE
+  2 MF-MONITOR-ID
+  2 MF-BS2-DEST              (1:10)
+  2 MF-SPOOL-TYPE
+  2 MF-SYSTEM-TYPE
+  2 MF-MONITOR-NODE
+  2 MF-CLASSES               (1:16)
+  2 MF-JES3-OUTPUT-CLASSES   (1:16)
+  2 MF-TEMP-CLASS
+  2 MF-PRINT-CLASS
+*
+1 #NOM-DBID                  (N5)
+1 #NOM-FNR                   (N5)
+1 #I                         (I2)
+1 #M-COPY-SOURCE             (N3)
+1 #I2                        (I2)
+1 #MAX-TASKS                 (I2) CONST <59>
+1 #LFILE-CHANGED             (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET NOMMO-ERROR-CODE NOMMO-ERROR-TEXT
+*
+#NOM-DBID := NOMMO-NOM-DBID
+#NOM-FNR  := NOMMO-NOM-FNR
+*
+DECIDE FOR EVERY CONDITION
+  WHEN NOMMO-NOM-FNR = 0 AND #NOM-DBID NE 0 AND #NOM-FNR NE 0
+    PERFORM GET-NOM-LFILE
+    PERFORM VALIDATION
+  WHEN NOMMO-ERROR-CODE=0 AND NOMMO-NOM-FNR NE 0 AND NOMMO-NOM-DBID NE 0
+    PERFORM SET-NOM-LFILE
+    #LFILE-CHANGED := TRUE
+  WHEN NOMMO-ERROR-CODE = 0
+    PERFORM READ-MONITOR-DEFAULTS
+  WHEN #LFILE-CHANGED
+    PERFORM SET-OLD-NOM-LFILE
+  WHEN NONE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NOM-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'GET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+#NOM-DBID := SATLF-DBID-N5
+#NOM-FNR  := SATLF-FNR-N5
+*
+END-SUBROUTINE /* GET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'SET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := NOMMO-NOM-DBID
+SATLF-FNR-N5  := NOMMO-NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-OLD-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := #NOM-DBID
+SATLF-FNR-N5  := #NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-OLD-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN #NOM-DBID = 0 NOMMO-ERROR-CODE := 9102
+  WHEN #NOM-FNR = 0  NOMMO-ERROR-CODE := 9103
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE READ-MONITOR-DEFAULTS
+************************************************************************
+RESET RACTLF-LOGGING RACTLF-ERROR-LOGGING
+RACTLF-LFILE-1 := 91
+RACTLF-LFILE-2 := 206
+CALLNAT 'RACTLF-N' RACTLF-PARMS
+IF RACTLF-ERROR-CODE NE 0
+  NOMMO-ERROR-CODE:= 0004
+  COMPRESS 'LFILE 91 ERROR' RACTLF-ERROR-CODE RACTLF-ERROR-TEXT
+    TO NOMMO-ERROR-TEXT
+  ESCAPE ROUTINE
+END-IF
+RESET NOMMO-ERROR-CODE NOMMO-ERROR-TEXT
+*
+RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)
+FIND MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+  IF NO RECORDS FOUND
+    NOMMO-ERROR-CODE := 9105
+    ESCAPE ROUTINE
+  END-NOREC
+  NOMMO-WAIT-CURRENT               := M-WAIT-CURRENT
+  NOMMO-WAIT-MINIMUM               := M-WAIT-MINIMUM
+  NOMMO-WAIT-MAXIMUM               := M-WAIT-MAXIMUM
+  NOMMO-WAIT-INCREMENT             := M-WAIT-INCREMENT
+  MOVE EDITED M-LAST-ACTIVE (EM=YYYYMMDD) TO NOMMO-LAST-ACTIVE-DATE
+  MOVE EDITED M-LAST-ACTIVE (EM=HH':'II':'SS) TO NOMMO-LAST-ACTIVE-TIME
+  NOMMO-ESY-JOBNAME                := M-XCOM-JOBNAME
+  NOMMO-PRINT-TASKS                := M-PRT-TASK-NO
+  NOMMO-DATE-FORMAT                := M-DATE-FORMAT
+  NOMMO-MAIN-TASK-FUNCTIONS        := 'M'
+  IF M-SPOOL-QUEUE LT 2
+    COMPRESS NOMMO-MAIN-TASK-FUNCTIONS 'S' TO
+      NOMMO-MAIN-TASK-FUNCTIONS LEAVING NO
+  ELSE
+    COMPRESS NOMMO-SUBTASK-FUNCTIONS(M-SPOOL-QUEUE) 'S' TO
+      NOMMO-SUBTASK-FUNCTIONS(M-SPOOL-QUEUE) LEAVING NO
+  END-IF
+  FORI. FOR #I = 2 TO 10
+    DECIDE FOR FIRST CONDITION
+      WHEN M-COPY-SOURCE (#I) = 1
+        COMPRESS NOMMO-MAIN-TASK-FUNCTIONS 'C' TO
+          NOMMO-MAIN-TASK-FUNCTIONS LEAVING NO
+        ESCAPE BOTTOM(FORI.)
+      WHEN M-COPY-SOURCE (#I) > 1
+        #M-COPY-SOURCE := M-COPY-SOURCE (#I)
+        COMPRESS NOMMO-SUBTASK-FUNCTIONS (#M-COPY-SOURCE)
+          'C' TO NOMMO-SUBTASK-FUNCTIONS (#M-COPY-SOURCE) LEAVING NO
+      WHEN NONE IGNORE
+    END-DECIDE
+  END-FOR
+  IF M-CREATE-REPORTS LT 2
+    COMPRESS NOMMO-MAIN-TASK-FUNCTIONS 'R' TO
+      NOMMO-MAIN-TASK-FUNCTIONS LEAVING NO
+  ELSE
+    COMPRESS NOMMO-SUBTASK-FUNCTIONS(M-CREATE-REPORTS) 'R' TO
+      NOMMO-SUBTASK-FUNCTIONS(M-CREATE-REPORTS) LEAVING NO
+  END-IF
+  IF M-MANAGE-PRINTOUTS LT 2
+    COMPRESS NOMMO-MAIN-TASK-FUNCTIONS 'P' TO
+      NOMMO-MAIN-TASK-FUNCTIONS LEAVING NO
+  ELSE
+    COMPRESS NOMMO-SUBTASK-FUNCTIONS(M-MANAGE-PRINTOUTS) 'P' TO
+      NOMMO-SUBTASK-FUNCTIONS(M-MANAGE-PRINTOUTS) LEAVING NO
+  END-IF
+  FOR #I2 = 21 TO #MAX-TASKS
+    IF NOMMO-SUBTASK-FUNCTIONS(#I2) NE ' '
+      RMTASK-P.FUNCTION       := 'S'
+      RMTASK-P.SUBTASK-NUMBER := #I2
+      CALLNAT 'RMTASKID' RMTASK-P
+      FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = RMTASK-P.TASK-ID
+        NOMMO-SUBTASK-WAIT-CURRENT(#I2)  := ST-WAIT-CURRENT
+        NOMMO-SUBTASK-WAIT-MINIMUM(#I2)  := ST-WAIT-MINIMUM
+        NOMMO-SUBTASK-WAIT-MAXIMUM(#I2)  := ST-WAIT-MAXIMUM
+        NOMMO-SUBTASK-WAIT-INCREMENT(#I2):= ST-WAIT-INCREMENT
+        MOVE EDITED ST-LAST-ACTIVE (EM=YYYYMMDD)
+          TO NOMMO-SUBTASK-LAST-ACTIVE-DATE(#I2)
+        MOVE EDITED ST-LAST-ACTIVE (EM=HH':'II':'SS)
+          TO NOMMO-SUBTASK-LAST-ACTIVE-TIME(#I2)
+      END-FIND
+    END-IF
+  END-FOR
+END-FIND
+IF *MACHINE-CLASS = 'MAINFRAME'
+  READ(1) MF-NODE BY MF-TYPE-ID = 'MR-'
+  END-READ
+  IF MF-TYPE NE 'M' OR MF-MONITOR-ID NE MASK('R-')
+    NOMMO-ERROR-CODE := 9105
+    ESCAPE ROUTINE
+  END-IF
+  NOMMO-BS2-DESTINATION     (1:10) := MF-BS2-DEST (1:10)
+  NOMMO-SPOOL-TYPE                 := MF-SPOOL-TYPE
+  NOMMO-SYSTEM-TYPE                := MF-SYSTEM-TYPE
+  NOMMO-NODE                       := MF-MONITOR-NODE
+  NOMMO-CLASSES             (1:16) := MF-CLASSES (1:16)
+  NOMMO-JES3-OUTPUT-CLASSES (1:16) := MF-JES3-OUTPUT-CLASSES (1:16)
+  NOMMO-TEMP-CLASS                 := MF-TEMP-CLASS
+  NOMMO-PRINT-CLASS                := MF-PRINT-CLASS
+ELSE
+  NOMMO-NODE                         := 0
+  NOMMO-SPOOL-TYPE                   := +NOD-LOCAL-SPOOL-TYPE
+  NOMMO-SYSTEM-TYPE                  := +NOD-LOCAL-SYSTEM-TYPE
+END-IF
+END-SUBROUTINE /* READ-MONITOR-DEFAULTS
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF #LFILE-CHANGED
+    SATLF-LFILE := 206
+    PERFORM SET-OLD-NOM-LFILE
+  END-IF
+  IF *ERROR-NR = 82
+    WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Missing NOM steplibs' //
+      'Please call NOM steplib routine NOMGSTEP before call of NOM API.'
+  END-IF
+  NOMMO-ERROR-CODE := 9101
+  CALLNAT 'C-NATERN' NOMMO-ERROR-TEXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

@@ -1,0 +1,138 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+************************************************************************
+* RMEXPCA - Export CAlender
+*
+* Maintenance
+* User  yyyy-mm-dd Issue       Remark
+* ----- ---------------------- -----------------------------------------
+*       2019-02-22 generated   Created from RMXML2LD
+* SU1   2015-09-15 NOMALL-1693 NAT00059(A80)->NAT41002(A253)
+* fhi   2019-02-19 NOMALL-2215 Export not complete
+* BLI   2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU2   2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU3   2021-02-18 NOMALL-2443 restruct+MSG
+* GGS01 2021-07-06 NOMALL-2474 RECAT since RMEXP-C changed
+* SU4   2021-08-18 NOMALL-2467 RMEXPCAL
+************************************************************************
+DEFINE DATA
+PARAMETER USING XXUX---P
+PARAMETER USING RMEXP-A
+PARAMETER
+1 #TRACING               (L)
+1 #ID                    (A250) BY VALUE OPTIONAL
+/***********************************************************************
+/*SU4 LOCAL USING RMEXPCAL
+LOCAL USING RMBAS64P
+LOCAL USING VUXDEF-L
+/*SU2 LOCAL USING VMONITUL /* NOMALL-2215 fhi in
+LOCAL USING N-41002L /*SU1
+/***********************************************************************
+LOCAL
+1 CA VIEW OF NRM-CALENDARS /*SU4 was RMEXPCAL
+  2 CA-OBJECT-TYPE       (A10)
+  2 CA-OBJECT-TIME       (T)
+  2 P-LAST-UPDATE        (T)
+  2 P-LAST-UPDATE-USER   (A16)
+  2 CA-CALENDAR-ID       (A12)
+  2 REDEFINE CA-CALENDAR-ID
+    3 CA-CALENDAR        (A8)
+    3 CA-YEAR            (N4)
+  2 CA-WORKING-DAYS      (A31/1:12)
+1 WRITE-FILE VIEW OF WRITE-FILE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+*
+1 #FIELD                 (A32)
+1 #VALUE                 (A300)
+1 #LEN                   (I4)
+1 #WORK-LINE             (A250)
+1 #FUNCTION              (A10)
+1 #I                     (I4)
+1 #J                     (I4)
+1 #K                     (I4)
+1 #L                     (I4)
+1 #PROGRAM               (A8) INIT <*PROGRAM>
+1 REDEFINE #PROGRAM
+  2 FILLER               5X /*RMEXP
+  2 #TYPE                (A2)
+1 #KEY                   (A100)
+1 #KEY-FROM              (A100)
+1 #KEY-TO                (A100) INIT FULL LENGTH <H'FF'>
+1 #KEY-MASK              (A25)
+/*SU4 1 #KEY-LEN               (I2)
+1 #KEY-LEN2              (I2) CONST <12> /*full len CA-CALENDAR-ID SU4
+1 #TRACE-MSG             (A250)
+1 #POS                   (I4)
+1 #DEP                   (A5)
+1 #NODE                  (N5)
+1 #MASK                  (A300) INIT FULL LENGTH <'P'>
+1 #PRINTABLE             (A300)
+1 #CA-OBJECT-TIME (A21)
+1 #P-LAST-UPDATE (A21)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM #START
+READ CA BY CA-CALENDAR-ID = #KEY-FROM THRU #KEY-TO
+  #KEY := CA-CALENDAR-ID
+  PERFORM HANDLE-MASK
+  COMPRESS '<CA depending="' #DEP '">' TO #WORK-LINE LEAVING NO
+  PERFORM WRITE-XML
+  IF #OD-LOG = 'Y'
+    IF #ID SPECIFIED
+      COMPRESS 'Exported: CA */' CA-CALENDAR-ID TO #TRACE-MSG
+    ELSE
+      COMPRESS 'Exported: CA /' CA-CALENDAR-ID TO #TRACE-MSG
+    END-IF
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+  MOVE EDITED CA.CA-OBJECT-TIME (EM=YYYY'-'MM'-'DD'-'HH':'II':'SS'.'T)
+    TO #CA-OBJECT-TIME
+  MOVE EDITED CA.P-LAST-UPDATE (EM=YYYY'-'MM'-'DD'-'HH':'II':'SS'.'T)
+    TO #P-LAST-UPDATE
+  #FIELD := 'CA-OBJECT-TYPE'
+  #VALUE :=  CA.CA-OBJECT-TYPE
+  PERFORM CONVERT-XML
+  #FIELD := 'CA-OBJECT-TIME'
+  #VALUE :=  #CA-OBJECT-TIME
+  PERFORM CONVERT-XML
+  #FIELD := 'P-LAST-UPDATE'
+  #VALUE :=  #P-LAST-UPDATE
+  PERFORM CONVERT-XML
+  #FIELD := 'P-LAST-UPDATE-USER'
+  #VALUE :=  CA.P-LAST-UPDATE-USER
+  PERFORM CONVERT-XML
+  #FIELD := 'CA-CALENDAR'
+  #VALUE :=  CA.CA-CALENDAR
+  PERFORM CONVERT-XML
+  #FIELD := 'CA-YEAR'
+  #VALUE :=  CA.CA-YEAR
+  MOVE LEFT #VALUE TO #VALUE
+  PERFORM CONVERT-XML
+  FOR #L := 12 TO 1 STEP -1
+    IF CA.CA-WORKING-DAYS (#L) NE ' '
+      ESCAPE BOTTOM
+    END-IF
+  END-FOR
+  FOR #I = 1 TO #L
+    #FIELD := 'CA-WORKING-DAYS'
+    #VALUE :=  CA.CA-WORKING-DAYS(#I)
+    PERFORM CONVERT-XML1
+  END-FOR
+*
+  PERFORM #END-OBJ
+END-READ
+PERFORM #END
+*
+INCLUDE RMEXP-C /*CALL-NPR, WRITE-XML, OPEN-XML, CLOSE-XML, WRITE-XML
+*
+END

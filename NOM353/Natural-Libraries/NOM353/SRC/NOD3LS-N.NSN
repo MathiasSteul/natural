@@ -1,0 +1,135 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOD3LS-N - NOM API List of 3 GL Interfaces
+*
+* Maintenance:
+* XSETGGR 2004-06-10 created
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* CF1     2015-07-03 NOMALL-1658 Support language dependent lists
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOD3LS-A
+************************************************************************
+LOCAL USING ESMCONSL
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR
+  2 M-MONITOR-ID
+  2 REDEFINE M-MONITOR-ID
+    3 #NOMUSR              (A6)
+    3 #NOMUSR-INTERFACE    (N3)
+  2 M-VERSION
+1 #MONITOR-ID         (A10)
+1 REDEFINE #MONITOR-ID
+  2 #TYPE             (A6)
+  2 #INTERFACE        (N3)
+1 #NOMUSR-NAME        (A6)   CONST <'NOMUSR'>
+1 #I2                 (I4)
+1 #IMAX               (I4)
+1 #ES-MSG-PREF        (A7)   INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM       (A3)
+  2 #ES-MSG-NR        (N4)
+1 #NUMB-A3            (A3)
+1 REDEFINE #NUMB-A3
+  2 #NUMB-N3          (N3)
+1 #HEADER-NR          (N4) CONST <6117>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+RESET ES-RC ES-NUMBER ES-STARTINDEX ES-SORTKEY ES-SORTORDER
+ES-EOF := 'X'
+ES-OPTION-COUNT := 10
+IF ES-EXPAND NE ' '
+  #IMAX := 1099
+  ES-FIELD-COUNT := 1
+  NOD3EX-FIELD-LENGTH(1) := 3
+ELSE
+  #IMAX := 346
+  ES-FIELD-COUNT := 2
+  NOD3LS-FIELD-LENGTH(1) := 3
+  NOD3LS-FIELD-LENGTH(2) := 50
+END-IF
+IF ES-NEXT-KEY-PARM(1) > ' '
+  #NOMUSR  := ES-NEXT-KEY-PARM(1)
+  #NOMUSR-INTERFACE := VAL(ES-NEXT-KEY-PARM(2))
+ELSE
+  #MONITOR-ID := #NOMUSR-NAME
+  IF ES-EXPAND NE 'E'
+    ES-STARTINDEX := 2
+    #I2 := 1
+    RESET NOD3LS-HEADER(1)
+    #ES-MSG-NR := #HEADER-NR
+    PERFORM GET-MSG-TXT
+    NOD3LS-HEADER(1) := LONG-MSG(1)
+    COMPRESS NOD3LS-HEADER(1) C-HEADER-DELIMITER LONG-MSG(2)
+      TO NOD3LS-HEADER(1) LEAVING NO
+  END-IF
+END-IF
+*
+RDUSR. READ NRM-MONITOR BY M-MONITOR-ID = #MONITOR-ID
+  IF M-MONITOR-ID NE MASK ('NOMUSR')
+    ESCAPE BOTTOM(RDUSR.)
+  END-IF
+  ADD 1 TO #I2
+  IF #I2 > #IMAX
+    ES-NEXT-KEY-PARM(1) := #NOMUSR
+    #NUMB-N3 := #NOMUSR-INTERFACE
+    ES-NEXT-KEY-PARM(2) := #NUMB-A3
+    ES-NUMBER := #IMAX
+    RESET  ES-EOF
+    ESCAPE BOTTOM
+  ELSE
+    IF ES-EXPAND = 'E'
+      NOD3EX-NAME (#I2) := #NOMUSR-INTERFACE
+      RESET NOD3EX-OPTIONS (#I2,*)
+    ELSE
+      NOD3LS-NAME (#I2)      := #NOMUSR-INTERFACE
+      NOD3LS-DESCRIPTION(#I2):= M-VERSION
+      RESET NOD3LS-OPTIONS(#I2,*)
+    END-IF
+    ES-NUMBER := #I2
+  END-IF
+END-READ
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE            /* CF1
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+END

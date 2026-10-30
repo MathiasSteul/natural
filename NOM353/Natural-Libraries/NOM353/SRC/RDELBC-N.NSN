@@ -1,0 +1,74 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDELBC-N  delete active report from bundle
+*           bundle-contents record is deleted and
+*           also the active-bundle record if no more bundle-contents
+*
+* Maintenance
+* xsiszha 2000-08-01 (CE7461) Extend Report and Bundle Names
+* xsetggr 2007-05-02 NOM3201  support P11 format run numbers
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 G-C-REPORT      (A25)
+1 G-C-REPRNB      (P11)
+************************************************************************
+LOCAL USING SUPER-L
+LOCAL
+1 BUNDLE-CONTENTS VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-BUNDLE
+  2 BC-BUNDRNB
+1 ACTIVE-BUNDLES VIEW OF NRM-ACTIVE-BUNDLES
+*
+1 #BC-SUPER       (A41)
+1 REDEFINE    #BC-SUPER
+  2 #BC-BUNDLE    (A25)
+  2 #BC-BUNDRNB   (P11)
+  2 #BC-GROUP     (A8)
+  2 #BC-SEQNO     (P3)
+1 REDEFINE    #BC-SUPER
+  2 #BC-BUNDLE-RNB(A31)
+1 BUNDLE-IS-EMPTY (L)
+1 #OBJ            (A50)
+*
+END-DEFINE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+#AR-REPNAME := G-C-REPORT
+#AR-REPRNB := G-C-REPRNB
+BUND-CONT-D. FIND  BUNDLE-CONTENTS WITH BC-REPORT-RNB = #AR-REPORT-RNB
+  #BC-BUNDLE := BC-BUNDLE
+  #BC-BUNDRNB := BC-BUNDRNB
+  DELETE  RECORD (BUND-CONT-D.)
+  COMPRESS #BC-BUNDLE '/' #BC-BUNDRNB TO #OBJ LEAVING NO
+  PERFORM RMLOGDEL #OBJ 'BUNDLE-CONTENTS'
+  END TRANSACTION
+END-FIND
+*
+* CHECK IF NO MORE REPORTS IN BUNDLE
+*
+RESET #BC-GROUP #BC-SEQNO
+BUNDLE-IS-EMPTY := TRUE
+READ BUNDLE-CONTENTS BY BC-BUNDLE-RNB-GROUP-SEQNO = #BC-SUPER
+  IF BC-BUNDLE NE #BC-BUNDLE OR BC-BUNDRNB NE #BC-BUNDRNB
+    ESCAPE BOTTOM
+  END-IF
+  BUNDLE-IS-EMPTY := FALSE
+  ESCAPE BOTTOM
+END-READ
+IF BUNDLE-IS-EMPTY
+  FIND ACTIVE-BUNDLES WITH AB-BUNDLE-RNB = #BC-BUNDLE-RNB
+    DELETE RECORD
+    END TRANSACTION
+  END-FIND
+END-IF
+*
+END

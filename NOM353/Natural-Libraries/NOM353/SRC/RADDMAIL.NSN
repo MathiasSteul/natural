@@ -1,0 +1,134 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RADDMAIL - Distribute an active Report to an User ID
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-08-05           clean up
+* wcd 00-04-01  CE 7267  re-cat VAREP-L changes
+* xsiszha 2000-07-31 (CE7461) Extend Report and Bundle Names
+* sju 02-11-13 p(231843) mail wrong if run number wraps round
+* HH 040825 FORMATTING T CHANGED;                /* HH 040825
+* xsetggr 2007-05-08 NOM3201  Support 11 byte run number
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* raya    2013-09-08 NOMALL-1278 get report creation date for mails
+* SU2     2013-10-09 clean up
+* SU3     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* CF1     2015-07-08 NOMALL-1669 Set unique log types
+* fhi     2016-02-08 NOMALL-1822 Fill MA-CURRENT-LOCATION field
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 G-C-REPORT                (A25)
+1 G-C-REPRNB                (P11)
+1 G-USERID                  (A8)
+1 #ADDRESSEE                (A8)
+1 G-NATRP-ERC               (N4)
+* ----------------------------------------------------------------------
+LOCAL USING CONST-L
+LOCAL USING VMAILR-L
+LOCAL USING RLOG-L
+*
+LOCAL
+1 MAIL VIEW OF NRM-MAIL
+1 ACTIVE-REPORTS VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-PROCESS-TIME
+  2 AR-PROCESS-TIME-INV
+  2 AR-CURRENT-LOCATION
+*
+1 #TIMX                     (T)
+1 #TIMP                     (P13)
+*
+1 #MA-RNB-USER              (A14)
+1 REDEFINE #MA-RNB-USER
+  2 #MA-RNB                 (P11)
+  2 #MA-USER                (A8)
+1 #MA-REP-RNB               (A31)
+1 REDEFINE #MA-REP-RNB
+  2 #MA-REP                 (A25)
+  2 #MA-REPRNB              (P11)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#MA-REP    := G-C-REPORT
+#MA-REPRNB := G-C-REPRNB
+PERFORM MAIL-RECORD-EXIST
+PERFORM INIT-MAIL-RECORD
+PERFORM DISTRIBUTE-TO-USER
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-MAIL-RECORD
+************************************************************************
+#MA-USER := G-USERID
+#MA-RNB  := G-C-REPRNB
+FNDMA. FIND MAIL-REPORTS WITH MA-RNB-USER = #MA-RNB-USER
+    AND  MA-REP-RNB  = #MA-REP-RNB
+*
+  IF NO RECORDS FOUND
+    MAIL-REPORTS.MA-REPNAME := G-C-REPORT
+    MAIL-REPORTS.MA-REPRNB := G-C-REPRNB
+  END-NOREC
+*
+  #TIMX := *TIMX
+  #TIMP := #TIMX
+  MAIL-REPORTS.MA-INV-TIME := #CONST-INV-TIME - #TIMP
+  ESCAPE BOTTOM
+*
+END-FIND
+*
+END-SUBROUTINE /* INIT-MAIL-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE MAIL-RECORD-EXIST
+************************************************************************
+#MA-RNB  := G-C-REPRNB
+#MA-USER := #ADDRESSEE
+*
+FNDEX. FIND NUMBER MAIL WITH MA-RNB-USER = #MA-RNB-USER
+  AND  MA-REP-RNB  = #MA-REP-RNB
+IF *NUMBER (FNDEX.) > 0
+  G-NATRP-ERC := 1
+  ESCAPE MODULE
+END-IF
+*
+END-SUBROUTINE /* MAIL-RECORD-EXIST
+*
+************************************************************************
+DEFINE SUBROUTINE DISTRIBUTE-TO-USER
+************************************************************************
+MAIL-REPORTS.MA-USERID := #ADDRESSEE
+MAIL-REPORTS.MA-FO-ID := 1
+FIND ACTIVE-REPORTS WITH AR-REPORT-RNB = #MA-REP-RNB
+  MA-PROCESS-TIME      := AR-PROCESS-TIME
+  MA-PROCESS-TIME-INV  := AR-PROCESS-TIME-INV
+END-FIND
+MA-OBJECT-TYPE := 'MA' /*SU3
+MA-OBJECT-TIME := *TIMX /*SU3
+IF AR-CURRENT-LOCATION = 'A'
+  MA-CURRENT-LOCATION := 'A'
+ELSE
+  MA-CURRENT-LOCATION := 'B'
+END-IF
+STORE MAIL-REPORTS
+LG-USERID := G-USERID
+/*LG-CODE   := 'AD' /* CF1
+LG-CODE   := 'AR'   /* CF1
+COMPRESS G-C-REPORT '-' G-C-REPRNB TO LG-OBJECT-NAME LEAVING NO
+COMPRESS G-C-REPORT '/' G-C-REPRNB TO LG-MSG LEAVING NO
+COMPRESS '0500' LG-MSG #ADDRESSEE TO LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+*
+END-SUBROUTINE /* DISTRIBUTE-TO-USER
+*
+END

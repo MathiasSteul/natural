@@ -1,0 +1,413 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOPHFF-N - NOM API Maintenance of Physical Printers
+*            Functions copy,  delete
+*            Input keys :
+*            ES-KEY-PARM(1)     printer name
+*            ES-NEWNAME         new printer name for copy
+* Maintenance:
+* XSETGGR 2004-10-01 created
+* xsetggr 2005-05-05 correct copying of printer
+* xsetggr 2007-10-25 NRT2185   default values for UNIXLP printers
+* xsetggr 2007-11-30 NRT2771   Start/stop physical printers
+* XSETHZ  2007-12-11 NRT2771   Start = PS, Stop = PO
+* XSETHZ  2008-01-24 NRT2771   DECIDE ... ES-ORIG-FUNCTION
+* xsetggr 2008-02-16 p(301593) add parm to call RHANPH-N
+* xsetggr 2008-11-28 P311915   default printers DEFAULTA - DEFAULTZ
+* XSETHZ  2008-12-01 P311915  default printers actualisation for list
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-11-03 NOMALL-865 restow due to changes in EOMPHTYE
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-20 NOMALL-901 correct writing delete operations in log
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-02-02 NOMALL-1096 restow due changes in NOMWK--P
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* xsetggr 2012-10-03 NOMALL-89 delete maintenance of grants for type 'H'
+* SU1     2014-06-06 NOMALL-1281 show last update user+date
+* -------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING VPHPR-L
+LOCAL USING EOMPHTYE
+LOCAL USING NOMWK--P
+LOCAL USING RMTASK-E
+LOCAL USING RLOG-L
+LOCAL
+1 LOGICAL-PRINTERS VIEW OF NRM-PRINTERS
+  2 P-ID
+  2 P-NAME
+  2 C*P-ATTRIBUTES
+  2 P-ATTRIBUTES          (1:25)
+  2 P-PHYSICAL-NAME
+  2 P-LAST-UPDATE      /*SU1
+  2 P-LAST-UPDATE-USER /*SU1
+1 HPR VIEW OF NRM-PRINTERS
+  2 P-ID
+1 GRANT VIEW OF NRM-GRANTS
+* *****
+1 #ES-CONTROL              (A253)
+1 #ES-INPUT-AREA           (A253/1:3)
+1 #ES-MSG-PREF             (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM            (A3)
+  2 #ES-MSG-NR             (N4)
+1 #ES-MSG-FIELD            (A32)
+1  REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME     (A28)
+  2 #ES-MSG-FIELD-INDEX    (N4)
+1 #NAME                    (A8)
+1 #LIBRARY-ID              (A8)
+1 #GR-TYPE-NAME            (A26)
+1 REDEFINE #GR-TYPE-NAME
+  2 #GR-TYPE               (A1)
+  2 #GR-NAME               (A25)
+1 #I                       (I2)
+1 #J                       (I2)
+1 #P-ID                    (A8) INIT <'DEFAULT '>
+1 REDEFINE #P-ID
+  2 #P-ID-1                (A7)
+  2 #SUFFIX                (A1)
+1 #P-ID-E                  (A8)
+1 #TABLE1                  (A1/26)
+1 #TABLE                   (A26)
+  INIT <'ABCDEFGHIJKLMNOPQRSTUVWXYZ'>
+1 REDEFINE #TABLE
+  2 #TABLE-A               (A1/26)
+1 #OPTIONSA                (A20)
+1 REDEFINE #OPTIONSA
+  2 #OPTIONS               (A2/10)
+1 #NEW-SUFFIX              (L)
+1 #K                       (P2)
+1 #OBJ-TYPE                (A16)
+1 #USER-LIB                (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-MSG-NR ES-MSG-FIELD ES-MSG-TXT ES-SELECT
+*
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA (*) := ES-INPUT-AREA(*)
+*
+#LIBRARY-ID  := ES-APP-SERVER-LIBRARY
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+#NAME := ES-KEY-PARM(1)
+#SUFFIX := 'Z'
+#P-ID-E := #P-ID
+#SUFFIX := 'A'
+/*
+DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+  VALUE 'CP'
+    PERFORM COPY-PRINTER
+  VALUE 'DL'
+    PERFORM DELETE-PRINTER
+  VALUE 'PS'
+    PERFORM START-PRINTER
+  VALUE 'PO'
+    PERFORM STOP-PRINTER
+  ANY VALUE
+    IF ES-RC = 0
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-PRINTER
+************************************************************************
+FNDCP. FIND PHYSICAL-PRINTERS WITH PH-VTAMID = #NAME
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0119    /* physical printer not defined
+    #ES-MSG-FIELD-NAME := 'NAME'
+    ESCAPE BOTTOM(FNDCP.)
+  END-NOREC
+  PERFORM VALIDATION
+  IF #ES-MSG-NR NE 0
+    ESCAPE BOTTOM(FNDCP.)
+  END-IF
+  PH-VTAMID           := ES-NEWNAME
+  PH-LAST-UPDATE      := *TIMX /*SU1
+  PH-LAST-UPDATE-USER := ES-USER  /*SU1
+*
+  STORE PHYSICAL-PRINTERS
+  IF PH-PRINTER-TYPE = ##PHYS-UNIXLP
+    PERFORM CREATE-NEW-DEFAULTS
+    IF #ES-MSG-NR NE 0
+      ESCAPE BOTTOM (FNDCP.)
+    END-IF
+  END-IF
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* VALIDATE
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-NEW-DEFAULTS
+************************************************************************
+FNDDEF. FIND LOGICAL-PRINTERS WITH P-PHYSICAL-NAME = #NAME
+    WHERE P-ID = #P-ID THRU #P-ID-E
+  IF NO RECORDS FOUND
+    RESET LOGICAL-PRINTERS
+    LOGICAL-PRINTERS.P-ATTRIBUTES(*) := PH-ATTRIBUTES(*)
+    PERFORM ADD-VALUES
+    ESCAPE BOTTOM(FNDDEF.)
+  END-NOREC
+  PERFORM ADD-VALUES
+END-FIND
+*
+END-SUBROUTINE /* CREATE-NEW-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SUFFIX
+************************************************************************
+* get suffix for default logical printer
+RESET #I #TABLE1(*) #NEW-SUFFIX
+FNDPR. HISTOGRAM HPR FOR P-ID STARTING FROM #P-ID THRU #P-ID-E
+  #P-ID := P-ID
+  ADD 1 TO #I
+  IF #I > 26
+    RESET #SUFFIX
+    ESCAPE BOTTOM (FNDPR.)
+  END-IF
+  #TABLE1(#I) := #SUFFIX
+END-HISTOGRAM
+IF #SUFFIX NE ' ' AND #I < 26
+  TB. FOR #K = 1 TO 26
+    EXAMINE #TABLE1(*) FOR #TABLE-A(#K) GIVING INDEX IN #J
+    IF #J = 0
+      #SUFFIX := #TABLE-A(#K)
+      ESCAPE BOTTOM (TB.)
+    END-IF
+  END-FOR
+  #NEW-SUFFIX := TRUE
+END-IF
+*
+END-SUBROUTINE /* GET-SUFFIX
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-VALUES
+************************************************************************
+PERFORM GET-SUFFIX
+IF #NEW-SUFFIX
+  LOGICAL-PRINTERS.P-ID := #P-ID
+  LOGICAL-PRINTERS.P-PHYSICAL-NAME  := ES-NEWNAME
+  COMPRESS 'Default values for' ES-NEWNAME TO LOGICAL-PRINTERS.P-NAME
+  ES-SELECT := #P-ID
+  MOVE ES-NEWNAME TO SUBSTRING(ES-SELECT,9,8)
+  MOVE LOGICAL-PRINTERS.P-NAME TO SUBSTRING(ES-SELECT,17,30)
+  LOGICAL-PRINTERS.P-LAST-UPDATE      := *TIMX /*SU1
+  LOGICAL-PRINTERS.P-LAST-UPDATE-USER := ES-USER  /*SU1
+  STORE LOGICAL-PRINTERS
+*
+  #ES-CONTROL := ES-CONTROL
+  #ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+  IF ES-USER NE MASK ('NOMPR'NN'N')
+    ES-OBJECT        := 'GR'
+    ES-FUNCTION      := 'FF'
+    ES-ORIG-FUNCTION := 'NW'
+    ES-KEY-CODE(1)   := 'P'
+    ES-KEY-PARM(1)   := #P-ID
+    ES-KEY-PARM(2)   := ES-USER
+    ES-KEY-PARM(3)   := 'YYYYYY'
+    CALLNAT 'NOGRFF-N' ES-CONTROL ES-INPUT-AREA(*)
+    ES-CONTROL := #ES-CONTROL
+    ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+  END-IF
+ELSE
+  #ES-MSG-NR := 0167      /* too many unixlp type printers
+  #ES-MSG-FIELD-NAME := 'PRINTER-TYPE'
+END-IF
+END-SUBROUTINE /* ADD-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-PRINTER
+************************************************************************
+FNDDEL. FIND PHYSICAL-PRINTERS WITH PH-VTAMID = #NAME
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0119   /* physical printer not defined
+    #ES-MSG-FIELD-NAME := 'NAME'
+    ESCAPE BOTTOM(FNDDEL.)
+  END-NOREC
+  PERFORM VALIDATION
+  IF #ES-MSG-NR NE 0
+    ESCAPE BOTTOM(FNDDEL.)
+  END-IF
+  IF PH-PRINTER-TYPE = ##PHYS-UNIXLP
+    FIND (1) LOGICAL-PRINTERS WITH P-PHYSICAL-NAME = PH-VTAMID
+        WHERE P-ID = #P-ID THRU #P-ID-E
+      #P-ID := P-ID
+      #GR-TYPE := 'P'
+      #GR-NAME :=  P-ID
+      FNDDEL1. FIND GRANT WITH GR-TYPE-NAME = #GR-TYPE-NAME
+        DELETE(FNDDEL1.)
+      END-FIND
+      ES-SELECT := #P-ID
+      DELETE
+      #OBJ-TYPE := 'LOG-PRINTER'
+      PERFORM WRITE-LOG
+    END-FIND
+  END-IF
+  DELETE(FNDDEL.)
+  #OBJ-TYPE := 'PHYS-PRINTER'
+  PERFORM WRITE-LOG
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* DELETE-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE START-PRINTER
+************************************************************************
+FNDST. FIND NUMBER PHYSICAL-PRINTERS WITH PH-VTAMID = #NAME
+IF *NUMBER(FNDST.) = 0
+  #ES-MSG-NR := 0119   /* physical printer not defined
+  #ES-MSG-FIELD-NAME := 'NAME'
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'RHANPH-N' #NAME 'S' ES-USER #ES-MSG-NR
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+RESET PH-STATUS
+NOMWK-TASK-TYPE:= EQU-MANAGE-PRINTOUTS
+CALLNAT 'NOMWK01N' NOMWK-NOMVERS NOMWK-PARMS (*)
+PERFORM OPTIONS
+*
+END-SUBROUTINE /* START-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE STOP-PRINTER
+************************************************************************
+FNDCL. FIND NUMBER PHYSICAL-PRINTERS WITH PH-VTAMID = #NAME
+IF *NUMBER(FNDCL.) = 0
+  #ES-MSG-NR := 0119   /* physical printer not defined
+  #ES-MSG-FIELD-NAME := 'NAME'
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'RHANPH-N' #NAME 'C' ES-USER #ES-MSG-NR
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+PH-STATUS := 'S'
+PERFORM OPTIONS
+*
+END-SUBROUTINE /* STOP-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+MOVE 'Z' TO #SUFFIX
+#P-ID-E := #P-ID
+#SUFFIX := 'A'
+DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+  VALUE 'CP'
+    IF ES-NEWNAME = ' '
+      #ES-MSG-NR := 0106  /* enter a printer name
+      ESCAPE ROUTINE
+    END-IF
+    FNDCP1. FIND NUMBER PHYSICAL-PRINTERS WITH PH-VTAMID = ES-NEWNAME
+    IF *NUMBER(FNDCP1.) > 0
+      #ES-MSG-NR := 0123 /* physical printer already defined
+      ESCAPE ROUTINE
+    END-IF
+  VALUE 'DL'
+    FLP. FIND LOGICAL-PRINTERS WITH P-PHYSICAL-NAME = #NAME
+      IF NOT (P-ID = #P-ID THRU #P-ID-E)
+        #ES-MSG-NR := 0124      /* Log printer exists - del not possible
+        ESCAPE ROUTINE
+      END-IF
+    END-FIND
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG
+************************************************************************
+IF ES-ORIG-FUNCTION = 'DL'
+  IF #OBJ-TYPE = 'LOG-PRINTER'
+    COMPRESS '0075' LOGICAL-PRINTERS.P-ID #OBJ-TYPE TO LG-MSG
+  ELSE
+    COMPRESS '0075' PH-VTAMID #OBJ-TYPE TO LG-MSG
+  END-IF
+  LG-USERID   := ES-USER
+  LG-CODE     := 'MO'
+  LG-FUNCTION := 'W'
+  CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR  := #ES-MSG-NR
+ES-MSG-TXT := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+EXAMINE ES-MSG-TXT FOR ':2:' REPLACE ' '
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE OPTIONS
+************************************************************************
+RESET #OPTIONS(*)
+FNDDF. FIND LOGICAL-PRINTERS WITH P-PHYSICAL-NAME = #NAME
+  IF NOT (P-ID = #P-ID THRU #P-ID-E) OR *NUMBER(FNDDF.) > 1
+    #OPTIONS(1) := 'DL'
+  END-IF
+END-FIND
+IF PH-STATUS = 'S'
+  #OPTIONS (2) := 'PO'
+ELSE
+  #OPTIONS (2) := 'PS'
+END-IF
+ES-SELECT := #OPTIONSA
+*
+END-SUBROUTINE /* OPTIONS
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

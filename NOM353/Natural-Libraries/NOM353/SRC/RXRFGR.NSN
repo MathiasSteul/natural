@@ -1,0 +1,182 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RXRFGR
+* Function:  Display Grants for a given User/List
+* xsiszha 2000-08-04 (CE7461) Extend Report and Bundle Names
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #P-TYPE              (A1)
+1 #P-USERID            (A8)
+1 G-DISPLAY-LONG-NAMES (L)
+LOCAL USING VGRANT-L
+LOCAL
+1 #I                   (P2)
+1 #NOFLINES            (I2)   CONST <12>
+1 L-SCREEN (1:#NOFLINES)
+  2 L-OBJECT           (A25)
+  2 REDEFINE L-OBJECT
+    3 L-OBJECT-A       (A1/25)
+1 END-OF-PROCESSING    (L)
+1 END-OF-DISPLAY       (L)
+1 END-OF-DATA          (L)
+1 NEW-SEARCH           (L)
+1 #GR-START            (A34)
+1 REDEFINE #GR-START
+  2 #GRS-TYPE          (A1)
+  2 #GRS-USERID        (A8)
+  2 #GRS-OBJECT        (A25)
+1 #GR-END              (A34)
+1 REDEFINE #GR-END
+  2 #GRE-TYPE          (A1)
+  2 #GRE-USERID        (A8)
+  2 #GRE-OBJECT        (A25)
+1 #ERC                 (N4)
+1 #COUNTER             (P10)
+1 #PAGE                (P2)  INIT <1>
+1 #NOFPAGES            (I2)  CONST <20>
+1 #F-GRANT             (A34/1:#NOFPAGES)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM PF-KEYS
+#GRS-TYPE := #P-TYPE
+#GRS-USERID := #P-USERID
+MOVE ALL H'00' TO #GRS-OBJECT
+#GR-END := #GR-START
+MOVE ALL H'FF' TO #GRE-OBJECT
+#F-GRANT (1) := #GR-START
+*
+MAIN. REPEAT UNTIL END-OF-PROCESSING
+  RESET #I
+  RESET INITIAL END-OF-DATA NEW-SEARCH
+  REA. READ GRANTS BY GR-SUPER STARTING FROM #F-GRANT (#PAGE)
+    IF GR-OBJECT-TYPE NE #GRE-TYPE   OR GR-USERID      NE #GRE-USERID OR
+        GR-OBJECT-NAME >  #GRE-OBJECT
+      ESCAPE BOTTOM (REA.)
+    END-IF
+    IF #I = #NOFLINES
+      PERFORM SCREEN-IO
+      IF END-OF-PROCESSING OR NEW-SEARCH
+        ESCAPE BOTTOM (REA.)
+      END-IF
+    END-IF
+    ADD 1 TO #I
+    PERFORM GRANTS-TO-SCREEN
+  END-READ
+  DECIDE FOR FIRST CONDITION
+    WHEN #I > 0
+      END-OF-DATA := TRUE
+    WHEN #COUNTER = 0
+      END-OF-DATA := TRUE
+    WHEN ANY
+      PERFORM SCREEN-IO
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+RESET END-OF-DISPLAY
+DECIDE ON FIRST VALUE OF #P-TYPE
+  VALUE 'R'
+    IF NOT G-DISPLAY-LONG-NAMES
+      L-OBJECT-A(*,18) := H'FA'
+    END-IF
+  VALUE 'B'
+    IF NOT G-DISPLAY-LONG-NAMES
+      L-OBJECT-A(*,9) := H'FA'
+    END-IF
+  VALUE 'L','P'
+    L-OBJECT-A(*,9) := H'FA'
+  VALUE 'F'
+    L-OBJECT-A(*,17) := H'FA'
+  NONE VALUE IGNORE
+END-DECIDE
+REPEAT
+  DECIDE FOR FIRST CONDITION
+    WHEN #ERC NE 0
+      IGNORE
+    WHEN END-OF-DATA AND #PAGE > 1
+      #ERC := 12                   /* bottom of data
+    WHEN END-OF-DATA AND #PAGE = 1
+      #ERC := 14                   /* all
+    WHEN NOT END-OF-DATA AND #PAGE = 1
+      #ERC := 11                   /* top of data
+    WHEN NONE
+      #ERC := 13                   /* more
+  END-DECIDE
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'Y41'
+  SET CONTROL 'WFL38C18B01/40'
+  SET CONTROL 'M15'
+  INPUT WITH TEXT *#ERC USING MAP 'RXRFGRM&'
+  SET CONTROL 'WMB'
+  SET CONTROL 'YB'
+  RESET #ERC
+  PERFORM COMMAND-PF-KEY
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+RESET #I L-SCREEN (*)
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE GRANTS-TO-SCREEN
+************************************************************************
+L-OBJECT (#I) := GRANTS.GR-OBJECT-NAME
+ADD 1 TO #COUNTER
+*
+END-SUBROUTINE /* GRANTS-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+DECIDE ON FIRST *PF-KEY
+  VALUE 'PF3'
+    END-OF-PROCESSING := TRUE
+    END-OF-DISPLAY           := TRUE
+  VALUE 'PF7'    IF #PAGE > 1
+      SUBTRACT 1 FROM #PAGE
+      END-OF-DATA := FALSE
+      END-OF-DISPLAY := TRUE
+      NEW-SEARCH            := TRUE
+    END-IF
+  VALUE 'PF8'    IF NOT END-OF-DATA
+      ADD 1 TO #PAGE
+      IF #PAGE > #NOFPAGES
+        #PAGE := #NOFPAGES
+        #F-GRANT (1:19) := #F-GRANT (2:20)
+      END-IF
+      #GRS-TYPE        := GRANTS.GR-OBJECT-TYPE
+      #GRS-USERID      := GRANTS.GR-USERID
+      #GRS-OBJECT      := GRANTS.GR-OBJECT-NAME
+      #F-GRANT (#PAGE) := #GR-START
+      END-OF-DISPLAY   := TRUE
+    END-IF
+  NONE           IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+*
+END-SUBROUTINE /* PF-KEYS
+*
+END

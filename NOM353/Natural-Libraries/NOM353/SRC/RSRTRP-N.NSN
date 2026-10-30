@@ -1,0 +1,95 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RSRTRP-N - Sort Reports by Report Name
+*
+* Maintenance
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* BLI1    2023-06-06 ES-33992 enhance result list to 300
+* SU1     2023-06-12 ES-33992 dyn array + SORTED instead SORT
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 #P-USERID             (A8)
+1 #P-USER-TYPE          (A1)
+1 #P-SET-NAME           (A8)
+1 #P-ISN-TAB
+  2 #P-ISN-T            (*)  /*SU1 BLI1 was 100
+    3 #P-ISNS           (P10)
+    3 #P-USER-ID        (A8)
+1 #P-ISN-NUMBER         (P10)
+1 #P-ERC                (N4)
+1 #P-ERT                (A250)
+************************************************************************
+LOCAL USING VGRANT-L
+LOCAL
+1 REPORT VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+*
+1 #COUNTER              (P10)
+1 #ISN                  (P10)
+1 #NOR                  (P10)
+1 GRANTED               (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #P-ISN-T (*)
+FIND REPORT WITH #P-SET-NAME SORTED BY R-REPNAME /*SU1
+  RESET GRANTED
+  IF #P-USER-TYPE = 'A'
+    GRANTED := TRUE
+    GRANTS.GR-OPTION(*) := 'Y'
+    GRANTS.GR-USERID := 'ADMIN'
+  ELSE
+    GRANTS.GR-USERID := #P-USERID
+    CALLNAT 'RGRANT-N' GRANTS.GR-USERID 'R' R-REPNAME GRANTED
+      GRANTS.GR-OPTION(*)
+    ADD 1 TO #COUNTER
+    IF *COUNTER > 50 /*SU1 OR #COUNTER = 1
+      RESET *COUNTER
+      PERFORM DISPLAY-WINDOW
+    END-IF
+    IF NOT GRANTED
+      ADD 1 TO #NOR
+      ESCAPE TOP
+    END-IF
+  END-IF
+/*SU1 #ISN := *ISN
+  ADD 1 TO #P-ISN-NUMBER
+  #P-ISNS (#P-ISN-NUMBER) := *ISN /*SU1
+  #P-USER-ID (#P-ISN-NUMBER) := GRANTS.GR-USERID
+END-FIND
+/*SU1 -> SORT THEM BY R-REPNAME USING #ISN GRANTS.GR-USERID
+/*  ADD 1 TO #P-ISN-NUMBER
+/*  #P-ISNS (#P-ISN-NUMBER) := #ISN
+/*  #P-USER-ID (#P-ISN-NUMBER) := GRANTS.GR-USERID
+/*END-SORT SU1 <-
+IF #NOR > 0
+  COMPRESS #NOR 'Reports rejected by Security Definition' TO #P-ERT
+  #P-ERC := 5
+END-IF
+IF #P-USER-TYPE NE 'A' /*SU1
+  PERFORM DISPLAY-WINDOW
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DISPLAY-WINDOW
+************************************************************************
+SET CONTROL 'N'
+SET CONTROL 'WFC06L47B05/16'
+INPUT USING MAP 'RSRTRP-&'
+SET CONTROL 'WMB'
+*
+END-SUBROUTINE /* DISPLAY-WINDOW
+*
+END

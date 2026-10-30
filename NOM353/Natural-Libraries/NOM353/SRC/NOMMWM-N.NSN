@@ -1,0 +1,255 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMMWM-N - Wake of NOM Monitor Tasks
+*
+* Input Keys: If wake monitor task ES-KEY-PARM(1) - task number
+*             If wake main monitor no input keys
+*
+* Maintenance:
+* XSETGGR 2004-12-03   created
+* fhi     2005-06-23 p(266530) Monitor must be NPR Mainf independent
+* xsetggr 2005-07-08 p(266530) additional changes
+* fhi     2005-11-15 P272724   End Transaction for Unix Eventing
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* CF1     2014-06-18 NOMALL-1389 No monitor wake-up from NGC
+* fhi     2016-11-11 NOMALL-1961 Duplicate monitor copy task
+* SU1     2017-03-29 NOM 3.5: remove unused code
+* SU2     2020-11-10 NOMALL-2440 recat for VMONIT-L
+* SU3     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+*         +                      recat for VMONIT-L M-NATRPT-DBID/-FNR
+* ------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL USING VMONIT-L
+LOCAL USING VSUBT-L
+LOCAL USING NOMODE-A
+LOCAL USING RMSETSTE
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RMTASK-P            /* NOMALL-1961 fhi in
+LOCAL
+1 EVENTING VIEW OF EVENTING
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 NODE
+  2 SYSTEM-MESSAGE-CODE
+  2 MAX-TIME
+  2 NUMBER-OF-WAITERS
+  2 NUMBER-OF-MESSAGES
+  2 MESSAGE-ARRAY (1)
+  2 EVENT-NAME
+  2 FUNCTION
+*
+1 #XEVENTING
+  2 #XEVENT                 (A512)
+  2 REDEFINE #XEVENT
+    3 ##ERROR-CODE          (N3)
+    3 ##ERROR-TEXT          (A58)
+    3 ##NODE                (N5)
+    3 ##SYSTEM-MESSAGE-CODE (A10)
+    3 ##FUNCTION            (A8)
+    3 ##EVENT-NAME          (A8)
+    3 ##MAX-TIME (B4)
+    3 ##NUMBER-OF-WAITERS   (N5)
+    3 ##NUMBER-OF-MESSAGES  (N5)
+    3 ##MESSAGE-ARRAY       (A250)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-TXT               (A250)
+1 #EVENT-NAME-LIST          (A8/12) /* NOMALL-1961 was (A8/10)
+1 #EVENT-NAME               (A8) INIT <'NOM?????'>
+1 #EVENT-MESSAGE            (A250)
+1 #WAIT-CUR                 (N4)
+1 #TASK-COUNT               (I1)  /* NOMALL-1961 was (N1)
+1 #TT                       (T)
+1 #I                        (I2)
+1 #TASK-NO                  (I2)
+1 #MAX-TASKS                (I1)   CONST <59>/* NOMALL-1961 was CONST<5>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC #TT
+NOMOD-PARMS := ES-SELECT
+PERFORM GET-MONITOR-TASKS                        /* CF1
+IF ES-KEY-PARM(1) > ' '
+/*  PERFORM WAKE-TASK                            /* CF1 ->
+  IF ES-KEY-PARM(1) = '1'
+    ES-KEY-PARM(1) := 'X' /* Set '1' as main task 'X'
+  END-IF
+  FOR #I = 1 TO #TASK-COUNT         /* Wake-up a single task
+    #EVENT-NAME := #EVENT-NAME-LIST(#I)
+    RMTASK-P.TASK-ID  := #EVENT-NAME
+    RMTASK-P.FUNCTION := 'G'
+    CALLNAT 'RMTASKID' RMTASK-P
+    IF ES-KEY-PARM(1) IS (N2)
+    AND RMTASK-P.SUBTASK-NUMBER = VAL(ES-KEY-PARM(1))                 /*
+      PERFORM WAKE-TASK
+      ESCAPE BOTTOM
+    END-IF
+  END-FOR
+  IF #I GT #TASK-COUNT
+    RESET #TASK-COUNT
+  END-IF                                         /* CF1 <-
+ELSE
+/* PERFORM WAKE-MONITOR                          /* CF1 ->
+  FOR #I = 1 TO #TASK-COUNT         /* Wake-up all active tasks
+    #EVENT-NAME := #EVENT-NAME-LIST(#I)
+    RMTASK-P.TASK-ID  := #EVENT-NAME
+    RMTASK-P.FUNCTION := 'G'
+    CALLNAT 'RMTASKID' RMTASK-P
+    PERFORM WAKE-TASK
+  END-FOR                                        /* CF1 <-
+END-IF
+IF #TASK-COUNT = 0                               /* CF1 ->
+  #ES-MSG-NR := 1574 /* Warning: 'No monitor task found for wake-up.'
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF                                           /* CF1 <-
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MONITOR-TASKS              /* CF1 ->
+************************************************************************
+/* Find active tasks (on Mainframe server)
+IF *MACHINE-CLASS = 'MAINFRAME'
+  FIND EVENTING WITH NODE = NOMOD-MONITOR-NODE AND FUNCTION = 'LIST'
+      AND EVENT-NAME = 'NOM*'
+    /*
+    /* Check if task matches with DBID and FNR
+    #EVENT-NAME := EVENT-NAME
+    RMTASK-P.FUNCTION := 'G'
+    RMTASK-P.TASK-ID  := #EVENT-NAME
+    CALLNAT 'RMTASKID' RMTASK-P
+    IF RMTASK-P.NOM-DBID = NOMOD-NATRPT-DBID AND
+        RMTASK-P.NOM-FNR  = NOMOD-NATRPT-FNR
+      /* If master task has an error mark, terminate function
+      /* else skip error task and go on
+      IF ERROR-CODE NE 0
+        IF RMTASK-P.SUBTASK-NUMBER = 1
+          #ES-MSG-NR := 5
+          IF ERROR-TEXT = ' '
+            #ES-MSG-TXT := ERROR-CODE
+          ELSE
+            #ES-MSG-TXT := ERROR-TEXT
+          END-IF
+          PERFORM GET-MSG-TXT
+          ESCAPE ROUTINE
+        END-IF
+      ELSE
+        /* Store running task names
+        ADD 1 TO #TASK-COUNT
+        #EVENT-NAME-LIST(#TASK-COUNT) := EVENT-NAME
+      END-IF
+    END-IF
+  END-FIND
+ELSE /* Find active tasks (on UNIX server)
+  RMTASK-P.FUNCTION       := 'E'
+  RMTASK-P.SUBTASK-NUMBER := 1
+  CALLNAT 'RMTASKID' RMTASK-P
+  ##EVENT-NAME := RMTASK-P.TASK-ID
+  ##FUNCTION   := 'RECEIVE'
+  CALLNAT 'RMEVNTXN' #XEVENT
+  END TRANSACTION
+  IF ##ERROR-CODE = 0
+    #TASK-COUNT := 1
+    #EVENT-NAME-LIST(#TASK-COUNT) := #EVENT-NAME /* CF1
+  END-IF
+  FOR #TASK-NO = 21 TO #MAX-TASKS /* NOMALL-1961 was '2'
+    RMTASK-P.SUBTASK-NUMBER := #TASK-NO
+    RMTASK-P.FUNCTION := 'E'
+    CALLNAT 'RMTASKID' RMTASK-P
+    ##EVENT-NAME := RMTASK-P.TASK-ID
+    ##FUNCTION   := 'RECEIVE'
+    CALLNAT 'RMEVNTXN' #XEVENT
+    END TRANSACTION
+    IF ##ERROR-CODE = 0
+      ADD 1 TO #TASK-COUNT
+      #EVENT-NAME-LIST(#TASK-COUNT) := #EVENT-NAME /* CF1
+    END-IF
+  END-FOR
+END-IF
+/*
+END-SUBROUTINE /* GET-MONITOR-TASKS              /* CF1 <-
+*
+************************************************************************
+DEFINE SUBROUTINE WAKE-TASK                      /* CF1 ->
+************************************************************************
+IF RMTASK-P.SUBTASK-NUMBER = 1 /* Get wait time of main task
+  RMTASK-P.FUNCTION       := 'S'
+  RMTASK-P.SUBTASK-NUMBER := 1
+  CALLNAT 'RMTASKID' RMTASK-P
+  FNDMO. FIND NRM-MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+    IF NO RECORDS FOUND
+      #ES-MSG-NR := 1516   /* Monitor not installed correctly
+      ESCAPE BOTTOM(FNDMO.)
+    END-NOREC
+    #WAIT-CUR := M-WAIT-CURRENT
+  END-FIND
+  IF #ES-MSG-NR NE 0
+    PERFORM GET-MSG-TXT
+    ESCAPE ROUTINE
+  END-IF
+ELSE /* Get wait time of sub tasks
+  RMTASK-P.FUNCTION       := 'S'
+  CALLNAT 'RMTASKID' RMTASK-P
+  #WAIT-CUR := ST-WAIT-CURRENT
+  FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = RMTASK-P.TASK-ID
+  END-FIND
+END-IF
+/* Wake event
+CALLNAT 'RMEVNT-N' NOMOD-MONITOR-NODE #EVENT-NAME 'POST    ' #WAIT-CUR
+  #ES-MSG-NR #ES-MSG-TXT #EVENT-MESSAGE
+END TRANSACTION
+IF #ES-MSG-NR NE 0
+  #ES-MSG-NR := 5
+  PERFORM GET-MSG-TXT
+END-IF
+/*
+END-SUBROUTINE /* WAKE-TASK                      /* CF1 <-
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND    := 'U'
+NADA2000.ERROR-NUMBER   := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+NADA2000.LIBRARY        := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR  := #ES-MSG-NR
+ES-MSG-TXT := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+IF #ES-MSG-NR = 5
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT
+END-IF
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

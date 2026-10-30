@@ -1,0 +1,68 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDELSO-N - Delete Report Text Rcords of a given active Report
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) Description
+* xsiszha 2000-08-01 (CE7461)  Extend Report and Bundle Names
+* sju     2004-07-21 p(255317) ADALIMIT exceeded under Com-plete
+* xsetggr 2007-05-02 NOM3201   change rnb to P11
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* fhi     2016-04-15 NOMALL-1837 Introduce +DEVICE for testing
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 P-REPNAME       (A25)
+1 P-REPRNB        (P11)
+************************************************************************
+INDEPENDENT
+1 +DEVICE         (A8)
+* *****
+LOCAL
+1 REPORT-TEXT VIEW OF NRM-FILED-SYSOUTS
+  2 F-REPNAME
+  2 F-REPRNB
+1 #SUPER          (A35)
+1 REDEFINE #SUPER
+  2 #REPNAME      (A25)
+  2 #REPRNB       (P11)
+  2 #SEQ          (B4)
+1 #SCREEN-COUNT   (I2)
+1 #SCREEN-LIMIT   (I2)   CONST <500>
+1 #OBJ            (A50)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#REPNAME := P-REPNAME
+#REPRNB := P-REPRNB
+RESET #SEQ
+*
+READ REPORT-TEXT  BY F-REPNAME-RNB-SEQ = #SUPER
+  IF F-REPNAME NE #REPNAME OR
+      F-REPRNB NE #REPRNB
+    ESCAPE BOTTOM
+  END-IF
+  IF +DEVICE NE 'BATCH' /* NOMALL-1837 +DEVICE
+    ADD 1 TO #SCREEN-COUNT
+    IF #SCREEN-COUNT GE #SCREEN-LIMIT
+      RESET #SCREEN-COUNT
+      CALLNAT 'SHWORK-N'
+    END-IF
+  END-IF
+  DELETE RECORD
+  COMPRESS #REPNAME '/' #REPRNB TO #OBJ LEAVING NO
+  PERFORM RMLOGDEL #OBJ 'TEXT'
+  IF *COUNTER > 50
+    RESET *COUNTER
+    END OF TRANSACTION
+  END-IF
+END-READ
+END TRANSACTION
+*
+END

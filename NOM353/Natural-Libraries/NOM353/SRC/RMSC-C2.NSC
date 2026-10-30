@@ -1,0 +1,131 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMSC-C2 - 2. Copycode with common subroutines for scan programs
+*
+* Maintenance
+* uuu    yyyy-mm-dd             Comment
+* ------ ---------- ----------- ----------------------------------------
+* SU1    2019-03-08 NOMALL-2177 created/handle empty node from trigger
+* BLI1   2022-08-11 NOMALL-2573 set ET for MF-TYPE update and log
+* SU2    2024-03-07 ES-34613    NOM 3.6 Remove power
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-TRIGGER-QUEUE
+************************************************************************
+IF G-NATRP-ERC NE 0 OR G-SCAN-TRIGGER NE 'Y'
+  ESCAPE ROUTINE
+END-IF
+IF G-SCAN-TRIGGER-DBID = 0 OR G-SCAN-TRIGGER-FNR = 0
+  COMPRESS '--> Trigger dbid/fnr incorrect - dbid:' G-SCAN-TRIGGER-DBID
+    'fnr:' G-SCAN-TRIGGER-FNR TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+  ESCAPE ROUTINE
+END-IF
+* Get old+set new DBID/FNR:
+CALLNAT 'N-LF158' G-SCAN-TRIGGER-DBID G-SCAN-TRIGGER-FNR
+  #EOM-SYS2-DBID #EOM-SYS2-FNR G-NATRP-ERC G-NATRP-ERT
+IF G-NATRP-ERC NE 0 /*SU1 write msg new
+  COMPRESS '--> error setting LFILE 158 to' G-SCAN-TRIGGER-DBID '/'
+    G-SCAN-TRIGGER-FNR TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+  COMPRESS G-NATRP-ERC G-NATRP-ERT TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+  ESCAPE ROUTINE
+END-IF
+* *****
+* Start processing:
+* *****
+PERFORM PROCESS-NOMPUT-QUEUE
+IF G-NATRP-ERC = 0
+  DECIDE ON FIRST VALUE OF #NP-TYPE
+    VALUE JES2
+      #TYPE1 := 'jes2 fmvs'
+      #NP-TYPE := SEQUENTIAL-FILE-MVS
+    VALUE JES3
+      #TYPE1 := 'jes3 fmvs'
+      #NP-TYPE := SEQUENTIAL-FILE-MVS
+/*SU2 VALUE POWER #TYPE1 := 'power fvse' #NP-TYPE := SEQUENTIAL-FILE-VSE
+    ANY
+      PERFORM PROCESS-NOMPUT-QUEUE /*PROCESS-NOMPUT-QUEUE-SPEC handle it
+    NONE IGNORE
+  END-DECIDE
+END-IF
+RESET #PROCESS-TRIGGER
+* *****
+* Restore old DBID/FNR:
+CALLNAT 'N-LF158' #EOM-SYS2-DBID #EOM-SYS2-FNR
+  2X G-NATRP-ERC G-NATRP-ERT
+*
+END-SUBROUTINE /* PROCESS-TRIGGER-QUEUE
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-NOMPUT-QUEUE /*common part
+************************************************************************
+#PROCESS-TRIGGER := TRUE
+IF #TRACING
+  COMPRESS 'Process nomput queue' #TYPE1 TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+#NP-STATUS := 2
+MOVE ALL H'00' TO #NP-IDENT
+NOMPUT. READ NOMPUT-QUEUE BY NP-QUEUE = #NP-QUEUE
+  IF NP-TYPE NE #NP-TYPE
+    ESCAPE ROUTINE
+  END-IF
+  MOVE EDITED NP-TYPE (EM=HH) TO G-TRACE-MSG
+  MOVE EDITED NP-STATUS (EM=HH) TO #ESYUSER  /* BLI1
+  COMPRESS 'Read NP: TYPE:' G-TRACE-MSG 'Status:' #ESYUSER
+    'node:' NP-NODE 'Attr-Ident.:' NP-ATTRIBUTES-IDENT
+    TO G-TRACE-MSG
+  RESET #ESYUSER
+  DECIDE FOR EVERY CONDITION
+    WHEN (NP-NODE NE 0 AND NP-NODE NE +NOD-CURRENT-NODE)
+    OR   (NP-NODE =  0 AND +NOD-LOCAL-NODE NE +NOD-CURRENT-NODE)   /*SU1
+      IF #TRACING
+        COMPRESS G-TRACE-MSG 'action: skip entry' TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END TRANSACTION   /*BLI1
+      END-IF
+      ESCAPE TOP /*(NOMPUT.)
+    WHEN NP-ESYUSER NE ' ' AND  NP-ESYUSER NE F#WHOAMI(<NP-NODE>)
+      #ESYUSER := F#WHOAMI(<NP-NODE>)
+      COMPRESS G-TRACE-MSG 'user:' #ESYUSER TO G-TRACE-MSG /*remember
+      RESET G-NATRP-ERC G-NATRP-ERT /*SU1
+      CALLNAT 'RMNPRUSR' NP-NODE NP-ESYUSER /*logon
+        G-NATRP-ERC G-NATRP-ERT #TRACING
+      IF G-NATRP-ERC NE 0 /*SU1
+        COMPRESS G-TRACE-MSG 'logon error' TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+        COMPRESS G-NATRP-ERC G-NATRP-ERT TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+        END TRANSACTION   /*BLI1 also MF-TYPE is updated by RMNPRUSR
+        ESCAPE TOP /*(NOMPUT.)
+      END-IF
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+  IF #TRACING
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    COMPRESS 'NP CC Type:'  NP-CC-TYPE
+      'NP Record Length:'   NP-RECORD-LENGTH
+      'NP Number of Lines:' NP-NUMBER-OF-LINES TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  PERFORM PROCESS-NOMPUT-QUEUE-SPEC /*special part in calling pgm
+  NOMPUT-DEL. GET NOMPUT-QUEUE *ISN (NOMPUT.)
+  DELETE (NOMPUT-DEL.)
+  END TRANSACTION
+END-READ /*(NOMPUT.)
+IF #ESYUSER NE ' '
+  CALLNAT 'RMNPRUSR' NP-NODE #ESYUSER G-NATRP-ERC G-NATRP-ERT #TRACING
+**    IF G-NATRP-ERC NE 0 /*SU1 ????
+END-IF
+*
+END-SUBROUTINE /* PROCESS-NOMPUT-QUEUE
+*
+** End of copycode RMSC-C2 *********************************************

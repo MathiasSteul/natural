@@ -1,0 +1,254 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMNODE - Change NOM Node
+* Note      Mandatory input parms are node, dbid and fnr
+*           Optional: logical field #DISPLAY, enter X for display only
+*           Run this program for your NOM System File. If the files are
+*           split, run it for each.
+*
+* Maintenance:
+* uuu     yyyy-mm-dd s(999999) ....
+* gw      1995-11-15 s(236064) created
+* jvd     1998-09-10 p(164220) NOM141ÖNAT23
+* sju     2003-03-04 NOM221    New lfile for active data
+* fhi     2005-04-19 NOM31107  Support 7-byte job numbers
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* xsetggr 2008-05-05 p(304350) restow due to changes of RMSPL--L
+* SU1     2014-07-04 NOMALL-1279 fill fields for Adabas Vista
+* fhi     2014-10-27 NOMALL-1514 added dry mode, partly rewritten
+* fhi     2014-10-30 NOMALL-1514 added ON ERROR
+* fhi     2014-11-06 NOMALL-1514 added counters
+* SU2     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU3     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU4     2016-01-15 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-04-13 NOMALL-1549 Some beautification
+* SU5     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU6     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL USING RMSPL--L
+LOCAL USING RMSR---L
+LOCAL USING RMSR---E
+LOCAL USING RACTLF-A
+LOCAL
+1 NRM-SOURCE VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-TYPE
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-SPOOL-ATTRIBUTES
+1 NRM-ACTIVE-REPORTS VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-SPOOL-ATTRIBUTES
+/*SU5 1 NRM-MONITOR VIEW OF NRM-MONITOR
+/*SU5   2 M-MONITOR-ID
+/*SU5   2 M-MONITOR-NODE
+1 NRM-PRINTOUTS VIEW OF NRM-PRINTOUTS
+  2 PO-ID
+  2 PO-NODE
+* *****
+1 #NODE        (N5)
+1 #DBID        (N5)
+1 #FNR         (N5)
+1 #NODE-SAVE   (N5)
+1 #MSG         (A37)
+1 #DISPLAY     (L)
+1 #UPD         (L)
+1 #SR-TYPE-I2  (I2)
+1 #LOG-MSG     (A250)
+1 #SR-COUNTER  (I4)
+1 #AR-COUNTER  (I4)
+1 #MO-COUNTER  (I4)
+1 #PO-COUNTER  (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=131
+*
+IF *DEVICE = 'BATCH'
+  INPUT 'Desired node:' #NODE 'NOM System File DBID' #DBID
+    'NOM System File FNR' #FNR 'Display only? (X)' #DISPLAY
+ELSE
+  WRITE NOTITLE NOHDR
+ '* --------------------------------------------------------------- *' /
+ '*                              NOMNODE                            *' /
+'* --------------------------------------------------------------- *' //
+    'This program must be run in batch mode.' //
+    'It will take care of a moved mainframe node and update all NOM' /
+    'objects that have been created using the old node number.' //
+    'Enter the following parameters:' //
+    'NOMNODE <node> <DB> <FNR> <display>'/
+    'where:' /
+    '<node>    is the node number of the new Mainframe NPR node' /
+    '<DB>      is the database id of the NOM System File(s)' /
+    '<FNR>     is the filenumber  of the NOM System File(s)' /
+    '<display> is set to X if no updates but only displays are' /
+    '          required. To update leave this parameter empty.' //
+    'Note:' /
+    'If your NOM System File is split this program has to be run' /
+    'for each, the System File (Lfile 206) and the Active Data' /
+    'file (Lfile 91).' //
+    'Example:' /
+    'NOMNODE 40 9 251 X' //
+    'This program will stop now.'
+  STOP
+END-IF
+*
+WRITE 'Start of Program' *PROGRAM
+  *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+  'Migrate to node' #NODE '.'
+*
+IF #DISPLAY
+  WRITE *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+    'Updates   D I S A B L E D.  Display mode only.'
+END-IF
+*
+FETCH RETURN 'SETNRMLF' #DBID #FNR
+RESET RACTLF-LOGGING RACTLF-ERROR-LOGGING
+RACTLF-LFILE-1:= 91
+RACTLF-LFILE-2:= 206
+CALLNAT 'RACTLF-N' RACTLF-PARMS
+IF RACTLF-ERROR-CODE NE 0
+  WRITE *PROGRAM *TIMX 'Error setting lfile 91' RACTLF-ERROR-CODE /
+    RACTLF-ERROR-TEXT
+  ESCAPE ROUTINE
+END-IF
+*
+PERFORM NODE-SOURCE
+PERFORM NODE-ACTIVE-REPORTS
+/*SU5 PERFORM NODE-MONITOR ÜNo need to update any monitor recordsÜ
+PERFORM NODE-PRINTOUTS
+*
+END TRANSACTION
+*
+WRITE 'Number of updated records:'     /
+  'Source Pointers:'  30T #SR-COUNTER  /
+  'Active Reports:'   30T #AR-COUNTER  /
+  'Monitor Records:'  30T #MO-COUNTER  /
+  'Printout Records:' 30T #PO-COUNTER  //
+WRITE 'End of Program' *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+  'Migrate to node' #NODE 'finished.'
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE NODE-SOURCE
+************************************************************************
+SR-READ. READ NRM-SOURCE BY SR-ID
+  RESET #UPD
+  #SOURCE-ATTRIBUTES := SR-ATTRIBUTES-IDENT
+  CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES SR-TYPE
+  #SPOOL-ATTRIBUTES := SR-SPOOL-ATTRIBUTES
+  MOVE SR-TYPE TO #SR-TYPE-I2
+  CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SR-TYPE-I2
+  DECIDE ON FIRST VALUE SR-TYPE
+/*SU6 VALUE POWER
+/*SU6 INCLUDE NOMNODEC '#SPOOL-POWER-NODE' '''Source Id''' 'SR-ID'
+/*SU6 INCLUDE NOMNODEC '#POWER-NODE' '''Source Id''' 'SR-ID'
+    VALUE JES2-QUEUE-ENTRY
+      INCLUDE NOMNODEC '#JES-QUEUE-NODE' '''Source Id''' 'SR-ID'
+    VALUE JES2
+      INCLUDE NOMNODEC '#SPOOL-JES-NODE' '''Source Id''' 'SR-ID'
+      INCLUDE NOMNODEC '#JES-NODE' '''Source Id''' 'SR-ID'
+/*SU6 VALUE SEQUENTIAL-FILE-VSE
+/*SU6 INCLUDE NOMNODEC '#FVSE-NODE' '''Source Id''' 'SR-ID'
+    VALUE SEQUENTIAL-FILE-MVS
+      INCLUDE NOMNODEC '#FMVS-NODE' '''Source Id''' 'SR-ID'
+    VALUE SEQUENTIAL-FILE-BS2
+      INCLUDE NOMNODEC '#FBS2-NODE' '''Source Id''' 'SR-ID'
+      INCLUDE NOMNODEC '#SPOOL-BS2-NODE' '''Source Id''' 'SR-ID'
+    NONE
+      IGNORE
+  END-DECIDE
+  IF #UPD
+    SR-GET. GET NRM-SOURCE *ISN (SR-READ.)
+    SR-ATTRIBUTES-IDENT := #SOURCE-ATTRIBUTES
+    SR-SPOOL-ATTRIBUTES := #SPOOL-ATTRIBUTES
+    UPDATE (SR-GET.)
+    ADD 1 TO #SR-COUNTER
+    IF *COUNTER (SR-READ.) > 50
+      END TRANSACTION
+      RESET *COUNTER (SR-READ.)
+    END-IF
+  END-IF
+END-READ
+END TRANSACTION
+*
+END-SUBROUTINE /* NODE-SOURCE
+*
+************************************************************************
+DEFINE SUBROUTINE NODE-ACTIVE-REPORTS
+************************************************************************
+AR-READ. READ NRM-ACTIVE-REPORTS BY AR-REPORT-RNB
+  RESET #UPD
+  #SPOOL-ATTRIBUTES := AR-SPOOL-ATTRIBUTES
+  CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+  COMPRESS AR-REPNAME '/' AR-REPRNB TO #MSG LEAVING NO
+  DECIDE ON FIRST VALUE #SPOOL-TYPE
+    VALUE JES2
+      INCLUDE NOMNODEC '#SPOOL-JES-NODE' '''Active Report''' '#MSG'
+/*SU6 VALUE POWER
+/*SU6 INCLUDE NOMNODEC '#SPOOL-POWER-NODE' '''Active Report''' '#MSG'
+    VALUE SEQUENTIAL-FILE-BS2
+      INCLUDE NOMNODEC '#SPOOL-BS2-NODE' '''Active Report''' '#MSG'
+    NONE
+      IGNORE
+  END-DECIDE
+  IF #UPD
+    AR-GET. GET NRM-ACTIVE-REPORTS *ISN (AR-READ.)
+    AR-SPOOL-ATTRIBUTES := #SPOOL-ATTRIBUTES
+    UPDATE (AR-GET.)
+    ADD 1 TO #AR-COUNTER
+    IF *COUNTER (AR-READ.) > 50
+      END TRANSACTION
+      RESET *COUNTER (AR-READ.)
+    END-IF
+  END-IF
+END-READ
+END TRANSACTION
+*
+END-SUBROUTINE /* NODE-ACTIVE-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE NODE-PRINTOUTS
+************************************************************************
+PO-READ. READ NRM-PRINTOUTS BY PO-ID
+  IF PO-NODE NE #NODE
+    INCLUDE NOMNODEC   'PO-NODE' '''Printout ID''' 'PO-ID'
+    #NODE-SAVE := PO-NODE
+    PO-GET. GET NRM-PRINTOUTS *ISN(PO-READ.)
+    PO-NODE := #NODE-SAVE
+    UPDATE (PO-GET.)
+    ADD 1 TO #PO-COUNTER
+    IF *COUNTER (PO-READ.) > 50
+      END TRANSACTION
+      RESET *COUNTER (PO-READ.)
+    END-IF
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* NODE-PRINTOUTS
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+*
+  WRITE 'Error Program' *PROGRAM *TIMX(EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+    *PROGRAM 'abnormal termination'
+  CALLNAT 'C-NATERN' #LOG-MSG
+  PRINT 'Error Message' *PROGRAM *TIMX(EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+    / #LOG-MSG
+  TERMINATE 50
+END-ERROR
+*
+END

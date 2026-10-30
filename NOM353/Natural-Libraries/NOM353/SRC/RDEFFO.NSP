@@ -1,0 +1,320 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RDEFFO
+* Version   1.3
+* Function  Define a Folder
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-08-03           created
+* gw  95-10-12 s(227745) NAT1108 in rdeffo after link folder active help
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsetggr 2007-12-13 NRT2774   add default location of reports
+* xsetggr 2007-12-14 p(300542) make value ' ' valid for default location
+* xsetggr 2007-12-19 p(300375) add fo-default-location to nrm-folder
+* xsetggr 2008-09-12 p(308886) do not allow linked the same folder
+* xsetggr 2011-01-06 NOMALL-907 corrections in folder maintenance
+* xsetggr 2011-07-08 NOMALL-902 implement Folder maintenance API
+* xsetggr 2011-08-03 NOMALL-902 correct handling NOM err 361
+* xsetggr 2011-11-08 NOMALL-1069 add message NOM0371
+* xsetggr 2013-01-02 NOMALL-89 implemnent security ceck subroutine
+*         and add window to allow delete reports from linked folder
+* xsetggr 2013-06-17 NOMALL-89 userid in window of deletionrights
+* SU2     2017-10-09 NOMALL-1823 NOM 3.5: remove CONNECT
+* BLI     2017-11-28 NOMALL-1998 Folder grants vs. folder maint.
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  NRM-GL
+*
+LOCAL USING RPFK---L
+LOCAL USING EOM----E
+LOCAL USING EOM----P
+LOCAL USING EOMFOM-P
+LOCAL USING EOMMSG-P
+LOCAL USING XXCTIT-A
+* -----------------------------local Variables--------------------------
+LOCAL
+1 #FUNC            (A1)
+1 #FOLDER          (A16)
+1 CV-TYPE          (C)
+1 CV-LOC           (C)
+1 CV-KEY           (C)
+1 CV-MAP           (C) INIT < (AD=I CD=NE)>
+* xsetggr 2011-01-06 NOMALL-907 insert next line
+1 CV-LINK          (C)
+1 L-HEADER         (A78)
+1 READ-RECORD      (L)
+1 #FATHER-PROG     (A8) INIT <'RLISFO'>
+1 #LANGUAGE        (I1)
+1 #MODIFIED        (L)
+1 I                (I2)
+1 #SAVE-FOR-USERID (A8)
+1 #TEXT-ENTRIES    (I2) CONST <1>
+1 #LAN-TAB         (1:#TEXT-ENTRIES)
+  2 #LAN-IDENT     (I2)
+  2 #LAN-TEXT      (A70)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *DATA > 0
+  INPUT (AD=MIT) G-C-FUNC #FOLDER
+END-IF
+*
+#FUNC := G-C-FUNC
+* BLI     2017-02-16 NOMALL-1998 comment obj/func check
+* xsetggr 2012-09-21 NOMALL-89 insert next lines
+** #PROG := *PROGRAM
+** PERFORM XXSECURITY-CHECK #PROG G-C-OBJNAME #ALLOWED
+** INCLUDE C-NALLOW                  /* xsetggr 2012-09-21 NOMALL-89 end
+*
+IF G-C-FUNC = 'P'
+  FETCH RETURN 'RDELFO'
+  INCLUDE C-ESCAPE
+END-IF
+*
+CV-KEY := (AD=I)
+RESET G-COMMIT G-LINECOM(*)
+*
+EOM-USER-PROFILE := G-USER-PROFILE
+* EOM-USER := G-FOR-USERID
+* xsetggr 2011-05-03 NOMALL-902 line above replaced by following line
+EOM-USER      := G-USERID
+EOM-USER-TYPE := G-USER-TYPE
+EOM-LANGUAGE  := *LANGUAGE
+*
+MAIN-LOOP. REPEAT
+  EOMFOM-I-NAME := #FOLDER
+* xsetggr 2011-05-03 NOMAMM-902 insert next line
+  EOMFOM-I-USER := G-FOR-USERID
+  DECIDE ON FIRST #FUNC
+    VALUE 'A'
+      CV-KEY       := (AD=I)
+      EOM-FUNCTION := EOM-INIT
+      RESET  EOMFOM-GENERAL-ATTRIBUTES #LANGUAGE
+    VALUE 'M'
+      CV-KEY       := (AD=IP)
+      EOM-FUNCTION := EOM-READHOLD
+* xsetggr 2011-01-06 NOMALL-907 insert next lines
+      IF EOMFOM-I-NAME = '#Inbasket' OR = '#Listeneingang'
+        CV-LINK := (AD=IP)
+      END-IF                 /* xsetggr 2011-01-06 NOMALL-907 end
+    VALUE 'D'
+      CV-KEY   := (AD=IP)
+      CV-MAP   := (AD=IP)
+      CV-TYPE  := (AD=IP)
+      CV-LOC   := (AD=IP)
+* xsetggr 2011-01-06 NOMALL-907 insert next line
+      CV-LINK  := (AD=IP)
+      EOM-FUNCTION := EOM-READ
+    NONE
+      G-NATRP-ERC := 9999
+      INCLUDE C-ESCAPE
+  END-DECIDE
+*
+  FIND-LOOP. REPEAT
+    RESET EOMMSG-PARMS
+    CALLNAT 'EOMFOM-N' EOM-PARMS EOMFOM-PARMS EOMMSG-PARMS
+    IF EOMMSG-NR NE 0
+      G-NATRP-ERC := EOMMSG-NR
+      G-NATRP-ERT := EOMMSG-TOKEN (1)
+      INCLUDE C-ESCAPE
+    END-IF
+    G-HOLD-TIME := *TIMX
+    SCREEN-LOOP. REPEAT
+      IF #LANGUAGE NE *LANGUAGE
+        #LANGUAGE := *LANGUAGE
+        PERFORM INIT-PFKEYS
+        PERFORM SET-PFKEYS
+        PERFORM INIT-TEXT
+      END-IF
+      IF #FUNC NE 'D'
+        INCLUDE C-HOLD
+      END-IF
+      PERFORM FLIP-DISPLAY
+      SET CONTROL 'L'
+      SET CONTROL 'WB'
+      CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDEFFOG&'
+      RESET G-MAP-MODIFIED
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+        MARK *G-DIRECT-COMMAND USING MAP 'RDEFFOG&'
+      RESET G-NATRP-ERC G-NATRP-ERT
+      #SAVE-FOR-USERID := G-FOR-USERID
+      RESET G-FOR-USERID
+      INCLUDE RPFKVA-C
+      INCLUDE C-DIRECT
+      G-FOR-USERID := #SAVE-FOR-USERID
+      IF G-PF-FUNC = 'UNDO' OR = 'DO'
+        RESET EOM-LOG-FUNCTION
+      END-IF
+      INCLUDE RPFKED-C
+      RESET READ-RECORD
+      IF (CV-MAP MODIFIED OR CV-KEY MODIFIED OR #MODIFIED OR
+          CV-LOC MODIFIED OR
+          CV-LINK MODIFIED OR         /* xsetggr 2011-01-06 NOMALL-907in
+          G-MAP-MODIFIED  OR CV-TYPE MODIFIED) AND #FUNC NE 'D'
+        RESET #MODIFIED
+        DECIDE FOR EVERY CONDITION
+          WHEN EOMFOM-LINKED-FOLDER-USERID = SCAN '*'
+            #MODIFIED := TRUE
+            REINPUT USING HELP MARK *EOMFOM-LINKED-FOLDER-USERID
+          WHEN EOMFOM-LINKED-FOLDER-NAME = SCAN '*'
+            CALLNAT 'RSELFO-N' G-FOR-USERID EOMFOM-LINKED-FOLDER-USERID
+              EOMFOM-LINKED-FOLDER-NAME
+* xsetggr 2011-01-06 NOMALL-907 insert next lines
+            DECIDE ON FIRST VALUE OF EOMFOM-LINKED-FOLDER-NAME
+              VALUE 'NO'          /* no folders possible
+                RESET EOMFOM-LINKED-FOLDER-NAME
+                G-NATRP-ERC := 368
+                G-NATRP-ERT := EOMFOM-LINKED-FOLDER-USERID
+                RESET #MODIFIED
+                ESCAPE TOP
+              VALUE ' '          /* PF3 from selection
+                RESET #MODIFIED
+                ESCAPE TOP
+              NONE VALUE        /* xsetggr 2011-01-06 NOMALL-907 end
+                #MODIFIED := TRUE
+                ESCAPE TOP
+            END-DECIDE           /* xsetggr 2011-01-06 NOMALL-907 in
+          WHEN NONE
+            IGNORE
+        END-DECIDE
+        EOMFOM-I-NAME := #FOLDER
+        IF #FUNC = 'A'
+          EOM-FUNCTION := EOM-ADD
+        ELSE
+          EOM-FUNCTION := EOM-MODIFY
+        END-IF
+*
+        RESET EOMMSG-PARMS
+        CALLNAT 'EOMFOM-N' EOM-PARMS EOMFOM-PARMS EOMMSG-PARMS
+        IF EOMMSG-NR = 0
+* BLI 2017-11-28 NOMALL-1998 out
+**        IF EOMFOM-LINKED-FOLDER-NAME > ' ' AND
+**            EOMFOM-I-USER NE EOMFOM-LINKED-FOLDER-USERID
+**          SET CONTROL 'WC09L55B09/07F'
+**          SET CONTROL 'MB'
+**          INPUT USING MAP 'RDEFFL1&'
+**          IF NOT (#DEL = 'Y' OR = 'N')
+**            REINPUT *1099 MARK *#DEL
+**          END-IF
+**          SET CONTROL 'WB'
+**          PERFORM UPDATE-GRANTS
+**        END-IF
+          IF EOM-FUNCTION = EOM-ADD
+* xsetggr 2010-12-17 NOMALL-907 end
+            G-NATRP-ERC := 31
+            #FUNC := 'M'
+            RESET #LANGUAGE
+            READ-RECORD := TRUE
+          ELSE
+            G-NATRP-ERC := 32
+          END-IF
+        ELSE
+          PERFORM CHECK-ERROR-CODE
+        END-IF
+        INCLUDE C-COMMIT
+      END-IF
+      INCLUDE REXDO--C
+      IF READ-RECORD = TRUE
+        ESCAPE BOTTOM (FIND-LOOP.)
+      END-IF
+    END-REPEAT
+  END-REPEAT
+END-REPEAT
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-ERROR-CODE
+************************************************************************
+DECIDE ON FIRST EOMMSG-NR
+  VALUE 0350
+    REINPUT *EOMMSG-NR MARK *EOMFOM-MAP-LAYOUT
+  VALUE 0351,352
+    IF EOMMSG-FIELD-NAME = 'EOMFOM-LINKED-FOLDER-USERID'
+      REINPUT *EOMMSG-NR MARK *EOMFOM-LINKED-FOLDER-USERID
+    ELSE
+      IF EOMMSG-NR = 351
+        #MODIFIED := TRUE
+        REINPUT *EOMMSG-NR MARK *#FOLDER
+      END-IF
+    END-IF
+  VALUE 0354
+    REINPUT *EOMMSG-NR,
+      EOMMSG-TOKEN(1)   /* xsetggr 2013-01-02 NOMALL-89 in
+      MARK *EOMFOM-LINKED-FOLDER-NAME
+  VALUE 0371                      /* xsetggr 2011-11-08 NOMALL-1069 in
+    REINPUT *EOMMSG-NR MARK *EOMFOM-LINKED-FOLDER-NAME
+  VALUE 0355
+    REINPUT *EOMMSG-NR MARK *EOMFOM-LINKED-FOLDER-USERID
+  VALUE 0356
+    REINPUT *EOMMSG-NR MARK *EOMFOM-LINKED-FOLDER-NAME
+  VALUE 0357
+    IF EOMMSG-FIELD-NAME = 'EOMFOM-LINKED-FOLDER-USERID'
+      REINPUT *EOMMSG-NR MARK *EOMFOM-LINKED-FOLDER-USERID
+    ELSE
+      REINPUT *EOMMSG-NR MARK *EOMFOM-LINKED-FOLDER-NAME
+    END-IF
+  VALUE 0361
+    REINPUT *EOMMSG-NR,
+      EOMMSG-TOKEN(1),  /* xsetggr 2011-08-03 NOMALL-902 in
+      EOMMSG-TOKEN(2)   /* xsetggr 2012-09-21 NOMALL-89 in
+      MARK *EOMFOM-LINKED-FOLDER-USERID
+  VALUE 0486
+    REINPUT *EOMMSG-NR MARK *EOMFOM-DEFAULT-LOCATION
+* xsetggr 2011-01-06 NOMALL-907 insert next 3 lines
+  VALUE 0369
+    REINPUT *EOMMSG-NR , EOMMSG-TOKEN(1),
+      EOMMSG-TOKEN(2)      /* xsetggr 2011-08-03 NOMALL-902 in
+      MARK *EOMFOM-LINKED-FOLDER-USERID
+  NONE VALUE
+    REINPUT *EOMMSG-NR, EOMMSG-TOKEN (1), EOMMSG-TOKEN (2),
+      EOMMSG-TOKEN (3)
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-ERROR-CODE
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+RESET G-PF
+*
+INCLUDE RPFSTD-C
+INCLUDE RPFADD-C
+INCLUDE RPFCOM-C
+*
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-TEXT
+************************************************************************
+IF G-USERID = G-FOR-USERID
+  RESET #XX-TITLE
+  ESCAPE ROUTINE
+END-IF
+*
+#LAN-IDENT (1) := 363          /* For UserID
+*
+FOR I = 1 TO #TEXT-ENTRIES
+  CALLNAT 'RLTINI-N' #LAN-IDENT (I) #LAN-TEXT  (I) G-TXB
+END-FOR
+*
+COMPRESS '-' #LAN-TEXT (1) G-FOR-USERID '-' TO #XX-TITLE
+#XX-LENGTH := 78
+INCLUDE XXCTIT-C               /* center title
+*
+END-SUBROUTINE /* INIT-TEXT
+* --------------------------------------- set pfkeys -------------------
+INCLUDE RPFSET-C
+*
+END

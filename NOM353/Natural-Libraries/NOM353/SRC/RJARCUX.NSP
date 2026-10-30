@@ -1,0 +1,205 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RJARCUX - Archive Active Reports for Unix
+* Hint:
+*   This is the main program of a separate job. This job was submitted
+*   by RMARCJOB (called by RMARCSCH called by RMCHKDWN inside the
+*   "scan spool queue" of RMONITOR)
+*
+* Maintenance:
+* uuuuuuuu yyyy-mm-dd iTrac       Remark
+* fhi      2011-12-01 NOMALL-1073 Created from template RJARCHIV
+* raya     2011-12-27 NOMALL-98 check member to avoid err 82
+* raya     2012-02-15 NOMALL-98 remove error 1079 to avoid double
+* SPLILDAV 2012-06-27 NOMALL-1078 SUPPORT COMPRESSION 16K BYTE RECORDS
+* raya     2012-09-27 NOMALL-1143 work with lob fields
+* xsetggr  2012-10-22 ES-104 fill MA-CURRENT-LOCATION
+* fhi      2012-11-09 NOMALL-1143 Add cpu time output
+* raya     2012-11-29 NOMALL-1214 check cat date of nomex*
+* SU1      2013-01-31 unused      Deactivate unused data areas
+* fhi      2013-02-15 NOMALL-1143 backout: for future use
+* xsetggr  2013-03-14 ES-104 corrections
+* raya     2013-05-09 NOMALL-1214 backout check cat date of nomex*
+* fhi      2013-06-04 OPO-36    Fill field AR-ACTIVE
+* fhi      2013-09-24 NOMALL-932 Change NOMEX08L to NOMEXP08
+* SU2      2014-01-16 NOMALL-1078 compr.-avoid empty archives
+* SU3      2014-01-27 NOMALL-1341 remove LA-fields
+* SU4      2014-07-11 NOMALL-1279 fill fields for Adabas Vista
+* BLI      2014-10-08 NOMALL-1422 remove NOP sched, mainframe
+* SU5      2014-11-05 NOMALL-1450 fill fields for Adabas Vista
+* SU6      2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* fhi      2015-09-23 NOMALL-1709 Delete report contents at end of job
+* SU7      2016-01-18 NOMALL-1802 do not update Adabas Vista fields
+* BLI      2016-04-21 NOMALL-1844 no physical exp date for Unix
+* FHI      2016-08-09 NOMALL-1900 NEW PARAMETER IN XXTABLE
+* SU8     2016-08-10 NOMALL-1814(NOM3.5) remove AdaVista fields
+* SU9     2016-08-10 NOM 3.5: remove unused code
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* SU10     2018-02-13 NOMALL-1823 NOM 3.5: remove CONNECT
+* fhi     2018-02-07 NOMALL-1918 Adapt for Unix
+* BLI     2018-03-21 Adapt GDA vs. AIV
+* SU11     2018-06-15 NOMALL-2110 avoid NAT1305+better msg
+* fhi     2018-12-14 NOM 3.5     Improve CPU measures, no tags
+* SU12    2019-02-06 NOMALL-2142 NOMALL-2110 avoid NAT1305+better msg
+* SU13    2019-02-06 NOMALL-1473 Limit Archive Jobs ARCHMAX
+* SU14    2019-02-15 NOMALL-1473 set mail records location to A(ARCHIVE)
+* SU15    2019-08-05 NOMALL-2308 recat:RJARC-C changed
+* SU16    2019-11-13 NOMALL-2348 do not cut msg/RJARC-C changed
+* SU17    2019-12-09 NOMALL-2348 recat:RJARC-C changed
+* SU18    2020-01-02 NOMALL-2348 recat:RJARC-C changed
+* SU19    2020-01-02 NOMALL-2348 recat:RJARC-C changed
+* SU20    2020-05-22 NOMALL-2349 several changes
+* SU22    2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  MONIT-GL
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE           (L/1:20)
+* -----------------------------LDAs-------------------------------------
+LOCAL USING NOMEXP08
+LOCAL USING NOMEX08E
+LOCAL USING RMSR---E
+LOCAL USING RMSR---L
+LOCAL USING RMSPL--L
+LOCAL USING N-INUSEA
+LOCAL USING VFSYS-L
+LOCAL USING SUPER-L
+LOCAL USING VARDSN-L
+LOCAL USING VDSNRP-L
+LOCAL USING RLOG-L
+LOCAL USING VARCIV-L
+LOCAL USING CONST-L
+LOCAL USING SATLGV1P
+LOCAL USING RACTLF-A
+LOCAL USING VUSARC-L
+LOCAL USING NOMUDA-P
+LOCAL USING SAT00009
+LOCAL USING RJ-L
+LOCAL USING RJARC-L
+LOCAL USING XXGMSG-A
+*
+LOCAL
+1 SOURCE-TEXT VIEW OF NRM-SOURCE-TEXT
+  2 ST-ID
+  2 ST-LINE-START
+  2 ST-TEXT                   (1:66)
+  2 REDEFINE ST-TEXT
+    3 ST-TEXT-LOB             (A16381)
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-TYPE
+  2 SR-ATTRIBUTES-IDENT
+1 AD-VISTA VIEW OF NRM-ARCHIVE-DATASET /*SU8
+  2 AD-OBJECT-TYPE
+  2 AD-OBJECT-TIME
+1 MAIL VIEW OF NRM-MAIL
+  2 MA-CURRENT-LOCATION
+* ----------------------------------------------------------------------
+/*SU22 1 ENVIRONMENT /*dummy - see RJARC-C
+/*SU22   2 M-SYSTEM-TYPE             (A32)
+1 #WKF-RECORD                 (A)    DYNAMIC
+1 #CURRENT-CNT                (A20) /*SU17
+1 #FUNCTION                   (A10) CONST <'Archiver'>
+1 #SYSTEM-TYPE                (A8) CONST <' '> /*not used(RJARC-C) SU22
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=133 PS=60
+*
+PERFORM #INIT
+*
+DEFINE WORK FILE 1 TYPE 'PORTABLE' /* NOMALL-1073: create length bytes
+*
+* compare STX-START-SCRIPT in RMARCJOB
+INPUT G-MONITOR-JOBNAME
+  /  G-NPR-USERID
+  /  G-MONITOR-NODE
+  /  #CURRENT-ARCHIVE-NO
+  /  #SAVE-ARCHIVE-NO
+  /  #ARCHIVE-DSNAME
+  /  #AD-EXPIRATION-DATE-PHYS /*not used Ü
+  /  #NOMEX008
+  /  #USERARC-NUMBER
+*
+PERFORM PRINT-PARMS
+*
+IF #NOMEX008 = 'Y'
+  +G-NOMEXIT-ACTIVE(8):= TRUE
+END-IF
+*
+PERFORM CHECK_SET-LFILES
+PERFORM CHECK-ARCHIVE-DATASET
+PERFORM CHECK-USER-ARCHIVE
+PERFORM CHECK-NAT_LIB_MEM
+*
+COMPRESS '0442' #ARCHIVE-NAME TO LG-MSG /*:1:Archiver started.
+PERFORM #RLOG
+*
+G-NPR-CURRENT-USERID := G-NPR-USERID
+*
+PERFORM PURGE-ACTIVE-REPORTS
+PERFORM ARCHIVE-ACTIVE-REPORTS  /*1. part:write to work ÜÜ
+PERFORM UPD-AR /*2. part:mark AR as archived ÜÜ
+PERFORM FINALIZE-USER-ARCHIVE
+PERFORM FINALIZE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SYSOUT-PORTION
+************************************************************************
+DECIDE ON FIRST VALUE OF SOURCE.SR-TYPE /*SU 2018-10-10 G-SOURCE-TYPE
+  VALUE NOM-DATA-BASE
+    PERFORM READ-NOMDB-PORTION
+  NONE
+    SPOOL-ERROR := TRUE
+    MOVE EDITED SOURCE.SR-TYPE (EM=HH) TO #ERR-TXT
+    COMPRESS 'Invalid source type of report' #ERR-TXT TO #ERR-TXT
+    PERFORM WRITE-ERROR-IN-SYSOUT
+END-DECIDE
+*
+END-SUBROUTINE /* READ-SYSOUT-PORTION
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-WORK-OPSYS /*unix specific part(see RJARC-C
+************************************************************************
+RESIZE DYNAMIC #WKF-RECORD TO 0
+MOVE SUBSTR (#TEXT-RECORD,1,#RECLEN) TO #WKF-RECORD
+WRITE WORK FILE 1 VARIABLE #WKF-RECORD
+*
+END-SUBROUTINE /* WRITE-WORK-OPSYS
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-WORK-OPSYS2 /*unix specific part(see RJARC-C
+************************************************************************
+RESIZE DYNAMIC #WKF-RECORD TO 0
+#WKF-RECORD := #ID-RECORD
+WRITE WORK FILE 1 VARIABLE #WKF-RECORD
+*
+END-SUBROUTINE /* WRITE-WORK-OPSYS2
+*
+************************************************************************
+DEFINE SUBROUTINE GET-CURRENT-VOLSER-DOS /*dummy (see RJARC-C
+************************************************************************
+IGNORE
+*
+END-SUBROUTINE /* GET-CURRENT-VOLSER-DOS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-CURRENT-VOLSER-BS2 /*dummy (see RJARC-C
+************************************************************************
+IGNORE
+*
+END-SUBROUTINE /* GET-CURRENT-VOLSER-BS2
+*
+INCLUDE RJARC-C /*subroutines
+INCLUDE RJ-C ''' ''' /*ON ERROR
+*
+END

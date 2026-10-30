@@ -1,0 +1,503 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMARPRN - API to print an Active Reports on specified logical printer
+*   This routine will read all Active reports and will
+*   make printout records on specified printer.
+*   Printer name will check, is it valid printer.
+*   Hard coded printing attributes not depend on printer
+*   attributes:
+*   start-separator  = standard,if Active Report no contain
+*   start separator
+*   end-separator    = standard,if Active Report no contain
+*   end separator
+*   separator copies = 1
+*   print copies     = 1
+*   scheduled-time   = * timx, not coordinate with defined
+*                     physical printers' time windows
+*   no layouts is take into account (print all data)
+*
+* Parameters : 1. NOM dbid
+*              2. NOM fnr
+*              3. Name of defined Logical printer
+*              4. NOM library (default = SYSNOM)
+*              5. name of Active Report ('*' allowed) to define
+*                 Active Reports range
+*              6. start run number to define range
+*              7. end run-number to define range
+*              8. number of created printout records
+*              9. error code:
+*                 1 - Invalid parameter value
+*                 2 - No Active Reports found
+*             10. error text
+*
+*       If no p-name, p-rnb-s, p-rnb-e parameters specified,
+*       for all Active Reports will be created prontout records
+*       to specified printer
+*
+* Maintenance
+* uuu     YYYY-MM-DD s(999999) ...
+* XSETGGR 2005-11-22           Created as requested by Cu
+* xsetggr 2007-05-14 NOM3201  use rmspl7-n to convert job & node numbers
+* xsetggr 2007-09-04 NOM3201  Support P11 format run numbers
+* xsetggr 2008-05-05 p(304350) restow due changes in rmspl--l
+* fhi     2009-05-19 N3463     Extend metadata for OPO
+* xsetggr 2009-09-01 P314431   allow only NATUNIX&DISKUNIX printers for
+*                       Unix syatems, UNIXLP printers only for mainframe
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-10-08 NOMALL-97 Use dynamic memory handling
+* xsetggr 2010-11-15 NOMALL-865 restow due to changes in EOMPHTYE
+* raya    2012-02-01 NOMALL-1096 error-text a250 in NOMWK--P stow only
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-07-04 NOMALL-1279 fill fields for Adabas Vista
+* SU3     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU4     2016-01-15 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-11-10 NOMALL-1917 use correct node number
+* fhi     2017-04-07 NOMALL-1961 Omit field PO-MONITOR
+* SU5     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* **********************************************************************
+DEFINE DATA PARAMETER
+1 NOMARPR-PARMS
+  2 NOM-DBID      (N5)  /* in: NOM file dbid (optional)
+  2 NOM-FNR       (N5)  /* in: NOM file fnr (optional)
+  2 P-PRINTER     (A8)  /* in: printer name (mandatory)
+  2 P-LIBRARY     (A8)  /* in: nom library  (optional) if no
+    /* specified assign p-library = 'SYSNOM'
+  2 P-NAME        (A25) /* name of Active Report ('*' allowed)
+    /* to define range (optional)
+  2 P-RNB-S       (P11) /* start run number (optional)
+  2 P-RNB-E       (P11) /* end run number (optional)
+  2 P-NUMBER      (P10) /* out: number of created printout records
+  2 P-ERC         (N4)  /* out: error code
+  2 P-ERT         (A250)
+************************************************************************
+INDEPENDENT
+1 +NOD-LOCAL-NODE          (N5)
+************************************************************************
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+LOCAL USING RMSPL--L
+LOCAL USING RMSPLA-L
+LOCAL USING NOMWK--P
+LOCAL USING EOMPHTYE
+LOCAL
+1 AR VIEW NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-NUMBER-OF-LINES
+  2 AR-SPOOL-ATTRIBUTES
+  2 AR-SPOOL-ATTR-EXTENDED (3)
+  2 AR-CC-TYPE
+  2 AR-SEPNO
+  2 AR-USERID
+1 RP VIEW OF NRM-REPORTS-NEW
+  2 C*R-PRINT-JOBCARD
+  2 R-PRINT-JOBCARD (3)
+1 PHYS-PR VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-ESCAPE-CHAR
+  2 PH-JCL-SKELETON
+  2 PH-PRINT-PGM
+  2 PH-PRINTER-TYPE
+1 MONITOR VIEW OF NRM-MONITOR
+  2 M-USE-OWNER
+1 PRINTERS VIEW OF NRM-PRINTERS
+  2 P-PHYSICAL-NAME
+  2 P-EXITLIB
+  2 P-EXITMEM
+  2 P-PRIORITY
+  2 P-ATTRIBUTES      (25)
+  2 REDEFINE P-ATTRIBUTES
+    3 P-ATTR          (25)
+      4 P-ATTR-IDENT  (I1)
+      4 P-ATTR-LENGTH (N2)
+      4 P-ATTR-PROMPT (N4)
+      4 P-ATTR-VAR    (A16)
+      4 P-ATTR-VALUE  (A72)
+  2 P-JOBCARD         (3)
+1 PO VIEW OF NRM-PRINTOUTS
+  2 PO-ID
+  2 PO-NUMBER-OF-RETRIES
+  2 PO-ID-INV
+  2 PO-REPRNB
+  2 REDEFINE PO-REPRNB
+    3  PO-LAST-ID         (P11)
+  2 PO-SCHEDULED
+  2 PO-COPIES
+  2 PO-NODE
+  2 PO-CREATED
+  2 PO-ESCAPE-CHAR
+  2 PO-EXITLIB
+  2 PO-EXITMEM
+  2 PO-FROM-LINE
+  2 PO-TO-LINE
+  2 PO-STATUS
+  2 PO-JCL-SKELETON
+  2 PO-LANGUAGE
+  2 PO-LOGICAL
+  2 PO-PHYSICAL-NAME
+  2 PO-PRINT-PGM
+  2 PO-PRINTER-TYPE
+  2 PO-PRIORITY
+  2 PO-USERID
+  2 PO-BUNDLE
+  2 PO-BUNDRNB
+  2 PO-REPNAME
+  2 PO-HEADLINES
+  2 PO-LAST-PRINTED-RECNO
+  2 PO-JOBNO
+  2 PO-LAYOUT          (1:10)
+    3 PO-LAYOUT-FROM
+    3 PO-LAYOUT-TO
+  2 PO-JOBCARD         (1:3)
+  2 PO-ESY-USERID
+  2 PO-ATTRIBUTES      (1:25)
+  2 REDEFINE PO-ATTRIBUTES
+    3 PO-ATTR          (1:25)
+      4 PO-ATTR-IDENT  (I1)
+      4 PO-ATTR-LENGTH (N2)
+      4 PO-ATTR-PROMPT (N4)
+      4 PO-ATTR-VAR    (A16)
+      4 PO-ATTR-VALUE  (A72)
+  2 PO-OBJECT-TYPE /*SU3
+  2 PO-OBJECT-TIME /*SU3
+1 US VIEW OF NRM-USERS
+  2 USER-PROFILE
+  2 REDEFINE USER-PROFILE
+    3 NON-USERD-FIELDS (A49)
+    3 PROF-EXTERNAL    (A1)
+* *****
+1 #REPORT-RNB          (A31)
+1 REDEFINE #REPORT-RNB
+  2 #REPNAME           (A25)
+  2 #REPRNB            (P11)
+1 #REPORT-RNB-E        (A31)
+1 REDEFINE #REPORT-RNB-E
+  2 #REPNAME-E         (A25)
+  2 #REPRNB-E          (P11)
+1 #I                   (I2)
+1 #USER                (A8)
+1 #OLD-NOM-DBID        (N5)
+1 #OLD-NOM-FNR         (N5)
+1 #DEF-LIB             (L)
+1 #VAR                 (A16)
+1 #VALUE               (A72)
+1 #PO-ID               (N7)
+1 #PO-LAST-ID          (N7)
+1 #MAX-POID            (N7)
+1 #CONTROL-KEY         (N7) CONST <9999999>
+1 #MAX-KEY             (N7) CONST <9999998>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-ERC P-ERT
+*
+DECIDE FOR EVERY CONDITION
+  WHEN NOM-FNR NE 0 AND NOM-DBID NE 0
+    PERFORM GET-NOM-LFILE
+    PERFORM SET-NOM-LFILE
+  WHEN SATLF-ERROR-CODE = 0
+    PERFORM READ-REPORTS
+  WHEN SATLF-ERROR-CODE = 0 AND #OLD-NOM-DBID NE 0 AND
+      #OLD-NOM-FNR NE 0
+    PERFORM SET-OLD-NOM-LFILE
+  WHEN NONE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-REPORTS
+************************************************************************
+RESET P-NUMBER
+PERFORM CHECK-PARAMETERS
+IF P-ERC > 0
+  ESCAPE ROUTINE
+END-IF
+#USER := *USER
+/*
+F1. FIND AR WITH AR-REPORT-RNB = #REPORT-RNB THRU #REPORT-RNB-E
+  IF NO RECORDS FOUND
+    P-ERC := 2                                    /* no data found
+    P-ERT := 'No Active Reports found'
+    ESCAPE BOTTOM (F1.)
+  END-NOREC
+  G1. GET AR *ISN(F1.)
+  IF AR.AR-SEPNO NE 1
+    AR.AR-SEPNO       := 1
+    UPDATE(G1.)
+  END-IF
+  END TRANSACTION
+  #SPOOL-ATTRIBUTES := AR-SPOOL-ATTRIBUTES
+  CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+  PERFORM XXMVAR-S-MOVE-ARRAY #SPOOL-ATTRIBUTES-EXT
+    AR-SPOOL-ATTR-EXTENDED (1:3)
+  PERFORM CREATE-PRINTOUT-RECORD
+  PERFORM WAKE-MONITOR
+  IF P-ERC NE 0
+    ESCAPE BOTTOM (F1.)
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-PARAMETERS
+************************************************************************
+IF P-PRINTER = ' '
+  P-ERC := 1                                   /* Invalid parameter
+  P-ERT := 'Printer name must be specified'
+  ESCAPE ROUTINE
+END-IF
+FPR. FIND PRINTERS WITH P-ID = P-PRINTER
+  IF NO RECORDS FOUND
+    P-ERC := 1                               /* Invalid parameter
+    P-ERT := 'Specified printer not defined'
+    ESCAPE BOTTOM(FPR.)
+  END-NOREC
+  FIND (1) PHYS-PR WITH PH-VTAMID = P-PHYSICAL-NAME
+    IF *MACHINE-CLASS = 'MAINFRAME'
+      IF PH-PRINTER-TYPE = ##PHYS-NATUNIX
+        P-ERC := 1
+        P-ERT := 'This printer type allowed only on unix systems'
+        ESCAPE BOTTOM (FPR.)
+      END-IF
+    ELSE
+      IF NOT(PH-PRINTER-TYPE = ##PHYS-DISKUNIX OR = ##PHYS-NATUNIX)
+        P-ERC := 1
+        P-ERT := 'This printer type allowed only on mainframe'
+        ESCAPE BOTTOM (FPR.)
+      END-IF
+    END-IF
+  END-FIND
+END-FIND
+IF P-ERC > 0
+  ESCAPE ROUTINE
+END-IF
+IF P-LIBRARY = ' '
+  #DEF-LIB  := TRUE
+  P-LIBRARY := 'SYSNOM'                          /* default library
+END-IF
+IF P-NAME = '*' OR = ' '
+  RESET #REPNAME
+  MOVE H'FF' TO #REPNAME-E
+ELSE
+  IF P-NAME = SCAN '*'
+    EXAMINE P-NAME FOR '*' DELETE
+    #REPNAME := P-NAME
+    COMPRESS #REPNAME H'FF' TO #REPNAME-E LEAVING NO
+  ELSE
+    #REPNAME := #REPNAME-E := P-NAME
+  END-IF
+END-IF
+DECIDE FOR FIRST CONDITION
+  WHEN P-RNB-E = 0 AND P-RNB-S = 0
+    #REPRNB-E := 99999999999
+    RESET #REPRNB
+  WHEN P-RNB-E = 0 AND P-RNB-S > 0
+    MOVE P-RNB-S TO #REPRNB
+    #REPRNB-E := 99999999999
+  WHEN P-RNB-E > 0 AND P-RNB-S > 0
+    IF P-RNB-E < P-RNB-S
+      P-ERC := 1                     /* Invalid parms
+      P-ERT := 'Invalid Run number range: end-rnb > start-rnb'
+      ESCAPE ROUTINE
+    ELSE
+      #REPRNB := P-RNB-S
+      #REPRNB-E := P-RNB-E
+    END-IF
+  WHEN P-RNB-E > 0 AND P-RNB-S = 0
+    #REPRNB   := P-RNB-S
+    #REPRNB-E := P-RNB-E
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-PARAMETERS
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-PRINTOUT-RECORD
+************************************************************************
+RESET PO
+FIND RP WITH R-REPNAME = AR.AR-REPNAME
+END-FIND
+RESET PO-LAST-PRINTED-RECNO PO-JOBNO
+PERFORM GET-PO-ID
+PO.PO-ID             := #PO-ID
+PERFORM ASSIGN-PO-ESY-USERID   /* assign po-node too
+IF P-ERC > 0
+  ESCAPE ROUTINE
+END-IF
+PO.PO-ID-INV         := 9999998 - PO.PO-ID
+PO-COPIES            := 1              /* number od copies for print
+PO-CREATED           := *TIMX
+PO-ESCAPE-CHAR       := PH-ESCAPE-CHAR
+PO-EXITLIB           := P-EXITLIB
+PO-EXITMEM           := P-EXITMEM
+PO-FROM-LINE         := 1
+PO-STATUS            := 'R'
+PO-JCL-SKELETON      := PH-JCL-SKELETON
+PO-LANGUAGE          := *LANGUAGE
+PO-LOGICAL           := P-PRINTER
+PO-PHYSICAL-NAME     := P-PHYSICAL-NAME
+PO-PRINT-PGM         := PH-PRINT-PGM
+PO-PRINTER-TYPE      := PH-PRINTER-TYPE
+PO-PRIORITY          := P-PRIORITY
+PO-SCHEDULED         := *TIMX
+PO-USERID            := #USER
+RESET PO-BUNDLE PO-BUNDRNB
+PO-REPNAME           := AR.AR-REPNAME
+PO-REPRNB            := AR.AR-REPRNB
+PO-TO-LINE           := AR.AR-NUMBER-OF-LINES
+RESET  PO-LAYOUT(*)
+FOR #I 1 25
+  IF PRINTERS.P-ATTR-VALUE (#I) = ' '
+    CALLNAT 'RPRTATTN' #SPOOL-ATTRIBUTES
+      #SPOOL-ATTRIBUTES-EXT
+      P-ATTR-VAR (#I) P-ATTR-VALUE (#I) AR.AR-CC-TYPE
+  END-IF
+  PO-ATTR-IDENT (#I) := P-ATTR-IDENT(#I)
+  PO-ATTR-LENGTH(#I) := P-ATTR-LENGTH(#I)
+  PO-ATTR-PROMPT(#I) := P-ATTR-PROMPT(#I)
+  PO-ATTR-VAR(#I)    := P-ATTR-VAR(#I)
+  PO-ATTR-VALUE(#I)  := P-ATTR-VALUE(#I)
+END-FOR
+IF RP.C*R-PRINT-JOBCARD NE 0
+  PO-JOBCARD(*) := RP.R-PRINT-JOBCARD(*)
+ELSE
+  PO-JOBCARD(*) := P-JOBCARD(*)
+END-IF
+#VAR := 'JOBNAME'
+CALLNAT 'RPRTATTN' #SPOOL-ATTRIBUTES
+  #SPOOL-ATTRIBUTES-EXT
+  #VAR #VALUE AR-CC-TYPE
+COMPRESS PH-ESCAPE-CHAR 'JOBNAME' TO #VAR LEAVING NO
+EXAMINE PO-JOBCARD (1) FOR #VAR REPLACE #VALUE
+#VAR := 'ACCOUNT-NUMBER'
+CALLNAT 'RPRTATTN' #SPOOL-ATTRIBUTES
+  #SPOOL-ATTRIBUTES-EXT
+  #VAR #VALUE AR.AR-CC-TYPE
+COMPRESS PH-ESCAPE-CHAR 'ACCOUNT' TO #VAR LEAVING NO
+EXAMINE PO-JOBCARD (1) FOR #VAR REPLACE #VALUE
+PO-OBJECT-TYPE := 'PO' /*SU3
+PO-OBJECT-TIME := *TIMX /*SU3
+STORE PO
+ADD 1 TO P-NUMBER
+*
+END-SUBROUTINE /* CREATE-PRINTOUT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE GET-PO-ID
+************************************************************************
+FNDPO. FIND (1) PO WITH PO-ID = #CONTROL-KEY
+  IF NO RECORDS FOUND
+    READ (1) PO BY PO-ID-INV
+      #MAX-POID := PO-ID
+      IF PO-ID NE PO-ID
+        UPDATE
+      END-IF
+    END-READ
+    PO-ID := #CONTROL-KEY
+    RESET  PO-ID-INV
+    #PO-LAST-ID := #MAX-POID
+  END-NOREC
+  ADD 1 TO #PO-LAST-ID
+  IF #PO-LAST-ID GE #MAX-KEY
+    #PO-LAST-ID := 1
+  END-IF
+  #PO-ID := #PO-LAST-ID
+  PO-LAST-ID := #PO-LAST-ID
+  IF *NUMBER (FNDPO.) = 0
+    PO-OBJECT-TYPE := 'PO'
+    PO-OBJECT-TIME := *TIMX
+    STORE PO
+  ELSE
+    UPDATE
+  END-IF
+END-FIND
+END TRANSACTION
+*
+END-SUBROUTINE /* GET-PO-ID
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-PO-ESY-USERID
+************************************************************************
+FIND US WITH USER-ID = #USER
+END-FIND
+FIND MONITOR WITH M-MONITOR-ID = P-LIBRARY
+  IF NO RECORDS FOUND
+    P-ERC := 1                                 /* Invalid parameter
+    IF #DEF-LIB
+      P-ERT := 'Specify NOM library, default is wrong.'
+    ELSE
+      P-ERT := 'Wrong NOM library specified.'
+    END-IF
+    ESCAPE ROUTINE
+  END-NOREC
+  IF US.PROF-EXTERNAL = 'Y'
+    PO-ESY-USERID := #USER
+  ELSE
+    IF M-USE-OWNER = 'Y'
+      PO-ESY-USERID := AR.AR-USERID
+    ELSE
+      RESET  PO-ESY-USERID
+    END-IF
+  END-IF
+END-FIND
+PO-NODE := +NOD-LOCAL-NODE
+*
+END-SUBROUTINE /* ASSIGN-PO-ESY-USERID
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NOM-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'GET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+#OLD-NOM-DBID := SATLF-DBID-N5
+#OLD-NOM-FNR  := SATLF-FNR-N5
+*
+END-SUBROUTINE /* GET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'SET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := NOM-DBID
+SATLF-FNR-N5  := NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-OLD-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := #OLD-NOM-DBID
+SATLF-FNR-N5  := #OLD-NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-OLD-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE WAKE-MONITOR
+************************************************************************
+RESET NOMWK-PARMS(*)
+CALLNAT 'NOMWK01N' NOMWK-NOMVERS NOMWK-PARMS (*)
+*
+END-SUBROUTINE /* WAKE-MONITOR
+*
+END

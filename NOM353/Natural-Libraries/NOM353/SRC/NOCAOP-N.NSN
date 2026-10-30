@@ -1,0 +1,255 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* -----------------------------------------------------------------
+* Subprogram  NOCAOP-N
+* Version     3.1
+* Function    NOM API Maintenance of NOM Calendars
+* Parameters: ES-KEY-PARM(1) - calendar name
+*             ES-KEY-PARM(2) - calendar-year
+*
+* Maintenance:
+* XSETGGR 2004-09-22    created
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-06-02 NOMALL-1281 show last update user+date
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOCAOP-A
+PARAMETER 1 #USERID         (A8) OPTIONAL /*SU2
+* *****
+LOCAL     USING NADA2000
+LOCAL     USING NAD-MSG
+LOCAL     USING NAD-FLD
+* *****
+LOCAL
+1 CAL VIEW OF NRM-CALENDARS
+  2 CA-CALENDAR-ID
+  2 REDEFINE CA-CALENDAR-ID
+    3 CALENDAR-NAME         (A8)
+    3 CALENDAR-YEAR         (N4)
+  2 CA-WORKING-DAYS         (1:12)
+  2 P-LAST-UPDATE       /*SU2
+  2 P-LAST-UPDATE-USER  /*SU2
+1 #ES-CONTROL               (A250)
+1 #ES-INPUT-AREA            (A253/1:3)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+1 #CALENDAR-ID              (A12)
+1 REDEFINE #CALENDAR-ID
+  2 #CA-NAME                (A8)
+  2 #CA-YEAR                (A4)
+1 #LIBRARY-ID               (A8)
+1 G-USERID                  (A8) /*SU2
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC #ES-MSG-FIELD #ES-MSG-NR
+*
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+*
+#LIBRARY-ID := ES-APP-SERVER-LIBRARY
+#CA-NAME    := ES-KEY-PARM(1)
+#CA-YEAR    := ES-KEY-PARM(2)
+IF #USERID SPECIFIED /*SU2 ->
+  G-USERID := #USERID
+ELSE
+  G-USERID := *USER
+END-IF /*SU2 <-
+*
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+  VALUE ' '
+    PERFORM READ-RECORD
+  VALUE 'NEW'
+    PERFORM NEW-RECORD
+    IF ES-RC = 0
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  VALUE 'UPD'
+    PERFORM UPDATE-RECORD
+    IF ES-RC = 0
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  VALUE 'CHK'
+    PERFORM CHECK
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-RECORD
+************************************************************************
+RESET NOCA-PARMS
+FNDUS. FIND CAL WITH CA-CALENDAR-ID = #CALENDAR-ID
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 2004    /* calendar does not exist
+    ESCAPE BOTTOM(FNDUS.)
+  END-NOREC
+  NOCA-NAME := CAL.CALENDAR-NAME
+  NOCA-YEAR := CAL.CALENDAR-YEAR
+  NOCA-WORKING-DAYS(1:12) := CAL.CA-WORKING-DAYS(1:12)
+  NOCA-LAST-UPDATE-USER   := CAL.P-LAST-UPDATE-USER /*SU2 ->
+  IF CAL.P-LAST-UPDATE NE 0
+    MOVE EDITED CAL.P-LAST-UPDATE (EM=YYYYMMDDHHIISST)
+      TO NOCA-LAST-UPDATE
+  END-IF /*SU2 <-
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* READ-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE NEW-RECORD
+************************************************************************
+IF NOCA-NAME NE ' '
+  #CA-NAME := NOCA-NAME
+  #CA-YEAR := NOCA-YEAR
+  FNNEW. FIND NUMBER CAL WITH CA-CALENDAR-ID = #CALENDAR-ID
+  IF *NUMBER(FNNEW.) > 0
+    #ES-MSG-NR := 2002              /* Calendar already exists
+    #ES-MSG-FIELD-NAME := 'NAME'
+    PERFORM GET-MSG-TXT
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+PERFORM VALIDATION-S
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+CAL.P-LAST-UPDATE          := *TIMX /*SU2
+CAL.P-LAST-UPDATE-USER     := G-USERID /*SU2
+CAL.CALENDAR-NAME          := NOCA-NAME
+CAL.CALENDAR-YEAR          := NOCA-YEAR
+CAL.CA-WORKING-DAYS (1:12) := NOCA-WORKING-DAYS (1:12)
+STORE CAL
+*
+END-SUBROUTINE /* NEW-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+FNDMOD. FIND CAL WITH CA-CALENDAR-ID = #CALENDAR-ID
+  IF NO RECORD FOUND
+    #ES-MSG-NR := 2004       /* Calendar does not exist
+    ESCAPE BOTTOM(FNDMOD.)
+  END-NOREC
+  PERFORM VALIDATION-S
+  IF #ES-MSG-NR NE 0
+    ESCAPE BOTTOM(FNDMOD.)
+  END-IF
+  GETMOD. GET CAL *ISN(FNDMOD.)
+  CAL.CA-WORKING-DAYS (1:12) := NOCA-WORKING-DAYS (1:12)
+  CAL.P-LAST-UPDATE          := *TIMX /*SU2
+  CAL.P-LAST-UPDATE-USER     := G-USERID /*SU2
+  UPDATE (GETMOD.)
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* UPDATE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK
+************************************************************************
+IF ES-ORIG-FUNCTION = 'NW'
+  #CA-NAME := NOCA-NAME
+  #CA-YEAR := NOCA-YEAR
+  FND. FIND NUMBER CAL WITH CA-CALENDAR-ID = #CALENDAR-ID
+  IF *NUMBER(FND.) > 0
+    #ES-MSG-NR := 2002          /* Calendar already defined
+    #ES-MSG-FIELD-NAME := 'NAME'
+    PERFORM GET-MSG-TXT
+    ESCAPE ROUTINE
+  END-IF
+  PERFORM VALIDATION-S
+END-IF
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* CHECK
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION-S
+************************************************************************
+PERFORM VALIDATION
+ES-CONTROL := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+*
+END-SUBROUTINE /* VALIDATION-S
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+RESET #ES-MSG-NR #ES-MSG-FIELD #CALENDAR-ID
+IF NOCA-NAME = ' '
+  #ES-MSG-NR := 2000       /* please, enter name
+  #ES-MSG-FIELD-NAME := 'NAME'
+  ESCAPE ROUTINE
+END-IF
+IF NOCA-YEAR = 0 OR NOCA-YEAR NE MASK(YYYY) OR
+    NOCA-YEAR < 1900
+  #ES-MSG-NR := 2001      /* Please enter valid year
+  #ES-MSG-FIELD-NAME := 'YEAR'
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR  := #ES-MSG-NR
+ES-MSG-TXT := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+ES-MSG-FIELD := #ES-MSG-FIELD
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

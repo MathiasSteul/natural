@@ -1,0 +1,150 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* N-NODEMF  MF: add MF-NODE for monitor during MIGMON/INSTALL
+*
+* MAINTENANCE:
+* User ID yyyy-mm-dd itrac       Comment
+* ------- ---------- ----------- ---------------------------------------
+* SU      2020-11-20 NOMALL-2440 Created
+* SU1     2021-04-07 NOMALL-2455 new parm NODE
+* SU3     2021-07-12 NOMALL-2477 add MSGs+better checks
+* BLI     2021-09-20 NOMALL-2477 QE wishes to remove the messages
+************************************************************************
+*
+DEFINE DATA
+PARAMETER
+1 PRODUCT-NAME             (A16) /*NPR
+1 SYSTEM-TYPE              (A8)  /*NPR:Operating system type
+1 SPOOL-TYPE               (A8)  /*NPR:Spooling system type
+1 #NPR-USERID              (A8)  /*'NOMMON' or from input
+1 #CALLER                  (A8)
+1 #TRACING                 (L)
+1 #MONITOR-NODE            (N5)  /*INPUT (INSTALL)/3.4:mon (MIGMON) SU1
+************************************************************************
+LOCAL
+1 MF-NODE VIEW OF NRM-MF-NODES
+/*2 MF-REMOTE-CODEPAGE     (A64) /*not used yet
+  2 MF-PRODUCT-NAME        (A16)
+  2 MF-INTERNAL-NODE-ID    (P11)
+  2 MF-LAST-UPDATE         (T)
+  2 MF-LAST-UPDATE-USER    (A16)
+  2 MF-TYPE                (A1)
+  2 MF-NPR-USERID          (A8)
+  2 MF-TIME-SCHEDULE       (A1)
+  2 MF-MONITOR-DESCRIPTION (A50)
+  2 MF-SPOOL-TYPE          (A8)
+  2 MF-SYSTEM-TYPE         (A8)
+  2 MF-MONITOR-ID          (A20)
+  2 REDEFINE MF-MONITOR-ID
+    3 M-MONITOR-ID_PREFIX  (A2)  /*'R-'
+    3 MF-NODE-NAME         (A18) /*node name
+  2 MF-MONITOR-NODE        (N5)
+  2 MF-TEMP-CLASS          (A4) /* 1BYTE CLASS OR 'JES3
+  2 MF-PRINT-CLASS         (A1)
+  2 MF-CLASSES             (A1/1:20)
+  2 MF-JES3-OUTPUT-CLASSES (A1/1:20)
+  2 MF-BS2-DEST            (A8/1:4)
+  2 MF-ERR-CLASS           (A1)
+1 MON-DEF VIEW OF NRM-MF-NODES
+  2 MF-MONITOR-ID          (A20)
+    /*V34 fields to be moved to node:
+  2 MF-MONITOR-NODE        (N5)
+  2 MF-CLASSES             (A1/1:20)
+  2 MF-JES3-OUTPUT-CLASSES (A1/1:20)
+  2 MF-BS2-DEST            (A8/1:4)
+  2 MF-ERR-CLASS           (A1)
+  2 MF-TEMP-CLASS          (A4) /* 1BYTE CLASS OR 'JES3
+  2 MF-PRINT-CLASS         (A1)
+  2 MF-TIME-SCHEDULE       (A1) /*BS2-RENAME + #BS2-COPY
+1 NRM-MONITOR VIEW OF NRM-MONITOR
+  2 M-INTERNAL-EMAIL-NODE
+*
+1 #MONITOR-ID                (A20)
+1 #TRACE-MSG                 (A250)
+1 #INTERNAL-NODE-ID          (P11) /* NOMALL-2212 fhi in
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT AD=L /*for PRINT
+* Get monitor default record and move some fields to MF node:
+#MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+MON. FIND MON-DEF WITH MF-MONITOR-ID = #MONITOR-ID
+  IF #TRACING
+    COMPRESS 'Read' MON-DEF.MF-MONITOR-ID 'in NRM-MONITOR'
+      TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+* Does MF-Node already exist for monitor ?
+/*SU12 READ(1) MF-NODE BY MF-TYPE-ID = 'MR-'
+/*SU12  END-READ
+  NO. FIND MF-NODE WITH MF-TYPE-ID = 'MR-'-H'00' THRU 'MR-'-H'FF' /*SU12
+/*SU12 IF MF-NODE.MF-TYPE = 'M' AND MF-NODE.MF-MONITOR-ID = MASK('R-')
+/* BLI comment below print
+**  PRINT *DAT4I *TIME(AL=8) #CALLER '(' *PROGRAM ')'
+**    'MF node already exist:' MF-NODE-NAME
+**    'node:' MF-MONITOR-NODE /*SU12
+**    'last mod.:' MF-LAST-UPDATE (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS)
+**    'user:' MF-LAST-UPDATE-USER
+    IF *NUMBER (NO.) = *COUNTER (NO.) /*last rec.
+      ESCAPE ROUTINE
+    END-IF
+  END-FIND
+************************************************************************
+  MF-NODE.MF-LAST-UPDATE      := *TIMX
+  MF-NODE.MF-LAST-UPDATE-USER := #CALLER /*what else...(G-USERID)
+  MF-NODE.MF-NPR-USERID       := #NPR-USERID
+  MF-NODE.MF-TYPE             := 'M'
+  MF-NODE.MF-MONITOR-ID       := 'R-(LOCAL)'
+  MF-NODE.MF-SYSTEM-TYPE      := SYSTEM-TYPE /*NPR
+  MF-NODE.MF-SPOOL-TYPE       := SPOOL-TYPE  /*NPR
+  MF-NODE.MF-PRODUCT-NAME     := PRODUCT-NAME /*NPR
+  EXAMINE MF-NODE.MF-PRODUCT-NAME FOR 'OSD' REPLACE 'BS2000'
+  MF-NODE.MF-MONITOR-DESCRIPTION := 'NOM Monitor Node'
+  /* Convert 3.4 montior defaults to 3.5 node:
+  MF-NODE.MF-MONITOR-NODE     := #MONITOR-NODE /*SU1
+/*SU1 MF-NODE.MF-MONITOR-NODE     := MON-DEF.MF-MONITOR-NODE
+  MF-NODE.MF-CLASSES (*)      := MON-DEF.MF-CLASSES (*)
+  MF-NODE.MF-BS2-DEST (*)     := MON-DEF.MF-BS2-DEST (*)
+  MF-NODE.MF-ERR-CLASS        := MON-DEF.MF-ERR-CLASS
+  MF-NODE.MF-TEMP-CLASS       := MON-DEF.MF-TEMP-CLASS
+  MF-NODE.MF-PRINT-CLASS      := MON-DEF.MF-PRINT-CLASS
+  MF-NODE.MF-TIME-SCHEDULE    := MON-DEF.MF-TIME-SCHEDULE
+  MF-NODE.MF-JES3-OUTPUT-CLASSES(*):= MON-DEF.MF-JES3-OUTPUT-CLASSES(*)
+  IF MF-NODE.MF-TEMP-CLASS = MASK ('JES')
+    RESET MF-NODE.MF-TEMP-CLASS
+  END-IF
+  CALLNAT 'RMNOID-N' #INTERNAL-NODE-ID
+  MF-NODE.MF-INTERNAL-NODE-ID := #INTERNAL-NODE-ID
+* Store 1. MF-NODE (Monitor):
+  STORE MF-NODE
+* Reset 3.4 fields in monitor record:
+  UPD. GET MON-DEF *ISN (MON.) /*fields not in view MONITOR
+  RESET MON-DEF.MF-CLASSES (*) MON-DEF.MF-JES3-OUTPUT-CLASSES (*)
+    MON-DEF.MF-BS2-DEST (*) MON-DEF.MF-ERR-CLASS MON-DEF.MF-TEMP-CLASS
+    MON-DEF.MF-PRINT-CLASS MON-DEF.MF-TIME-SCHEDULE
+  UPDATE (UPD.)
+* Store internal node id into monitor record:
+  UPD2. GET NRM-MONITOR *ISN (MON.) /*field not in view MF-NODES
+  NRM-MONITOR.M-INTERNAL-EMAIL-NODE := #INTERNAL-NODE-ID
+  UPDATE (UPD2.)
+END-FIND
+IF #TRACING
+  COMPRESS 'NODE: ID:' MF-NODE.MF-MONITOR-ID
+    '- user:'   MF-NODE.MF-NPR-USERID
+    '- type:'   MF-NODE.MF-TYPE
+    '- intrn:'  MF-NODE.MF-INTERNAL-NODE-ID
+    '- node:'   MF-NODE.MF-MONITOR-NODE
+    '- sys:'    MF-NODE.MF-SYSTEM-TYPE
+    '- spool:'  MF-NODE.MF-SPOOL-TYPE TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+END TRANSACTION
+*
+END

@@ -1,0 +1,212 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Program  XXMVENCC
+* Template XXMVENC
+* Function Codepage support: Execute a MOVE ENCODED with error recovery
+*
+* Copycode for DECIDE block: How to execute the MOVE ENCODED
+*
+* &1& contains either ' ' or 'GIVING #ENC-ERC' to decide if a Natural
+*     error is thrown or not.
+*
+* Version  3.5
+*
+* MAINTENANCE:
+* User ID yyyy-mm-dd itrac       Comment
+* ------- ---------- ----------- ---------------------------------------
+* fhi     2018-09-28             NOMALL-2125 created
+* fhi     2018-10-11             NOMALL-2125 Rewritten, no tags
+* fhi     2019-03-12             NOMALL-2172 Handle CP=OFF correctly
+************************************************************************
+*
+* fhi     2019-03-12 NOMALL-2172 start insertion
+IF #TRACING
+  MOVE 'Execution of ''MOVE'':' TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+DECIDE FOR FIRST CONDITION
+  WHEN    A-INPUT      SPECIFIED AND U-INPUT   NOT SPECIFIED
+      AND A-OUTPUT     SPECIFIED AND U-OUTPUT  NOT SPECIFIED
+* fhi     2019-03-12 NOMALL-2172 start insertion
+    IF #TRACING
+      MOVE 'A-INPUT --> A-OUTPUT' TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+    REDUCE DYNAMIC A-OUTPUT TO 0
+    DECIDE FOR FIRST CONDITION
+      WHEN NOT #INPUT-USER-TABLE AND NOT #OUTPUT-USER-TABLE
+        IF #INPUT-CP NE #OUTPUT-CP
+        AND #INPUT-CP NE ' ' AND #OUTPUT-CP NE ' ' /* NOMALL-2172 fhi in
+* fhi     2019-03-12 NOMALL-2172 start insertion
+          IF #TRACING
+            MOVE 'Executing MOVE ENCODED' TO #TRACE-MSG
+            PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+          END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+          MOVE ENCODED A-INPUT  IN CODEPAGE #INPUT-CP
+            TO         A-OUTPUT IN CODEPAGE #OUTPUT-CP &1&
+        ELSE
+* fhi     2019-03-12 NOMALL-2172 start insertion
+          IF #TRACING
+            MOVE 'Executing MOVE' TO #TRACE-MSG
+            PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+          END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+          MOVE A-INPUT TO A-OUTPUT
+        END-IF
+      WHEN     #INPUT-USER-TABLE AND NOT #OUTPUT-USER-TABLE
+        CALLNAT 'XXTR2U16' 'U' #INPUT-CP A-INPUT #U-STRING ERC ERT
+        IF ERC = 0
+* fhi     2019-03-12 NOMALL-2172 start insertion
+          IF #TRACING
+         MOVE 'Executing MOVE ENCODED with input user tab' TO #TRACE-MSG
+            PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+          END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+          MOVE ENCODED #U-STRING TO A-OUTPUT
+            IN CODEPAGE #OUTPUT-CP &1&
+        ELSE
+* fhi     2019-03-12 NOMALL-2172 start insertion
+          IF #TRACING
+            MOVE 'Executing MOVE' TO #TRACE-MSG
+            PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+          END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+          MOVE         #U-STRING TO A-OUTPUT
+        END-IF
+      WHEN NOT #INPUT-USER-TABLE AND  #OUTPUT-USER-TABLE
+* fhi     2019-03-12 NOMALL-2172 start insertion
+        IF #TRACING
+        MOVE 'Executing MOVE ENCODED with output user tab' TO #TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+        MOVE ENCODED A-INPUT IN CODEPAGE #INPUT-CP
+          TO #U-STRING &1&
+        CALLNAT 'XXTR2U16' 'A' #OUTPUT-CP A-OUTPUT #U-STRING ERC ERT
+        IF ERC NE 0
+* fhi     2019-03-12 NOMALL-2172 start insertion
+          IF #TRACING
+            MOVE 'Executing MOVE' TO #TRACE-MSG
+            PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+          END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+          MOVE #U-STRING TO A-OUTPUT
+        END-IF
+      WHEN     #INPUT-USER-TABLE AND  #OUTPUT-USER-TABLE
+* fhi     2019-03-12 NOMALL-2172 start insertion
+        IF #TRACING
+          MOVE 'Executing MOVE ENCODED with input and output user tab'
+            TO #TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+        CALLNAT 'XXTR2U16' 'U' #INPUT-CP A-INPUT #U-STRING ERC ERT
+        IF ERC NE 0
+* fhi     2019-03-12 NOMALL-2172 start insertion
+          IF #TRACING
+            MOVE 'Executing MOVE' TO #TRACE-MSG
+            PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+          END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+          MOVE A-INPUT TO A-OUTPUT
+        ELSE
+          CALLNAT 'XXTR2U16' 'A' #OUTPUT-CP A-OUTPUT #U-STRING ERC ERT
+          IF ERC NE 0
+* fhi     2019-03-12 NOMALL-2172 start insertion
+            IF #TRACING
+              MOVE 'Executing MOVE' TO #TRACE-MSG
+              PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+            END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+            MOVE #U-STRING TO A-OUTPUT
+          END-IF
+        END-IF
+      WHEN ANY
+        IF ERC NE 0
+          ESCAPE ROUTINE
+        END-IF
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+  WHEN    A-INPUT  NOT SPECIFIED AND U-INPUT       SPECIFIED
+      AND A-OUTPUT     SPECIFIED AND U-OUTPUT  NOT SPECIFIED
+* fhi     2019-03-12 NOMALL-2172 start insertion
+    IF #TRACING
+      MOVE 'U-INPUT --> A-OUTPUT' TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+    REDUCE DYNAMIC A-OUTPUT TO 0
+    IF #OUTPUT-USER-TABLE
+      CALLNAT 'XXTR2U16' 'A' #OUTPUT-CP A-OUTPUT U-INPUT ERC ERT
+      IF ERC NE 0 AND ERC NE -3413 /* some conversion errors
+* fhi     2019-03-12 NOMALL-2172 start insertion
+        IF #TRACING
+          MOVE 'Executing MOVE' TO #TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+        MOVE U-INPUT TO A-OUTPUT
+      END-IF
+    ELSE
+* fhi     2019-03-12 NOMALL-2172 start insertion
+      IF #TRACING
+        MOVE 'Executing MOVE ENCODED' TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+      MOVE ENCODED U-INPUT TO A-OUTPUT
+        IN CODEPAGE #OUTPUT-CP &1&
+    END-IF
+  WHEN    A-INPUT      SPECIFIED AND U-INPUT   NOT SPECIFIED
+      AND A-OUTPUT NOT SPECIFIED AND U-OUTPUT      SPECIFIED
+* fhi     2019-03-12 NOMALL-2172 start insertion
+    IF #TRACING
+      MOVE 'A-INPUT --> U-OUTPUT' TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+    REDUCE DYNAMIC U-OUTPUT TO 0
+    IF #INPUT-USER-TABLE
+      CALLNAT 'XXTR2U16' 'U' #INPUT-CP A-INPUT U-OUTPUT ERC ERT
+      IF ERC NE 0
+* fhi     2019-03-12 NOMALL-2172 start insertion
+        IF #TRACING
+          MOVE 'Executing MOVE' TO #TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+        MOVE A-INPUT TO U-OUTPUT
+      END-IF
+    ELSE
+* fhi     2019-03-12 NOMALL-2172 start insertion
+      IF #TRACING
+        MOVE 'Executing MOVE ENCODED' TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+      MOVE ENCODED A-INPUT IN CODEPAGE #INPUT-CP
+        TO U-OUTPUT &1&
+    END-IF
+  WHEN    A-INPUT  NOT SPECIFIED AND U-INPUT       SPECIFIED
+      AND A-OUTPUT NOT SPECIFIED AND U-OUTPUT      SPECIFIED
+* fhi     2019-03-12 NOMALL-2172 start insertion
+    IF #TRACING
+      MOVE 'U-INPUT --> U-OUTPUT' TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+    MOVE U-INPUT TO U-OUTPUT
+  WHEN ANY
+    IF ERC < 0
+      ESCAPE ROUTINE
+    END-IF
+  WHEN NONE
+    *ERROR-NR := 999 /* Called with wrong parameters
+END-DECIDE

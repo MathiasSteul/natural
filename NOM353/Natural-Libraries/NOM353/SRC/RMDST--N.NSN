@@ -1,0 +1,224 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMDST--N - Distribute to NOM users and distribu
+*
+* MAINTENANCE:
+* uuu yy-mm-dd p(999999) ...
+* GW  92-11-11           Coding removed from 'RMDSTNRM' for error
+*                        recovery AND COMPLETELY REWRITTEN.
+*                        NATURAL zap ... must be applied !
+* mrs 93-08-05           use new descriptor and use inbasket
+* SJU 97-04-17 P(162097) DON'T STORE MAIL FOR AUTOPRNT SPECIAL USER
+* xsiszha 2000-08-01 (CE7461) Extend Report and Bundle Names
+* sju 02-11-13 p(231843) mail wrong if run number wraps round
+* xsetggr 2003-08-08 p(240465) allow distribute to non-defined userid
+* xsetggr 2007-05-08 NOM3201   Support P11 format run numbers
+* xsetggr 2012-10-16 ES-104    implement MA-CURRENT-LOCATION for NOM34
+* raya    2013-09-08 NOMALL-1278 get report creation date for mails
+* SU1     2014-11-17 NOMALL-1450 fill fields for AdabasVista+uniqueField
+* fhi     2016-02-08 NOMALL-1822 Fill MA-CURRENT-LOCATION field
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 G-REPORT                     (A25)
+1 G-REPRNB                     (P11)
+1 P-AR-PROCESS-TIME-INV        (P13)
+1 G-MEMBERS                    (A8/1:1000)
+1 G-NATRPT-DIST-NO             (N2)
+1 G-JOBUSERID                  (A8)
+1 G-NATRPT-DIST                (A8/1:10)
+1 G-HOLD                       (A1)
+1 G-NATRP-ERC                  (N4)
+************************************************************************
+LOCAL USING VGRANT-L
+LOCAL USING VMAILR-L
+LOCAL USING SUPER-L
+*
+LOCAL
+1 MAIL1 VIEW OF NRM-MAIL
+  2 MA-INV-TIME
+1 USERS VIEW OF NRM-USERS
+1 NRM-LISTS VIEW OF NRM-DISTRIBUTION-LIST
+  2 D-USER-LIST                (1:191)
+  2 C*D-USER-LIST
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-PROCESS-TIME
+  2 AR-PROCESS-TIME-INV
+  2 AR-CURRENT-LOCATION
+* *****
+1 #GR-TYPE-NAME                (A26)
+1 REDEFINE #GR-TYPE-NAME
+  2 #GR-TYPE                   (A1)
+  2 #GR-NAME                   (A25)
+1 #ERROR-TA                    (A8)
+1 #STORE-COUNT                 (I1)
+1 #I                           (I2)
+1 #J                           (I2)
+1 #REMAINING-ENTRIES           (I2)
+1 #HIGH-WATER-MARK             (I2)
+1 #MA-RNB-USER                 (A14)
+1 REDEFINE #MA-RNB-USER
+  2 #MA-RNB                    (P11)
+  2 #MA-USER                   (A8)
+1 #MA-REP-RNB                  (A31)
+1 REDEFINE #MA-REP-RNB
+  2 #MA-REP                    (A25)
+  2 #MA-REPRNB                 (P11)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#AR-REPNAME := G-REPORT
+#AR-REPRNB := G-REPRNB
+FINDREP. FIND (1) MAIL1 WITH MA-REP-RNB = #AR-REPORT-RNB
+  IF MA-INV-TIME = P-AR-PROCESS-TIME-INV
+    ESCAPE ROUTINE
+  END-IF
+END-FIND
+*
+RESET G-MEMBERS     (*)
+*
+G-MEMBERS (1) := G-JOBUSERID
+#HIGH-WATER-MARK := 1
+*
+IF G-NATRPT-DIST-NO > 0
+  ADD G-NATRPT-DIST-NO TO #HIGH-WATER-MARK
+  G-MEMBERS (2:#HIGH-WATER-MARK) := G-NATRPT-DIST (1:G-NATRPT-DIST-NO)
+END-IF
+*
+#REMAINING-ENTRIES := #HIGH-WATER-MARK
+*
+PERFORM INCLUDE-GRANTED-USERS
+*
+REPEAT UNTIL #REMAINING-ENTRIES = 0
+  SUBTRACT 1 FROM #REMAINING-ENTRIES
+  ADD 1 TO #I
+  NOM-USER. FIND NUMBER USERS WITH USER-ID = G-MEMBERS (#I)
+  IF *NUMBER (NOM-USER.) > 0
+    PERFORM CHECK-MAIL
+  ELSE
+    PERFORM RESOLVE-DISTRIBUTION-LIST
+  END-IF
+END-REPEAT
+*
+END TRANSACTION
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-MAIL
+************************************************************************
+#MA-USER   := G-MEMBERS (#I)
+#MA-RNB    := G-REPRNB
+#MA-REP    := G-REPORT
+#MA-REPRNB := G-REPRNB
+FIND-MAIL. FIND NUMBER MAIL-REPORTS WITH MA-RNB-USER = #MA-RNB-USER
+  AND  MA-REP-RNB  = #MA-REP-RNB
+IF *NUMBER (FIND-MAIL.) = 0
+  PERFORM STORE-MAIL-REPORT
+END-IF
+*
+END-SUBROUTINE /* CHECK-MAIL
+*
+************************************************************************
+DEFINE SUBROUTINE STORE-MAIL-REPORT
+************************************************************************
+IF G-MEMBERS (#I) = 'AUTOPRNT'
+  ESCAPE ROUTINE
+END-IF
+FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REPORT-RNB
+END-FIND
+MAIL-REPORTS.MA-PROCESS-TIME     := AR-PROCESS-TIME
+MAIL-REPORTS.MA-PROCESS-TIME-INV := AR-PROCESS-TIME-INV
+MAIL-REPORTS.MA-USERID   := G-MEMBERS (#I)
+MAIL-REPORTS.MA-REPNAME  := G-REPORT
+MAIL-REPORTS.MA-REPRNB   := G-REPRNB
+MAIL-REPORTS.MA-INV-TIME := P-AR-PROCESS-TIME-INV
+MAIL-REPORTS.MA-FO-ID    := 1
+IF G-HOLD = 'C'
+  MAIL-REPORTS.MA-STATUS := 'C'
+ELSE
+  RESET MAIL-REPORTS.MA-STATUS
+END-IF
+IF AR-CURRENT-LOCATION = 'A'
+  MAIL-REPORTS.MA-CURRENT-LOCATION := 'A'
+ELSE
+  MAIL-REPORTS.MA-CURRENT-LOCATION := 'B'
+END-IF
+*
+MA-OBJECT-TYPE := 'MA'
+MA-OBJECT-TIME := *TIMX
+STORE MAIL-REPORTS
+*
+ADD 1 TO #STORE-COUNT
+IF #STORE-COUNT = 50
+  END TRANSACTION
+  RESET #STORE-COUNT
+END-IF
+*
+END-SUBROUTINE /* STORE-MAIL-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE RESOLVE-DISTRIBUTION-LIST
+************************************************************************
+FIND NRM-LISTS WITH D-LIST-NAME = G-MEMBERS (#I)
+  IF NO RECORDS FOUND
+    IF F#MONITOR-USER-AUTODEF (<>) ='Y' OR='P'
+      PERFORM CHECK-MAIL
+    END-IF
+    ESCAPE BOTTOM
+  END-NOREC
+  FOR #J 1 TO C*D-USER-LIST
+    IF G-MEMBERS (1:#HIGH-WATER-MARK) = D-USER-LIST (#J)
+      ESCAPE TOP
+    END-IF
+    ADD 1 TO #REMAINING-ENTRIES
+    ADD 1 TO #HIGH-WATER-MARK
+    G-MEMBERS (#HIGH-WATER-MARK) := D-USER-LIST (#J)
+  END-FOR
+END-FIND
+*
+END-SUBROUTINE /* RESOLVE-DISTRIBUTION-LIST
+*
+************************************************************************
+DEFINE SUBROUTINE INCLUDE-GRANTED-USERS
+************************************************************************
+#GR-TYPE := 'R'
+#GR-NAME := G-REPORT
+*
+READ GRANTS BY GR-TYPE-NAME STARTING FROM #GR-TYPE-NAME
+  IF GR-OBJECT-TYPE NE 'R' OR GR-OBJECT-NAME NE #GR-NAME
+    ESCAPE BOTTOM
+  END-IF
+  IF GR-USERID = 'PUBLIC' OR G-MEMBERS (1:#HIGH-WATER-MARK) = GR-USERID
+    ESCAPE TOP
+  END-IF
+  ADD 1 TO #REMAINING-ENTRIES
+  ADD 1 TO #HIGH-WATER-MARK
+  G-MEMBERS (#HIGH-WATER-MARK) := GR-USERID
+END-READ
+*
+END-SUBROUTINE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF *ERROR-NR = 3009
+    G-NATRP-ERC := 9
+    ESCAPE ROUTINE
+  END-IF
+  STACK TOP DATA *ERROR-NR *ERROR-LINE ' ' *PROGRAM *LEVEL
+  #ERROR-TA := *ERROR-TA
+  FETCH #ERROR-TA
+END-ERROR
+*
+END

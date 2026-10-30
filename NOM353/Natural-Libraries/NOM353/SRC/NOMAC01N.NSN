@@ -1,0 +1,506 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMAC01N -  Get Status and Contents of an active report
+*   #FUNCTION = STATUS will return the status of an active report
+*   To retrieve data the following function calls have to be issued:
+*     OPEN    Opens an active report, if available
+*     READ    Returns data lines to caller
+*     CLOSE   Frees all internal resources for active report
+*
+*     Return codes:
+*         3     Error writing data into editor session or
+*               Error during Editor call
+*         5     error of adding steplibs
+*        21     Runtime error
+*       409     Source record not found
+*       426     Report contents not available.
+*      1536     error :1: setting lfile :2:.
+*      4007     Set LFile error occured (RC=:1:).
+*      4008     Refresh LFile error occured (RC=:1:).
+*
+* Reading the contents of an active report is always done with
+* an Editor session, logic is identical to report display (RDISRP).
+************************************************************************
+* Maintenance:
+* jwo 97-09-30 S(167263) interface design
+* jvd 98-05-04 p(168326)  Increase display size to show lines > 10m
+* jvd 98-09-10 p(164220)  NOM141ÖNAT23
+*                         p(168326) is now in p(164220) so I have remove
+*                         all refferance to P(168326) to make easier
+*                         reading
+* xsethz  2000-08-07 (CE7461) Extend Report and Bundle Names
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* sju     2003-03-04 NOM221    New lfile for active data
+* fhi     2003-09-01 p(244091) Use PROF-LANGUAGE=1
+* xsetggr 2004-11-23 p(258871) change z-get11c interface
+* sju     2005-03-01 NOM31     PROF-LANGUAGE X'01' not C'1'
+* LP      2005-03-02 ADAPT TO UNIX ENVIRONMENT
+* fhi     2005-04-19 NOM31107  Support 7-byte job numbers
+* xsetggr 2007-05-08 NOM3201   Support 5 byte node numbers
+* xsetggr 2007-07-04 NOM3201   Support P11 format run numbers
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-12-05 P(300323) improve error handling
+* xsetggr 2009-02-10 P300323   delete steplib handling
+* fhi     2009-02-27 P300323 Rename RGETSTEP to NOMGSTEP delivered in SYSTEM
+* xsetggr 2009-03-12 P300323 use RGETLIB to get actual NOM library
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* raya    2011-04-13 NOMALL-973 using nomac--p(avoid nat936) as docac011
+* xsetggr 2012-03-20 NOMALL-972 correct browsing active-reports/unix
+* SU1     2014-11-12 NOMALL-1527 getting rid of coding for old versions
+* fhi     2016-04-15 NOMALL-1837 Introduce +DEVICE for testing
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* SU2     2017-12-27 NOMALL-1823 NOM 3.5: remove CONNECT
+* SU3     2021-05-31 NOMALL-2454 recat for EXIT-CB
+* SU4     2023-10-30 NOMALL-2489 HEX on MF
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING NOMAC--P
+PARAMETER
+1 NOMAC-LINES           (A251/1:V) /* out contains lines from
+************************************************************************
+INDEPENDENT
+1 +DEVICE               (A8)
+* *****
+LOCAL USING NOMAC--E
+LOCAL USING RMSR---E
+LOCAL USING RCCTYP-E
+LOCAL USING RMSR---L
+LOCAL USING EDIT-CB
+LOCAL USING SUPER-L
+LOCAL USING RLOG-L
+LOCAL USING RACTLF-A
+LOCAL USING EXIT-CB
+*
+LOCAL
+1 ACTIVE-REPORTS VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-SOURCE-ID
+  2 AR-CC-TYPE
+  2 AR-RECORD-LENGTH
+  2 AR-CURRENT-LOCATION
+  2 AR-NUMBER-OF-LINES
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-TYPE
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-CC-TYPE
+*
+/*SU4 1 #FROM-LINE            (N8)
+/*SU4 1 #TO-LINE              (N8)
+1 #TARGET-DBID          (N5)
+1 #TARGET-FNR           (N5)
+1 J                     (P3)
+1 LFILE                 (L)
+1 #LFILE-RC             (I4)
+1 #LFILE-OLDDBID        (P5)
+1 #LFILE-OLDFILE        (P5)
+1 #LFILE-NEWDBID        (P5)
+1 #LFILE-NEWFILE        (P5)
+*
+1 EDIT-PREF
+  2 L-PREFIX            (A6/1:10)
+1 EDIT-ALIN             (A32)
+1 REDEFINE EDIT-ALIN
+  2 CB-ALIN-V           (N1/32)
+1 EDIT-ADAT             (A32)
+1 REDEFINE EDIT-ADAT
+  2 CB-ADAT-V           (N1/32)
+1 #VAR                  (A32/3)
+1 #NOMAC-WORK-AREA      (A100)    /* i/o may not be modified
+1 REDEFINE #NOMAC-WORK-AREA
+  2 #API-TRACE          (A1)
+  2 #ED-SESNUM          (N2)
+  2 #AR-CURRENT-LOCATION(A1)
+  2 #SR-TYPE            (B2)
+  2 #OPENED-BY-API      (A1)
+  2 FILLER 8X /*SU4 was  2 #ED-B-PROGRAM       (A8)
+  2 #SR-SOURCE-ISN      (P10)
+  2 #SR-CC-TYPE         (I2)
+1 #P2                   (B64)
+1 #P3                   (A64)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#NOMAC-WORK-AREA := NOMAC-WORK-AREA
+RESET RACTLF-LOGGING RACTLF-ERROR-LOGGING
+RACTLF-LFILE-1:= 91
+RACTLF-LFILE-2:= 206
+CALLNAT 'RACTLF-N' RACTLF-PARMS
+IF RACTLF-ERROR-CODE NE 0
+  NOMAC-ERROR-CODE := 1536
+  #VAR(1) := RACTLF-ERROR-CODE
+  #VAR(2) := '91'
+  PERFORM GET-ERR-TEXT
+  NOMAC-WORK-AREA := #NOMAC-WORK-AREA
+  ESCAPE ROUTINE
+END-IF
+IF #API-TRACE NE ' '
+  PRINT *PROGRAM '=' NOMAC-FUNCTION
+END-IF
+*
+RESET NOMAC-ERROR-CODE
+*
+ED-NEWCB := 'Y'
+*
+DECIDE ON FIRST VALUE OF NOMAC-FUNCTION
+  VALUE NOMAC-FCT-OPEN
+    PERFORM REPORT-OPEN
+  VALUE NOMAC-FCT-STATUS
+    PERFORM REPORT-STATUS
+  VALUE NOMAC-FCT-READ
+    PERFORM REPORT-READ
+  VALUE NOMAC-FCT-CLOSE
+    PERFORM REPORT-CLOSE
+  NONE IGNORE
+END-DECIDE
+*
+NOMAC-WORK-AREA := #NOMAC-WORK-AREA
+IF NOMAC-ERROR-CODE NE 0
+  PERFORM GET-ERR-TEXT
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-ERR-TEXT
+************************************************************************
+NOMAC-ERROR-TEXT :=F#GETMSG (<NOMAC-ERROR-CODE, #VAR(1:3)>) /*SU 2018-04
+*
+END-SUBROUTINE /* GET-ERR-TEXT
+*
+************************************************************************
+DEFINE SUBROUTINE REPORT-OPEN
+************************************************************************
+RESET #ED-SESNUM #OPENED-BY-API
+*
+PERFORM REPORT-STATUS
+IF NOMAC-ERROR-CODE NE 0             /* not found
+  ESCAPE ROUTINE
+END-IF
+* Editor session with requested report already exist ?
+PERFORM FIND-OLD-EDITOR-SESSION
+IF #ED-SESNUM EQ 0 /* does not exist
+  RESET ED-SESNUM NOMAC-ERROR-CODE NOMAC-ERROR-TEXT ED-FLINE
+  PERFORM OPEN-NEW-EDITOR-SESSION
+  IF NOMAC-ERROR-CODE NE 0
+    ESCAPE ROUTINE
+  END-IF
+  #OPENED-BY-API := 'X' /* for later close
+END-IF
+*
+END-SUBROUTINE /* REPORT-OPEN
+*
+************************************************************************
+DEFINE SUBROUTINE FIND-OLD-EDITOR-SESSION
+************************************************************************
+FOR J = 1 TO 50
+  ED-SESNUM := J
+  ED-REQUEST := 'STAT'
+  PERFORM CALL-EDITOR-SHORT
+*
+  IF ED-ERRNUM NE 0
+    ESCAPE TOP
+  END-IF
+  IF NOMAC-REPNAME = ED-NRM-REPNAME AND NOMAC-RERNB = ED-NRM-REPRNB
+    #ED-SESNUM := ED-SESNUM /* session found
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* FIND-OLD-EDITOR-SESSION
+*
+************************************************************************
+DEFINE SUBROUTINE OPEN-NEW-EDITOR-SESSION
+************************************************************************
+IF #AR-CURRENT-LOCATION = 'S'
+  FNDSRC. FIND SOURCE WITH SR-ID = AR-SOURCE-ID
+    IF NO RECORDS FOUND
+      NOMAC-ERROR-CODE := 0409 /*Source of report no longer exists.
+      ESCAPE ROUTINE
+    END-NOREC
+    ED-NRM-SOURCE-ISN := *ISN (FNDSRC.)
+    #SR-SOURCE-ISN    := *ISN (FNDSRC.)
+    #SR-CC-TYPE       := SR-CC-TYPE
+    #SR-TYPE := SOURCE.SR-TYPE
+  END-FIND
+END-IF
+*
+* Following logic has been copied from RDISRP
+*
+DECIDE FOR FIRST CONDITION
+  WHEN AR-CURRENT-LOCATION = 'D' /*database
+    IGNORE /*see below
+  WHEN AR-CURRENT-LOCATION = 'S' /*Spool
+    IF SOURCE.SR-TYPE = NOM-DATA-BASE
+      PERFORM GET-LFILE
+      #SOURCE-ATTRIBUTES := SOURCE.SR-ATTRIBUTES-IDENT
+      CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES SR-TYPE
+      #TARGET-DBID := #NOMDB-DBID
+      #TARGET-FNR  := #NOMDB-FNR
+      PERFORM SET-LFILE
+      IF NOMAC-ERROR-CODE NE 0
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+  WHEN ANY
+    PERFORM OPEN-EDIT-SESSION
+    PERFORM READ-INTO-EDITOR
+    IF NOMAC-ERROR-CODE NE 0
+      PERFORM REPORT-CLOSE
+      ESCAPE ROUTINE
+    END-IF
+  WHEN NONE
+    NOMAC-ERROR-CODE := 0426 /*Report contents not available.
+END-DECIDE
+*
+END-SUBROUTINE /* OPEN-NEW-EDITOR-SESSION
+*
+************************************************************************
+DEFINE SUBROUTINE OPEN-EDIT-SESSION /* open session for connect
+************************************************************************
+ED-REQUEST := 'OPEN'
+ED-DSTYPE := 'DAT'
+ED-CTADR := ED-DTADR := 0
+ED-ENV := ED-BPUSE := 1
+ED-BPLEN := 10
+ED-DTPLACE := 1
+ED-PRFLEN := ED-PRFENT := 6
+ED-LINENTL := ED-SCRLEN := ED-RECLEN := 251
+ED-BLKNUM := 5
+ED-SCRNUM := ED-SCRMAX := 24
+ED-RENUM := 10
+ED-NATVER := 2
+PROF-MSO := 'Y'
+PROF-CAPS := 'N'
+PROF-LANGUAGE := H'01'
+*
+PERFORM MOVE-ASA-TO-EDIT-CB
+*
+PERFORM CALL-EDITOR-SHORT
+IF ED-ERRNUM NE 0
+  ESCAPE ROUTINE
+END-IF
+#ED-SESNUM := ED-SESNUM
+*
+END-SUBROUTINE /* OPEN-EDIT-SESSION
+*
+************************************************************************
+DEFINE SUBROUTINE REPORT-STATUS
+************************************************************************
+#AC-REPNAME := NOMAC-REPNAME
+#AC-REPRNB := NOMAC-RERNB
+*
+GET-REPORT. FIND (1) ACTIVE-REPORTS WITH AR-REPORT-RNB = #AC-REP-RNB
+  IF NO RECORDS FOUND
+    NOMAC-ERROR-CODE := 426         /* report contents not available
+    ESCAPE ROUTINE
+  END-NOREC
+  #AR-CURRENT-LOCATION := AR-CURRENT-LOCATION
+  NOMAC-RECORD-LENGTH   := AR-RECORD-LENGTH
+  NOMAC-NUMBER-OF-LINES := AR-NUMBER-OF-LINES
+  NOMAC-CC-TYPE := AR-CC-TYPE
+END-FIND
+IF NOMAC-CC-TYPE = '5'          /* binary
+  NOMAC-ERROR-CODE := 0725  /* binary report can be browsed from NGC
+END-IF
+*
+END-SUBROUTINE /* REPORT-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE REPORT-READ
+************************************************************************
+ED-SESNUM := #ED-SESNUM
+ED-REQUEST := 'STAT'
+PERFORM CALL-EDITOR-SHORT
+IF ED-ERRNUM NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+ED-RECTOP  := NOMAC-STARTLINE
+ED-SCRNUM  := NOMAC-READ-LINES
+ED-NEWNUM  := 'Y'
+ED-PRFLEN  := 0
+ED-SCRLEN  := ED-LINENTL := 251
+ED-REQUEST := 'GETL'
+*
+CALL 'EDITOR' EDIT-CB EDIT-ALIN EDIT-PREF  EDIT-ADAT NOMAC-LINES(*)
+IF ED-ERRNUM NE 0
+  NOMAC-ERROR-CODE := 3
+  #VAR(1) := ED-FLINE
+  PERFORM REPORT-CLOSE
+  ESCAPE ROUTINE
+END-IF
+*
+NOMAC-RETURNED-LINES := ED-SCRNUM
+NOMAC-STARTLINE      := ED-RECTOP
+*
+END-SUBROUTINE /* REPORT-READ
+*
+************************************************************************
+DEFINE SUBROUTINE READ-INTO-EDITOR
+************************************************************************
+EX-SCOL  := 1
+EX-STYPE := 'A'
+EX-REQ   := 'G'
+EX-TYPE  := 'B'
+EX-SES   := #ED-SESNUM
+EX-RTOP  :=1 /*read ALL (from line 1) SU4 NOMAC-STARTLINE
+IF NOMAC-READ-LINES >= NOMAC-NUMBER-OF-LINES
+  NOMAC-READ-LINES := NOMAC-NUMBER-OF-LINES
+END-IF
+MOVE ALL H'FF' TO EX-BNUM /*ALL Ü SU4 NOMAC-READ-LINES
+EX-NRM-REPNAME        := NOMAC-REPNAME
+EX-NRM-REPRNB         := NOMAC-RERNB
+EX-NRM-MAXREC         := NOMAC-NUMBER-OF-LINES
+EX-NRM-LOCATION       := #AR-CURRENT-LOCATION
+EX-NRM-SOURCE-CC-TYPE := #SR-CC-TYPE
+IF NOMAC-CC-TYPE = '4'
+  EX-NRM-ASA-CODE-ON := 'F'
+ELSE
+  EX-NRM-ASA-CODE-ON := 'A'
+END-IF
+RESET EX-RLEN EX-NRM-HEAD EX-NRM-FCOL(*) EX-NRM-TCOL(*)
+  EX-ECODE EX-UDATA
+DECIDE ON FIRST VALUE OF #AR-CURRENT-LOCATION
+  VALUE 'S'
+    EX-NRM-SOURCE-ISN := #SR-SOURCE-ISN
+    CALLNAT 'REXBRSYS' EXIT-CB #P2 #P3
+  VALUE 'D'
+    CALLNAT 'REXBRNDB' EXIT-CB #P2 #P3
+  NONE VALUE IGNORE
+END-DECIDE
+*
+IF EX-ECODE NE 0
+  NOMAC-ERROR-CODE := 0003 /*Editor error :1:.
+  #VAR(1)          := EX-UDATA
+END-IF
+*
+END-SUBROUTINE /* READ-INTO-EDITOR
+*
+************************************************************************
+DEFINE SUBROUTINE REPORT-CLOSE
+************************************************************************
+IF #API-TRACE NE ' '
+  PRINT 'closing' '=' #ED-SESNUM
+END-IF
+IF #AR-CURRENT-LOCATION = 'S' AND #SR-TYPE = NOM-DATA-BASE
+  PERFORM REFRESH-LFILE
+END-IF
+IF #OPENED-BY-API NE ' '
+  PERFORM CLOSE-SESSION
+END-IF
+RESET NOMAC-WORK-AREA
+*
+END-SUBROUTINE /* REPORT-CLOSE
+*
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-SESSION
+************************************************************************
+ED-REQUEST:='CLSS'
+ED-SESNUM := #ED-SESNUM
+PERFORM CALL-EDITOR-SHORT
+*
+END-SUBROUTINE /* CLOSE-SESSION
+*
+/*SU4 DEFINE SUBROUTINE OPEN-NRMDB-EDIT
+/*SU4 DEFINE SUBROUTINE INIT-USR-SESSION
+*
+************************************************************************
+DEFINE SUBROUTINE MOVE-ASA-TO-EDIT-CB
+************************************************************************
+IF ACTIVE-REPORTS.AR-CC-TYPE = NO-CC
+  ED-NRM-ASA-CODE-ON := 'F'
+ELSE
+  ED-NRM-ASA-CODE-ON := 'A'
+END-IF
+*
+END-SUBROUTINE /* MOVE-ASA-TO-EDIT-CB
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+IF NOT LFILE
+  #LFILE-NEWDBID := #TARGET-DBID
+  #LFILE-NEWFILE := #TARGET-FNR
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-NEWDBID #LFILE-NEWFILE
+  IF #LFILE-RC NE 0
+    NOMAC-ERROR-CODE := 4007
+    NOMAC-ERROR-TEXT := #LFILE-RC
+  ELSE
+    LFILE := TRUE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE REFRESH-LFILE
+************************************************************************
+IF LFILE
+  RESET #LFILE-RC
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+  IF #LFILE-RC NE 0
+    NOMAC-ERROR-CODE := 4008
+    NOMAC-ERROR-TEXT := #LFILE-RC
+  ELSE
+    LFILE := FALSE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* REFRESH-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-LFILE
+************************************************************************
+RESET #LFILE-RC
+CALLNAT 'RMIGGFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+*
+END-SUBROUTINE /* GET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-EDITOR-SHORT
+************************************************************************
+CALL 'EDITOR' EDIT-CB
+IF #API-TRACE NE ' '
+  PRINT *PROGRAM '=' ED-REQUEST '=' ED-SESNUM '=' ED-ERRNUM '=' ED-FLINE
+END-IF
+IF ED-ERRNUM NE 0
+  NOMAC-ERROR-CODE := 3
+  #VAR(1) := ED-FLINE
+END-IF
+*
+END-SUBROUTINE /* CALL-EDITOR-SHORT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF LFILE
+    CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+    LFILE := FALSE
+  END-IF
+  IF *ERROR-NR = 82
+    LG-MSG := 'Missing NOM steplibs. Please call NOM steplib routine'-
+      ' NOMGSTEP before call of NOM API.'
+    LG-USERID := *USER
+    IF +DEVICE = 'BATCH' /* NOMALL-1837 +DEVICE
+      LG-USERID := F#MONITOR-TASK-USER-ID-LOG1 (<>)
+    END-IF
+    LG-FUNCTION := 'W'
+    LG-CODE := 'MO'
+    CALLNAT 'RLOG' PL-PARMS
+  END-IF
+  NOMAC-ERROR-CODE := 21
+  CALLNAT 'C-NATERN' NOMAC-ERROR-TEXT 'W'
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

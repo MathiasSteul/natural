@@ -1,0 +1,216 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMMO01N - Get monitor defaults
+*
+* Maintenance:
+* uuu     yyyy-mm-dd s(999999) ....
+* gw      1994-10-31 s(999999) created
+* jwo     1997-12-03 P(163166) pass date in y2k format to caller
+* jvd     1998-09-10 p(164220) NAT23ÖNOM141
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-08-11 p(300323) add steplibs, read err message texts
+* xsetggr 2008-12-05 p(300323) change adding of steplibs
+* xsetggr 2009-02-10 P300323   delete steplib handling, get NOM library
+*                              by RGETLIB
+* fhi     2009-02-27 P300323 Rename RGETSTEP to NOMGSTEP delivered in SYSTEM
+* fhi    2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* SU1     2014-11-12 NOMALL-1527 getting rid of coding for old versions-
+*                                only restruct
+* fhi     2016-11-10 NOMALL-1917 use correct node number
+* SU2     2017-03-06 NOMALL-1961 Use new task IDs
+* fhi     2018-03-21 NOMALL-1918 Adapt to Unix
+* SU3     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING NOMMO--P
+************************************************************************
+INDEPENDENT
+1 +NOD-LOCAL-SPOOL-TYPE    (A8)
+1 +NOD-LOCAL-SYSTEM-TYPE   (A8)
+* *****
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+/*SU3 LOCAL USING VMONIT-L
+/*SU3 LOCAL USING VMONITUL            /* NOMALL-1917
+LOCAL USING EOMMSG-P
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR /*SU3
+  2 M-WAIT-CURRENT
+  2 M-WAIT-MINIMUM
+  2 M-WAIT-MAXIMUM
+  2 M-WAIT-INCREMENT
+  2 M-LAST-ACTIVE
+  2 M-XCOM-JOBNAME
+  2 M-PRT-TASK-NO
+  2 M-DATE-FORMAT
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU3
+  2 MF-TYPE
+  2 MF-MONITOR-ID
+  2 MF-MONITOR-NODE
+  2 MF-SPOOL-TYPE
+  2 MF-SYSTEM-TYPE
+  2 MF-CLASSES (1:16)
+  2 MF-JES3-OUTPUT-CLASSES (1:16)
+  2 MF-TEMP-CLASS
+  2 MF-PRINT-CLASS
+  2 MF-BS2-DEST (1:4)
+1 #NOM-DBID           (N5)
+1 #NOM-FNR            (N5)
+1 #LFILE-CHANGED      (L)
+1 #TT                 (T)
+1 #MONITOR-ID         (A20) /*SU3
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #TT NOMMO-ERROR-CODE NOMMO-ERROR-TEXT
+*
+#NOM-DBID := NOMMO-NOM-DBID
+#NOM-FNR  := NOMMO-NOM-FNR
+*
+DECIDE FOR EVERY CONDITION
+  WHEN NOMMO-ERROR-CODE = 0 AND #NOM-DBID NE 0 AND #NOM-FNR NE 0
+    PERFORM GET-NOM-LFILE
+    PERFORM VALIDATION
+  WHEN NOMMO-ERROR-CODE = 0 AND #NOM-DBID NE 0 AND #NOM-FNR NE 0
+    PERFORM SET-NOM-LFILE
+    #LFILE-CHANGED := TRUE
+  WHEN SATLF-ERROR-CODE = 0
+    PERFORM READ-MONITOR-DEFAULTS
+  WHEN NOMMO-ERROR-CODE NE 0
+    PERFORM GET-ERR-TXT
+  WHEN #LFILE-CHANGED
+    PERFORM SET-OLD-NOM-LFILE
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NOM-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'GET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+#NOM-DBID := SATLF-DBID-N5
+#NOM-FNR  := SATLF-FNR-N5
+*
+END-SUBROUTINE /* GET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+*
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'SET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := NOMMO-NOM-DBID
+SATLF-FNR-N5  := NOMMO-NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-OLD-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := #NOM-DBID
+SATLF-FNR-N5  := #NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-OLD-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-ERR-TXT
+************************************************************************
+NOMMO-ERROR-TEXT := F#GETMSG (<NOMMO-ERROR-CODE, EOMMSG-TOKEN(1:3)>)
+*
+END-SUBROUTINE /* GET-ERR-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN #NOM-DBID = 0 NOMMO-ERROR-CODE := 9102
+  WHEN #NOM-FNR = 0  NOMMO-ERROR-CODE := 9103
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE READ-MONITOR-DEFAULTS
+************************************************************************
+#MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+FIND NRM-MONITOR WITH M-MONITOR-ID = #MONITOR-ID
+  IF NO RECORDS FOUND
+    NOMMO-ERROR-CODE := 9105
+    ESCAPE ROUTINE
+  END-NOREC
+  NOMMO-WAIT-CURRENT   := M-WAIT-CURRENT
+  NOMMO-WAIT-MINIMUM   := M-WAIT-MINIMUM
+  NOMMO-WAIT-MAXIMUM   := M-WAIT-MAXIMUM
+  NOMMO-WAIT-INCREMENT := M-WAIT-INCREMENT
+  NOMMO-ESY-JOBNAME    := M-XCOM-JOBNAME
+  NOMMO-PRINT-TASKS    := M-PRT-TASK-NO
+  NOMMO-DATE-FORMAT    := M-DATE-FORMAT
+  IF M-LAST-ACTIVE NE #TT
+    MOVE EDITED M-LAST-ACTIVE (EM=YYYYMMDD) TO NOMMO-LAST-ACTIVE-DATE
+    MOVE EDITED M-LAST-ACTIVE(EM=HH':'II':'SS) TO NOMMO-LAST-ACTIVE-TIME
+  ELSE
+    RESET NOMMO-LAST-ACTIVE-DATE NOMMO-LAST-ACTIVE-TIME
+  END-IF
+END-FIND
+IF *MACHINE-CLASS = 'MAINFRAME'
+  READ(1) MF-NODE BY MF-TYPE-ID = 'MR-' /*SU3
+  END-READ
+  IF MF-TYPE NE 'M' OR MF-MONITOR-ID NE MASK('R-')
+    NOMMO-ERROR-CODE := 9105
+    ESCAPE ROUTINE
+  END-IF
+  NOMMO-NODE                       := MF-MONITOR-NODE
+  NOMMO-SPOOL-TYPE                 := MF-SPOOL-TYPE
+  NOMMO-SYSTEM-TYPE                := MF-SYSTEM-TYPE
+  NOMMO-CLASSES             (1:16) := MF-CLASSES (1:16)
+  NOMMO-JES3-OUTPUT-CLASSES (1:16) := MF-JES3-OUTPUT-CLASSES (1:16)
+  NOMMO-TEMP-CLASS                 := MF-TEMP-CLASS
+  NOMMO-PRINT-CLASS                := MF-PRINT-CLASS
+  NOMMO-BS2-DESTINATION     (1:4)  := MF-BS2-DEST (1:4)
+ELSE
+  NOMMO-NODE        := 0
+  NOMMO-SPOOL-TYPE  := +NOD-LOCAL-SPOOL-TYPE
+  NOMMO-SYSTEM-TYPE := +NOD-LOCAL-SYSTEM-TYPE
+END-IF
+*
+END-SUBROUTINE /* READ-MONITOR-DEFAULTS
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF #LFILE-CHANGED
+    SATLF-LFILE := 206
+    PERFORM SET-OLD-NOM-LFILE
+  END-IF
+  IF *ERROR-NR = 82
+    WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Missing NOM steplibs' //
+      'Please call NOM steplib routine NOMGSTEP before call of NOM API.'
+  END-IF
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

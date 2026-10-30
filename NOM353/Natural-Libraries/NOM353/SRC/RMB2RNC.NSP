@@ -1,0 +1,330 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMB2RNC - BS2000-specific routine to process COUNT and RENAME orders
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* mrs     1995-10-10 s(999999) created
+* mwi     1997-03-26 s(999999) let g-trace be active
+* mwi     1997-03-27 s(999999) split trace message
+* mwi     1997-03-27 p(263275) let :catid: be a part of the filename
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* sju 04-11-29 nom31     restow for changed NRM-ORDER
+* sju 04-12-06 NOM31     Add date and time (tenths of second) to trace
+* fhi 05-04-19 NOM3107   Support 7-byte job numbers
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-05-05 p(304350) restow due to changes in RMSPL--L
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-12-02 NOMALL-1621 +NOD-LOCAL-NODE instead of G-MONITOR-NODE STEM
+* fhi     2017-01-11 NOMALL-1961 Change descriptor of NRM-ORDER
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +NOD-LOCAL-NODE            (N5)
+1 +CMRDC                     (A1)
+* *****
+LOCAL USING RMODTY-E
+LOCAL USING RMSR---L
+LOCAL USING RMSPL--L
+LOCAL USING RMSR---E
+*
+LOCAL
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-TYPE
+  2 REDEFINE SR-TYPE
+    3 SR-TYPE-I               (I2)
+  2 SR-SPOOL-ATTRIBUTES
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-NUMBER-OF-LINES
+1 UPD-ORDER VIEW OF NRM-ORDER
+  2 OD-TYPE
+  2 OD-TIME-SCHEDULED
+1 COUNT-AND-RENAME VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-TYPE
+  2 OD-MONITOR-ID
+  2 OD-USER-ID
+  2 OD-SOURCE-ID
+  2 OD-ERROR-CODE
+  2 OD-ERROR-TEXT
+  2 OD-PARAMETER              (1:1)
+  2 REDEFINE OD-PARAMETER
+    3 OD-COUNT                (A1)
+    3 OD-RENAME               (A1)
+    3 OD-ERROR-COUNT          (N3)
+    3 OD-DSNAME               (A54)
+    3 OD-NEXT-ORDER           (P10)
+  2 OD-TIME-CREATED
+  2 OD-TIME-SCHEDULED
+* *****
+1 #SR-ISN                     (P13)
+1 #OD-ISN                     (P13)
+1 #OD-TYPE-TIME               (A9)
+1 REDEFINE #OD-TYPE-TIME
+  2 #OD-TYPE                  (B2)
+  2 #OD-TIME                  (T)
+1 #NEW-TYPE                   (B2)
+1 #NEW-COUNT                  (P10)
+1 #NEW-DSNAME                 (A54)
+1 FILE-RENAMED                (L)
+1 #TRACING                    (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT (0) LS=133 PS=60
+*
+IF G-TRACE GE *LEVEL
+  #TRACING := TRUE
+END-IF
+#OD-TYPE := OD-BS2-RETRY-RENAME
+RESET #OD-TIME
+*
+REAROD. READ COUNT-AND-RENAME BY OD-TYPE-TIME = #OD-TYPE-TIME
+  RESET G-NATRP-ERC G-NATRP-ERT
+  IF OD-TYPE(REAROD.) NE #OD-TYPE OR OD-TIME-SCHEDULED (REAROD.) > *TIMX
+    BACKOUT TRANSACTION
+    ESCAPE BOTTOM
+  END-IF
+  IF #TRACING
+    COMPRESS 'process order=' OD-ID ',count=' OD-COUNT
+      ',rename=' OD-RENAME ',retry=' OD-ERROR-COUNT ',dsname=' OD-DSNAME
+      TO G-TRACE-MSG LEAVING NO
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  INCLUDE CMRDC
+  #OD-ISN := *ISN (REAROD.)
+  RESET #NEW-DSNAME #NEW-COUNT #NEW-TYPE #SR-ISN FILE-RENAMED
+  PERFORM PROCESS-ORDER
+  RESET #OD-ISN
+END-READ
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-ORDER
+************************************************************************
+PERFORM READ-SOURCE
+*
+IF G-NATRP-ERC = 0 AND OD-RENAME = 'Y'
+  PERFORM RENAME-FILE
+  IF G-NATRP-ERC = 0
+    PERFORM MODIFY-SOURCE-ATTRIBUTES
+  END-IF
+END-IF
+*
+IF G-NATRP-ERC = 0 AND OD-COUNT = 'Y'
+  PERFORM COUNT-LINES
+END-IF
+*
+IF G-NATRP-ERC = 0
+  PERFORM UPDATE-SOURCE-ATTRIBUTES
+  PERFORM START-NEXT-ORDER
+  PERFORM DELETE-ORDER
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* PROCESS-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE RENAME-FILE
+************************************************************************
+* Build new dsname for a BS2000 spool file by appending the
+* NOM source id and rename the file:
+CALLNAT 'RMB2RF-N' +NOD-LOCAL-NODE                  /* in
+  COUNT-AND-RENAME.OD-SOURCE-ID COUNT-AND-RENAME.OD-DSNAME       /* in
+  #NEW-DSNAME G-NATRP-ERC G-NATRP-ERT                      /* out
+*
+IF #TRACING
+  COMPRESS 'rename dsname=' OD-DSNAME ',erc=' G-NATRP-ERC
+    ',ert=' G-NATRP-ERT TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  COMPRESS '  ,new-dsname=' #NEW-DSNAME TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+DECIDE ON FIRST VALUE OF G-NATRP-ERC
+  VALUE 0
+    FILE-RENAMED := TRUE
+  VALUE 5556
+    PERFORM RESCHEDULE-ORDER
+  NONE VALUE
+    PERFORM FAILED-ORDER
+END-DECIDE
+*
+END-SUBROUTINE /*  RENAME-FILE
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-SOURCE-ATTRIBUTES /* using 'new-dsname
+************************************************************************
+IF #NEW-DSNAME NE ' '
+  #SPOOL-ATTRIBUTES := SR-SPOOL-ATTRIBUTES
+  CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+  CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES SR-TYPE
+  IF #SPOOL-TYPE = SEQUENTIAL-FILE-BS2
+    #SPOOL-BS2-DSNAME := #NEW-DSNAME
+  END-IF
+  SR-SPOOL-ATTRIBUTES := #SPOOL-ATTRIBUTES
+  IF SR-TYPE = SEQUENTIAL-FILE-BS2
+    #SOURCE-ATTRIBUTES := SR-ATTRIBUTES-IDENT
+    #FBS2-DSNAME := #NEW-DSNAME
+    SR-ATTRIBUTES-IDENT := #SOURCE-ATTRIBUTES
+  END-IF
+END-IF
+*
+IF #NEW-COUNT NE 0
+  SR-NUMBER-OF-LINES := #NEW-COUNT
+END-IF
+*
+END-SUBROUTINE /* MODIFY-SOURCE-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-SOURCE-ATTRIBUTES
+************************************************************************
+IF #NEW-DSNAME = ' ' AND #NEW-COUNT = 0
+  ESCAPE ROUTINE
+END-IF
+*
+GETSR. GET SOURCE #SR-ISN
+PERFORM MODIFY-SOURCE-ATTRIBUTES
+IF #TRACING
+  COMPRESS 'update source=' SR-ID TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+UPDATE (GETSR.)
+*
+END-SUBROUTINE /* UPDATE-SOURCE-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-ORDER
+************************************************************************
+GETDEL. GET UPD-ORDER #OD-ISN
+DELETE (GETDEL.)
+*
+IF #TRACING
+  COMPRESS 'delete order=' OD-ID TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* DELETE-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE FAILED-ORDER
+************************************************************************
+GETF. GET COUNT-AND-RENAME #OD-ISN
+OD-TYPE (GETF.) := OD-BS2-RETRY-RENAME-FAILED
+OD-ERROR-CODE (GETF.) := G-NATRP-ERC
+OD-ERROR-TEXT (GETF.) := G-NATRP-ERT
+IF FILE-RENAMED
+  OD-DSNAME (GETF.) := #NEW-DSNAME
+  RESET  OD-RENAME (GETF.)
+  PERFORM UPDATE-SOURCE-ATTRIBUTES
+END-IF
+UPDATE (GETF.)
+END TRANSACTION
+*
+IF #TRACING
+  COMPRESS 'failed order=' OD-ID ',erc=' OD-ERROR-CODE
+    ',ert=' OD-ERROR-TEXT TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* FAILED-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE RESCHEDULE-ORDER
+************************************************************************
+GETR. GET UPD-ORDER #OD-ISN
+OD-TIME-SCHEDULED (GETR.) := *TIMX + 600
+UPDATE (GETR.)
+END TRANSACTION
+*
+IF #TRACING
+  COMPRESS 'retry order=' OD-ID ',retry=' OD-ERROR-COUNT
+    TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE  /* RESCHEDULE-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE START-NEXT-ORDER
+************************************************************************
+FNDNEXT. FIND UPD-ORDER WITH OD-ID = COUNT-AND-RENAME.OD-NEXT-ORDER
+  OD-TIME-SCHEDULED (FNDNEXT.) := *TIMX
+  UPDATE (FNDNEXT.)
+  END TRANSACTION
+END-FIND
+*
+IF #TRACING
+  COMPRESS 'start next order=' COUNT-AND-RENAME.OD-NEXT-ORDER
+    TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* START-NEXT-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE COUNT-LINES
+************************************************************************
+CALLNAT 'RMRECN-N' SOURCE.SR-TYPE-I SOURCE.SR-ATTRIBUTES-IDENT
+  #NEW-COUNT G-NATRP-ERC G-NATRP-ERT
+IF #TRACING
+  COMPRESS 'count lines=' #NEW-COUNT ',erc=' G-NATRP-ERC
+    ',ert=' G-NATRP-ERT TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+IF G-NATRP-ERC NE 0
+  PERFORM FAILED-ORDER
+END-IF
+*
+END-SUBROUTINE /* COUNT-LINES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SOURCE
+************************************************************************
+FNDSR. FIND SOURCE WITH SR-ID = COUNT-AND-RENAME.OD-SOURCE-ID
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 0005
+    G-NATRP-ERT := 'Source not found'
+    ESCAPE BOTTOM (FNDSR.)
+  END-NOREC
+  #SR-ISN := *ISN (FNDSR.)
+END-FIND
+*
+IF #TRACING
+  COMPRESS 'read source=' COUNT-AND-RENAME.OD-SOURCE-ID
+    'erc=' G-NATRP-ERC 'ert=' G-NATRP-ERT TO G-TRACE-MSG LEAVING NO
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE  /* READ-SOURCE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  G-NATRP-ERC := 0021
+  CALLNAT 'C-NATERN' G-NATRP-ERT
+  IF *ERROR-NR NE 3148
+    IF #OD-ISN NE 0
+      PERFORM FAILED-ORDER
+    END-IF
+  END-IF
+END-ERROR
+*
+END

@@ -1,0 +1,89 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMCHARSN - convert CHARS into JCL format
+*
+* Creation and Maintenance History
+* uuu yy-mm-dd s(999999) ...
+* gw  93-11-16 s(999999) created
+* mrs 93-11-22 s(999999) invalid chars specification corrected
+* sju 04-03-08 s(250934) correct format-a16-without-blanks
+* ----------------------------------------------------------------------
+*
+DEFINE DATA PARAMETER
+1 #CHARS-IN                  (A20)
+1 REDEFINE #CHARS-IN
+  2 #CHARS-V                 (A4/1:4)
+1 #CHARS-OUT                 (A27)
+************************************************************************
+LOCAL
+1 #I                         (I4)
+1 #J                         (I4)
+1 #CHARS-TMP                 (A20/1:20)
+1 #FORMAT-A16-WITHOUT-BLANKS (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #CHARS-OUT
+*
+IF #CHARS-IN = MASK ('(') OR = ' '
+  #CHARS-OUT := #CHARS-IN
+  ESCAPE ROUTINE
+END-IF
+*
+SEPARATE #CHARS-IN INTO #CHARS-TMP (*) IGNORE WITH DELIMITER ' '
+FOR #I 1 4
+  EXAMINE #CHARS-TMP (#I) FOR ' ' GIVING LENGTH #J
+  IF #J > 4
+    #FORMAT-A16-WITHOUT-BLANKS := TRUE
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+*
+IF #FORMAT-A16-WITHOUT-BLANKS
+  RESET #CHARS-TMP (*) #J
+  FOR #I 1 4
+    IF #CHARS-V (#I) NE ' '
+      ADD 1 TO #J
+      #CHARS-TMP (#J) := #CHARS-V (#I)
+    END-IF
+  END-FOR
+  #CHARS-V (1:4) := #CHARS-TMP (1:4)
+ELSE
+  RESET #CHARS-V (*) #J
+  FOR #I 1 20
+    IF #CHARS-TMP (#I) NE ' '
+      ADD 1 TO #J
+      #CHARS-V (#J) := #CHARS-TMP (#I)
+      IF #J = 4
+        ESCAPE BOTTOM
+      END-IF
+    END-IF
+  END-FOR
+END-IF
+*
+FOR #I 4 TO 1 STEP -1
+  IF #CHARS-V (#I) NE ' '
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+*
+IF #I > 0
+  COMPRESS  '(' #CHARS-V (1) TO #CHARS-OUT LEAVING NO
+  IF #I > 1
+    FOR #J 2 TO #I
+      IF #CHARS-V (#J) NE ' '
+        COMPRESS #CHARS-OUT  ',' #CHARS-V (#J) TO #CHARS-OUT LEAVING    NO
+      END-IF
+    END-FOR
+  END-IF
+  COMPRESS #CHARS-OUT ')' TO #CHARS-OUT LEAVING NO
+END-IF
+*
+END

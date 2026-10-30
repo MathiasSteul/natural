@@ -1,0 +1,194 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    EOMGRM-N
+* Version   1.3
+* Function  Maintenance of EOM Object >>> Grant <<<
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-06-10           created
+* sju 95-09-27 s(229945) handle type h (physical printer)
+* gw  95-11-01 s(999999) set blank grant options to 'N'
+* xsetggr 2003-08-20 p(240465) allow non-defined userid
+* xsetggr 2012-09-25 NOMALL-89 improve validation of grant values
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 EOM-FUNCTION  (I2)
+PARAMETER USING EOMGRM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL USING EOM----E
+LOCAL
+1 EXIST         (L)
+1 I             (P2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-ADD, EOM-MODIFY
+    PERFORM MODIFY-GRANT
+  VALUE EOM-READ, EOM-READHOLD
+    PERFORM READ-GRANT
+  VALUE EOM-DELETE, EOM-DELETE-ALL
+    PERFORM DELETE-GRANT
+  VALUE EOM-RENAME, EOM-COPY
+    PERFORM COPY-RENAME-GRANT
+  VALUE EOM-COMMIT
+    END OF TRANSACTION
+  VALUE EOM-BACKOUT
+    BACKOUT TRANSACTION
+  NONE VALUE
+    EOMMSG-NR := 2600
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-GRANT
+************************************************************************
+PERFORM VALIDATE-KEY
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+PERFORM VALIDATION
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+PERFORM GRANT-INTERFACE
+*
+END-SUBROUTINE /* MODIFY-GRANT
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-RENAME-GRANT
+************************************************************************
+IF EOMGRM-I-NAME = ' '
+  EOMMSG-NR := 0906
+  EOMMSG-FIELD-NAME := 'EOMGRM-I-NAME'
+  ESCAPE ROUTINE
+END-IF
+IF EOMGRM-I-NEWNAME = ' '
+  EOMMSG-NR := 0906
+  EOMMSG-FIELD-NAME := 'EOMGRM-I-NEWNAME'
+  ESCAPE ROUTINE
+END-IF
+IF NOT (EOMGRM-I-TYPE = 'R' OR = 'B' OR = 'L' OR = 'P' OR = 'F')
+  EOMMSG-FIELD-NAME := 'EOMGRM-I-TYPE'
+  EOMMSG-NR := 0903
+  ESCAPE ROUTINE
+END-IF
+PERFORM GRANT-INTERFACE
+*
+END-SUBROUTINE /* COPY-RENAME-GRANT
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-GRANT
+************************************************************************
+IF EOM-FUNCTION = EOM-DELETE
+  PERFORM VALIDATE-KEY
+  IF EOMMSG-NR NE 0
+    ESCAPE ROUTINE
+  END-IF
+ELSE
+  IF EOMGRM-I-USER = ' ' AND EOMGRM-I-NAME = ' '
+    EOMMSG-NR := 0901
+    EOMMSG-FIELD-NAME := 'EOMGRM-I-NAME'
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+PERFORM GRANT-INTERFACE
+*
+END-SUBROUTINE /* DELETE-GRANT
+*
+************************************************************************
+DEFINE SUBROUTINE READ-GRANT
+************************************************************************
+PERFORM VALIDATE-KEY
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+PERFORM GRANT-INTERFACE
+*
+END-SUBROUTINE /* READ-GRANT
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-KEY
+************************************************************************
+IF EOMGRM-I-NAME = ' '
+  EOMMSG-NR := 0902
+  EOMMSG-FIELD-NAME := 'EOMGRM-I-NAME'
+  ESCAPE ROUTINE
+END-IF
+IF NOT (EOMGRM-I-TYPE = 'R' OR = 'B' OR = 'L' OR = 'P' OR = 'F')
+  EOMMSG-FIELD-NAME := 'EOMGRM-I-TYPE'
+  EOMMSG-NR := 0903
+  ESCAPE ROUTINE
+END-IF
+IF EOMGRM-I-USER = ' '
+  EOMMSG-NR := 0905
+  EOMMSG-FIELD-NAME := 'EOMGRM-I-USER'
+  ESCAPE ROUTINE
+END-IF
+IF EOMGRM-I-USER NE 'PUBLIC'
+  IF EOMGRM-I-DEF-USER NE 'Y'
+    CALLNAT 'RCHKUL' EOMGRM-I-USER EXIST
+    IF NOT EXIST
+      EOMMSG-NR := 0002
+      EOMMSG-TOKEN (1) := EOMGRM-I-USER
+      EOMMSG-FIELD-NAME := 'EOMGRM-I-USER'
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+IF NOT (EOMGRM-OPTION (*) NE ' ')
+  EOMMSG-FIELD-NAME := 'EOMGRM-OPTION'
+  EOMMSG-IND1 := 1
+  EOMMSG-NR := 0906
+  ESCAPE ROUTINE
+END-IF
+*
+EXAMINE FULL EOMGRM-OPTION (*) FOR FULL ' ' REPLACE 'N'
+DECIDE FOR FIRST CONDITION
+  WHEN EOMGRM-OPTION(1) = 'Y'
+    EOMGRM-OPTION(*) := 'Y'
+  WHEN EOMGRM-OPTION(1) NE 'Y' AND EOMGRM-OPTION(3) = 'Y'
+    EOMGRM-OPTION(2:4) := 'Y'
+  WHEN EOMGRM-OPTION(1) NE 'Y' AND EOMGRM-OPTION(2) = 'Y' AND
+      EOMGRM-OPTION(3) NE 'Y'
+    EOMGRM-OPTION(4) := 'Y'
+  WHEN NONE IGNORE
+END-DECIDE
+*
+FOR I = 1 TO 6
+  IF NOT (EOMGRM-OPTION (I) = ' ' OR = 'Y' OR = 'N')
+    EOMMSG-FIELD-NAME := 'EOMGRM-OPTION'
+    EOMMSG-IND1 := I
+    EOMMSG-NR := 0904
+    ESCAPE ROUTINE
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE GRANT-INTERFACE
+************************************************************************
+CALLNAT 'EOMGRMVN' EOM-FUNCTION EOMGRM-PARMS EOMMSG-PARMS
+*
+END-SUBROUTINE /* GRANT-INTERFACE
+*
+END

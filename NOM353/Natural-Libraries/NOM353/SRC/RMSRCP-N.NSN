@@ -1,0 +1,1316 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 5
+* <Natural Source Header
+* RMSRCP-N - Copy Lines of Source into DB File
+*
+* Note      Unix and BS2000 files are marked for 'in progress' using
+*           RMRCSTMP AND they are checked if locked by the operating
+*           system using XXLOCKED
+* Intern. docu ÖÖdaenus01ÖNaturalÖNat-AdtÖNAT-EsmÖProjectsÖNom35Ö...
+*           ...Internal_DocumentationÖNOM_Task_Sync_Concept.pdf
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-01-05 s(999999) created
+* mrs 93-11-09 s(999999) seq. Files MVS added
+* mrs 94-03-01 s(999999) seq. Files BS2 added
+* gw  94-06-17 s(999999) CMASpool added
+* mrs 95-05-29 s(225717) retry load if possible
+* mrs 95-08-14 s(230569) SAT=09 if CMASPOOL read with copies
+* gw  96-02-20 s(999999) adapt to cmaspool V11 interface
+*                        note! CA drops support of V10 end of '96
+*                        to make things easier, this program only
+*                        supports v11. use RMSCCMAO and RMSRCPON for v10
+* fhi 00-03-03 S(192651) Line length > 253 not stored in DB
+* fhi 00-08-24 QA03      Use NAT23006 for error values
+* sju 00-09-05 s(339332) Lines containing 0140 not compressed correctly
+* fhi 00-09-27 s(196560) Add Unix File support
+* fhi 00-10-04 QA05      Improve error message
+* fhi 01-01-31 s(205516) handle blank records from Unix correctly
+* fhi 02-09-25 p(218246) Monitor error recovery
+* sju 02-11-04 NOM221    Long records (Jes2 only)
+* sju 03-01-29 p(232455) Don't write messages for retryable errors
+* fhi 03-07-25 p(206312) Detect if file is no text file
+* sju 04-02-12 p(250127) Better reporting of errors
+* sju 04-12-06 NOM31     Add date and time (tenths of second) to trace
+* sju     2005-02-08 NOM31     Long records for other than JES2
+* fhi     2005-04-19 NOM3107   Support 7-byte job numbers
+* fhi     2005-10-14 P(266530) Recompiled, XXUX---P changed.
+* xsetggr 2005-11-28 p(271774) support more than 40 Power segments
+* fhi     2006-05-19 P(272046) EOF not recognized in Unix Files.
+* fhi     2007-03-13 FHI212    XXUX---N rewritten, made adaptions.
+* fhi     2007-04-05 FHI220    Local monitor node not honored under Unix
+* xsetggr 2007-05-14 NOM3201   convert node numbers to 5 digit format
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2007-12-18 NOM32     Add binary file reading
+* fhi     2008-06-23 P303640   Correct format of binary files
+* xsetggr 2008-07-03 p(304350) restow due to changes in rmspl--l
+* xsetggr 2008-11-26 P311559 restow due to unix attr changes in rmspl--l
+* bli     2009-01-21 p307959 restow due to unix attr changes in rmspl--l
+* xsetggr 2009-06-17 P318277 do not truncate the last of wrapped lines
+* fhi     2009-07-28 P319282 Binary files on Linux corrupted
+* fhi     2009-09-15 P320367 Use compression routine NOMCOMPR
+* fhi     2010-02-08 N3460   Get OPO meta data from separate xml file
+* fhi     2010-02-24 N3460   Non-opo active-reports view only < NOM3300
+*                            No tags entered for this change.
+* fhi     2010-03-02 P323539 Correct N3460, DELETE only if file present
+* fhi     2010-03-19 P323539 Avoid 2044 in RMSCUX
+* fhi     2010-06-14 NOMALL-815  User RMSETTIM instead of *TIMD for Ux
+* fhi     2010-06-15 NOMALL-813  Re-activate GET-NEXT option
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-17 NOMALL-800  Cleanup DELETE function
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-11-18 NOMALL-800  Correct DELETE function
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* fhi     2012-06-26 NOMALL-1148 Correct line- and formfeeds
+* SPLILDAV 2012-06-27 NOMALL-1078 SUPPORT COMPRESSION 16K BYTE RECORDS
+* SPLILDAV 2012-08-09 NOMALL-1055 DELETE EMPTY BS2000 FILES
+* fhi     2012-08-13 NOMALL-1004 Add report conversion, old tags deleted
+* raya    2012-08-21 NOMALL-78   disable long records
+* fhi     2012-08-24 NOMALL-1004 Add report formatting, indents cleared
+* fhi     2012-08-27 NOMALL-1004 Add report formatting
+* fhi     2012-08-27 NOMALL-78   long records subroutines deleted
+* bli     2012-09-21 NOMALL-94   delete old version checks
+* raya    2012-09-27 NOMALL-1143 work with lob fields
+* fhi     2012-11-07 NOMALL-1004 Add report formatting
+* fhi     2012-11-09 NOMALL-1143 Add cpu time output
+* fhi     2012-11-20 NOMALL-1004 More corrections, not all tagged.
+* fhi     2013-03-06 NOMALL-1004 More corrections, not all tagged.
+* fhi     2013-04-22 NOMALL-1004 More corrections
+* fhi     2013-05-24 NOMALL-1260 Change CMA Spool to CA Spool on interf
+*                                No tags, only literals changed
+* SU1     2013-09-10 NOMALL-82 new class: activate error
+*                                No tags, only restructured
+* SU2     2014-01-27 NOMALL-1341 remove LA-fields
+* fhi     2014-02-19 NOMALL-1337 Correct formfeed handling
+* fhi     2014-07-03 NOMALL-1322 Honour file locked flag
+* SU3     2014-08-14 NOMALL-1447 TEST files > 16k - only restruct
+* fhi     2014-08-21 NOMALL-1454 Restow because XXUX---P has changed.
+* fhi     2014-08-25 NOMALL-1475 Prepare future use of FORMATTER
+* SU4     2014-08-27 NOMALL-1447 handle buffers > 16k
+* fhi     2014-10-22 NOMALL-79   Introduce long file names
+* fhi     2015-03-09 NOMALL-1561 Count formfeeds
+* fhi     2015-03-27 NOMALL-1593 Correct formfeed handling
+* fhi     2015-04-15 NOMALL-1593 same
+* fhi     2015-05-12 NOMALL-1585 Improve waiting for locked files
+* fhi     2015-05-18 NOMALL-1552 Show real size, not base64 size
+* SU5     2015-06-01 NOMALL-1552 Show size 1 (instead 0)
+* fhi     2015-08-14 NOMALL-1696 Improve locked files detection on Unix
+* SU6     2015-08-11 NOMALL-1690 XXHASH restructure
+* fhi     2015-10-15 NOMALL-1747 Improve error handling of 1127 and 2142
+* SU7     2015-12-30 NOMALL-1722 XXHASH-P changed->recat
+* fhi     2016-04-05 NOMALL-1696 Improve locked files detection on Unix
+* fhi     2016-08-01 NOMALL-1748 Backout Report Formatting
+* fhi     2017-01-05 NOMALL-1961 Improve err handling (return to ERROR)
+* fhi     2017-01-18 NOMALL-1916 Use binary NPR RECORD* fields
+* fhi     2017-01-27 NOMALL-1961 Show node name in errors
+* bli     2018-07-17 NOMALL-2088 XXUX---N error handling
+* fhi     2018-08-14 NOMALL-2141 Regard ASA formatted reports
+* fhi     2018-12-13 NOMALL-2171 Handle locked files better, routine
+*                                WAIT-LOCKED rewritten, no tags
+* fhi     2018-12-14 NOM 3.5     Improve CPU measures, no tags
+* fhi     2018-12-18 NOMALL-2194 on suspend abort report creation
+* fhi     2019-02-14 NOMALL-2214 Don't ignore if DELETE fails
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* fhi     2019-06-05 NOMALL-2267 More details if '0 records loaded'
+* fhi     2019-06-19 NOMALL-2267 Better trace. Still 0 records appears
+* fhi     2019-07-01 NOMALL-2267 Get SAT error in a better way
+* fhi     2019-07-08 NOMALL-2287 Scan task gets file during copy,
+*                                Synchronisation between tasks fails
+* fhi     2019-08-06 NOMALL-2294 reset receipt stamp on error
+* fhi     2019-08-14 NOMALL-2294 Introduce TRACE-ORDER in JOBCARDs
+* BLI     2019-09-24 NOMALL-2294 NPR and Broker fails, remove 2267 SAT
+* fhi     2019-10-08 NOMALL-2294 Add output time consumption NOM4209
+* BLI     2020-02-17 NOMALL-2294 Trace, file deletion, stamp=type,task
+* SU8     2020-04-27 NOMALL-2349 error handling (NPR)
+* SU9     2020-12-01 NOMALL-2440 del. UX-EMAIL-RECIPIENTS
+* SU10    2021-09-15 NOMALL-2490 unix: BS2 H'00': avoid data loss
+* SU11    2021-10-12 ES-31134    Unix:BS2:use ESA transl/no hex
+* BLI1    2022-03-30 NOMALL-2540 Source not found, check task if reset
+* BLI2    2022-06-15 NOMALL-2562 adapt RMRCSTMP parameters
+* BLI3    2022-08-11 NOMALL-2505 set suspended time first time only
+* BLI4    2023-01-06 NOMALL-2601 field for NOM2071 time interval
+* BLI5    2023-01-06 NOMALL-2612 fill #P-FILE-NAME
+* BLI6    2023-02-28 NOMALL-2624 compute time for NOM2071 correctly
+* BLI7    2023-06-22 NOMALL-2635 Scan product with number in text
+* SU12    2023-09-21 NOMALL-2650 error: show file
+* BLI8    2024-03-14 NOMALL-2664 Unix file deleted too early
+* SU13    2024-03-07 ES-34613    NOM 3.6 Remove power
+* ---------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 P-ID                       (P10)
+1 P-SOURCE-TYPE              (B2)
+1 P-SOURCE-ATTRIBUTES        (A250)
+1 P-SPOOL-ATTRIBUTES         (A250)
+1 P-SOURCE-CC-TYPE           (B2)
+1 P-RECORD-LENGTH            (N3)
+1 P-NUMBER-OF-LINES          (P10)
+1 P-STATISTICS               (A250)
+1 REDEFINE P-STATISTICS
+  2 P-STAT
+    3 P-STAT-INREC           (P13)
+    3 P-STAT-INBYTE          (P13)
+    3 P-STAT-OUTREC          (P13)
+    3 P-STAT-OUTBYTE         (P13)
+    3 P-STAT-STIME           (T)
+    3 P-STAT-ETIME           (P13)
+1 P-RECORDS-STORED           (L)
+1 P-RETRY-POSSIBLE           (L)
+1 P-REP-FORMAT               (A1)
+1 P-ERROR-CODE               (N4)
+1 P-ERROR-TEXT               (A250)
+1 P-RETRY-ALLOWED            (L)
+1 P-TRACE                    (I2)
+1 P-ERROR-OBJECT             (A60)
+1 P-REMOTE-CODEPAGE          (A64)
+1 #P-FILE-NAME               (A250)
+1 #P-TASK-NUMBER-STMP        (A1)   /* NOMALL-2294 BLI in
+************************************************************************
+LOCAL
+1 #LOCK-COLS                 (I4) CONST <2>
+1 #LOCK-FCT                  (A1)
+1 #LOCK-FN                   (A/  #LOCK-COLS) DYNAMIC
+1 #LOCK-TRIES                (I1)
+INDEPENDENT /*-----------------
+1 +TRACE-ORDER               (A1)
+1 +NOD-CURRENT-NAME          (A16)
+1 +LOCK-TBLE                 (A/*,#LOCK-COLS) DYNAMIC
+1 +LOCK-IX                   (I4)
+1 +LOCK-LASTIX               (I4)
+1 +LOCK-TEMP1                (I4)
+1 +LOCK-TEMP2                (I4)
+1 +LOCK-ERC                  (N4)
+* *****
+LOCAL USING RMSR---E
+LOCAL USING RMSR---L
+LOCAL USING RMSPL--L /* unix access
+LOCAL USING XXUX---P /* unix access
+LOCAL USING VUXDEF-L /* defined unix nodes
+LOCAL USING XXHASH-P
+LOCAL
+1 READ-FILE VIEW OF READ-FILE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD /*not used, but must defined to get HEX fields filled
+  2 RECORD-HEX1
+  2 RECORD-HEX2
+  2 RECORD-HEX3
+  2 RECORD-NUMBER
+  2 SEGMENT-LENGTH
+  2 SEGMENT-NUMBER
+1 READ-FILE-ESA VIEW OF READ-FILE /*without RECORD-HEX* SU11
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD
+  2 RECORD-NUMBER
+  2 SEGMENT-LENGTH
+  2 SEGMENT-NUMBER
+1 READ-SPOOL VIEW OF READ-SPOOL
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD /*not used, but must defined to get HEX fields filled
+  2 RECORD-HEX1
+  2 RECORD-HEX2
+  2 RECORD-HEX3
+  2 RECORD-NUMBER
+  2 RECORD-LENGTH
+1 FILE-ATTRIBUTES VIEW OF FILE-ATTRIBUTES
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 FILE-SIZE
+1 VTOC-UPDATE VIEW OF VTOC-UPDATE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 FUNCTION
+1 CONTAINER VIEW OF NRM-SOURCE-TEXT
+  2 ST-ID
+  2 ST-LINE-START
+  2 ST-LINE-END
+  2 ST-TEXT                  (1:66)
+  2 REDEFINE ST-TEXT
+    3 ST-TEXT-LOB            (A16381)
+    3 REDEFINE ST-TEXT-LOB
+      4 ST-B-LOB             (A1/1:16381)
+    3 REDEFINE ST-TEXT-LOB
+      4 ST-BUFFER-PREFIX     (A3)
+      4 ST-BUFFER-LENGTH-X   (B4)
+1 IN-BUFFER                  (L)
+1 #RECORD                    (A251)
+1 REDEFINE #RECORD
+  2 #RECORD-CC               (A1)
+  2 #RECORD-2                (A250)
+1 #RECORD-LENGTH             (P5)
+1 #RECORD-NUMBER             (P10)
+1 #FROM                      (P10)
+1 #TO                        (P10)
+1 #COUNTER                   (P3)
+1 #COUNT                     (P3) INIT <60>
+1 #NSMCOMP-CB                (B40)
+1 REDEFINE #NSMCOMP-CB
+  2 #NSMCOMP-COMMAND         (A1)
+  2 #NSMCOMP-CODE            (B1)
+  2 #NSMCOMP-INLENGTH-OLD    (B1)
+  2 #NSMCOMP-OUTLENGTH-OLD   (B1)
+  2 #NSMCOMP-INLENGTH        (B2)
+  2 #NSMCOMP-OUTLENGTH       (B2)
+1 #NSMCOMP-RC                (B2)
+1 #NSMCOMP-WORK              (B4)
+1 #NSMCOMP-LINE              (A251)
+1 REDEFINE #NSMCOMP-LINE
+  2 #LINE-SEGMENT-LENGTH     (I2)
+  2 #LINE-LAST-SEGMENT       (A1)
+  2 #LINE-DATA               (A248)
+  2 REDEFINE #LINE-DATA
+    3 #LINE-BYTE             (A1/248)       /* max 124 actually used
+1 #NSMCOMP-BUFFER-LENGTH     (B4)
+1 #ESF-OPEN-PARMS            (A200/1:2)
+1 REDEFINE    #ESF-OPEN-PARMS
+  2 #ESFO
+    3 #ESFO-STA              (A2)
+    3 #ESFO-LNG              (B2)
+    3 #ESFO-CBA              (B4)
+    3 #ESFO-TYP              (A1)
+    3 #ESFO-OWN              (A8)
+    3 #ESFO-DES              (A8)
+    3 #ESFO-CC               (A1)
+    3 #ESFO-LRC              (B2)
+    3 #ESFO-LIM              (B4)
+    3 #ESFO-COP              (B2)
+    3 #ESFO-CLS              (A1)
+    3 #ESFO-FOR              (A4)
+    3 #ESFO-FCB              (A4)
+    3 #ESFO-PGN-UNUSED       (A16)
+    3 #ESFO-SID              (A4)
+    3 #ESFO-PID              (A3)
+    3 #ESFO-RET              (B2)
+    3 #ESFO-SSN-UNUSED       (A4)
+    3 #ESFO-USR-UNUSED       (A4)
+    3 #ESFO-TID-UNUSED       (A4)
+    3 #ESFO-PNL              (B2)
+    3 #ESFO-RV3-UNUSED       (B1)
+    3 #ESFO-PRI              (B1)
+    3 #ESFO-FNO              (B4)
+    3 #ESFO-WTR              (A8)
+    3 #ESFO-UID              (A8)
+    3 #ESFO-ACT              (A8)
+    3 #ESFO-ROM              (A4)
+    3 #ESFO-BRW-UNUSED       (A1)
+    3 #ESFO-DAM              (A1)
+    3 #ESFO-CMP-UNUSED       (A1)
+    3 #ESFO-RFC-UNUSED       (A1)
+    3 #ESFO-PRM              (A8)
+    3 #ESFO-FDF              (A6)
+    3 #ESFO-PDF              (A6)
+    3 #ESFO-CHR              (A16)
+    3 #ESFO-TRC              (A1)
+    3 #ESFO-LCT              (B1)
+    3 #ESFO-NDS-UNUSED       (B2)
+    3 #ESFO-BFC-UNUSED       (B4)
+    3 #ESFO-RV4-UNUSED       (B16)
+    3 #ESFO-FNAM             (A12)
+1 #ESF-CLOSE-PARMS           (A24)
+1 REDEFINE    #ESF-CLOSE-PARMS
+  2 #ESFC
+    3 #ESFC-STA              (A2)
+    3 #ESFC-SEQ-UNUSED       (B2)
+    3 #ESFC-CBA              (B4)
+    3 #ESFC-TYP              (A1)
+    3 #ESFC-RV1-UNUSED       (B3)
+    3 #ESFC-FNO              (B4)
+1 #ESF-READ-PARMS            (A150/1:2)
+1 REDEFINE    #ESF-READ-PARMS
+  2 #ESFR
+    3 #ESFR-STA              (A2)
+    3 #ESFR-SEQ-UNUSED       (B2)
+    3 #ESFR-CBA              (B4)
+    3 #ESFR-FNO              (B4)
+    3 #ESFR-FLG              (B1)
+    3 #ESFR-RES-UNUSED       (B1)
+    3 #ESFR-RCL              (I2)
+    3 #ESFR-BUF              (B4)
+    3 #ESFR-PNO              (B4)
+    3 #ESFR-LNO              (B4)
+    3 #ESFR-D90              (A251)
+1 #ESF-RC                    (B4)
+1 REDEFINE    #ESF-RC
+  2 #ESF-RC-I                (I4)
+1 ERROR-OCCURED              (L)
+1 #CBA                       (B4)
+1 #FNO                       (B4)
+1 #UX-FUNCTION               (A8)
+1 #P-SOURCE-TYPE             (P3)
+1 #ST-ID-LINE                (B10)
+1 REDEFINE #ST-ID-LINE
+  2 #ST-ID-LINE-R
+    3 #ST-ID                 (P10)
+    3 #ST-LINE-END           (B4)
+1 #P-SOURCE-TYPE-BIN         (B2)
+1 RMSETTIM
+  2 FUNCTION                 (A1)
+  2 ERC                      (N4)
+  2 MSG                      (A250)
+  2 TIME                     (I4)
+  2 CPUTIME                  (I4)
+1 #TRACING                   (L)
+1 #TRACE-MSG                 (A250)
+1 #INSERT-FORMFEED           (I2)
+1 #GETATTR                   (A197) /* File Attributes
+1 REDEFINE #GETATTR
+  2 #REST                    (A5)
+  2 #OWNER                   (A8)
+  2 #FILE-SIZE               (N10) /* Bytes
+  2 #MOD-DATE-TIME           (N14) /* yyyymmddhhmmss
+  2 #GETATTR-FILLER          (A158)
+  2 #FILE-LOCKED             (A1)
+1 #FIRST-RECORD              (L)    INIT <TRUE>
+1 #UX-ISN                    (P10)
+1 #RECEIPT-STAMP             (A1)               /* NOMALL-2294 BLI start
+1 #RECEIPT-FILE              (A)    DYNAMIC
+1 #RECEIPT-NODE              (A)    DYNAMIC
+1 #SUSP-REMEMBER             (A1)               /* NOMALL-2294 BLI end
+1 #TIME-SEC                  (A10)
+1 #TIME-CPU-SEC              (A10)
+1 #TIME-SEC-F                (F4)
+1 #TIME-CPU-SEC-F            (F4)
+1 #USE-ESA                   (L)   /*SU11
+1 #ESC                       (L)   /*SU11
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=100
+*
+IF P-TRACE GE *LEVEL
+  #TRACING := TRUE
+END-IF
+RMSETTIM.FUNCTION := 'S'
+PERFORM RMSETTIM-SETTIME RMSETTIM
+#NSMCOMP-BUFFER-LENGTH := 16381 - 7
+#NSMCOMP-CODE         := 'N'  /* 'N' - NEW PARM LIST
+#NSMCOMP-COMMAND      := 'C'
+CONTAINER.ST-TEXT-LOB := H'000000'
+CONTAINER.ST-ID       := P-ID
+* PERFORM XXTIMSTP-GET-TIMESTAMP #TIMESTAMP 'H' /* NOMALL-1748 out
+*
+RESET P-RECORD-LENGTH P-NUMBER-OF-LINES P-RECORDS-STORED P-STAT
+P-STAT-STIME := *TIMX
+*
+IF +TRACE-ORDER = ' ' /* not yet determined from jobcards
+  PERFORM RMGTRACE-GET-SETTINGS
+END-IF
+* Reset output fields, #P-FILE-NAME is needed for load-ok, time msg BLI5
+RESET P-ERROR-CODE P-ERROR-TEXT P-ERROR-OBJECT #P-FILE-NAME
+*
+#P-SOURCE-TYPE := P-SOURCE-TYPE
+DECIDE ON FIRST P-SOURCE-TYPE
+  VALUE JES2, JES3            PERFORM COPY-JES
+/*SU13 VALUE SEQUENTIAL-FILE-VSE   PERFORM COPY-FVSE
+  VALUE SEQUENTIAL-FILE-MVS   PERFORM COPY-FMVS
+  VALUE SEQUENTIAL-FILE-BS2   PERFORM COPY-FBS2
+/*SU13 VALUE POWER                 PERFORM COPY-POWER
+  VALUE CMASPOOL              PERFORM COPY-CMASPOOL
+  VALUE SEQUENTIAL-FILE-UNIX  PERFORM COPY-UNIX
+  NONE
+    P-ERROR-CODE := 0005
+    COMPRESS *PROGRAM 'Invalid Source Type'
+      #P-SOURCE-TYPE TO P-ERROR-TEXT
+END-DECIDE
+*
+IF P-ERROR-CODE NE 0         /* AND P-ERROR-CODE NE 4 EOF NOMALL-2088
+AND P-ERROR-CODE NE 9997 /* NOMALL-2294 BLI wait-retry/skip           /*
+  IF #TRACING
+    #TRACE-MSG := 'Backout Copy initiated.'
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+  PERFORM BACKOUT-COPY
+END-IF
+P-STAT-INREC := P-NUMBER-OF-LINES
+RMSETTIM.FUNCTION := 'G'
+PERFORM RMSETTIM-SETTIME RMSETTIM
+P-STAT-ETIME := RMSETTIM.TIME
+IF #TRACING
+  PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+  END TRANSACTION
+  IF P-SOURCE-TYPE = SEQUENTIAL-FILE-UNIX
+    #TIME-SEC-F     := RMSETTIM.TIME / 10
+    #TIME-CPU-SEC-F := RMSETTIM.CPUTIME / 100
+    MOVE EDITED #TIME-SEC-F (EM=ZZZZZZZ9.9) TO #TIME-SEC
+    MOVE EDITED #TIME-CPU-SEC-F (EM=ZZZZZZ9.99) TO #TIME-CPU-SEC
+    MOVE LEFT   #TIME-SEC     TO #TIME-SEC
+    MOVE LEFT   #TIME-CPU-SEC TO #TIME-CPU-SEC
+    COMPRESS '4209' #TIME-SEC #TIME-CPU-SEC #P-FILE-NAME TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG /* BLI 2019-11-13
+    END TRANSACTION
+  END-IF
+END-IF                                      /* BLI 2019-11-13
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-UNIX
+************************************************************************
+#SOURCE-ATTRIBUTES := P-SOURCE-ATTRIBUTES
+#SPOOL-ATTRIBUTES  := P-SPOOL-ATTRIBUTES
+CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE /*conv.Jobnr+node nr
+RESET P-ERROR-CODE P-ERROR-TEXT
+* NOMALL-2294 BLI start
+P-NODE-NAME         := #SPOOL-UNIX-NODE-NAME
+P-USERID            := #SPOOL-UNIX-USERID
+P-CIPHER-PASSWORD   := #SPOOL-UNIX-CIPHER-PASSWORD
+P-GROUP             := #SPOOL-UNIX-GROUP
+IF P-NODE-SUSPEND = ' '
+  RESET #UX-ISN
+  FDUX. FIND (1) UX-NODES WITH UX-NODE-NAME = #SPOOL-UNIX-NODE-NAME
+    ACCEPT IF NOT(UX-NODE-SUSPEND ='D' OR='E' OR ='S')
+    P-NODE-SUSPEND    := UX-NODE-SUSPEND
+    P-NODE-NAME       := UX-NODE-NAME
+    P-USERID          := UX-NODE-USERID
+    P-CIPHER-PASSWORD := UX-NODE-PASSWORD
+    P-GROUP           := UX-NODE-GROUP
+    #UX-ISN           := *ISN(FDUX.)
+  END-FIND
+  IF #UX-ISN EQ 0
+    P-ERROR-CODE := 0005
+    COMPRESS *PROGRAM 'Node not active' #SPOOL-UNIX-NODE-NAME
+      TO P-ERROR-TEXT
+    COMPRESS '2038' UX-NODE-NAME TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+    END TRANSACTION
+*
+    RESET P-RETRY-POSSIBLE
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+#SUSP-REMEMBER := P-NODE-SUSPEND
+* NOMALL-2294 BLI end
+DECIDE ON EVERY VALUE OF P-ERROR-CODE
+  VALUE 0
+    PERFORM WAIT-LOCKED
+  VALUE 0
+    PERFORM READ-UNIX-RECORDS
+  VALUE 0
+    IF IN-BUFFER
+      PERFORM STORE-RECORD
+    END-IF
+  VALUE 0                              /* NOMALL-2294 BLI start
+    END TRANSACTION
+    P-RECORDS-STORED := TRUE
+  ANY
+    IF P-ERROR-CODE NE 0 AND P-ERROR-CODE NE 9997  /* wait/skip
+      P-ERROR-OBJECT:= #UNIX-FILE-SPEC
+      BACKOUT TRANSACTION
+      RESET P-RETRY-POSSIBLE
+* deactivate node, stop copying                NOMALL-2294 BLI
+      PERFORM SET-SUSPEND
+    END-IF
+  NONE IGNORE
+END-DECIDE
+*
+* BLI8 No Delete hereÜ
+*
+END-SUBROUTINE /* COPY-UNIX
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-CMASPOOL
+************************************************************************
+#SOURCE-ATTRIBUTES := P-SOURCE-ATTRIBUTES
+PERFORM OPEN-CMASPOOL-PRINTER
+IF ERROR-OCCURED
+  IF NOT P-RETRY-ALLOWED AND NOT P-RETRY-POSSIBLE
+    COMPRESS #CMASPOOL-OWNNM '/' #CMASPOOL-DEST
+      TO P-ERROR-OBJECT LEAVING NO
+  END-IF
+  ESCAPE ROUTINE
+END-IF
+PERFORM READ-CMASPOOL-RECORDS
+PERFORM CLOSE-CMASPOOL-PRINTER
+*
+IF P-ERROR-CODE = 0
+  IF IN-BUFFER
+    PERFORM STORE-RECORD
+  END-IF
+  END TRANSACTION
+  P-RECORDS-STORED := TRUE
+ELSE
+  COMPRESS #CMASPOOL-OWNNM '/' #CMASPOOL-DEST
+    TO P-ERROR-OBJECT LEAVING NO
+  BACKOUT TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* COPY-CMASPOOL
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-JES
+************************************************************************
+#SOURCE-ATTRIBUTES := P-SOURCE-ATTRIBUTES
+#P-SOURCE-TYPE-BIN := P-SOURCE-TYPE
+CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES #P-SOURCE-TYPE-BIN
+FNDJES. FIND READ-SPOOL WITH NODE = #JES-NODE
+AND JOB-NAME = #JES-JOB-NAME AND JOB-NUMBER   = #JES-JOB-NUMBER       /*
+AND TYPE     = #JES-TYPE     AND DATA-SET-KEY = #JES-DATA-SET-KEY     /*
+  AT START OF DATA
+    CONTAINER.ST-LINE-START := RECORD-NUMBER
+  END-START
+  IF ERROR-CODE NE 0
+    P-ERROR-CODE := 0005
+    COMPRESS ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE
+      TO P-ERROR-TEXT
+    ESCAPE BOTTOM (FNDJES.)
+  END-IF
+  #NSMCOMP-LINE := F#CONVERT-RECORD-HEX
+    (<READ-SPOOL.RECORD-HEX1,READ-SPOOL.RECORD-HEX2,
+    READ-SPOOL.RECORD-HEX3,#TRACING,P-REMOTE-CODEPAGE>)
+  #RECORD-NUMBER := RECORD-NUMBER
+  ADD RECORD-LENGTH TO P-STAT-INBYTE
+  IF RECORD-LENGTH > 251
+    #NSMCOMP-INLENGTH := 251
+  ELSE
+    IF #NSMCOMP-LINE = H'01' AND RECORD-LENGTH LT 3
+      #NSMCOMP-INLENGTH := 3
+    ELSE
+      #NSMCOMP-INLENGTH := RECORD-LENGTH
+    END-IF
+  END-IF
+  PERFORM #COMPR
+  IF P-ERROR-CODE NE 0
+    ESCAPE BOTTOM (FNDJES.)
+  END-IF
+END-FIND /*(FNDJES.)
+P-NUMBER-OF-LINES := *COUNTER (FNDJES.)
+IF P-ERROR-CODE = 0
+  COMPRESS #JES-JOB-NAME '/' #JES-JOB-NUMBER
+    '/' #JES-TYPE '/' #JES-DATA-SET TO #P-FILE-NAME LEAVING NO /* BLI5
+  IF IN-BUFFER
+    PERFORM STORE-RECORD
+  END-IF
+  END TRANSACTION
+  P-RECORDS-STORED := TRUE
+ELSE
+  COMPRESS #JES-JOB-NAME '/' #JES-JOB-NUMBER
+    '/' #JES-TYPE '/' #JES-DATA-SET TO P-ERROR-OBJECT LEAVING NO
+  BACKOUT TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* COPY-JES
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-FMVS
+************************************************************************
+#SOURCE-ATTRIBUTES := P-SOURCE-ATTRIBUTES
+#P-SOURCE-TYPE-BIN := P-SOURCE-TYPE
+CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES #P-SOURCE-TYPE-BIN
+FNDFMVS. FIND READ-FILE WITH NODE = #FMVS-NODE AND DSNAME = #FMVS-DSNAME
+AND LRECL   = #FMVS-LRECL AND RECFM   = #FMVS-RECFM                   /*
+AND BLKSIZE = #FMVS-BLKSIZE AND SEGMENT-LENGTH = 251                  /*
+  AT START OF DATA
+    CONTAINER.ST-LINE-START := RECORD-NUMBER
+  END-START
+  IF ERROR-CODE NE 0
+    P-ERROR-CODE := 0005
+    COMPRESS ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE
+      TO P-ERROR-TEXT
+    ESCAPE BOTTOM (FNDFMVS.)
+  END-IF
+  #NSMCOMP-LINE := F#CONVERT-RECORD-HEX
+    (<READ-FILE.RECORD-HEX1,READ-FILE.RECORD-HEX2,
+    READ-SPOOL.RECORD-HEX3,#TRACING,P-REMOTE-CODEPAGE>)
+  IF SEGMENT-NUMBER > 1 AND SEGMENT-LENGTH < 251
+    COMPRESS '§' #NSMCOMP-LINE
+      TO #NSMCOMP-LINE LEAVING NO /* first byte is cc-character
+    EXAMINE SUBSTRING (#NSMCOMP-LINE,1,1) FOR '§' REPLACE WITH ' '
+    ADD 1 TO SEGMENT-LENGTH
+  END-IF
+  #RECORD-NUMBER := RECORD-NUMBER
+  ADD SEGMENT-LENGTH TO P-STAT-INBYTE
+  #NSMCOMP-INLENGTH := SEGMENT-LENGTH
+  PERFORM #COMPR
+  IF P-ERROR-CODE NE 0
+    ESCAPE BOTTOM (FNDFMVS.)
+  END-IF
+END-FIND /*(FNDFMVS.)
+P-NUMBER-OF-LINES := *COUNTER (FNDFMVS.)
+IF P-ERROR-CODE = 0
+  #P-FILE-NAME := #FMVS-DSNAME  /* BLI5
+  IF IN-BUFFER
+    PERFORM STORE-RECORD
+  END-IF
+  END TRANSACTION
+  P-RECORDS-STORED := TRUE
+ELSE
+  P-ERROR-OBJECT:= #FMVS-DSNAME
+  BACKOUT TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* COPY-FMVS
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-FBS2
+************************************************************************
+#SPOOL-ATTRIBUTES  := P-SPOOL-ATTRIBUTES /* BLI2
+#SOURCE-ATTRIBUTES := P-SOURCE-ATTRIBUTES
+#P-SOURCE-TYPE-BIN := P-SOURCE-TYPE
+CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES #P-SOURCE-TYPE-BIN
+IF *MACHINE-CLASS NE 'MAINFRAME' /*SU11
+  IF F#ESA (<#FBS2-NODE>) /*must be separate IF ÜÜ
+    CALLNAT 'NOMESA' #FBS2-NODE (AD=O) +NOD-CURRENT-NAME(AD=O) 1X
+      #USE-ESA
+  END-IF
+END-IF
+*
+* NOMALL-2294 BLI use 1-digit of task number for copying
+#RECEIPT-STAMP := #P-TASK-NUMBER-STMP
+#RECEIPT-NODE  := #FBS2-NODE-A
+#RECEIPT-FILE  := #FBS2-DSNAME
+CALLNAT 'RMRCSTMP' #RECEIPT-STAMP SEQUENTIAL-FILE-BS2
+  #RECEIPT-NODE #RECEIPT-FILE #TRACING #SPOOL-BS2-JOB-ID /* BLI2
+IF #RECEIPT-STAMP NE #P-TASK-NUMBER-STMP /* cannot done by this task
+  P-ERROR-CODE := 9997                   /* skip
+  ESCAPE ROUTINE
+END-IF
+END TRANSACTION                          /* BLI1
+*
+#TD. SET TIME /*SU11
+IF #TRACING
+  PRINT NOTITLE NOHDR (AD=L) *PROGRAM *DAT4I *TIME(AL=8)
+    'start:' #FBS2-NODE '/' #FBS2-DSNAME
+END-IF
+IF #USE-ESA /*ESA SU11
+  #ESA. FIND READ-FILE-ESA WITH NODE =#FBS2-NODE AND DSNAME=#FBS2-DSNAME
+  AND SEGMENT-LENGTH = 251                                            /*
+    AT START OF DATA
+      CONTAINER.ST-LINE-START := RECORD-NUMBER
+    END-START
+    MOVE BY NAME READ-FILE-ESA TO READ-FILE
+    PERFORM COPY-FBS2_ALL
+    IF #ESC
+      ESCAPE BOTTOM
+    END-IF
+  END-FIND
+  P-NUMBER-OF-LINES := *COUNTER (#ESA.)
+ELSE /*NPR
+  FNDFBS2. FIND READ-FILE WITH NODE = #FBS2-NODE AND DSNAME=#FBS2-DSNAME
+  AND SEGMENT-LENGTH = 251                                            /*
+    AT START OF DATA
+      CONTAINER.ST-LINE-START := RECORD-NUMBER
+    END-START
+    PERFORM COPY-FBS2_ALL
+    IF #ESC
+      ESCAPE BOTTOM
+    END-IF
+  END-FIND /*(FNDFBS2.)
+  P-NUMBER-OF-LINES := *COUNTER (FNDFBS2.)
+END-IF
+IF #TRACING
+  PRINT NOTITLE NOHDR (AD=L) *PROGRAM *DAT4I *TIME(AL=8)
+    'elapsed time:' *TIMD (#TD.)(EM=99':'99':'99'.'9) '(HH:MM:SS.T)'
+END-IF
+IF P-ERROR-CODE = 0
+  #P-FILE-NAME := #FBS2-DSNAME /* BLI5
+  IF IN-BUFFER
+    PERFORM STORE-RECORD
+  END-IF
+  END TRANSACTION
+  P-RECORDS-STORED := TRUE
+ELSE
+  P-ERROR-OBJECT:= #FBS2-DSNAME
+  BACKOUT TRANSACTION
+END-IF
+*
+#RECEIPT-STAMP := 'Q' /* query receipt stamp     /* BLI1 start
+CALLNAT 'RMRCSTMP' #RECEIPT-STAMP SEQUENTIAL-FILE-BS2 #RECEIPT-NODE
+  #RECEIPT-FILE #TRACING #SPOOL-BS2-JOB-ID       /* BLI2
+IF #RECEIPT-STAMP EQ #P-TASK-NUMBER-STMP /* same task
+  #RECEIPT-STAMP := 'U' /* unlock file for further processing
+  CALLNAT 'RMRCSTMP' #RECEIPT-STAMP SEQUENTIAL-FILE-BS2 #RECEIPT-NODE
+    #RECEIPT-FILE #TRACING #SPOOL-BS2-JOB-ID     /* BLI2
+  END TRANSACTION
+END-IF                                           /* BLI1 end
+*
+END-SUBROUTINE /* COPY-FBS2
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-FBS2_ALL /*SU11
+************************************************************************
+RESET #ESC
+IF READ-FILE.ERROR-CODE NE 0
+  IF READ-FILE.ERROR-CODE = 700
+   /* NPR ERROR 700 + FILE-SIZE = 0 => FILE EMPTY, JUST DELETE IT
+    FILEATT. FIND FILE-ATTRIBUTES WITH NODE = #FBS2-NODE
+    AND DSNAME  = #FBS2-DSNAME                                        /*
+      IF ERROR-CODE(FILEATT.) NE 0 /*SU8
+        P-ERROR-CODE := 0005
+        COMPRESS ERROR-TEXT (FILEATT.) '/' +NOD-CURRENT-NAME
+          '/' *PROGRAM '/' *LINE TO P-ERROR-TEXT
+        #ESC := TRUE
+        ESCAPE ROUTINE
+      END-IF
+      IF ERROR-CODE(FILEATT.) = 0 AND FILE-SIZE(FILEATT.) = 0
+        VTOCUPD. FIND VTOC-UPDATE WITH NODE    = #FBS2-NODE
+          AND DSNAME  = #FBS2-DSNAME AND FUNCTION = 'PURGE'           /*
+          WRITE NOTITLE NOHDR / *PROGRAM
+            *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II) 'Empty file'
+            #FBS2-DSNAME 'was deleted.' ERROR-TEXT(VTOCUPD.)
+          IF ERROR-CODE NE 0 /*SU8
+            PRINT ERROR-CODE ERROR-TEXT
+          END-IF
+        END-FIND /*(VTOCUPD.)
+        #ESC := TRUE
+        ESCAPE ROUTINE
+      END-IF
+    END-FIND /*(FILEATT.)
+  END-IF
+  P-ERROR-CODE := 0005
+  COMPRESS READ-FILE.ERROR-TEXT '/' +NOD-CURRENT-NAME
+    '/' *PROGRAM '/' *LINE TO P-ERROR-TEXT
+  #ESC := TRUE
+  ESCAPE ROUTINE
+END-IF
+IF #USE-ESA
+  #NSMCOMP-LINE := READ-FILE.RECORD
+ELSE
+  #NSMCOMP-LINE := F#CONVERT-RECORD-HEX (<READ-FILE.RECORD-HEX1,
+    READ-FILE.RECORD-HEX2,READ-FILE.RECORD-HEX3,
+    #TRACING,P-REMOTE-CODEPAGE>)
+END-IF
+IF READ-FILE.SEGMENT-NUMBER > 1 AND READ-FILE.SEGMENT-LENGTH < 251
+  COMPRESS '§' #NSMCOMP-LINE
+    TO #NSMCOMP-LINE LEAVING NO /* first byte is cc-character
+  EXAMINE SUBSTRING (#NSMCOMP-LINE,1,1) FOR '§' REPLACE WITH ' '
+  ADD 1 TO READ-FILE.SEGMENT-LENGTH
+END-IF
+#RECORD-NUMBER := READ-FILE.RECORD-NUMBER
+ADD READ-FILE.SEGMENT-LENGTH TO P-STAT-INBYTE
+#NSMCOMP-INLENGTH := READ-FILE.SEGMENT-LENGTH
+  PERFORM #COMPR
+IF P-ERROR-CODE NE 0
+  #ESC := TRUE
+END-IF
+*
+END-SUBROUTINE /* COPY-FBS2_ALL
+*
+************************************************************************
+DEFINE SUBROUTINE COMPRESS-INTO-BUFFER
+************************************************************************
+REPEAT
+  IF *MACHINE-CLASS NE 'MAINFRAME' /*SU10
+  AND P-SOURCE-TYPE = SEQUENTIAL-FILE-BS2                             /*
+  AND SUBSTR(#NSMCOMP-LINE,1,1) = H'00'                               /*
+    MOVE ' ' TO SUBSTR(#NSMCOMP-LINE,1,1)
+  END-IF
+  INCLUDE C-NSMCMP 'CONTAINER.ST-TEXT-LOB'
+  DECIDE ON FIRST #NSMCOMP-RC
+    VALUE 0
+      IF P-SOURCE-TYPE = SEQUENTIAL-FILE-UNIX AND NOT IN-BUFFER
+        CONTAINER.ST-LINE-START := #RECORD-NUMBER
+      END-IF
+      CONTAINER.ST-LINE-END := #RECORD-NUMBER
+      IN-BUFFER := TRUE
+      ESCAPE BOTTOM
+    VALUE 4
+      PERFORM STORE-RECORD
+      CONTAINER.ST-LINE-START := #RECORD-NUMBER
+      RESET   CONTAINER.ST-LINE-END
+      CONTAINER.ST-TEXT-LOB := H'000000'
+      IN-BUFFER := FALSE
+    NONE
+      P-ERROR-CODE := 0005
+      COMPRESS 'Error' #NSMCOMP-RC 'occured' TO P-ERROR-TEXT
+      ESCAPE BOTTOM
+  END-DECIDE
+END-REPEAT
+*
+END-SUBROUTINE /* COMPRESS-INTO-BUFFER
+*
+************************************************************************
+DEFINE SUBROUTINE STORE-RECORD
+************************************************************************
+*** Erase 'tail end' of buffer
+IF CONTAINER.ST-BUFFER-LENGTH-X < #NSMCOMP-BUFFER-LENGTH
+  #FROM := CONTAINER.ST-BUFFER-LENGTH-X
+  #FROM := #FROM + 1 + 3         /* Include 'v34' prefix
+  #TO   := #NSMCOMP-BUFFER-LENGTH
+  IF #FROM LE #TO
+    RESET CONTAINER.ST-B-LOB (#FROM : #TO)
+  END-IF
+END-IF
+*
+ADD 1 TO P-STAT-OUTREC
+P-STAT-OUTBYTE := P-STAT-OUTBYTE + #FROM
+*
+STORE CONTAINER
+*
+ADD 1 TO #COUNTER
+IF #COUNTER > #COUNT
+  END TRANSACTION
+  P-RECORDS-STORED := TRUE
+  RESET #COUNTER
+END-IF
+*
+END-SUBROUTINE /* STORE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE OPEN-CMASPOOL-PRINTER
+************************************************************************
+RESET #ESFO
+#ESFO-UID := 'NOMMON' /*was deactivated with version from 20201202 SU13
+#ESFO-STA := '11'
+#ESFO-LNG := 288
+#ESFO-TYP := '2'
+#ESFO-FNO := #CMASPOOL-SEQNO
+#ESFO-OWN := #CMASPOOL-OWNNM
+#ESFO-FNAM := #CMASPOOL-OWNNM
+#ESFO-DES := #CMASPOOL-DEST
+#ESFO-SID := #CMASPOOL-SID
+#ESFO-DAM := 'N'
+* react; deactivated with version from 20201202 Ü? SU13 ->
+CALL 'ESFOPEN' #ESF-OPEN-PARMS (*)
+#ESF-RC := RET ('ESFOPEN') /*SU13 <-
+#CBA := #ESFO-CBA
+#FNO := #ESFO-FNO
+*
+IF #ESF-RC > H'0000' OR #ESFO-STA NE ' '
+  COMPRESS 'Error during Open CA Spool RC=' #ESF-RC-I
+    TO P-ERROR-TEXT LEAVING NO
+  COMPRESS P-ERROR-TEXT 'STA=' TO P-ERROR-TEXT
+  COMPRESS P-ERROR-TEXT #ESFO-STA TO P-ERROR-TEXT LEAVING NO
+  P-ERROR-CODE := 0005
+  ERROR-OCCURED := TRUE
+  IF #ESF-RC = H'0000'
+    IF #ESFO-STA = 'NS'     /* No storage was available
+        OR = '01'     /* File queue was full
+        OR = '02'     /* No more spool space available
+        OR = '03'     /* No storage available for control blocks
+        OR = '06'     /* Destination name does not match
+        OR = '07'     /* File not permanently closed
+        OR = '12'     /* File not temporarily closed
+        OR = '13'     /* Not temporarily closed for output processing
+        OR = '14'     /* Not temporarily closed for input procesing
+      P-RETRY-POSSIBLE := TRUE
+    END-IF
+  END-IF
+  IF NOT P-RETRY-POSSIBLE OR NOT P-RETRY-ALLOWED OR #TRACING
+    COMPRESS 'Unable to process CA Spool Dest:' #CMASPOOL-DEST 'Ownnm:'
+      #CMASPOOL-OWNNM TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* OPEN-CMASPOOL-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE READ-UNIX-RECORDS
+************************************************************************
+CONTAINER.ST-LINE-START := 1
+RESET #RECORD
+XXHASH-PARMS.P-SHORT-NAME := #SPOOL-UNIX-FILE-NAME
+PERFORM GET-LONG-NAME
+COMPRESS #SPOOL-UNIX-PATH P-FILE-NAME TO P-FILE-NAME LEAVING NO
+#RECEIPT-FILE  := P-FILE-NAME
+#RECEIPT-NODE  := #SPOOL-UNIX-NODE-NAME
+* NOMALL-2294 BLI use 1-digit of task number for copying
+#RECEIPT-STAMP := #P-TASK-NUMBER-STMP
+CALLNAT 'RMRCSTMP' #RECEIPT-STAMP SEQUENTIAL-FILE-UNIX #RECEIPT-NODE
+  #RECEIPT-FILE #TRACING 1X
+IF #RECEIPT-STAMP NE #P-TASK-NUMBER-STMP /* cannot done by this task
+  P-ERROR-CODE := 9997 /* skip
+  ESCAPE ROUTINE
+END-IF
+END TRANSACTION                          /* BLI1
+#P-FILE-NAME := P-FILE-NAME
+READUX. REPEAT
+  IF P-REP-FORMAT = 'B'
+    P-BINARY := 'Y'
+  ELSE
+    P-BINARY := 'N'
+  END-IF
+  P-FILE-NAME  := #P-FILE-NAME
+  #UX-FUNCTION := 'READ'
+  PERFORM UNIX-FUNCTION
+*
+  IF P-ERROR-CODE NE 0 OR #EOF
+    ESCAPE BOTTOM (READUX.)
+  END-IF
+  IF #TRACING
+    COMPRESS 'got binary flag' P-BINARY 'and rep-format'
+      P-REP-FORMAT TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+  IF P-BINARY NE 'Y' AND P-REP-FORMAT NE 'A'                                             /*
+    #RECORD-2      := P-RECORD
+    IF #INSERT-FORMFEED > 0
+      #RECORD-CC   := '1'
+    ELSE
+      RESET #RECORD-CC
+    END-IF
+  ELSE
+    #RECORD := P-RECORD
+  END-IF
+  EXAMINE #RECORD FOR FULL VALUE OF ' ' GIVING LENGTH #RECORD-LENGTH
+  IF #RECORD-LENGTH < 1
+    #RECORD-LENGTH := 1 /* handle blank line
+  END-IF
+*
+  #NSMCOMP-LINE := #RECORD
+  IF P-CC = '1' AND P-BINARY NE 'Y'
+    ADD 1 TO #INSERT-FORMFEED
+    IF #FIRST-RECORD AND #RECORD-2 = ' '
+      RESET #FIRST-RECORD
+      ESCAPE TOP /* no processing of this line, only formfeed.
+    END-IF
+  END-IF
+  RESET #FIRST-RECORD
+  ADD 1 TO #RECORD-NUMBER
+  IF #RECORD-LENGTH > 251
+    #NSMCOMP-INLENGTH := 251
+    ADD 251 TO P-STAT-INBYTE
+  ELSE
+    #NSMCOMP-INLENGTH := #RECORD-LENGTH
+    ADD #RECORD-LENGTH TO P-STAT-INBYTE
+  END-IF
+  IF #RECORD-CC = '1'
+    SUBTRACT 1 FROM #INSERT-FORMFEED
+    IF #INSERT-FORMFEED < 0
+      RESET #INSERT-FORMFEED
+    END-IF
+  END-IF
+  PERFORM #COMPR
+  IF P-ERROR-CODE NE 0
+    ESCAPE BOTTOM (READUX.)
+  END-IF
+END-REPEAT
+IF P-ERROR-CODE EQ 0
+  P-NUMBER-OF-LINES := #RECORD-NUMBER
+  #UX-FUNCTION      := 'CLOSE'
+  P-FILE-NAME       := #P-FILE-NAME
+  PERFORM UNIX-FUNCTION
+END-IF
+#RECEIPT-STAMP := 'Q' /* query receipt stamp /* BLI1 start
+CALLNAT 'RMRCSTMP' #RECEIPT-STAMP SEQUENTIAL-FILE-UNIX #RECEIPT-NODE
+  #RECEIPT-FILE #TRACING 1X
+IF #RECEIPT-STAMP EQ #P-TASK-NUMBER-STMP /* same task
+  #RECEIPT-STAMP := 'U' /* unlock file for further processing
+  CALLNAT 'RMRCSTMP' #RECEIPT-STAMP SEQUENTIAL-FILE-UNIX #RECEIPT-NODE
+    #RECEIPT-FILE #TRACING 1X
+  END TRANSACTION
+END-IF                                       /* BLI1 end
+*
+END-SUBROUTINE /* READ-UNIX-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-CMASPOOL-RECORDS
+************************************************************************
+CONTAINER.ST-LINE-START := 1
+READLOOP. REPEAT
+  RESET  #ESFR
+  #ESFR-CBA := #CBA
+  #ESFR-FNO := #FNO
+  CALL 'ESFREAD' #ESF-READ-PARMS (*)
+  #ESF-RC := RET ('ESFREAD')
+  DECIDE FOR FIRST CONDITION
+    WHEN #ESF-RC = H'0000' AND #ESFR-STA ='07' OR='09'
+      IGNORE
+    WHEN #ESF-RC > H'0000' OR #ESFR-STA NE '  '
+      COMPRESS 'CASPOOL' '/' #CMASPOOL-DEST '/' #CMASPOOL-OWNNM
+        TO P-ERROR-TEXT LEAVING NO
+      PRINT NOTITLE NOHDR
+        *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Unable to process CA Spool' P-ERROR-TEXT /*SU8 (AL=70)
+      COMPRESS 'Error during Read CA Spool RC=' #ESF-RC-I
+        TO P-ERROR-TEXT LEAVING NO
+      COMPRESS P-ERROR-TEXT 'STA=' TO P-ERROR-TEXT
+      COMPRESS P-ERROR-TEXT #ESFR-STA TO P-ERROR-TEXT LEAVING NO
+      P-ERROR-CODE := 0005
+    WHEN ANY
+      ESCAPE BOTTOM (READLOOP.)
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+*
+  #NSMCOMP-LINE := #ESFR-D90
+  ADD 1 TO #RECORD-NUMBER
+*
+  ADD #ESFR-RCL TO P-STAT-INBYTE
+  IF #ESFR-RCL > 251
+    #NSMCOMP-INLENGTH := 251
+  ELSE
+    #NSMCOMP-INLENGTH := #ESFR-RCL
+  END-IF
+  PERFORM #COMPR
+  IF P-ERROR-CODE NE 0
+    ESCAPE BOTTOM (READLOOP.)
+  END-IF
+END-REPEAT
+P-NUMBER-OF-LINES := #RECORD-NUMBER
+*
+END-SUBROUTINE /* READ-CMASPOOL-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-CMASPOOL-PRINTER
+************************************************************************
+RESET #ESFC
+#ESFC-CBA := #CBA
+#ESFC-FNO := #FNO
+#ESFC-TYP := '4'                         /* permanent close
+CALL 'ESFCLOS' #ESF-CLOSE-PARMS
+#ESF-RC := RET ('ESFCLOS')
+IF #ESF-RC > H'0000'
+  COMPRESS 'CASPOOL' '/' #CMASPOOL-DEST '/' #CMASPOOL-OWNNM
+    TO P-ERROR-TEXT LEAVING NO
+  PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Unable to process CA Spool' P-ERROR-TEXT /*SU8 (AL=70)
+  COMPRESS 'Error during Close CA Spool RC=' #ESF-RC-I
+    TO P-ERROR-TEXT LEAVING NO
+  COMPRESS P-ERROR-TEXT 'STA=' TO P-ERROR-TEXT
+  COMPRESS P-ERROR-TEXT #ESFR-STA TO P-ERROR-TEXT LEAVING NO
+  P-ERROR-CODE := 0005
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* CLOSE-CMASPOOL-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE WAIT-LOCKED
+************************************************************************
+XXHASH-PARMS.P-SHORT-NAME := #SPOOL-UNIX-FILE-NAME
+PERFORM GET-LONG-NAME
+COMPRESS #SPOOL-UNIX-PATH P-FILE-NAME
+  TO P-FILE-NAME LEAVING NO
+P-NODE-NAME := #SPOOL-UNIX-NODE-NAME
+IF #TRACING
+  COMPRESS 'WAIT-LOCKED for:' P-FILE-NAME '- from node:' P-NODE-NAME
+    '- from short name:' #SPOOL-UNIX-FILE-NAME TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+IF P-TRACE > 0 AND P-ERC = 0
+  CALLNAT 'XXLOCKED' XXUX---P P-TRACE
+ELSE
+  CALLNAT 'XXLOCKED' XXUX---P
+END-IF
+P-ERROR-CODE := P-ERC
+P-ERROR-TEXT := P-ERT
+IF #TRACING
+  COMPRESS 'XXLOCKED shows result:' P-ERC P-ERT 'for' P-FILE-NAME
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+IF P-ERROR-CODE NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+#GETATTR := P-RECORD
+IF #TRACING
+  COMPRESS 'FILE-LOCKED flag is' #FILE-LOCKED TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+IF #FILE-LOCKED = 'Y'
+  #LOCK-FCT    := 'F' /* find the filename in table
+  #LOCK-FN (1) := P-FILE-NAME
+  INCLUDE XXTABLE2 '#LOCK-FCT'   '+LOCK-TBLE'
+    '#LOCK-FN'     '+LOCK-IX'    '+LOCK-LASTIX'
+    '+LOCK-TEMP1'  '+LOCK-TEMP2' '#LOCK-COLS'   '+LOCK-ERC'
+  IF +LOCK-IX NE 0
+    #LOCK-TRIES := VAL(#LOCK-FN(2))
+  ELSE
+    RESET #LOCK-TRIES
+  END-IF
+  ADD 1 TO #LOCK-TRIES
+  IF #LOCK-TRIES < 15 /* try it 15 cycles with this file
+    #LOCK-FN (2) := #LOCK-TRIES
+    #LOCK-FCT    := 'A' /* Add / update the filename
+    INCLUDE XXTABLE2 '#LOCK-FCT'   '+LOCK-TBLE'
+      '#LOCK-FN'     '+LOCK-IX'    '+LOCK-LASTIX'
+      '+LOCK-TEMP1'  '+LOCK-TEMP2' '#LOCK-COLS'   '+LOCK-ERC'
+    P-ERROR-CODE := 9997 /* wait/postpone
+  ELSE
+    #LOCK-FCT    := 'D' /* Delete this filename
+    INCLUDE XXTABLE2 '#LOCK-FCT'   '+LOCK-TBLE'
+      '#LOCK-FN'     '+LOCK-IX'    '+LOCK-LASTIX'
+      '+LOCK-TEMP1'  '+LOCK-TEMP2' '#LOCK-COLS'   '+LOCK-ERC'
+    P-ERROR-CODE := 2068 /* file is in use
+    P-ERROR-TEXT := P-FILE-NAME
+  END-IF
+ELSE
+  #LOCK-FCT    := 'D' /* Delete this filename, can be processed.
+  INCLUDE XXTABLE2 '#LOCK-FCT'   '+LOCK-TBLE'
+    '#LOCK-FN'     '+LOCK-IX'    '+LOCK-LASTIX'
+    '+LOCK-TEMP1'  '+LOCK-TEMP2' '#LOCK-COLS'   '+LOCK-ERC'
+  RESET P-ERROR-CODE P-ERROR-TEXT
+END-IF
+*
+END-SUBROUTINE /*WAIT-LOCKED
+*
+************************************************************************
+DEFINE SUBROUTINE UNIX-FUNCTION
+************************************************************************
+XXUX---P.P-FUNCTION := #UX-FUNCTION
+IF #UX-FUNCTION = 'DELXML'
+  COMPRESS P-FILE-NAME '.nomxml' TO P-FILE-NAME LEAVING NO
+  XXUX---P.P-FUNCTION := #UX-FUNCTION := 'DELETE'
+END-IF
+IF +TRACE-ORDER = 'Y' /* TRACE-ORDER found in jobcards
+  IF #UX-FUNCTION = 'DELETE'
+    COMPRESS *PROGRAM 'Going to delete' P-FILE-NAME TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+END-IF
+IF #TRACING
+  COMPRESS 'Executing Unix fct' #UX-FUNCTION 'with user' P-USERID
+    '- node' P-NODE-NAME '- file' P-FILE-NAME TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+CALLNAT 'XXUX---N' XXUX---P P-TRACE
+IF +TRACE-ORDER = 'Y' /* TRACE-ORDER found in jobcards
+  IF #UX-FUNCTION = 'DELETE'
+    COMPRESS *PROGRAM 'DELETE returns:' P-ERC P-ERT TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+END-IF
+IF #TRACING
+  COMPRESS ' Unix fct' #UX-FUNCTION 'returned rc' P-ERC
+    'with text' P-ERT TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+P-ERROR-CODE := P-ERC
+P-ERROR-TEXT := P-ERT
+*
+END-SUBROUTINE /* UNIX-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE SET-SUSPEND
+************************************************************************
+IF #UX-ISN EQ 0
+  FDUX2. FIND (1) UX-NODES WITH UX-NODE-NAME = #SPOOL-UNIX-NODE-NAME
+    ACCEPT IF NOT(UX-NODE-SUSPEND ='D' OR='E' OR ='S')
+    #SUSP-REMEMBER := UX-NODE-SUSPEND
+    #UX-ISN         := *ISN(FDUX2.)
+  END-FIND
+END-IF
+IF #SUSP-REMEMBER ='M' OR='L'
+  ESCAPE ROUTINE
+END-IF
+IF #UX-ISN NE 0
+  GETUX1. GET UX-NODES #UX-ISN
+* user or pwd invalid
+  RESET #TRACE-MSG                      /* BLI3 start
+  IF P-ERROR-TEXT = SCAN('NPR3416')  OR=SCAN('NPR0009')
+      OR P-ERROR-CODE = 1581
+* pwd invalid / wrong NPR version
+    UX-NODE-SUSPEND := 'E'
+    IF UX-NODE-TIME-STORED NE 'E'
+      UX-NODE-TIME-STORED := 'E'
+      UX-NODE-SUSPENDED := *TIMX        /* set time
+      RESET UX-NODE-SUSP-MAX-MSG
+      COMPRESS '2069' UX-NODE-NAME TO #TRACE-MSG
+    END-IF
+  ELSE
+    UX-NODE-SUSPEND := 'S'
+    IF UX-NODE-TIME-STORED NE 'S'
+      UX-NODE-TIME-STORED := 'S'
+      UX-NODE-SUSPENDED := *TIMX        /* set time
+      RESET UX-NODE-SUSP-MAX-MSG
+      COMPRESS '2026' UX-NODE-NAME TO #TRACE-MSG
+    ELSE
+      IF UX-NODE-SUSP-MAX-MSG = ' ' AND
+          UX-NODE-SUSP-TIME-INT > 0 AND                          /* BLI4
+          *TIMX - UX-NODE-SUSPENDED > UX-NODE-SUSP-TIME-INT * 600 /*BLI6
+        UX-NODE-SUSP-MAX-MSG := 'X'
+        COMPRESS '2071' UX-NODE-NAME TO #TRACE-MSG
+      END-IF
+    END-IF
+  END-IF
+  UPDATE (GETUX1.)
+  P-NODE-SUSPEND    := UX-NODE-SUSPEND
+  IF #TRACE-MSG NE ' '
+    PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+  END-IF                                /* BLI3 end
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* SET-SUSPEND
+*
+************************************************************************
+DEFINE SUBROUTINE BACKOUT-COPY
+************************************************************************
+RESET P-RECORDS-STORED P-STAT-OUTREC P-STAT-OUTBYTE
+  #COUNTER #ST-LINE-END
+*
+#ST-ID := P-ID
+RDBACKOUT. READ CONTAINER BY ST-ID-LINE FROM #ST-ID-LINE
+  IF ST-ID NE P-ID
+    ESCAPE BOTTOM (RDBACKOUT.)
+  END-IF
+  DELETE
+  ADD 1 TO #COUNTER
+  IF #COUNTER > #COUNT
+    END TRANSACTION
+    RESET #COUNTER
+  END-IF
+END-READ
+#SPOOL-ATTRIBUTES := P-SPOOL-ATTRIBUTES
+IF #SPOOL-TYPE = SEQUENTIAL-FILE-UNIX           /* BLI1, BLI2 start
+  #RECEIPT-STAMP := 'Q' /* query receipt stamp
+  CALLNAT 'RMRCSTMP' #RECEIPT-STAMP #SPOOL-TYPE #RECEIPT-NODE
+    #RECEIPT-FILE #TRACING 1X
+  IF #RECEIPT-STAMP EQ #P-TASK-NUMBER-STMP /* same task
+    #RECEIPT-STAMP := 'U'        /* reset receipt stamp to ' ' (Unlock)
+    CALLNAT 'RMRCSTMP' #RECEIPT-STAMP #SPOOL-TYPE #RECEIPT-NODE
+      #RECEIPT-FILE #TRACING 1X
+  END-IF
+END-IF
+IF #SPOOL-TYPE = SEQUENTIAL-FILE-BS2
+  #RECEIPT-STAMP := 'Q' /* query receipt stamp
+  CALLNAT 'RMRCSTMP' #RECEIPT-STAMP #SPOOL-TYPE #RECEIPT-NODE
+    #RECEIPT-FILE #TRACING #SPOOL-BS2-JOB-ID
+  IF #RECEIPT-STAMP EQ #P-TASK-NUMBER-STMP /* same task
+    #RECEIPT-STAMP := 'U'        /* reset receipt stamp to ' ' (Unlock)
+    CALLNAT 'RMRCSTMP' #RECEIPT-STAMP #SPOOL-TYPE #RECEIPT-NODE
+      #RECEIPT-FILE #TRACING #SPOOL-BS2-JOB-ID
+  END-IF                                       /* BLI1, BLI2 end
+END-IF
+END TRANSACTION
+*
+END-SUBROUTINE /* BACKOUT-COPY
+*
+************************************************************************
+DEFINE SUBROUTINE GET-LONG-NAME
+************************************************************************
+XXHASH-PARMS.P-FUNCTION := 'L' /*short -> long
+PERFORM XXHASH XXHASH-PARMS
+P-FILE-NAME := XXHASH-PARMS.P-LONG-NAME
+*
+END-SUBROUTINE /* GET-LONG-NAME
+*
+************************************************************************
+DEFINE SUBROUTINE #COMPR
+************************************************************************
+  #NSMCOMP-INLENGTH-OLD := #NSMCOMP-INLENGTH  /*For compat
+  IF #NSMCOMP-INLENGTH > P-RECORD-LENGTH
+    P-RECORD-LENGTH := #NSMCOMP-INLENGTH
+  END-IF
+  PERFORM COMPRESS-INTO-BUFFER
+*
+END-SUBROUTINE /* #COMPR
+************************************************************************
+ON ERROR
+************************************************************************
+  PRINT (AD=L) *PROGRAM *DAT4I *TIME(AL=8) 'error:' *ERROR /*SU12
+    '(' *ERROR-LINE ')' /*BLI8
+  IF P-FILE-NAME = ' ' /*BLI8
+    COMPRESS #P-FILE-NAME '(#)' TO P-FILE-NAME
+  END-IF
+  PRINT (AD=L) 'file:' P-FILE-NAME /*SU12
+  BACKOUT TRANSACTION
+  P-ERROR-CODE := 21
+  CALLNAT 'C-NATERN' P-ERROR-TEXT 'W'
+END-ERROR
+*
+END

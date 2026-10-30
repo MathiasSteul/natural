@@ -1,0 +1,193 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RCOPBU - COPY BUNDLE DEFINITION
+*
+* Maintenance
+* mrs 91-12-20 s(141159) support languages other than english
+* mrs 92-09-16           call from command processor implemented
+* mrs 92-09-16           security calls added
+* jvd 97-06-23 p(163108) copy also reports inside bundle
+* wcd 00-04-01 CE 7267   re-cat VMBUND-L changes
+* xsisgg 00-08-22 CE7461 Extend Report and Bundle names
+* Splildav 10-02-15 N3246  Leave bundle status as is
+* xsetggr 2012-02-02 NOMALL-1100 write log msg when copy bundles
+* xsetggr 2012-09-21 NOMALL-89 implement subroutine S-CHKSEC
+* SU1     2014-06-04 NOMALL-1281 show last update user+date
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING VMBUND-L
+LOCAL USING ROT----L
+LOCAL USING RLOG-L
+LOCAL USING EOM----E
+LOCAL USING EOMGRM-P
+LOCAL USING EOMMSG-P
+LOCAL
+1 GET-BR VIEW OF NRM-BUNDLE-REPORT
+  2 BR-BUNDLE
+  2 BR-REPNAME
+  2 BR-PRINTER
+  2 BR-GROUP
+  2 BR-SEQNO
+  2 BR-SEPNO
+  2 BR-REPNO
+  2 BR-PAGEDEF
+  2 BR-FORMDEF
+*
+1 WRT-BR VIEW OF NRM-BUNDLE-REPORT
+  2 BR-BUNDLE
+  2 BR-REPNAME
+  2 BR-PRINTER
+  2 BR-GROUP
+  2 BR-SEQNO
+  2 BR-SEPNO
+  2 BR-REPNO
+  2 BR-PAGEDEF
+  2 BR-FORMDEF
+*
+1 #FROM-BUN         (A25)
+1 REDEFINE #FROM-BUN
+  2 #FROM-BUN-A     (A1/25)
+1 #TO-BUN           (A25)
+1 REDEFINE #TO-BUN
+  2 #TO-BUN-A       (A1/25)
+1 #CH-F             (A1)
+1 #COPYGRT          (L) INIT <TRUE>
+1 #GR-TYPE-NAME     (A26)
+1 REDEFINE #GR-TYPE-NAME
+  2 #GR-TYPE        (A1)
+  2 #GR-NAME        (A25)
+1 #FATHER-PROG      (A8) INIT <'RLISBU'>
+1 #PROG             (A8)
+1 #ALLOWED          (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM COPBU-INIT
+SET KEY PF3
+REPEAT
+  IF G-SUPPORT-LONG-NAMES
+    SET CONTROL 'WC13L45B06/25F'
+  ELSE
+    SET CONTROL 'WC13L43B06/25F'
+  END-IF
+  IF NOT G-DISPLAY-LONG-NAMES
+    #CH-F := #FROM-BUN-A(9)
+    #FROM-BUN-A(9) := H'FA'
+    #TO-BUN-A(9) := H'FA'
+  END-IF
+  SET CONTROL 'MT'
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'RCOPBUM&'
+  RESET G-NATRP-ERC G-NATRP-ERT
+  IF *PF-KEY = 'PF3'
+    SET CONTROL 'WB'
+    INCLUDE C-ESCAPE
+  END-IF
+  IF NOT G-DISPLAY-LONG-NAMES
+    #FROM-BUN-A(9) := #CH-F
+    RESET  #TO-BUN-A(9)
+  END-IF
+  IF #TO-BUN = ' '
+    REINPUT *0405 MARK *#TO-BUN ALARM
+  END-IF
+  FIND-BUN. FIND NUMBER BUNDLES WITH B-BUNDLE = #TO-BUN
+  IF *NUMBER(FIND-BUN.) > 0
+    REINPUT *33,G-OBJ-TYPE ALARM
+  END-IF
+*
+  PERFORM COPY-BUNDLE
+*
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE COPBU-INIT
+************************************************************************
+CALLNAT 'ROTINI-N' ##EQO-BUNDLE G-OBJ-TYPE G-OTB
+#GR-TYPE := 'B'
+#GR-NAME  := #FROM-BUN := G-C-BUNDLE
+*
+#PROG := *PROGRAM
+PERFORM XXSECURITY-CHECK #PROG #GR-NAME #ALLOWED         /* 'S-CHKSEC'
+INCLUDE C-NALLOW
+*
+FNDBU. FIND NUMBER BUNDLES WITH B-BUNDLE = #FROM-BUN
+IF *NUMBER (FNDBU.) = 0
+  G-NATRP-ERC := 0408
+  INCLUDE C-ESCAPE
+END-IF
+*
+END-SUBROUTINE /* COPBU-INIT
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-BUNDLE
+************************************************************************
+FIND-SOURCE. FIND BUNDLES WITH B-BUNDLE = #FROM-BUN
+  BUNDLES.B-BUNDLE := #TO-BUN
+  B-LAST-MODIFIED    := *TIMX
+  B-LAST-UPDATE      := *TIMX
+  B-LAST-UPDATE-USER := G-USERID
+  STORE BUNDLES
+  /* AUTHORIZATION
+  PERFORM ADD-GRANTS
+  PERFORM GET-COPY-REPORT
+  G-NATRP-ERC := 35
+  G-NATRP-ERT := G-OBJ-TYPE
+  SET CONTROL 'WB'
+*
+  LG-USERID := G-USERID
+  LG-CODE := 'BM'
+  LG-OBJECT-NAME := #TO-BUN
+  COMPRESS '2508' G-C-BUNDLE #TO-BUN TO LG-MSG
+  CALLNAT 'RLOG' PL-PARMS
+  END TRANSACTION
+*
+END-FIND
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-GRANTS
+************************************************************************
+EOMGRM-I-TYPE := 'B'
+RESET  EOMGRM-I-AUTO-COMMIT
+IF #COPYGRT
+  EOMGRM-I-NAME    := #FROM-BUN
+  EOMGRM-I-NEWNAME := #TO-BUN
+  CALLNAT 'EOMGRM-N' EOM-COPY EOMGRM-PARMS EOMMSG-PARMS /*Mnt Grant
+ELSE
+  EOMGRM-I-NAME    := #TO-BUN
+  EOMGRM-I-USER    := G-USERID
+  EOMGRM-OPTION(*) := 'Y'
+  CALLNAT 'EOMGRM-N' EOM-ADD EOMGRM-PARMS EOMMSG-PARMS /*Mnt Grant
+END-IF
+*
+END-SUBROUTINE /* ADD-GRANTS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-COPY-REPORT
+************************************************************************
+GC-BR. FIND GET-BR WITH BR-BUNDLE = #FROM-BUN
+  IF NO RECORDS FOUND
+    ESCAPE BOTTOM (GC-BR.)
+  END-NOREC
+  RESET WRT-BR
+  MOVE BY NAME GET-BR TO WRT-BR
+  WRT-BR.BR-BUNDLE := #TO-BUN
+  STORE WRT-BR
+  END TRANSACTION
+  RESET GET-BR
+END-FIND
+*
+END-SUBROUTINE /* GET-COPY-REPORT
+*
+END

@@ -1,0 +1,149 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMIGPRCO - copy printers from source to target environment
+*
+* Maintenance
+* mrs 92-04-28 s(142275) dcb, label added in vtprnt-l
+* jvd 97-10-23 s(275090) Vtprnt-l priority length change
+*                        Re-cat program only.
+* xsiszha 2000-08-02 (CE7461) Extend Report and Bundle Names
+* sju 04-06-22 p(252751) Transfer authorizations
+* fhi 05-12-14 P272732   cataloged, because VPRINT-L was changed.
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #P-MSG       (N4)
+1 #P-USERID    (A8)
+1 #P-ID        (A8)
+1 #P-COPY-AUTH (A1)
+************************************************************************
+LOCAL USING VPRINT-L
+LOCAL USING VTPRNT-L
+LOCAL USING VTGRAN-L
+LOCAL USING VGRANT-L
+LOCAL
+1 MIGRATE-USERS VIEW OF NRM-MIGRATE-USERS
+1 MIGRATE-PHYSICAL-PRINTERS VIEW OF NRM-MIGRATE-PHYSICAL-PRINTERS
+1 MIGRATE-LISTS VIEW OF NRM-MIGRATE-DISTRIBUTION-LIST
+1 #SUPER            (A34)
+1 REDEFINE #SUPER
+  2 #SP-OBJECT-TYPE (A1)
+  2 #SP-USERID      (A8)
+  2 #SP-OBJECT-NAME (A25)
+1 #GRANT-SUPER      (A26) INIT <'P'>
+1 REDEFINE #GRANT-SUPER
+  2 #GRANT-TYPE     (A1)
+  2 #GRANT-NAME     (A25)
+1 #ET-COUNT         (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #P-MSG
+FNDS. FIND PRINTERS WITH P-ID = #P-ID
+  IF NO RECORDS FOUND
+    #P-MSG := 4015
+    ESCAPE BOTTOM (FNDS.)
+  END-NOREC
+  PERFORM CHECK-RELATED-OBJECTS
+  IF #P-MSG NE 0
+    ESCAPE BOTTOM (FNDS.)
+  END-IF
+  FNDT. FIND MIGRATE-PRINTERS WITH P-ID = #P-ID
+    IF NO RECORDS FOUND
+      ENTER
+    END-NOREC
+    MOVE BY NAME PRINTERS TO MIGRATE-PRINTERS
+    IF *NUMBER (FNDT.) = 0
+      STORE MIGRATE-PRINTERS
+    ELSE
+      UPDATE (FNDT.)
+    END-IF
+    PERFORM GRANT-USER
+  END-FIND
+END-FIND
+END OF TRANSACTION
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GRANT-USER
+************************************************************************
+#SP-OBJECT-TYPE := 'P'
+#SP-USERID      := #P-USERID
+#SP-OBJECT-NAME := #P-ID
+FNDG. FIND MIGRATE-GRANTS WITH GR-SUPER = #SUPER
+  IF NO RECORDS FOUND
+    MIGRATE-GRANTS.GR-USERID := #P-USERID
+    MIGRATE-GRANTS.GR-OBJECT-TYPE := 'P'
+    MIGRATE-GRANTS.GR-OBJECT-NAME := #P-ID
+  END-NOREC
+  MIGRATE-GRANTS.GR-OPTION(*) := 'Y'
+  IF *NUMBER (FNDG.) = 0
+    STORE MIGRATE-GRANTS
+  ELSE
+    UPDATE
+  END-IF
+END-FIND
+IF #P-COPY-AUTH = 'Y'
+  #GRANT-NAME:= #P-ID
+  COPG. FIND GRANTS WITH GR-TYPE-NAME = #GRANT-SUPER
+    #SP-USERID:= GRANTS.GR-USERID
+    COPM. FIND MIGRATE-GRANTS WITH GR-SUPER = #SUPER
+      IF NO RECORDS FOUND
+        ENTER
+      END-NOREC
+      MOVE BY NAME GRANTS TO MIGRATE-GRANTS
+      IF *NUMBER (COPM.) = 0
+        STORE MIGRATE-GRANTS
+      ELSE
+        UPDATE
+      END-IF
+      ADD 1 TO #ET-COUNT
+      IF #ET-COUNT GE 50
+        RESET #ET-COUNT
+        END TRANSACTION
+      END-IF
+    END-FIND
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* GRANT-USER
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-RELATED-OBJECTS
+************************************************************************
+IF NOT (PRINTERS.P-PHYSICAL-NAME = 'TAPE' OR= 'DISK' OR= 'SYSPRINT')
+  FNDPH. FIND NUMBER MIGRATE-PHYSICAL-PRINTERS
+    WITH PH-VTAMID = PRINTERS.P-PHYSICAL-NAME
+  IF *NUMBER (FNDPH.) = 0
+    #P-MSG := 4015
+  END-IF
+END-IF
+IF #P-MSG = 0 AND #P-COPY-AUTH = 'Y'
+  #GRANT-NAME:= #P-ID
+  CHKG. FIND GRANTS WITH GR-TYPE-NAME = #GRANT-SUPER
+    IF GR-USERID(CHKG.) = 'PUBLIC'
+      ESCAPE TOP
+    END-IF
+    FNRU. FIND NUMBER MIGRATE-USERS WITH USER-ID = GR-USERID(CHKG.)
+    IF *NUMBER(FNRU.) = 0
+      F. FIND NUMBER MIGRATE-LISTS WITH D-LIST-NAME = GR-USERID(CHKG.)
+      IF *NUMBER(F.) = 0
+        #P-MSG:= 4029
+      END-IF
+    END-IF
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* CHECK-RELATED-OBJECTS
+*
+END

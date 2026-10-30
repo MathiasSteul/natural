@@ -1,0 +1,180 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMRPMPN - DB Interface EOM Object Report (printing attributes)
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-05-24           created
+* jvd 97-07-08 p(163579) Separator page truncation
+* wcd 00-04-01 CE 7267   re-cat as changes made to EOMRPM-P
+* xsethz   2000-05-30 s(CE7760) READ-NEXT, READ-HOLD-NEXT added
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* sju     2002-10-08 nom221   XML printers
+* XSETHZ  2004-02-13 P(250183) Separator member 'NONE'/'KEIN'
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2011-10-17 NOMALL-970 implement new flag - 'Report print once'
+* xsetggr 2013-01-22 NOMALL-970 implementation cancelled
+* fhi     2013-08-29 FHI285    Enhance error message 406
+* SU1     2013-11-22 NOMALL-1288 correct FHI285 for msg 406
+* fhi     2014-08-26 NOMALL-1475 Recat for new field 'FORMATTER'
+* SU2     2016-09-29 NOM3.5 use N-NONE
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* SU3     2018-03-15 NOMALL-2085 NOM35 printer:sep.pages
+* SU4     2017-10-09 NOMALL-1823 NOM 3.5: remove CONNECT,ECL,XML
+* SU2     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 EOM-FUNCTION        (I2)
+PARAMETER USING EOMRPM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL USING EOM----E
+LOCAL USING VDEFRP-L
+LOCAL
+1 REPORT VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-HOLD-PRINT
+  2 R-PRINTERS        (1:20)
+  2 REDEFINE R-PRINTERS
+    3 R-PRINTER-TAB   (1:20)
+      4 R-PRINTER     (A8)
+      4 R-COPIES      (N3)
+      4 R-SEP-PAGES   (A1) /*SU3
+  2 R-SEPMEM
+  2 REDEFINE R-SEPMEM
+    3 R-SEP-START     (A8)
+    3 R-SEP-END       (A8)
+  2 R-SEPNO
+  2 R-SEPLENG         (N3)
+  2 R-PRINT-JOBCARD   (1:3)
+  2 R-STYLESHEET-URL
+  2 R-LAST-MODIFIED    /*SU2
+  2 R-MODIFIED-BY      /*SU2
+1 I                   (P2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-INIT
+    PERFORM INIT-GENERAL-ATTRIBUTES
+  VALUE EOM-READ, EOM-READ-NEXT, EOM-READHOLD, EOM-READHOLD-NEXT
+    PERFORM READ-PRINTING-ATTRIBUTES
+  VALUE EOM-MODIFY
+    PERFORM MODIFY-PRINTING-ATTRIBUTES
+  NONE  IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-GENERAL-ATTRIBUTES
+************************************************************************
+RESET EOMRPM-PRINTING-ATTRIBUTES
+PERFORM READ-REPORT-DEFAULTS
+EOMRPM-SEPARATOR-START  := REPORT-DEFAULTS.R-SEPSTART
+EOMRPM-SEPARATOR-END    := REPORT-DEFAULTS.R-SEPEND
+EOMRPM-SEPARATOR-COPIES := REPORT-DEFAULTS.R-SEPNO
+EOMRPM-JOBCARDS (*)     := REPORT-DEFAULTS.R-PRINT-JOBCARD (*)
+*
+END-SUBROUTINE /* INIT-GENERAL-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-REPORT-DEFAULTS
+************************************************************************
+M-MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+FNDDEF. FIND REPORT-DEFAULTS WITH M-MONITOR-ID = M-MONITOR-ID
+END-FIND
+*
+END-SUBROUTINE /* READ-REPORT-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-PRINTING-ATTRIBUTES
+************************************************************************
+FNDRP. FIND REPORT WITH R-REPNAME = EOMRPM-I-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0406
+    COMPRESS EOMRPM-I-NAME ' (' *PROGRAM ',' *LINE ')'
+      TO EOMMSG-TOKEN(1) LEAVING NO
+    ESCAPE BOTTOM (FNDRP.)
+  END-NOREC
+*
+  EOMRPM-PRINTER     (*) := R-PRINTER   (*)
+  EOMRPM-COPIES      (*) := R-COPIES    (*)
+  RESET EOMRPM-SEP-PAGES   (*) /*SU3 ->
+  FOR I = 1 TO 20
+    IF EOMRPM-PRINTER (I) NE ' ' AND R-SEP-PAGES (I) = ' '
+      EOMRPM-SEP-PAGES (I) := 'X'
+    END-IF
+  END-FOR /*SU3 <-
+  EOMRPM-HOLD-PRINT      := R-HOLD-PRINT
+  EOMRPM-SEPARATOR-START := R-SEP-START
+  EOMRPM-SEPARATOR-END   := R-SEP-END
+  CALLNAT 'N-NONE' EOMRPM-SEPARATOR-START EOMRPM-SEPARATOR-END /*SU2
+  EOMRPM-SEPARATOR-COPIES := R-SEPNO
+  EOMRPM-SEPARATOR-LENGTH := R-SEPLENG
+  EOMRPM-JOBCARDS (1:3)   := R-PRINT-JOBCARD (1:3)
+/*SU4  EOMRPM-STYLESHEET-URL   := R-STYLESHEET-URL
+*
+  IF EOM-FUNCTION = EOM-READHOLD OR = EOM-READHOLD-NEXT
+    UPD. GET REPORT *ISN (FNDRP.)
+    IF R-REPNAME NE R-REPNAME
+      UPDATE (UPD.)
+    END-IF
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* READ-PRINTING-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-PRINTING-ATTRIBUTES
+************************************************************************
+FNDMOD. FIND REPORT WITH R-REPNAME = EOMRPM-I-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0406
+    COMPRESS EOMRPM-I-NAME ' (' *PROGRAM ',' *LINE ')'
+      TO EOMMSG-TOKEN(1) LEAVING NO
+    ESCAPE BOTTOM (FNDMOD.)
+  END-NOREC
+*
+  FOR I = 1 TO 20
+    IF EOMRPM-PRINTER (I) = ' '
+      RESET R-PRINTERS (I)
+    ELSE
+      R-PRINTER   (I) := EOMRPM-PRINTER   (I)
+      R-COPIES    (I) := EOMRPM-COPIES    (I)
+      IF EOMRPM-SEP-PAGES (I) = ' ' /*SU3 ->
+        R-SEP-PAGES (I) := 'X'
+      ELSE
+        RESET R-SEP-PAGES (I)
+      END-IF /*SU3 <-
+    END-IF
+  END-FOR
+  R-HOLD-PRINT          := EOMRPM-HOLD-PRINT
+  R-SEP-START           := EOMRPM-SEPARATOR-START
+  R-SEP-END             := EOMRPM-SEPARATOR-END
+  R-SEPNO               := EOMRPM-SEPARATOR-COPIES
+  R-SEPLENG             := EOMRPM-SEPARATOR-LENGTH
+  R-PRINT-JOBCARD (1:3) := EOMRPM-JOBCARDS (1:3)
+/*SU4  R-STYLESHEET-URL      := EOMRPM-STYLESHEET-URL
+  R-LAST-MODIFIED       := *TIMX    /*SU2
+  R-MODIFIED-BY         := *USER /*EOM-USER /*SU2
+*
+  UPDATE (FNDMOD.)
+*
+END-FIND
+*
+END-SUBROUTINE /* MODIFY-PRINTING-ATTRIBUTES
+* --------------------------------------- on error ---------------------
+INCLUDE C-EOMERR
+*
+END

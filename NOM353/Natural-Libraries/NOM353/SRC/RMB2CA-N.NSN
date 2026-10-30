@@ -1,0 +1,79 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMB2CA-N - Cancel the specified job
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 95-10-24 s(999999) created
+* gw  96-06-05 s(999999) use view console instead of system-command
+*                        reason is that ESY security exit for view
+*                        system-command must be active in any case
+*                        but the exit for console only if required by
+*                        the customer
+* fhi 06-02-01 s(265403) shutdown monitor if cancel failures > 10,
+* fhi                    it will be done in RMCKDWN after cycle.
+* xsetggr 2007-05-02 NOm3201 Support 5 bytes node numbers
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2016-08-05 NOM 3.5: remove unused code
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 RMB2CA-NODE              (N5)
+1 RMB2CA-JOB-ID            (A5)
+1 RMB2CA-ERC               (N4)
+1 RMB2CA-ERT               (A250)
+* *****
+INDEPENDENT
+1 +NUMBER-CONSOLE-FAILED   (I2)
+************************************************************************
+LOCAL
+1 CONSOLE VIEW OF CONSOLE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 REDEFINE ERROR-TEXT
+    3 ERROR-PREFIX         (A7)
+    3 ERROR-FIL            (A1)
+    3 ERROR-TXT            (A49)
+  2 SYSTEM-MESSAGE-CODE
+1 #COMMAND                 (A80)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET RMB2CA-ERC RMB2CA-ERT
+COMPRESS '/CAN' RMB2CA-JOB-ID INTO #COMMAND
+PERFORM CANCEL-USING-CONSOLE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CANCEL-USING-CONSOLE
+************************************************************************
+CONS. FIND CONSOLE WITH NODE = RMB2CA-NODE AND FUNCTION = 'OP-CMD'
+    AND TEXT     = #COMMAND
+  IF ERROR-CODE NE 0
+    ADD 1 TO +NUMBER-CONSOLE-FAILED
+    RMB2CA-ERC := 1553
+    IF SYSTEM-MESSAGE-CODE = ' '
+      RMB2CA-ERT := CONSOLE.ERROR-PREFIX
+    ELSE
+      COMPRESS CONSOLE.ERROR-PREFIX '/' CONSOLE.SYSTEM-MESSAGE-CODE
+        TO RMB2CA-ERT LEAVING NO
+    END-IF
+    ESCAPE BOTTOM (CONS.)
+  END-IF
+  RESET +NUMBER-CONSOLE-FAILED
+END-FIND
+*
+END-SUBROUTINE /* CANCEL-USING-CONSOLE
+* --------------------------------------- cancel-using-system-command --
+/*SU1 DEFINE SUBROUTINE CANCEL-USING-SYSTEM-COMMAND
+*
+END

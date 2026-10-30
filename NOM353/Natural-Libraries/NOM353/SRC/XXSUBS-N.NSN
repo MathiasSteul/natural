@@ -1,0 +1,119 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* XXSUBS-N - Substitute Dynamic Variables in String
+* Author.......: BF / SN
+*
+* Maintenance..: 89-07-10  SN  reduced coding
+*                89-09-27  BF  substitute ' 'STRING' '
+* xsetggr 2010-08-23 NOMALL-862 prevent wrong substitution of dyn var
+* fhi     2010-08-25 NOMALL-862 did not work in QE, second attempt...
+* xsetggr 2010-08-26 NOMALL-862 use #DYN-1 to keep ' ' after NOMnnnn in
+*                               messages
+* fhi     2010-10-06 NOMALL-97  rewritten.
+* raya    2011-09-26 NOMALL-901 escape if no parameter to substitute
+*                               use init insteade of compress
+* XSETHZ  2012-02-07 only stowed
+* fhi     2014-08-28 NOMALL-1454 correct duplicate message parameters
+*                                Partly rewritten without tags
+* bli     2015-06-26 NOMALL-1648 don't suppress given parameters
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER USING XXSUBS-A  /* The Own Interface
+************************************************************************
+LOCAL
+1 #I                 (I4)
+1 #J                 (I4)
+1 #PLACEHOLDER       (A3) INIT <':N:'>
+1 REDEFINE #PLACEHOLDER
+  2 #PLACEHOLDER-CH    (A1/3)
+1 #CHECK-BLANKS      (A5)
+1 REDEFINE #CHECK-BLANKS
+  2 #CHECK-BLANKS-BL   (A1)
+  2 #CHECK-BLANKS-2    (A4)
+1 #BLANK-PLACEHOLDER (A9) INIT <'?:N:?'>
+1 REDEFINE #BLANK-PLACEHOLDER
+  2 #BLANK-PLACEHOLDER-CH (A1/5)
+1 #STRING            (A)   DYNAMIC
+1 #POS               (I4)
+1 #LASTPROG2      (A8)
+1 #LASTPROG3      (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#STRING := #XX-SHORT-TEXT
+PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG2 02
+PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG3 03
+IF #STRING EQ SCAN ':' OR #XX-MSG-DYNA (*) NE ' '/*there are parameters
+  IGNORE
+ELSE
+  #XX-SHORT-TEXT := #STRING
+  ESCAPE ROUTINE IMMEDIATE             /* no params
+END-IF
+*
+/* Check for more parameters than placeholders
+FOR #I = 9 TO 2 STEP -1
+  #J := #I - 1    /* BLI NOMALL-1648 in again
+  #PLACEHOLDER-CH (2) := #I
+  EXAMINE #STRING FOR #PLACEHOLDER GIVING POSITION IN #POS
+  IF #POS = 0 AND #XX-MSG-DYNA (#I) NE ' '
+* NOMALL-1648 bli in again
+    COMPRESS #XX-MSG-DYNA (#J) #XX-MSG-DYNA (#I) TO #XX-MSG-DYNA (#J)
+    RESET #XX-MSG-DYNA (#I)
+  END-IF
+END-FOR
+/* Replace it
+REPL. FOR #I = 1 TO 9
+  #PLACEHOLDER-CH       (2) := #I
+  #BLANK-PLACEHOLDER-CH (3) := #I
+  MOVE #PLACEHOLDER     TO        #CHECK-BLANKS-2
+  IF #XX-MSG-DYNA (#I) = ' '
+    EXAMINE #STRING FOR #PLACEHOLDER AND DELETE
+    ESCAPE BOTTOM (REPL.)
+  END-IF
+  EXAMINE #STRING FOR FULL #CHECK-BLANKS GIVING POSITION IN #POS
+  IF #POS = 0
+    EXAMINE #STRING FOR #PLACEHOLDER REPLACE WITH #BLANK-PLACEHOLDER
+  END-IF
+  EXAMINE #STRING FOR #PLACEHOLDER REPLACE WITH #XX-MSG-DYNA (#I)
+  IF #POS = 0
+    EXAMINE #STRING FOR '?' REPLACE WITH ' '
+  END-IF
+END-FOR
+EXAMINE #STRING FOR FULL '  ' REPLACE WITH ' '
+PERFORM XXUNIQUE-DEL-DOUBLE #STRING
+DECIDE FOR FIRST CONDITION
+  WHEN #STRING =  MASK ('ESY'NNNN' ')
+    COMPRESS SUBSTR(#STRING,1,7) '??' SUBSTR (#STRING,9)
+      TO #STRING LEAVING NO
+  WHEN #STRING =  MASK (NNNN) AND     #STRING NE MASK (NNNN' ')
+    COMPRESS 'NOM' SUBSTR (#STRING,1,4) '??' SUBSTR(#STRING,5)
+      TO      #STRING LEAVING NO
+  WHEN #STRING =  MASK ('NOM'NNNN'E ') OR = MASK ('NOM'NNNN'W ')
+  OR = MASK ('NOM'NNNN'I ')                                           /*
+    IGNORE
+  WHEN #STRING =  MASK ('NOM'NNNN) AND #STRING NE MASK ('NOM'NNNN' ')
+    COMPRESS SUBSTR(#STRING,1,7) '??' SUBSTR (#STRING,8)
+      TO #STRING LEAVING NO
+  WHEN #STRING =  MASK ('NOM'NNNN) AND #STRING NE MASK ('NOM'NNNN'  ')
+    COMPRESS SUBSTR(#STRING,1,7) '?' SUBSTR (#STRING,8)
+      TO #STRING LEAVING NO
+  WHEN ANY
+    EXAMINE  #STRING FOR '?' REPLACE WITH ' '
+    IF (#LASTPROG2 NE SCAN ('RLISLM') AND #LASTPROG3 NE SCAN ('RLISLM') )
+    OR  #LASTPROG2 =  SCAN ('RINFLO')                                 /*
+      EXAMINE #STRING FOR FULL '  ' REPLACE WITH FULL ' '
+    END-IF
+  WHEN NONE
+    IGNORE
+END-DECIDE
+#XX-SHORT-TEXT := #STRING
+*
+END

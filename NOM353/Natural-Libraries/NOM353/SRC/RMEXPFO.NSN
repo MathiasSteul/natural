@@ -1,0 +1,165 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+************************************************************************
+* RMEXPFO - export FOlder of user
+*
+* Maintenance
+* User  yyyy-mm-dd Issue       Remark
+* ----- ---------- ----------- -----------------------------------------
+*       2019-02-22 generated   Created for RMEXPFOL from RMLD2XML
+* SU1   2015-09-15 NOMALL-1693 NAT00059(A80)->NAT41002(A253)
+* fhi   2019-02-19 NOMALL-2215 Export not complete
+* BLI   2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU2   2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU3   2021-02-18 NOMALL-2443 restruct+MSG
+* GGS01 2021-07-06 NOMALL-2474 RECAT since RMEXP-C changed
+* SU4   2021-08-18 NOMALL-2467 RMEXPFOL+unload name of linked folder
+************************************************************************
+DEFINE DATA
+PARAMETER USING XXUX---P
+PARAMETER USING RMEXP-A
+PARAMETER
+1 #TRACING               (L)
+1 #ID                    (A250) BY VALUE OPTIONAL
+************************************************************************
+INDEPENDENT
+1 +ID                    (A/*) DYNAMIC
+1 +ID-INDEX              (I2)
+************************************************************************
+/*SU4 LOCAL USING RMEXPFOL
+LOCAL USING RMBAS64P
+LOCAL USING VUXDEF-L
+/*SU2 LOCAL USING VMONITUL /* NOMALL-2215 fhi in
+LOCAL USING N-41002L /*SU1
+/***********************************************************************
+LOCAL
+1 LINK-FO VIEW OF NRM-FOLDER /*SU4
+  2 FO-NAME
+1 FO VIEW OF NRM-FOLDER /*SU4 was RMEXPFOL
+  2 FO-OBJECT-TYPE      (A10)
+  2 FO-OBJECT-TIME      (T)
+  2 FO-USER-NAME        (A24) /* SP
+  2 FO-ID               (B2)
+  2 FO-NAME             (A16)
+  2 FO-USER-ID          (A8)
+  2 FO-DESC             (A50)
+  2 FO-MAP-LAYOUT       (B2)
+  2 FO-LINKED-FO-ID     (A10)
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER-ID (A8)
+    3 FO-LINKED-ID      (B2)
+  2 FO-DEFAULT-LOCATION (A1)
+1 WRITE-FILE VIEW OF WRITE-FILE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+* *****
+1 #FIELD                 (A32)
+1 #VALUE                 (A300)
+1 #LEN                   (I4)
+1 #WORK-LINE             (A250)
+1 #FUNCTION              (A10)
+1 #I                     (I4)
+1 #J                     (I4)
+1 #K                     (I4)
+1 #PROGRAM               (A8) INIT <*PROGRAM>
+1 REDEFINE #PROGRAM
+  2 FILLER               5X /*RMEXP
+  2 #TYPE                (A2)
+1 #KEY                   (A100)
+1 #KEY-FROM              (A100)
+1 #KEY-TO                (A100) INIT FULL LENGTH <H'FF'>
+1 #KEY-MASK              (A25)
+/*SU4 1 #KEY-LEN               (I2)
+1 #KEY-LEN2              (I2) CONST <8> /*len 1.part in FO-USER-NAME SU4
+1 #TRACE-MSG             (A250)
+1 #IND                   (I4)
+1 #POS                   (I4)
+1 #DEP                   (A5)
+1 #NODE                  (N5)
+1 #ID-MEMBER             (A) DYNAMIC
+1 #MASK                  (A300) INIT FULL LENGTH <'P'>
+1 #PRINTABLE             (A300)
+1 #FO-OBJECT-TIME        (A21)
+1 #FO-ID                 (I4)
+1 #FO-MAP-LAYOUT         (I4)
+1 #FO-LINKED-ID          (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM #START
+READ FO BY FO-USER-NAME = #KEY-FROM THRU #KEY-TO
+  #KEY := FO-USER-NAME
+  PERFORM HANDLE-MASK
+* Get depending objects:
+  INCLUDE RMLD2XC3 'FO.FO-NAME' '''F''' /*RMEXPGR
+  COMPRESS '<FO depending="' #DEP '">' TO #WORK-LINE LEAVING NO
+  PERFORM WRITE-XML
+  IF #OD-LOG = 'Y'
+    IF #ID SPECIFIED
+      COMPRESS 'Exported: FO */' FO-USER-NAME TO #TRACE-MSG
+    ELSE
+      COMPRESS 'Exported: FO /' FO-USER-NAME TO #TRACE-MSG
+    END-IF
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+  #FIELD := 'FO-OBJECT-TYPE'
+  #VALUE :=  FO.FO-OBJECT-TYPE
+  PERFORM CONVERT-XML
+  MOVE EDITED FO.FO-OBJECT-TIME (EM=YYYY'-'MM'-'DD'-'HH':'II':'SS'.'T)
+    TO #FO-OBJECT-TIME
+  #FIELD := 'FO-OBJECT-TIME'
+  #VALUE :=  #FO-OBJECT-TIME
+  PERFORM CONVERT-XML
+  #FIELD := 'FO-USER-NAME'
+  #VALUE :=  FO.FO-USER-NAME
+  PERFORM CONVERT-XML
+  #FO-ID :=  FO.FO-ID
+  #FIELD := 'FO-ID'
+  #VALUE :=  #FO-ID
+  PERFORM CONVERT-XML
+  #FIELD := 'FO-NAME'
+  #VALUE :=  FO.FO-NAME
+  PERFORM CONVERT-XML
+  #FIELD := 'FO-USER-ID'
+  #VALUE :=  FO.FO-USER-ID
+  PERFORM CONVERT-XML
+  #FIELD := 'FO-DESC'
+  #VALUE :=  FO.FO-DESC
+  PERFORM CONVERT-XML
+  #FO-MAP-LAYOUT  :=  FO.FO-MAP-LAYOUT
+  #FIELD := 'FO-MAP-LAYOUT'
+  #VALUE :=  #FO-MAP-LAYOUT
+  PERFORM CONVERT-XML
+  #FIELD := 'FO-LINKED-USER-ID'
+  #VALUE :=  FO.FO-LINKED-USER-ID
+  PERFORM CONVERT-XML
+  IF FO-LINKED-FO-ID NE ' ' AND FO-LINKED-ID GE 100 /*SU4
+    FIND LINK-FO WITH FO-USER-FO-ID = FO-LINKED-FO-ID
+      #FIELD := 'FO-LINKED-NAME'
+      #VALUE := LINK-FO.FO-NAME
+      PERFORM CONVERT-XML
+    END-FIND
+  END-IF
+  #FO-LINKED-ID  :=  FO.FO-LINKED-ID
+  #FIELD := 'FO-LINKED-ID'
+  #VALUE :=  #FO-LINKED-ID
+  PERFORM CONVERT-XML
+  #FIELD := 'FO-DEFAULT-LOCATION'
+  #VALUE :=  FO.FO-DEFAULT-LOCATION
+  PERFORM CONVERT-XML
+*
+  PERFORM #END-OBJ
+END-READ
+PERFORM #END
+*
+INCLUDE RMEXP-C /*CALL-NPR, WRITE-XML, OPEN-XML, CLOSE-XML, WRITE-XML
+*
+END

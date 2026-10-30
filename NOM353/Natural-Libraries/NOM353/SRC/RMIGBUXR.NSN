@@ -1,0 +1,345 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMIGBUXR
+* Function:  display related objects of an bundle
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-10-11 s(999999) translate some texts
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* wcd 00-04-01 CE 7267   Increase to 20 printers & re-cat VMBUND-L
+* xsiszha 2000-08-02 (CE7461) Extend Report and Bundle Names
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 G-NATRP-ERC         (N4)
+1 #LFILE-FIELDS
+  2 LFILE            (L)
+  2 #LFILE-RC        (I4)             /*  error-code
+  2 #LFILE-OLDDBID   (P5)             /*  old DBID
+  2 #LFILE-OLDFILE   (P5)             /*  old File-Number
+  2 #LFILE-NEWDBID   (P5)             /*  new DBID
+  2 #LFILE-NEWFILE   (P5)             /*  new File-Number
+1 #S-BUNDLE           (A25)
+1 #LAN-TEXT           (A70/1:6)
+1 G-DISPLAY-LONG-NAMES(L)
+************************************************************************
+LOCAL USING VMBUND-L
+LOCAL
+1 BUNDLE-REPORT VIEW OF NRM-BUNDLE-REPORT
+  2 BR-BUNDLE
+  2 BR-REPNAME
+  2 BR-SEQNO
+1 MIGRATE-USERS VIEW OF NRM-MIGRATE-USERS
+1 MIGRATE-REPORTS VIEW OF NRM-MIGRATE-REPORTS
+1 MIGRATE-PRINTERS VIEW OF NRM-MIGRATE-PRINTERS
+*
+1 #PRINTER             (A11)
+1 REDEFINE #PRINTER
+  2 #PRINTER-ID        (A8)
+1 #PRINTER-ID-EXIST    (L)
+1 #I                   (P2)
+1 CV-LINES             (C)
+1 #NOFLINES            (I2)   CONST <10>
+1 L-SCREEN (1:#NOFLINES)
+  2 L-MARK             (A2)
+  2 CV-MARK            (C)
+  2 L-SEQNO            (P3)
+  2 L-REPNAME          (A25)
+  2 L-EXIST            (A4)
+1 NOTHING-FOUND        (L) INIT <TRUE>
+1 END-OF-PROCESSING    (L)
+1 END-OF-DISPLAY       (L)
+1 END-OF-DATA          (L)
+1 NEW-SEARCH           (L)
+1 #PAGE                (P2)  INIT <1>
+1 #NOFPAGES            (I2)  CONST <20>
+1 #F-BUNDLE-SEQ-REP    (A52/1:#NOFPAGES)
+1 #T-BUNDLE-SEQ-REP    (A52)
+1 #V-BUNDLE-SEQ-REP    (A52)
+1 REDEFINE #V-BUNDLE-SEQ-REP
+  2 #V-BUNDLE          (A25)
+  2 #V-SEQNO           (P3)
+  2 #V-REPNAME         (A25)
+1 #XREF
+  2 #XREF-USER         (A8)
+  2 #XREF-USER-MSG     (A4)
+  2 #XREF-REPORT       (A25/1:10)
+  2 #XREF-REPORT-MSG   (A4/1:10)
+  2 #XREF-PR-MSG-A     (1:20)
+    3 #XREF-PR-MSG     (A13)
+    3 REDEFINE #XREF-PR-MSG
+      4 #XREF-PRINTER  (A8)
+      4 #XREF-FILLER   (A1)
+      4 #XREF-PRINTER-MSG  (A4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM INITIALISATION
+MAIN. REPEAT
+  UNTIL END-OF-PROCESSING
+  RESET #I
+  RESET INITIAL NEW-SEARCH END-OF-DATA NOTHING-FOUND
+  REA. READ BUNDLE-REPORT BY BR-BUNDLE-SEQNO-REPORT
+      = #F-BUNDLE-SEQ-REP (#PAGE)
+    #V-BUNDLE          := BR-BUNDLE
+    #V-REPNAME         := BR-REPNAME
+    #V-SEQNO           := BR-SEQNO
+    IF #V-BUNDLE-SEQ-REP > #T-BUNDLE-SEQ-REP
+      ESCAPE BOTTOM (REA.)
+    END-IF
+    RESET NOTHING-FOUND
+    IF #I = #NOFLINES
+      PERFORM SCREEN-IO
+      IF END-OF-PROCESSING OR NEW-SEARCH
+        ESCAPE BOTTOM (REA.)
+      END-IF
+    END-IF
+    #I := #I + 1
+    PERFORM REPORT-TO-SCREEN
+  END-READ
+  DECIDE FOR FIRST CONDITION
+    WHEN #I > 0
+      END-OF-DATA := TRUE
+    WHEN NOTHING-FOUND
+      L-REPNAME (1) := #LAN-TEXT (6)
+      END-OF-DATA := TRUE
+    WHEN ANY
+      PERFORM SCREEN-IO
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-REPEAT
+PERFORM REFRESH-LFILE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+RESET END-OF-DISPLAY
+PERFORM REFRESH-LFILE
+REPEAT
+  DECIDE FOR FIRST CONDITION
+    WHEN G-NATRP-ERC NE 0
+      IGNORE
+    WHEN END-OF-DATA AND #PAGE > 1
+      G-NATRP-ERC := 12                   /* bottom of data
+    WHEN END-OF-DATA AND #PAGE = 1
+      G-NATRP-ERC := 14                   /* all
+    WHEN NOT END-OF-DATA AND #PAGE = 1
+      G-NATRP-ERC := 11                   /* top of data
+    WHEN NONE
+      G-NATRP-ERC := 13                   /* more
+  END-DECIDE
+  SET CONTROL 'M14'
+  IF G-DISPLAY-LONG-NAMES
+    SET CONTROL 'WMFL43C17B00/37'
+    INPUT WITH TEXT *G-NATRP-ERC USING MAP 'RMIGBXL&'
+  ELSE
+    SET CONTROL 'WMFL38C17B00/42'
+    INPUT WITH TEXT *G-NATRP-ERC USING MAP 'RMIGBXM&'
+  END-IF
+  RESET G-NATRP-ERC
+  SET CONTROL 'WMB'
+  PERFORM COMMAND-PF-KEY
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+RESET #I L-SCREEN (*)
+IF NOT END-OF-PROCESSING
+  PERFORM SET-LFILE
+END-IF
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE REPORT-TO-SCREEN
+************************************************************************
+L-REPNAME (#I) := BUNDLE-REPORT.BR-REPNAME
+L-SEQNO   (#I) := BUNDLE-REPORT.BR-SEQNO
+FNDR.
+FIND NUMBER MIGRATE-REPORTS WITH R-REPNAME = BUNDLE-REPORT.BR-REPNAME
+IF *NUMBER (FNDR.) > 0
+  L-EXIST (#I) := #LAN-TEXT (1)
+ELSE
+  L-EXIST (#I) := #LAN-TEXT (2)
+END-IF
+*
+END-SUBROUTINE /* REPORT-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-SELECTION-KEYS
+************************************************************************
+#V-BUNDLE := #S-BUNDLE
+#V-SEQNO  := 0
+MOVE ALL H'00' TO #V-REPNAME
+#F-BUNDLE-SEQ-REP (01) := #V-BUNDLE-SEQ-REP
+#V-SEQNO  := 999
+MOVE ALL H'FF' TO #V-REPNAME
+#T-BUNDLE-SEQ-REP := #V-BUNDLE-SEQ-REP
+*
+END-SUBROUTINE /* INIT-SELECTION-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+DECIDE ON FIRST *PF-KEY
+  VALUE 'PF3'
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+  VALUE 'PF7'
+    IF #PAGE > 1
+      SUBTRACT 1 FROM #PAGE
+      END-OF-DATA := FALSE
+      END-OF-DISPLAY := NEW-SEARCH := TRUE
+    END-IF
+  VALUE 'PF8'
+    IF NOT END-OF-DATA
+      ADD 1 TO #PAGE
+      IF #PAGE > #NOFPAGES
+        #PAGE := #NOFPAGES
+        #F-BUNDLE-SEQ-REP (1:19) := #F-BUNDLE-SEQ-REP (2:20)
+      END-IF
+      #F-BUNDLE-SEQ-REP (#PAGE) := #V-BUNDLE-SEQ-REP
+      END-OF-DISPLAY := TRUE
+    END-IF
+  NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+IF NOT LFILE
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-NEWDBID #LFILE-NEWFILE
+  IF #LFILE-RC NE 0
+    G-NATRP-ERC := 4007
+    END-OF-PROCESSING := TRUE
+  ELSE
+    LFILE := TRUE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE REFRESH-LFILE
+************************************************************************
+IF LFILE
+  RESET #LFILE-RC
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+  IF #LFILE-RC NE 0
+    G-NATRP-ERC := 4008
+    END-OF-PROCESSING := TRUE
+  ELSE
+    LFILE := FALSE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* REFRESH-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE INITIALISATION
+************************************************************************
+PERFORM PF-KEYS
+PERFORM SET-LFILE
+PERFORM INIT-SELECTION-KEYS
+FNDB. FIND BUNDLES WITH B-BUNDLE = #S-BUNDLE
+  IF NO RECORDS FOUND
+    END-OF-PROCESSING := TRUE
+    G-NATRP-ERC := 4019
+    ESCAPE BOTTOM (FNDB.)
+  END-NOREC
+  PERFORM CHECK-RELATED-OBJECTS
+END-FIND
+*
+END-SUBROUTINE /* INITIALISATION
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+*
+END-SUBROUTINE /* PF-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-RELATED-OBJECTS
+************************************************************************
+FNDU. FIND NUMBER MIGRATE-USERS WITH USER-ID = BUNDLES.B-COORDINATOR-ID
+#XREF-USER := BUNDLES.B-COORDINATOR-ID
+IF *NUMBER (FNDU.) = 0
+  #XREF-USER-MSG := #LAN-TEXT (2)
+ELSE
+  #XREF-USER-MSG := #LAN-TEXT (1)
+END-IF
+RESET #PRINTER-ID-EXIST
+FORP. FOR #I = 1 TO BUNDLES.C*B-PRINT-LIST
+  #PRINTER := BUNDLES.B-PRINT-LIST (#I)
+  #XREF-PRINTER (#I) := #PRINTER-ID
+  IF NOT(#PRINTER-ID = ' ' OR = 'DUMMY')
+    #PRINTER-ID-EXIST := TRUE
+    FNDP. FIND NUMBER MIGRATE-PRINTERS
+      WITH P-ID = #PRINTER-ID
+    IF *NUMBER (FNDP.) = 0
+      #XREF-PRINTER-MSG (#I) := #LAN-TEXT (2)
+    ELSE
+      #XREF-PRINTER-MSG (#I) := #LAN-TEXT (1)
+    END-IF
+  END-IF
+END-FOR
+IF NOT #PRINTER-ID-EXIST
+  #XREF-PR-MSG (1) := #LAN-TEXT (6)
+END-IF
+FORR. FOR #I = 1 TO BUNDLES.C*B-FLUSH-EVENTS
+  #XREF-REPORT (#I) := BUNDLES.B-FLUSH-REPORTS (#I)
+  FNDRP. FIND NUMBER MIGRATE-REPORTS
+    WITH R-REPNAME = BUNDLES.B-FLUSH-REPORTS (#I)
+  IF *NUMBER (FNDRP.) = 0
+    #XREF-REPORT-MSG (#I) := #LAN-TEXT (2)
+  ELSE
+    #XREF-REPORT-MSG (#I) := #LAN-TEXT (1)
+  END-IF
+END-FOR
+IF BUNDLES.C*B-FLUSH-EVENTS = 0
+  #XREF-REPORT (#I) := #LAN-TEXT (6)
+END-IF
+PERFORM REFRESH-LFILE
+SET CONTROL 'M3'
+SET CONTROL 'N'
+IF G-DISPLAY-LONG-NAMES
+  INPUT USING MAP 'RMIGBXV&'
+ELSE
+  INPUT USING MAP 'RMIGBXW&'
+END-IF
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* CHECK-RELATED-OBJECTS
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  IF LFILE
+    CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+    LFILE := FALSE
+  END-IF
+  DECIDE ON FIRST *ERROR-NR
+    VALUE 3017   G-NATRP-ERC := 4001
+    VALUE 3148   G-NATRP-ERC := 4001
+    VALUE 3061   G-NATRP-ERC := 4005
+    ANY          FETCH 'RMIGBU'
+    NONE         IGNORE
+  END-DECIDE
+*
+END-ERROR
+*
+END

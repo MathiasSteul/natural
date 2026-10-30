@@ -1,0 +1,161 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMNPR
+* Function  Execute an NPR command on a remote Unix node
+* Version   3.1
+*
+* Template: CHCKNPR
+*
+* Maintenance:
+* uuu      yyyy-mm-dd iTrac       remark
+* fhi      2014-06-27 NOMALL-1322 Created from CHCKNPR
+* fhi     2014-08-21 NOMALL-1454 Restow, XXUX---P changed.
+* fhi     2014-08-29 NOMALL-1454 Recataloged due to changes of XXUX---P
+* fhi     2014-09-08 NOMALL-1454 ?] replaced with <> for correct codepg.
+* SU1     2014-12-19 NOMALL-1548 remove unused LDA
+* SU2     2016-08-08 NOM 3.5: remove unused code
+* fhi     2016-11-23 NOMALL-1962 Show current codepage
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU4     2020-12-01 NOMALL-2440 del. UX-EMAIL-RECIPIENTS
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL USING VUXDEF-L
+LOCAL USING XXUX---P
+LOCAL
+1 #TRACE            (I2)      INIT <100>
+1 #UX-NODE-NAME     (A16)
+1 #COMMAND          (A20)
+1 #P-RECORD         (A75/3)
+1 #I                (I4)
+1 #STACK-FUNCTION   (A10)
+1 #STACK-RC         (N1)
+1 #LOGFILE          (A70) INIT <'$EOM_WORK/nomnpr.log'>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY PF3 NAMED 'EXIT'
+SET KEY PF5 NAMED 'OUT'
+FORMAT KD=ON
+SET CONTROL 'N'
+WRITE NOTITLE NOHDR ' ' /* Clear screen
+REP. REPEAT
+  INPUT NO ERASE (AD=MIL'_')
+ 8T '*** -------------------------------------------------------- ***' /
+ 8T '***                        NOMNPR                            ***' /
+ 8T '***   Execute an NPR command remotely on an NPR Unix node    ***' /
+ 8T '*** -------------------------------------------------------- ***'//
+    'NOM Unix Node Name:'  #UX-NODE-NAME 40T
+    'NPR Function:'#COMMAND (AD=MILT'_')      //
+    'Record / Target File:'                   /
+    ' ' P-RECORD            (AL=75 AD=MIL'.') ////
+    11T '<10>' 21T '<20>' 31T '<30>' 41T '<40>'
+    51T '<50>' 61T '<60>' 71T '<70>'          /
+    'Filename:'                               /
+    ' ' P-FILE-NAME   (AL=75)                 //
+  DECIDE ON FIRST VALUE OF *PF-KEY
+    VALUE 'PF3'
+      ESCAPE BOTTOM (REP.)
+    VALUE 'PF5'
+      IF #COMMAND = 'COMMAND'
+        PERFORM CHECK-LOGFILE
+      END-IF
+      ESCAPE TOP
+    VALUE 'ENTR'
+      IGNORE
+    NONE
+      ESCAPE TOP
+  END-DECIDE
+  FIND UX-NODES WITH UX-NODE-NAME = #UX-NODE-NAME
+    IF NO RECORDS FOUND
+      REINPUT TEXT 'NOM Unix node not found.'
+/*SU2 ESCAPE TOP
+    END-NOREC
+    P-FUNCTION := 'LOGIN'
+    PERFORM UNIX-FUNCTION
+    P-FUNCTION := 'INFO'
+    PERFORM UNIX-FUNCTION
+    P-FUNCTION := #COMMAND
+    PERFORM UNIX-FUNCTION
+    #P-RECORD(1) := P-RECORD
+    #P-RECORD(2) := SUBSTR(P-RECORD,76)
+    #P-RECORD(3) := SUBSTR(P-RECORD,151)
+    EXAMINE FULL #P-RECORD (*) FOR ' ' REPLACE '.'
+    SET CONTROL 'N'
+    WRITE (AL=75) /////////
+      ' ' #P-RECORD (2)   (AD=OIL'.') /
+      ' ' #P-RECORD (3)   (AD=OIL'.') /
+      '  123456789 123456789 123456789 123456789'
+      '123456789 123456789 123456789 12345' //////
+      'Platform:' P-OPSYS (AL=10) 40T '=' P-NPR-VERSION (AL=10)
+      '=' P-STATUS        (AD=OIL'.') /
+      '=' P-CC (AL=5) '=' P-ERC (AD=OIL'.' AL=5)  /
+      '=' P-ERT           (AD=OIL'.')
+      '=' P-PROCESS-ID    (AL=10 AD=OIL'.')
+      40T '=' P-EXIT-CODE (AD=OIL'.') /
+* fhi     2016-11-23 NOMALL-1962 start insertion
+      '=' P-CODEPAGE  (AD=OIL'.' AL=25)
+      40T P-MIME-TYPE (AD=OIL'.' AL=35)
+* fhi     2016-11-23 NOMALL-1962 end   insertion
+    P-FUNCTION := 'LOGOUT'
+    PERFORM UNIX-FUNCTION
+  END-FIND
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UNIX-FUNCTION
+************************************************************************
+P-NODE-NAME := UX-NODES.UX-NODE-NAME
+P-NODE-SUSPEND := UX-NODES.UX-NODE-SUSPEND
+P-USERID := UX-NODES.UX-NODE-USERID
+P-CIPHER-PASSWORD := UX-NODES.UX-NODE-PASSWORD
+IF #COMMAND = 'COMMAND' AND P-FILE-NAME = ' '
+  P-FILE-NAME := #LOGFILE
+END-IF
+RESET                              P-PASSWORD
+P-GROUP := UX-NODES.UX-NODE-GROUP
+RESET P-ERC
+P-NODE-NAME := UX-NODES.UX-NODE-NAME
+CALLNAT 'XXUX---N' XXUX---P #TRACE
+*
+END-SUBROUTINE /* UNIX-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-LOGFILE
+************************************************************************
+#STACK-FUNCTION := 'PUSH'
+CALLNAT 'XXUXST-N' #STACK-FUNCTION #STACK-RC XXUX---P
+IF #STACK-RC NE 0
+  WRITE *PROGRAM 'Internal error: Stack overflow' *LINE
+  ESCAPE MODULE
+END-IF
+P-FUNCTION  := 'READ'
+P-FILE-NAME := #LOGFILE
+READLOG. FOR #I = 1 TO 23
+  CALLNAT 'XXUX---N' XXUX---P
+  IF #EOF
+    ESCAPE BOTTOM (READLOG.)
+  END-IF
+  WRITE P-RECORD (AL=78)
+END-FOR
+#STACK-FUNCTION := 'POP'
+CALLNAT 'XXUXST-N' #STACK-FUNCTION #STACK-RC XXUX---P
+IF #STACK-RC NE 0
+  WRITE *PROGRAM 'Internal error: Stack overflow' *LINE
+  ESCAPE MODULE
+END-IF
+INPUT ' '
+*
+END-SUBROUTINE /* CHECK-LOGFILE
+*
+END

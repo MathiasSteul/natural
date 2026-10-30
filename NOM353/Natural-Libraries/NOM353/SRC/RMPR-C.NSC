@@ -1,0 +1,107 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPR-C - subroutine V12-PRINTER-API for print object pgms RMPR*
+*          to avoid duplicate coding
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* fhi     2015-03-26 NOMALL-1594 tracing
+* SU      2016-03-08 NOMALL-1847 created
+* fhi     2017-07-24 NOMALL-2011 Take back some tracing, too much.
+* SU1     2024-07-25 NOM 353     for XREF and PCHECK
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-PRINTER-EXIT
+************************************************************************
+IF LINE (I) = H'FE' /*was in RMPRDSK+RMPRNAT+RMPRTCP
+  ESCAPE ROUTINE
+END-IF
+IF FLUSH-MEMBER = ' ' OR= SCAN '*' OR FLUSH-RC = 99 OR=97
+  PERFORM PRINT-IT
+  ESCAPE ROUTINE /* CALL-PRINTER-EXIT
+END-IF
+#SAVE-LINE := LINE (I)
+DECIDE ON FIRST FLUSH-VERSION
+  VALUE 011, 012
+    PERFORM V12-PRINTER-API
+  NONE
+    P-ERROR-CODE := 0005
+    P-ERROR-TEXT := 'Invalid Exit Version'
+    FLUSH-ERROR := TRUE
+END-DECIDE
+*
+END-SUBROUTINE /* CALL-PRINTER-EXIT
+*
+************************************************************************
+DEFINE SUBROUTINE V12-PRINTER-API
+************************************************************************
+RESET PRT-EXIT-PARMS
+PRT-FLAG   := FLUSH-BRACKET
+PRT-REPORT := FLUSH-REPNAME
+PRT-BUNDLE := FLUSH-BUNDLE
+PRT-RECORD := #SAVE-LINE
+PRT-RECNO  := LINE-NUMBER (I)
+PRT-WORK   := FLUSH-WORK-AREA (1)
+*
+DECIDE FOR FIRST CONDITION
+  WHEN FLUSH-CC-TYPE = ASA-CODE                       PRT-RECFM := 'A'
+  WHEN FLUSH-CC-TYPE = MACHINE-CODE                   PRT-RECFM := 'M'
+  WHEN FLUSH-CC-TYPE = BINARY       AND #BIN-ALLOWED  PRT-RECFM := 'B'
+  WHEN FLUSH-CC-TYPE = BS2000-CC    AND #BS2-ALLOWED  PRT-RECFM := 'E'
+  WHEN NONE                                           RESET PRT-RECFM
+END-DECIDE
+*
+REPEAT
+  CALLNAT FLUSH-MEMBER PRT-EXIT-PARMS
+  IF 1 = 0 /* NEVER ÜÜ SU1
+    CALLNAT 'PRCANON ' PRT-EXIT-PARMS
+    CALLNAT 'PRKYOCER' PRT-EXIT-PARMS
+    CALLNAT 'PRBUVTOC' PRT-EXIT-PARMS
+  END-IF
+  FLUSH-RC := PRT-RC
+  IF #TRACING
+    COMPRESS 'Return from' FLUSH-MEMBER ': rc:' PRT-FLAG
+      ', rec:' PRT-RECORD ', recno:' PRT-RECNO TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+  DECIDE ON FIRST VALUE OF FLUSH-RC
+    VALUE 0 /* no Modification */
+      PERFORM PRINT-IT
+      ESCAPE BOTTOM
+    VALUE 4 /* Line modified   */
+      LINE (I) := PRT-RECORD
+      PERFORM PRINT-IT
+      ESCAPE BOTTOM
+    VALUE 8 /* insert Line     */
+      LINE (I) := PRT-RECORD
+      PERFORM PRINT-IT
+      PRT-RECORD := LINE (I) := #SAVE-LINE
+    VALUES 97,99
+      PERFORM PRINT-IT
+      ESCAPE BOTTOM
+    VALUE 98 /* STOP PRINTING
+      P-ERROR-CODE := 0722
+      ESCAPE BOTTOM
+    NONE /*is this an error ? SU1
+      ESCAPE BOTTOM
+  END-DECIDE
+*
+  IF P-ERROR-CODE NE 0
+    ESCAPE BOTTOM
+  END-IF
+*
+END-REPEAT
+*
+FLUSH-WORK-AREA (1) := PRT-WORK
+*
+END-SUBROUTINE /* V12-PRINTER-API
+*
+** End of CC RMPR-C ****************************************************

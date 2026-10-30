@@ -1,0 +1,215 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMRSETRP
+* Function  Backout uncompleted reports with status = 'O'
+* Version   1.3
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* MB      1991-07-16- ET EVERY 100 READS
+* gw      1991-10-22  correct deletion of bundle contents and active bundle
+* gw      1995-11-24 s(236853) hold queue overflow
+* jwo     1997-07-23 s(164005) again hold queue
+* fhi     2002-09-25 p(218246) Monitor error recovery
+* sju     2004-11-29 nom31     restow for changed NRM-ORDER
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* xsetggr 2006-02-22 p(276743) delete PO record. Ported from 222 by FHI.
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-07-21 NOMALL-1279 fill fields for Adabas Vista
+* fhi     2014-10-21 NOMALL-79   Introduce long filenames
+* fhi     2015-04-01 NOMALL-1597 Correct deletion of Long filenames
+* SU3     2015-08-11 NOMALL-1690 XXHASH restructure
+* SU4     2015-12-30 NOMALL-1722 support long path names
+* SU5     2016-01-19 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2017-01-11 NOMALL-1961 Change descriptor of NRM-ORDER
+* BLI     2020-03-11 NOMALL-2294 Reset +G-ACTIVE-ISN-P10 to prevent 3113
+* SU6     2022-04-27 NOMALL-2546 show user in log / itrac for uqac
+* ----------------------------------------------------------------------
+DEFINE DATA
+GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +G-ACTIVE-ISN-P10 (P10)         /* BLI NOMALL-2294
+* *****
+LOCAL USING SUPER-L
+LOCAL USING RMODTY-E
+LOCAL USING RLOG-L
+LOCAL USING RMSR---E
+LOCAL USING RMSPL--L
+LOCAL USING XXHASH-P
+LOCAL
+1 PRINTOUTS VIEW OF NRM-PRINTOUTS /*SU1 in
+1 BUNDLE-CONTENTS VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-BUNDLE
+  2 BC-BUNDRNB
+1 REPORT-TEXT  VIEW  OF  NRM-FILED-SYSOUTS
+  2 F-REPNAME
+  2 F-REPRNB
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-TYPE
+  2 OD-RETRY-NUMBER
+  2 OD-MONITOR-ID
+1 AR-VIEW VIEW OF NRM-ACTIVE-REPORTS /*SU2
+  2 AR-STATUS
+* *****
+1 #OD-TYPE-TIME  (A17)
+1 REDEFINE #OD-TYPE-TIME
+  2 #OD-TYPE                (B2)
+  2 #OD-TIME-SCHEDULED      (T)
+1 #AR-ORDER-REPNAME         (A31)
+1 REDEFINE #AR-ORDER-REPNAME
+  2 #AR-ORDER-ID            (P10)
+  2 #AR-REPNAME2            (A25)
+1 #COUNTER                  (P3)
+1 #COUNT                    (P3) INIT <60>
+1 #ACTISN                   (P10)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #AC-SEQ
+#OD-TYPE := OD-CREATE-AR
+RESET #OD-TIME-SCHEDULED
+AR. FIND ACTIVE-REPORTS WITH AR-STATUS = 'O'
+  #AR-REPNAME := #AC-REPNAME := #F-REPNAME := #PO-REPNAME := AR-REPNAME
+  #AR-REPRNB := #AC-REPRNB := #F-REPRNB := #PO-REPRNB := AR-REPRNB
+  BC. FIND BUNDLE-CONTENTS WITH BC-REPORT-RNB = #AR-REPORT-RNB
+    #AB-BUNDLE := BC-BUNDLE
+    #AB-BUNDRNB := BC-BUNDRNB
+    BC1. FIND NUMBER BUNDLE-CONTENTS WITH BC-BUNDLE-RNB = #AB-BUNDLE-RNB
+    IF *NUMBER (BC1.) = 1
+      AB. FIND ACTIVE-BUNDLES WITH AB-BUNDLE-RNB = #AB-BUNDLE-RNB
+        DELETE (AB.)
+      END-FIND
+    END-IF
+    DELETE (BC.)
+  END-FIND
+  END TRANSACTION
+*
+  RC. READ REPORT-CONTENTS BY AC-REP-RNB-SEQ=#AC-REP-RNB-SEQ
+    AT END DATA
+      END TRANSACTION
+    END-ENDDATA
+    IF AC-REPNAME NE #AR-REPNAME OR AC-REPRNB NE #AR-REPRNB
+      ESCAPE BOTTOM
+    END-IF
+    DELETE (RC.)
+    IF *COUNTER(RC.) = 100
+      END TRANSACTION
+      RESET *COUNTER(RC.)
+    END-IF
+  END-READ
+  END TRANSACTION
+*
+  RESET #F-SEQ
+  RT. READ REPORT-TEXT BY F-REPNAME-RNB-SEQ =#F-REP-RNB-SEQ
+    IF F-REPNAME NE #AR-REPNAME OR F-REPRNB NE #AR-REPRNB
+      ESCAPE BOTTOM
+    END-IF
+    DELETE (RT.)
+    IF *COUNTER(RT.) = 100
+      END TRANSACTION
+      RESET *COUNTER(RT.)
+    END-IF
+  END-READ
+*
+  PT. FIND PRINTOUTS WITH PO-REPORT-RNB = #PO-REPORT-RNB
+    DELETE (PT.)
+  END-FIND
+*
+  AR1. GET ACTIVE-REPORTS *ISN (AR.)
+  DELETE (AR1.)
+  IF +G-ACTIVE-ISN-P10 EQ *ISN (AR.)   /* BLI NOMALL-2294 start
+    RESET +G-ACTIVE-ISN-P10
+  END-IF                               /* BLI NOMALL-2294 end
+  PERFORM DELETE-IT /*SU3
+  COMPRESS '7017' AR-REPNAME AR-REPRNB TO LG-MSG
+  IF G-LG-USERID NE ' ' /*not sure which user is correct SU6
+    LG-USERID := G-LG-USERID
+  ELSE
+    LG-USERID := G-MONITOR-ID
+  END-IF
+  CALLNAT 'RLOG' PL-PARMS
+  END TRANSACTION
+END-FIND
+END TRANSACTION
+*
+* PROCESS REPORT TO BUNDLES FOR BUNDLE ERROR REPORTS
+*
+FIND ACTIVE-REPORTS WITH AR-STATUS = 'B'
+  #ACTISN := *ISN
+  G-REPORT := AR-REPNAME
+  G-REPRNB := AR-REPRNB
+  RESET G-NATRP-ERC G-BUNDLE-NO
+  PERFORM SEND-TO-BUNDLE 1X /*RMCRTBUN /no RMEX-SPOOL-ATTR..
+  IF G-NATRP-ERC = 0
+    GETACTB. GET AR-VIEW #ACTISN
+    AR-VIEW.AR-STATUS := 'P'
+    UPDATE(GETACTB.)
+    END TRANSACTION
+  END-IF
+END-FIND
+*
+* Delete active reports if order record is in error and is being retried.
+*
+#OD-TYPE := OD-CREATE-AR
+RESET #OD-TIME-SCHEDULED
+RDORD. READ ORDER BY OD-TYPE-TIME = #OD-TYPE-TIME
+  IF OD-TYPE NE #OD-TYPE
+    ESCAPE BOTTOM (RDORD.)
+  END-IF
+  IF OD-RETRY-NUMBER = 0
+    ESCAPE TOP
+  END-IF
+  #AR-ORDER-ID   := OD-ID
+  RDAR. READ ACTIVE-REPORTS BY AR-ORDER-REPNAME = #AR-ORDER-REPNAME
+    IF AR-ORDER-ID NE #AR-ORDER-ID
+      ESCAPE BOTTOM (RDAR.)
+    END-IF
+    DELETE (RDAR.)
+    IF +G-ACTIVE-ISN-P10 EQ *ISN (RDAR.)   /* BLI NOMALL-2294 start
+      RESET +G-ACTIVE-ISN-P10
+    END-IF                                 /* BLI NOMALL-2294 end
+    PERFORM DELETE-IT /*SU3
+    ADD 1 TO #COUNTER
+    IF #COUNTER > #COUNT
+      END OF TRANSACTION
+      RESET #COUNTER
+    END-IF
+  END-READ
+  END OF TRANSACTION
+END-READ
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-IT /*SU3 in
+************************************************************************
+#SPOOL-ATTRIBUTES := AR-SPOOL-ATTRIBUTES
+CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+DECIDE ON FIRST VALUE OF #SPOOL-TYPE
+  VALUE SEQUENTIAL-FILE-UNIX
+    XXHASH-PARMS.P-SHORT-NAME := #SPOOL-UNIX-FILE-NAME
+  VALUE DIRECT-INPUT
+    XXHASH-PARMS.P-SHORT-NAME := #SPOOL-DI-PATH /*SU4 ->
+    XXHASH-PARMS.P-FUNCTION   := 'D' /*delete entry
+    PERFORM XXHASH XXHASH-PARMS /*SU4 <-
+    XXHASH-PARMS.P-SHORT-NAME := #SPOOL-DI-FILENAME
+  ANY
+    XXHASH-PARMS.P-FUNCTION   := 'D' /*delete entry
+    PERFORM XXHASH XXHASH-PARMS
+  NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* DELETE-IT
+*
+END

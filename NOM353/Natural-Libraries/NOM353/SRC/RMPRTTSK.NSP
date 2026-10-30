@@ -1,0 +1,357 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPRTTSK - Control started Print Server Tasks
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-07-12 s(999999) created
+* mrs 94-04-19 s(999999) BS2 Error Code 5663 if subtask is closed
+* mrs 94-11-03 s(999999) possible blocked printer task if user deletes
+*                        printout record
+* gw  95-01-09 p(135750) printer task aiv (fhi: comments deleted 050718)
+* gw  95-01-17 p(136151) printer task aiv (fhi: comments deleted 050718)
+* mrs 95-06-13 s(226807) restart printouts for printer type WINPM/OS2PM
+*                        This is a dirty hard-coded solution and will
+*                        be replaced with NOM134 by an official one
+*                        NOM123 field PO-DESTINATION will be used to
+*                        save a counter and the time interval
+* gw  96-10-18 s(999999) restart for ECL and WINPM32
+* jvd 98-09-14 p(164220) NAT23ÖNOM141
+* sju 00-03-24 p(191368) monitor multitasking
+* sju 03-07-02 p(230407) printout retry
+* sju 04-12-07 NOM31     Tracing
+* sju 05-06-10 p(266045) Restart printouts from last printed recno
+* fhi 05-07-18 p(266530) Make it independent from mainframe NPR
+* xsetggr 2005-1026 p(270950) ISN must be P10 , not P8
+* sju 07-05-29 p(293899) Restart TCPIP/Email printouts from beginning
+* fhi 07-07-04 p(295388) serialize UNIXLP printers if 'serial'
+*                        catalogued because LDA changed.
+* fhi 07-11-26 P299867   Wrong node number length in SAT (recat)
+* fhi 08-04-18 P299224   Negative response codes of ESMLPR not handled
+* fhi 08-05-13 P301056   SAT error 102, system-info is empty.
+* fhi 08-07-21 P307276   Use SATSS02N instead of SATSS01N
+* fhi 09-02-12 P308479   Update internal table of print tasks correctly
+* fhi 09-11-12 P321483   Change temporary status 'X' to '-'
+* fhi 09-11-19 P321958   Improve trace facility
+* fhi 10-03-15 P324570   NAT3113 in 1060 or 1090.
+* fhi 10-03-29 P324700   Pass correct file to GETHOLD
+* fhi 10-04-01 P324570   Table maintenance only under Unix.
+* fhi     2010-08-23 NOMALL-853 Monitor multitasking for Unix           STEM
+* fhi     2010-08-30 NOMALL-838 Supply the correct SPOOL-TYPE
+* fhi     2010-10-08 NOMALL-97 Use dynamic memory handling
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* fhi     2011-01-06 NOMALL-929 Add END TRANSACTION
+* fhi     2011-03-16 NOMALL-947 Correct task management, rewritten.     STEM
+*                               No tags, old comments deleted.
+* fhi     2011-03-21 NOMALL-947 Additional error text handling          STEM
+* fhi     2011-04-15 NOMALL-974 (no typoÜ) Correct reset of printer nameSTEM
+* raya    2011-07-07 NOMALL-1022 use #tracing for an error              STEM
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2013-06-05 NOMALL-1262 remove OS2PM,HPSPOOL,WINPM,WINPM32
+* fhi     2014-03-03 NOMALL-1363 Get cat cate into trace messages
+* SU3     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU4     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-12-02 NOMALL-1621 +NOD-LOCAL-NODE instead of G-MONITOR-NODE STEM
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* SU5     2017-10-09 NOMALL-1823 NOM 3.5: remove CONNECT,ECL,XML
+* fhi     2018-12-14 NOM 3.5     Add CPU measure
+* SU6     2019-05-07 NOMALL-2270 DISKUNIX:start interrupted PO from 0
+* SU7     2020-06-22 NOMALL-2349 show full msg
+* ----------------------------------------------------------------------
+*
+DEFINE DATA GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +NOD-LOCAL-NODE  (N5)
+1 +CMRDC           (A1)
+1 +G-PRTASK        (A/20) DYNAMIC
+* *****
+LOCAL USING SATSS02P
+LOCAL USING RMSTX--P
+LOCAL USING RTXT---L
+LOCAL USING RLOG-L
+LOCAL USING RMPRTAIL
+LOCAL USING RACTLF-A
+LOCAL USING EOMPHTYE
+LOCAL USING CONST-L  /*SU6
+*
+LOCAL
+1 PRINTOUTS VIEW OF NRM-PRINTOUTS
+  2 PO-ID
+  2 PO-REPNAME
+  2 PO-BUNDLE
+  2 PO-REPRNB
+  2 PO-BUNDRNB
+  2 PO-STATUS
+  2 PO-MSG
+  2 PO-LOGICAL
+  2 PO-PRINTER-TYPE
+  2 PO-SCHEDULED
+  2 PO-PRINTED
+  2 PO-LAST-PRINTED-RECNO
+  2 PO-DESTINATION
+  2 REDEFINE PO-DESTINATION
+    3 PO-RS-COUNT        (N3)
+    3 PO-RS-INTERVAL     (N5)
+1 NRM-MONITOR VIEW OF NRM-MONITOR
+  2 M-MAX-RETRIES
+  2 M-RETRY-INTERVAL
+*
+1 T                      (P2)
+1 #ISN                   (P10)
+1 #ADA-RC                (N4)
+1 #NO-RETRY              (L)
+1 #TRACING               (L)
+1 #CATDATE               (A19)
+1 #MONIT-ID              (A16)
+1 RMSETTIM
+  2 FUNCTION                 (A1)
+  2 ERC                      (N4)
+  2 MSG                      (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF G-TRACE GE *LEVEL AND G-TRACE-SET = SCAN ('PRINT')
+  #TRACING := TRUE
+  RMSETTIM.FUNCTION := 'S'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS 'Start' *PROGRAM 'cataloged at'  #CATDATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+INCLUDE CMRDC
+G-PRTASK-TAB-NEW (*) := +G-PRTASK (*)
+#MONIT-ID := F#MONITOR-TASK-ID1 (<>)
+FIND (1) NRM-MONITOR WITH M-MONITOR-ID = #MONIT-ID
+END-FIND
+FOR T = 1 TO G-PRTASK-NUMBER
+  IF *MACHINE-CLASS = 'MAINFRAME'
+  IF G-PRTASK-TYPE = 'BATCH' AND #G-PRTASK-BTCH-JOB-NUMBER (T) NE ' ' OR
+        G-PRTASK-TYPE = 'SUBTASK' AND #G-PRTASK-SUBT-NAME (T) NE ' '
+      PERFORM CHECK-CURRENT-SERVER-STATUS
+    END-IF
+  ELSE
+    IF #G-PRTASK-SUBT-NAME (T) = ' '
+      ESCAPE TOP
+    END-IF
+    PERFORM CHECK-UNIX-PRINTER-TASK
+  END-IF
+  PERFORM CHECK-PRINTOUTS
+  IF SATSS-STATUS = 'CLOSED' OR = 'ABEND' OR = 'FAILED' OR = 'ERROR'
+    RESET G-TASK (T)
+  END-IF
+END-FOR
++G-PRTASK (*) := G-PRTASK-TAB-NEW (*)
+IF #TRACING
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+  G-TRACE-MSG := 'End'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-CURRENT-SERVER-STATUS
+************************************************************************
+FNDSY. FIND (1) SYSTEM-INFO-VIEW WITH NODE = +NOD-LOCAL-NODE
+  IF SYSTEM-INFO-VIEW.ERROR-CODE NE 0
+    G-NATRP-ERC := SYSTEM-INFO-VIEW.ERROR-CODE
+    G-NATRP-ERT := SYSTEM-INFO-VIEW.ERROR-TEXT
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Error reading system information' G-NATRP-ERC
+    PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      G-NATRP-ERT /*SU7 (AL=70)
+  END-IF
+  IF SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN ('BS2')
+    SYSTEM-INFO-VIEW.SPOOL-TYPE := SYSTEM-INFO-VIEW.SYSTEM-TYPE
+  END-IF
+*
+END-FIND
+SATSS-SATVERS         := 21
+SATSS-NODE            := +NOD-LOCAL-NODE
+SATSS-SYSTEM-TYPE     := SYSTEM-INFO-VIEW.SYSTEM-TYPE
+SATSS-TYPE            := G-PRTASK-TYPE
+SATSS-BTCH-JOBNAME    := #G-PRTASK-BTCH-JOB-NAME (T)
+SATSS-BTCH-JOB-NUMBER := #G-PRTASK-BTCH-JOB-NUMBER (T)
+SATSS-SUBT-NAME       := #G-PRTASK-SUBT-NAME (T)
+CALLNAT 'SATSS02N' SATSS-SATVERS SATSS-PARMS (*)
+*
+DECIDE ON FIRST SATSS-ERROR-CODE
+  VALUE 0
+    IGNORE
+  VALUE 5663
+    RESET  SATSS-ERROR-CODE
+    SATSS-STATUS := 'CLOSED'
+  NONE VALUE
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      '=' SATSS-ERROR-CODE '=' SATSS-ERROR-TEXT
+    SATSS-STATUS := 'ERROR' /* set by NOM, not by SAT
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-CURRENT-SERVER-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-UNIX-PRINTER-TASK
+************************************************************************
+STX-TASK-NAME := #G-PRTASK-SUBT-NAME (T)
+STX-FUNCTION  := 'STATUS'
+CALLNAT 'RMSTX--N' STX-PARMS G-TRACE
+END TRANSACTION
+IF STX-ERROR-CODE = 0
+  IF  STX-TASK-STATUS NE 0
+    RESET  SATSS-ERROR-CODE
+    SATSS-STATUS := 'CLOSED'
+  END-IF
+ELSE
+  IF #TRACING                          /*raya nomall-1022 in
+    COMPRESS 'Unix error:' STX-ERROR-CODE STX-ERROR-TEXT TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+  END-IF                              /*raya nomall-1022 in
+  SATSS-STATUS := 'ERROR' /* set by NOM, not by SAT
+END-IF
+*
+END-SUBROUTINE /* CHECK-UNIX-PRINTER-TASK
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-PRINTOUTS
+************************************************************************
+FNDPO. FIND PRINTOUTS WITH PO-ID = #G-PRTASK-POID (T)
+  #ISN := *ISN (FNDPO.)
+  IF *MACHINE-CLASS NE 'MAINFRAME'
+      AND PO-STATUS NE 'P' /* "AND PO-STATUS NE 'X'" deleted, NOMALL-947
+    RESET G-TASK (T)
+    SATSS-STATUS := 'FIN'
+  END-IF
+  RESET RACTLF-ERROR-LOGGING RACTLF-LOGGING #ADA-RC
+  RACTLF-LFILE-1   := 91
+  CALLNAT 'RACTLF-N' RACTLF-PARMS
+  IF RACTLF-ERROR-CODE = 0
+    CALLNAT 'GETHOLD' RACTLF-DBID-1 RACTLF-FNR-1 #ISN 'BS' #ADA-RC
+  END-IF
+  IF #ADA-RC = 145 OR = 113
+    END TRANSACTION
+    ESCAPE BOTTOM (FNDPO.)
+  END-IF
+*
+  GETPO. GET PRINTOUTS #ISN
+*
+  RESET #NO-RETRY
+  IF PO-STATUS = '-'
+    PO-STATUS := 'E'
+    #NO-RETRY := TRUE
+  END-IF
+*
+  IF #TRACING
+    COMPRESS *LINE 'Satss-Status:' SATSS-STATUS TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  DECIDE ON FIRST SATSS-STATUS
+    VALUE 'CLOSED', 'ABEND', 'FAILED', 'ERROR'
+      IF PO-STATUS = 'P'
+        PO-STATUS := 'E'
+        PO-MSG    := ##TXT-TASK-CANCELED
+        PERFORM WRITE-ERROR-LOG
+        UPDATE (GETPO.)
+      END-IF
+      IF PO-STATUS = 'E' OR = 'F'
+/*SU5   IF PO-PRINTER-TYPE = ##PHYS-ECL PERFORM RESTART-PRINTOUT ELSE
+        PERFORM RESTART-PRINTOUT-NEW
+/*SU5  END-IF
+        UPDATE (GETPO.)
+      END-IF
+    VALUE 'ACTIVE'
+      IF PO-STATUS = 'P'
+        PO-MSG := ##TXT-TASK-EXECUTING
+        UPDATE (GETPO.)
+      END-IF
+    VALUE 'START', 'STARTING'
+      IF PO-STATUS = 'P'
+        PO-MSG := ##TXT-TASK-STARTED
+        UPDATE (GETPO.)
+      END-IF
+    NONE VALUE
+      IGNORE
+  END-DECIDE
+  END TRANSACTION
+END-FIND
+*
+END-SUBROUTINE /* CHECK-PRINTOUTS
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-ERROR-LOG
+************************************************************************
+IF PRINTOUTS.PO-REPNAME NE ' '
+  LG-OBJECT-NAME := PRINTOUTS.PO-REPNAME
+  LG-REPNAME     := PRINTOUTS.PO-REPNAME
+  LG-REPRNB      := PRINTOUTS.PO-REPRNB
+  LG-PRINTER     := PRINTOUTS.PO-LOGICAL
+  COMPRESS PRINTOUTS.PO-REPNAME '/' PRINTOUTS.PO-REPRNB
+    TO LG-MSG LEAVING NO
+  COMPRESS '7204' LG-MSG TO LG-MSG
+ELSE
+  LG-OBJECT-NAME := PRINTOUTS.PO-BUNDLE
+  LG-BUNDLE      := PRINTOUTS.PO-BUNDLE
+  LG-BUNDRNB     := PRINTOUTS.PO-BUNDRNB
+  LG-PRINTER     := PRINTOUTS.PO-LOGICAL
+  COMPRESS PRINTOUTS.PO-BUNDLE '/' PRINTOUTS.PO-BUNDRNB
+    TO LG-MSG LEAVING NO
+  COMPRESS '7214' LG-MSG TO LG-MSG
+END-IF
+*
+COMPRESS LG-MSG PO-LOGICAL TO LG-MSG
+LG-USERID := G-LG-USERID
+LG-CODE   := 'PR'
+CALLNAT 'RLOG' PL-PARMS
+IF #TRACING
+  COMPRESS 'Error --->' G-NATRP-ERC-A LG-MSG TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* WRITE-ERROR-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE RESTART-PRINTOUT-NEW
+************************************************************************
+IF #NO-RETRY OR NRM-MONITOR.M-MAX-RETRIES LT 1
+  ESCAPE ROUTINE
+END-IF
+IF PRINTOUTS.PO-DESTINATION = ' '
+  RESET PRINTOUTS.PO-RS-COUNT PRINTOUTS.PO-RS-INTERVAL
+END-IF
+*
+IF PO-RS-COUNT LT M-MAX-RETRIES
+  PRINTOUTS.PO-RS-COUNT := PRINTOUTS.PO-RS-COUNT + 1
+  PRINTOUTS.PO-SCHEDULED := PRINTOUTS.PO-SCHEDULED +
+    (NRM-MONITOR.M-RETRY-INTERVAL * 10)
+  PRINTOUTS.PO-STATUS := 'R'
+  RESET PRINTOUTS.PO-PRINTED
+  IF PRINTOUTS.PO-PRINTER-TYPE =#_UNIXLP OR=#_EMAIL OR=#_DISKUNIX /*SU6
+    RESET PRINTOUTS.PO-LAST-PRINTED-RECNO /*restart from begin
+  END-IF
+*
+  COMPRESS '7019' PRINTOUTS.PO-ID SATSS-STATUS PO-RS-COUNT INTO LG-MSG
+  LG-USERID:= G-LG-USERID
+  LG-CODE:= 'PR'
+  CALLNAT 'RLOG' PL-PARMS
+  IF #TRACING
+    COMPRESS 'retry id:' PRINTOUTS.PO-ID 'count:' PRINTOUTS.PO-RS-COUNT
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* RESTART-PRINTOUT-NEW
+*
+END

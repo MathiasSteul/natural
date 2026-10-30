@@ -1,0 +1,82 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* YSWD---N - CALENDAR SET / RESET WEEKLY HOLIDAYS
+*
+* xsetggr 02-01-25 p(208009) correct position of the message line
+************************************************************************
+DEFINE DATA
+PARAMETER
+1 P-TABLE-NAME        (A10)
+1 P-YEAR              (N4)
+1 P-TABLE             (A50)
+1 P-WEEK-BEGIN-JULIAN (I2)
+1 P-TABLE-MODIFIED    (L)
+************************************************************************
+LOCAL
+1 L-MARK       (A1/1:7)
+1 L-DAY-NAME   (A15/1:7)
+1 #JULIAN-DATE (A7)
+1 REDEFINE #JULIAN-DATE
+  2 #JU-YEAR   (N4)
+  2 #JU-DAY    (N3)
+1 NOPDTA-CMD   (A2)
+1 NOPDTA-RC    (I2)
+1 NOPDTA-WA    (A20)
+1 #DUMMY       (A1)
+1 #DATE        (D)
+1 #I           (N3)
+1 #J           (N3)
+1 #WBJ         (N3)   /* WEEK BEGIN JULIAN
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY PF3
+#JU-YEAR := P-YEAR
+#JU-DAY  := P-WEEK-BEGIN-JULIAN
+#WBJ := P-WEEK-BEGIN-JULIAN - (P-WEEK-BEGIN-JULIAN / 7) * 7
+MOVE EDITED #JULIAN-DATE TO #DATE (EM=YYYYJJJ)
+FOR #I = 1 TO 7
+  MOVE EDITED #DATE (EM=N(15)) TO L-DAY-NAME(#I)
+  ADD 1 TO #DATE
+END-FOR
+*
+REPEAT
+  RESET L-MARK(*)
+  SET CONTROL 'M21'
+  SET CONTROL 'WC20L39B03/20F'
+  INPUT USING MAP 'YSWD--M&'
+  IF *PF-KEY = 'PF3'
+    SET CONTROL 'WB'
+    SET CONTROL 'M21'
+    ESCAPE ROUTINE
+  END-IF
+*
+  FOR #I = 1 TO 7
+    DECIDE ON FIRST VALUE OF L-MARK(#I)
+      VALUE ' '  ESCAPE TOP
+      VALUE 'R', 'S'            /* --- RESET, SET ---
+        COMPRESS L-MARK(#I) 'E' TO NOPDTA-CMD LEAVING NO
+        #J := #WBJ + #I - 1
+        IF #J > 7  SUBTRACT 7 FROM #J  END-IF
+        FOR #JU-DAY = #J TO 366 STEP 7
+          CALL 'NOPDTA' NOPDTA-CMD      /* 'RE' OR 'SE' ONLY
+            NOPDTA-RC NOPDTA-WA P-TABLE #DUMMY #JULIAN-DATE
+        END-FOR
+        P-TABLE-MODIFIED := TRUE
+      NONE VALUE
+        REINPUT *0007 MARK *L-MARK(#I)
+    END-DECIDE
+  END-FOR
+  IF P-TABLE-MODIFIED /* SHOW RESULT ON MAIN TABLE IMMEDIATELY --
+    SET CONTROL 'WB'
+    ESCAPE ROUTINE
+  END-IF
+END-REPEAT
+END

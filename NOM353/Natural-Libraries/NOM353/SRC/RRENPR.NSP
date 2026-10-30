@@ -1,0 +1,181 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* PROGRAM  : RRENPR
+* FUNCTION : RENAME LOGOCAL PRINTER
+*            RENAME IT ALSO IN MASTER BUNDLE
+*            RENAME IT ALSO IN MASTER REPORT
+*            RENAME IT ALSO IN ACTIVE BUNDLE
+*            RENAME IT ALSO IN PRINTOUT ENTRIES
+*
+* Maintenance
+* mrs 91-12-20 s(141159) support languages other than english
+* mrs 92-02-06 s(144000) window size, error messages changed
+* mrs 92-02-06 s(144001) rename authorization corrected
+* wcd     2000-04-01 CE7267  Increase to 20 printers
+* xsetggr 2007-10-25 NRT2185 default values for UNIXLP printers
+* xsetggr 2008-11-28 P311915 default printers DEFAULTA - DEFAULTZ
+* xsetggr 2012-02-01 NOMALL-1100 write language independant msgs to log
+* xsetggr 2012-09-21 NOMALL-89 implement external security check subrout
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* SU3     2018-03-15 NOMALL-2085 NOM35 printer:sep.pages
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING RLOG-L
+LOCAL USING ROT----L
+LOCAL
+1 PRINTERS VIEW OF NRM-PRINTERS
+  2 P-ID
+1 PRINTOUTS VIEW OF NRM-PRINTOUTS
+  2 PO-LOGICAL
+1 MASTER-REP VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 C*R-PRINTERS
+  2 R-PRINTERS      (1:20)
+  2 REDEFINE R-PRINTERS
+    3 R-PRNT        (1:20)
+      4 R-PRINTER   (A8)
+      4 R-COP       (A3)
+      4 R-SEP-PAGE  (A1) /*SU3
+1 MASTER-BUN VIEW OF NRM-BUNDLES
+  2 B-BUNDLE
+  2 C*B-PRINT-LIST
+  2 B-PRINT-LIST    (1:20)
+  2 REDEFINE B-PRINT-LIST
+    3 B-PRNT        (1:20)
+      4 B-PRINTER   (A8)
+      4 B-COP       (A3)
+1 ACTIVE-BUN VIEW OF NRM-ACTIVE-BUNDLES
+  2 AB-BUNDLE
+  2 C*AB-PRINT-LIST
+  2 AB-PRINT-LIST   (1:20)
+  2 REDEFINE AB-PRINT-LIST
+    3 AB-PRNT       (1:20)
+      4 AB-PRINTER  (A8)
+      4 AB-COP      (A3)
+* *****
+1 #NEWNAME          (A8)
+1 I                 (I2)
+1 #PRINTER-FROM     (A11)
+1 REDEFINE #PRINTER-FROM
+  2 #PRINTER-F      (A8)
+  2 #COPIES-F       (A3)
+1 #PRINTER-TO       (A11)
+1 REDEFINE #PRINTER-TO
+  2 #PRINTER-T      (A8)
+  2 #COPIES-T       (A3)
+1 #P-ID-E           (A8)
+1 #P-ID             (A8) INIT <'DEFAULT'>
+1 REDEFINE #P-ID
+  2 #P-ID-1         (A7)
+  2 #P-ID-2         (A1)
+1 #PROG             (A8) /* xsetggr 2012-09-21 NOMALL-89 star
+1 #FATHER-PROG      (A8) INIT <' RLISPR'>
+1 #NAME             (A25)
+1 #ALLOWED          (L) /* xsetggr 2012-09-21 NOMALL-89 end
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+CALLNAT 'ROTINI-N' ##EQO-PRINTER G-OBJ-TYPE G-OTB
+* security check for rename
+#PROG := *PROGRAM                  /* xsetggr 2012-09-21 NOMALL-89 start
+#NAME := G-C-PRINTER
+PERFORM XXSECURITY-CHECK #PROG #NAME #ALLOWED
+INCLUDE C-NALLOW                   /* xsetggr 2012-09-21 NOMALL-89 end
+*
+#P-ID-2 := 'Z'
+#P-ID-E := #P-ID
+#P-ID-2 := 'A'
+IF G-C-PRINTER = #P-ID THRU #P-ID-E
+  G-NATRP-ERC := 0165
+  ESCAPE ROUTINE
+END-IF
+*
+SET KEY PF3
+*
+SET CONTROL 'WC11L45B06/25F'
+SET CONTROL 'MT'
+INPUT USING MAP 'RRENPRM&'
+IF *PF-KEY = 'PF3'
+  ESCAPE ROUTINE
+END-IF
+*
+IF #NEWNAME = ' '
+  REINPUT *0106 ALARM
+END-IF
+*
+F1. FIND NUMBER PRINTERS WITH P-ID  = #NEWNAME
+IF *NUMBER(F1.) > 0
+  REINPUT *0033, G-OBJ-TYPE ALARM
+END-IF
+*
+MR. FIND PRINTERS WITH P-ID  = G-C-PRINTER
+  P-ID := #NEWNAME
+  UPDATE
+END-FIND
+* ------
+* UPDATE GRANT ENTRIES
+* -------
+FETCH RETURN 'RRENGR' 'P' G-C-PRINTER #NEWNAME
+*
+#PRINTER-F := G-C-PRINTER
+#PRINTER-T := G-C-PRINTER
+#COPIES-T  := '999'
+* -----
+* UPDATE MASTER REPORT RECORD
+* -----
+FIND MASTER-REP WITH R-PRINTERS = #PRINTER-FROM THRU #PRINTER-TO
+  FOR I 1 TO C*R-PRINTERS
+    IF R-PRINTER (I) = G-C-PRINTER
+      R-PRINTER (I) := #NEWNAME
+    END-IF
+  END-FOR
+  UPDATE
+END-FIND
+* -----
+* UPDATE MASTER BUNDLE RECORD
+* -----
+FIND MASTER-BUN WITH B-PRINT-LIST = #PRINTER-FROM THRU #PRINTER-TO
+  FOR I 1 TO C*B-PRINT-LIST
+    IF B-PRINTER (I) = G-C-PRINTER
+      B-PRINTER (I) := #NEWNAME
+    END-IF
+  END-FOR
+  UPDATE
+END-FIND
+* -----
+* UPDATE ACTIVE BUNDLE RECORD
+* -----
+FIND ACTIVE-BUN WITH AB-PRINT-LIST = #PRINTER-FROM THRU #PRINTER-TO
+  FOR I 1 TO C*AB-PRINT-LIST
+    IF AB-PRINTER (I) = G-C-PRINTER
+      AB-PRINTER (I) := #NEWNAME
+    END-IF
+  END-FOR
+  UPDATE
+END-FIND
+* -----
+* UPDATE PRINTOUT QUEUE
+* -----
+FIND PRINTOUTS  WITH PO-LOGICAL = G-C-PRINTER
+  PO-LOGICAL := #NEWNAME
+  UPDATE
+END-FIND
+* -----
+* LOG RECORD
+* -----
+LG-CODE        := 'PM'
+LG-USERID      := G-USERID
+LG-OBJECT-NAME := #NEWNAME
+COMPRESS '2513'  G-C-PRINTER #NEWNAME TO LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+*
+END

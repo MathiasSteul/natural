@@ -1,0 +1,423 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMDISAR - List a report with depending objects
+*
+* Maintenance
+* uuu yy-mm-dd s(999999)   ...
+* fhi 16-02-08 NOMALL-1834 Created.
+* fhi 16-04-22 NOMALL-1834 Rewritten. No tags.
+* fhi 16-05-24 NOMALL-1834 Added support for batch run. No tags.
+* fhi 16-06-08 NOMALL-1834 Added support for granting and folder. No tgs
+* fhi 16-07-06 NOMALL-1834 Added display for owner AR-USERID R-USERID
+* fhi 17-02-06 NOMALL-xxxx Added display for REPORT fields, no tags
+* fhi 17-03-15 no itrac    Added hex display of record, no tags
+* fhi 18-11-20 NOMALL-1621 Avoid NAT1326 in line 3580
+* SU1     2020-04-01 NOMALL-2379 recat:VREP---L mod:Unix files A26-> A50
+* SU2     2020-11-10 NOMALL-2440 recat for VMONIT-L
+* SU3     2021-04-22 NOMALL-2454 recat for VMONIT-L M-NATRPT-DBID/-FNR
+* SU4     2024-03-07 ES-34613    NOM 3.6 Remove SAP / power: MSG
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL USING VREP---L
+LOCAL USING VAREP-L
+LOCAL USING VPRRP-L
+LOCAL USING VRPCT-L
+LOCAL USING VGRANT-L
+LOCAL USING VMONIT-L
+LOCAL USING VFOLD-L
+LOCAL USING VDSNRP-L
+LOCAL USING VMAILR-L
+LOCAL USING VFSYS-L
+LOCAL USING VBURP-L
+LOCAL USING SUPER-L
+LOCAL USING RMSR---L
+LOCAL USING RMSR---E
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+LOCAL
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-TYPE
+1 READ-SPOOL VIEW OF READ-SPOOL
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD
+1 SOURCE-TEXT VIEW OF NRM-SOURCE-TEXT
+  2 ST-ID
+  2 ST-TEXT (1:11)
+  2 C*ST-TEXT
+* *****
+1 #MSG                       (A20)
+1 #ALL                       (L)
+1 #I                         (I4)
+1 #J                         (I4)
+1 #ANY                       (L)
+1 #ST-ID-LINE                (B10)
+1 REDEFINE #ST-ID-LINE
+  2 #ST-ID                   (P10)
+  2 #ST-LINE                 (B4)
+1 #PROCESS-TIME-D            (T)
+1 REDEFINE #PROCESS-TIME-D
+  2 #PROCESS-TIME-P          (P13)
+1 #GR-TYPE-OBJ-USER          (A44)
+1 REDEFINE #GR-TYPE-OBJ-USER
+  2 #GR-OBJECT-TYPE          (A1)
+  2 #GR-OBJECT-NAME          (A25)
+  2 #GR-USERID               (A8)
+1 #GR-TYPES                  (A2/6)
+  INIT < 'B','F','H','L','P','R' >
+1 #GR-OBJECTS                (A12/6) INIT <
+  'Bundle','Folder','Ph. Printer','Dist-Lst.','Log. Printer','Report' >
+1 #ID-MAX       (I2) CONST <8>
+1 #GROUPS       (A5/#ID-MAX)
+  INIT < 'JES','POWER','NAT','BS2','CMA','SAP','Unix','3GL' >
+1 #ID-FROM      (I2/#ID-MAX)
+  CONST  < 1,     5,     8,   14,   17,   21,    23,  10000  >
+1 #ID-TO        (I2/10)
+  CONST  < 4,     7,    13,   16,   20,   22,    24,  32767  >
+1 #FO-USER-FO-ID             (A10)
+1 REDEFINE #FO-USER-FO-ID
+  2 #FO-USER-ID              (A8)
+  2 #FO-ID                   (B2)
+1 #LINE                      (A75)
+1 #LEN                       (I4)
+1 #HEXHIGH                   (A75)
+1 #HEXLOW                    (A75)
+1 #RULER                     (A75)
+1 #RULER-OFFSET              (I4)
+1 #INDEX                     (I4)
+1 #CONTENTS-RECORDS          (I4)
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY ALL
+FORMAT PS=22
+RESET #AR-REPRNB
+FIND NRM-MONITOR WITH M-MONITOR-ID = 'API-DEFS'
+  IF NO RECORDS FOUND
+    WRITE
+      /'*'(69)
+      / *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+      'No entry for Trigger Container File found. Exiting.'
+      /'*'(69)
+      /
+    STOP
+  END-NOREC
+  SATLF-LFILE   := 158
+  SATLF-DBID-N5 := M-NATRPT-DBID-N5
+  SATLF-FNR-N5  := M-NATRPT-FNR-N5
+  SATLF-FUNCTION := 'SET'
+  CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+  IF SATLF-ERROR-CODE NE 0
+    WRITE
+      /'*'(69)
+      / *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+      'Lfile' SATLF-LFILE 'setting for Container File'
+      SATLF-DBID-N5 '/' SATLF-FNR-N5
+      / 30T 'failed with msg:' / 30T SATLF-ERROR-TEXT
+      / 30T 'Exiting.'
+      /'*'(69)
+      /
+    STOP
+  END-IF
+*
+END-FIND
+WRITE TITLE LEFT
+  '*******************************************************' /
+  'NOMDISAR: Display Active Reports with depending objects' /
+  #AR-REPNAME AR-REPRNB /
+  '*******************************************************' //
+REPEAT
+  IF *DEVICE NE 'BATCH'
+    INPUT (AD=MILT'_')
+      '*******************************************************' /
+      'NOMDISAR: Display Active Reports with depending objects' /
+      '*******************************************************' //
+      'Please enter report name and run number:'                /
+      'Run number 0 means all active reports of this name'      /
+      '=' #AR-REPNAME '=' #AR-REPRNB                            /
+      'PF5 starts, PF3 exits'                                   /
+      ' ' #MSG (AD=OI)
+    DECIDE FOR FIRST CONDITION
+      WHEN *PF-KEY = 'PF3'
+        ESCAPE ROUTINE
+      WHEN *PF-KEY NE 'PF5'
+        RESET #MSG
+        ESCAPE TOP
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+  ELSE
+    INPUT '=' #AR-REPNAME '=' #AR-REPRNB
+  END-IF
+  IF #AR-REPRNB = 0
+    #ALL := TRUE
+  ELSE
+    #ALL := FALSE
+  END-IF
+*
+  RDAR. READ ACTIVE-REPORTS BY AR-REPORT-RNB = #AR-REPORT-RNB
+    IF AR-REPNAME NE #AR-REPNAME
+    OR (AR-REPRNB NE #AR-REPRNB AND NOT #ALL)                         /*
+      IF *COUNTER (RDAR.) = 1
+        RESET *COUNTER (RDAR.)
+      END-IF
+      ESCAPE BOTTOM (RDAR.)
+    END-IF
+    IF #ALL
+      NEWPAGE
+      WRITE / 'Runnumber:' AR-REPRNB
+        / '-----------------------'               //
+      #AR-REPRNB := AR-REPRNB
+    END-IF
+*
+    WRITE 'Report properties:'                    /
+      'Owner:'     20T AR-USERID                  /
+      'Node ID:'   20T AR-INTERNAL-NODE-ID (AD=L) /
+      'Codepage:'  20T AR-REMOTE-CODEPAGE         /
+      'Local CP:'  20T AR-LOCAL-CODEPAGE          /
+      'Location:'  20T AR-CURRENT-LOCATION        /
+      'Processed:' 20T AR-PROCESS-TIME (EM=YYYY-MM-DD' 'HH:II:SS.T)
+    #GR-OBJECT-TYPE := 'R'
+    #GR-OBJECT-NAME := AR-REPNAME
+    PERFORM GRANTING
+    WRITE '-'(75)
+*
+    RESET REPORTS
+    RDREP. FIND REPORTS WITH R-REPNAME = AR-REPNAME
+      WRITE 'Report Definition:'                  /
+        'Codepage:' 20T R-REMOTE-CODEPAGE         /
+        'Node ID:'  20T R-INTERNAL-NODE-ID (AD=L) /
+      WRITE
+        'Type' 10T 'Identification Value'         /
+        '----' 10T '--------------------'
+      FORI. FOR #I=1 TO C*R-IDENT
+        IF R-IDENT-VALUE (#I) NE ' '
+          RESET #ANY
+          FORJ. FOR #J=1 TO #ID-MAX
+            IF R-IDENT-TYPE (#I) >= #ID-FROM (#J)
+            AND R-IDENT-TYPE (#I) <= #ID-TO   (#J)                    /*
+              WRITE #GROUPS (#J) 10T R-IDENT-VALUE (#I) (AL=68)
+              #ANY := TRUE
+              ESCAPE BOTTOM (FORJ.)
+            END-IF
+          END-FOR
+          IF NOT #ANY
+            WRITE 'unknown' 10T R-IDENT-VALUE (#I) (AL=68)
+          END-IF
+        END-IF
+      END-FOR
+      WRITE / 'Files:'
+      FOR #I=1 TO C*R-IDENT-FILES
+        IF R-IDENT-FILES (#I) NE ' '
+          WRITE NOTITLE NOHDR R-IDENT-FILES (#I)
+        END-IF
+      END-FOR
+      WRITE '-'(75)
+    END-FIND
+*
+    RESET MAIL-REPORTS
+    RDMA. READ MAIL-REPORTS BY MA-REP-RNB = #AR-REPORT-RNB
+      IF MA-REPNAME NE #AR-REPNAME OR MA-REPRNB NE #AR-REPRNB
+        ESCAPE BOTTOM (RDMA.)
+      END-IF
+      #PROCESS-TIME-P := MA-PROCESS-TIME
+      WRITE 'Depending Mail:'                /
+        'Location:'  20T MA-CURRENT-LOCATION /
+        'Processed:' 20T #PROCESS-TIME-D (EM=YYYY-MM-DD' 'HH:II:SS.T) /
+        'Mail-User:' 20T MA-USERID
+      #FO-USER-ID       := MA-USERID
+      #FO-ID            := MA-FO-ID
+      FIND FOLDER WITH FO-USER-FO-ID = #FO-USER-FO-ID
+        WRITE 'Folder:' 20T FO-NAME
+        #GR-OBJECT-TYPE := 'F'
+        #GR-OBJECT-NAME := FO-NAME
+        PERFORM GRANTING
+      END-FIND
+      WRITE '-'(75)
+    END-READ /* RDMA.
+*
+    RDPO. READ PRINTOUTS BY PO-REPORT-RNB =#AR-REPORT-RNB
+      IF PO-REPNAME NE #AR-REPNAME OR PO-REPRNB NE #AR-REPRNB
+        ESCAPE BOTTOM (RDPO.)
+      END-IF
+      WRITE 'Depending Printout:' /
+        'PO-ID:'   20T PO-ID      /
+        'Status:'  20T PO-STATUS  /
+        'Created:' 20T PO-CREATED (EM=YYYY-MM-DD' 'HH:II:SS.T) /
+        'Printer:' 20T PO-LOGICAL /
+        'Msg:'     20T PO-MSG
+        / '-'(75)
+    END-READ /* RDPO.
+*
+    RDBC. READ BUNDLE-CONTENTS BY BC-REPORT-RNB =#AR-REPORT-RNB
+      IF BC-REPNAME NE #AR-REPNAME OR BC-REPRNB NE #AR-REPRNB
+        ESCAPE BOTTOM (RDBC.)
+      END-IF
+      WRITE 'In Bundle:' / 'Bundle:'  BC-BUNDLE 'Status:'  BC-STATUS
+        'Printer:' BC-PRINTER
+      #GR-OBJECT-TYPE := 'B'
+      #GR-OBJECT-NAME := BC-BUNDLE
+      PERFORM GRANTING
+      WRITE '-'(75)
+    END-READ /* FNDBC.
+*
+    RDDR. READ DATASET-REPORT BY DR-REPORT-RNB =#AR-REPORT-RNB
+      IF DR-REPNAME NE #AR-REPNAME OR DR-REPRNB NE #AR-REPRNB
+        ESCAPE BOTTOM (RDDR.)
+      END-IF
+      WRITE 'Archived in:' /
+        'Archive Dataset:' 20T DR-ARCHIVE-DSNAME /
+        'Status:'          20T DR-STATUS        /
+        'Expiration:'      20T DR-EXPIRATION-DATE
+        / '-'(75)
+    END-READ /* RDDR.
+*
+    #AC-REPNAME := #AR-REPNAME
+    #AC-REPRNB  := #AR-REPRNB
+    RESET #AC-SEQ REPORT-CONTENTS
+    RESET REPORT-TEXT
+    #F-REPNAME := #AR-REPNAME
+    #F-REPRNB  := #AR-REPRNB
+    RESET #F-SEQ
+    DECIDE ON FIRST VALUE OF AR-CURRENT-LOCATION
+      VALUE 'S'
+        RESET #CONTENTS-RECORDS
+        FIND SOURCE WITH SOURCE.SR-ID = AR-SOURCE-ID
+          DECIDE ON FIRST SOURCE.SR-TYPE
+            VALUE JES2, JES3
+              PERFORM GET-SYSOUT-LINES-JES
+            VALUE NOM-DATA-BASE
+              PERFORM GET-SYSOUT-LINES-NOMDB
+            NONE
+              WRITE 'Listing of contents of source type' SOURCE.SR-TYPE
+                'not implemented.'
+          END-DECIDE
+        END-FIND
+      VALUE 'D'
+        RESET #CONTENTS-RECORDS
+        RDFI. READ REPORT-TEXT BY F-REPNAME-RNB-SEQ =#F-REP-RNB-SEQ
+          IF F-REPNAME NE #AR-REPNAME OR F-REPRNB NE #AR-REPRNB
+          OR #CONTENTS-RECORDS > 10                                   /*
+            ESCAPE BOTTOM (RDFI.)
+          END-IF
+          NEWPAGE
+          WRITE 'Report Contents read from NOM DB Lfile 91:' /
+            'Seq-number:' F-SEQ
+          FORFI. FOR #I = 1 TO C*F-TEXT
+            IF F-TEXT(#I) NE ' '
+              REP. REPEAT
+                PERFORM XXHEXPRT #LINE #HEXHIGH #HEXLOW #RULER
+                  #RULER-OFFSET TRUE F-TEXT(#I) 75
+                IF #RULER-OFFSET = -1
+                  ESCAPE BOTTOM (REP.)
+                END-IF
+                WRITE #LINE / #HEXHIGH / #HEXLOW / #RULER /
+              END-REPEAT
+            END-IF
+          END-FOR /* FORI.
+          WRITE  '-'(75)
+        END-READ /* RDFI.
+      NONE
+        IGNORE
+    END-DECIDE
+  END-READ /* RDAR.
+  IF *COUNTER (RDAR.) = 0
+    #MSG := 'No report found'
+  END-IF
+  UNTIL *DEVICE = 'BATCH'
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GRANTING
+************************************************************************
+RDGR. READ GRANTS BY GR-TYPE-OBJ-USER = #GR-TYPE-OBJ-USER
+  IF GR-OBJECT-TYPE NE #GR-OBJECT-TYPE OR
+  GR-OBJECT-NAME NE #GR-OBJECT-NAME                                   /*
+    ESCAPE BOTTOM (RDGR.)
+  END-IF
+  EXAMINE #GR-TYPES(*) FOR GR-OBJECT-TYPE GIVING INDEX #INDEX
+  IF #INDEX NE 0
+    #LINE := #GR-OBJECTS(#INDEX)
+  ELSE
+    RESET #LINE
+  END-IF
+  COMPRESS #LINE GR-OBJECT-NAME 'granted for user:' GR-USERID
+    'with:' GR-OPTION(*) TO #LINE
+  WRITE #LINE
+END-READ /* RDGR.
+*
+END-SUBROUTINE /* GRANTING
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SYSOUT-LINES-JES
+************************************************************************
+#SOURCE-ATTRIBUTES := SOURCE.SR-ATTRIBUTES-IDENT
+RDSPOOL. FIND READ-SPOOL WITH JOB-NAME = #JES-JOB-NAME
+AND JOB-NUMBER = #JES-JOB-NUMBER AND NODE = #JES-NODE                 /*
+AND TYPE       = #JES-TYPE       AND DATA-SET-KEY = #JES-DATA-SET-KEY /*
+  IF ERROR-CODE NE 0 /*SU1
+    PRINT (AD=L) *PROGRAM *LINE ERROR-CODE ERROR-TEXT
+      'JOB-NAME:' #JES-JOB-NAME
+      'JOB-NUMBER:' #JES-JOB-NUMBER 'NODE:' #JES-NODE
+      'TYPE:' #JES-TYPE 'DATA-SET-KEY:' #JES-DATA-SET-KEY
+  END-IF
+  AT START OF DATA
+    WRITE 'Contents read from JES spool:'
+  END-START
+  IF *COUNTER (RDSPOOL.) > 10
+    ESCAPE BOTTOM (RDSPOOL.)
+  END-IF
+  WRITE (AL=75) RECORD
+END-FIND
+WRITE '-'(78)
+*
+END-SUBROUTINE /* GET-SYSOUT-LINES-JES
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SYSOUT-LINES-NOMDB
+************************************************************************
+#SOURCE-ATTRIBUTES := SOURCE.SR-ATTRIBUTES-IDENT
+#ST-ID             := #NOMDB-ID
+#ST-LINE           := 1
+*
+READ-SOURCE. READ (1) SOURCE-TEXT BY ST-ID-LINE = #ST-ID-LINE
+  AT START OF DATA
+    WRITE 'Contents buffer read from Container File Lfile 158:'
+  END-START
+*
+  IF ST-ID NE #ST-ID OR *COUNTER (READ-SOURCE.) > 10
+    ESCAPE BOTTOM (READ-SOURCE.)
+  END-IF
+  FOR #I = 1 TO C*ST-TEXT
+    IF ST-TEXT(#I) NE ' '
+      EXAMINE ST-TEXT(#I) FOR ' ' GIVING LENGTH IN #LEN
+      COMPRESS 'Occ:' #I '- Len:' #LEN TO #LINE
+      WRITE #LINE /
+      REP2. REPEAT
+        PERFORM XXHEXPRT #LINE #HEXHIGH #HEXLOW #RULER
+          #RULER-OFFSET TRUE ST-TEXT(#I) 75
+        IF #RULER-OFFSET = -1
+          ESCAPE BOTTOM (REP2.)
+        END-IF
+        WRITE #LINE / #HEXHIGH / #HEXLOW / #RULER /
+      END-REPEAT
+    END-IF
+  END-FOR /* FORI.
+  WRITE  '-'(75)
+END-READ
+WRITE '-'(78)
+*
+END-SUBROUTINE /* GET-SYSOUT-LINES-NOMDB
+*
+END

@@ -1,0 +1,132 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMRECN-N
+* Function  Read the whole data set and count records.
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 94-03-03 s(180305) old version saved, various modifications
+* jvd 97-06-06 p(162868) inserted a NO REC FOUND clause
+* fhi 00-10-04 QA05      Improve error message
+* fhi 05-04-19 NOM31107  Support 7-byte job numbers
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2012-02-01 NOMALL-1100 write language independant msgs to log
+* fhi     2017-01-27 NOMALL-1961 Show node name in errors
+* SU1     2020-06-22 NOMALL-2349 show full msg
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 P-SOURCE-TYPE              (I2)
+1 P-SOURCE-ATTRIBUTES        (A250)
+1 P-RECORD-NUMBER            (P10)
+1 P-ERROR-CODE               (N4)
+1 P-ERROR-TEXT               (A250)
+************************************************************************
+INDEPENDENT
+1 +NOD-CURRENT-NAME           (A16) /*fhi 2017-01-27 NOMALL-1961
+* ----------------------------------------------------------------------
+LOCAL USING RMSR---L
+LOCAL USING RMSR---E
+LOCAL USING RLOG-L
+*
+LOCAL
+1 SYSOUT VIEW OF READ-SPOOL
+  2 RECORD-NUMBER
+  2 ERROR-CODE
+  2 ERROR-TEXT
+1 READ-FILE VIEW OF READ-FILE
+  2 RECORD-NUMBER
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 END-OF-FILE
+1 #P-SOURCE-TYPE             (P3)
+1 #P-SOURCE-TYPE-BIN         (B2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-ERROR-CODE P-ERROR-TEXT P-RECORD-NUMBER
+*
+#SOURCE-ATTRIBUTES := P-SOURCE-ATTRIBUTES
+#P-SOURCE-TYPE-BIN := P-SOURCE-TYPE
+CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES #P-SOURCE-TYPE-BIN
+*
+#P-SOURCE-TYPE := P-SOURCE-TYPE
+DECIDE ON FIRST P-SOURCE-TYPE
+  VALUE JES2, JES3
+    PERFORM COUNT-JES-RECORDS
+  VALUE SEQUENTIAL-FILE-BS2
+    PERFORM COUNT-FBS2-RECORDS
+  NONE VALUE
+    P-ERROR-CODE := 0005
+    COMPRESS *PROGRAM 'Invalid Source Type' #P-SOURCE-TYPE
+      TO  P-ERROR-TEXT
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE COUNT-JES-RECORDS
+************************************************************************
+FNDJES. FIND SYSOUT WITH NODE = #JES-NODE AND JOB-NAME = #JES-JOB-NAME
+AND JOB-NUMBER = #JES-JOB-NUMBER AND TYPE = #JES-TYPE                 /*
+AND DATA-SET-KEY = #JES-DATA-SET-KEY                                  /*
+  IF NO RECORD FOUND
+    COMPRESS '1076'  #JES-JOB-NAME TO LG-MSG
+    CALLNAT 'RLOG' PL-PARMS
+    END OF TRANSACTION
+    ESCAPE BOTTOM (FNDJES.)
+  END-NOREC
+  IF ERROR-CODE NE 0
+    P-ERROR-CODE := 0005
+*   P-ERROR-TEXT := ERROR-TEXT
+* fhi     2017-01-27 NOMALL-1961 line above out, start insertion
+    COMPRESS ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE
+      TO P-ERROR-TEXT
+* fhi     2017-01-27 NOMALL-1961 end insertion
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Error counting records' P-ERROR-CODE
+    PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      P-ERROR-TEXT /*SU1 (AL=70)
+    ESCAPE BOTTOM (FNDJES.)
+  END-IF
+  P-RECORD-NUMBER := RECORD-NUMBER
+*
+END-FIND
+*
+END-SUBROUTINE /* COUNT-JES-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE COUNT-FBS2-RECORDS
+************************************************************************
+FNDBS2. FIND READ-FILE WITH NODE = #FBS2-NODE AND DSNAME = #FBS2-DSNAME
+AND RECORD-NUMBER > 99999999                                          /*
+  IF ERROR-CODE NE 0
+    P-ERROR-CODE := 0005
+*   P-ERROR-TEXT := ERROR-TEXT
+* fhi     2017-01-27 NOMALL-1961 line above out, start insertion
+    COMPRESS ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE
+      TO P-ERROR-TEXT
+* fhi     2017-01-27 NOMALL-1961 end insertion
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Error counting records' P-ERROR-CODE
+    PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      P-ERROR-TEXT /*SU1 (AL=70)
+    ESCAPE BOTTOM (FNDBS2.)
+  END-IF
+  P-RECORD-NUMBER := RECORD-NUMBER
+END-FIND
+IF READ-FILE.END-OF-FILE = 'YES'
+  P-RECORD-NUMBER := READ-FILE.RECORD-NUMBER
+END-IF
+*
+END-SUBROUTINE /* COUNT-FBS2-RECORDS
+*
+END

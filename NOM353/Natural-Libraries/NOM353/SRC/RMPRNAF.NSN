@@ -1,0 +1,239 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPRNAF - Print Object to NAF
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-11-02 s(999999) created
+* gw  94-03-04 s(999999) first line is lost when record is inserted
+* mrs 95-06-09 s(226652) first line is lost when record is inserted
+* sju 95-10-09 s(228453) new return code (98) to stop printing
+* sju 99-06-28 p(183721) new printer exit return code 97 (means don't
+*                        call again until next report separator)
+* uuu     yyyy-mm-dd s(999999) ...
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* fhi     2003-07-29 P(227985) Clear unused modules
+* xsetggr 2004-11-23 p(258871) recat due to changes in rmfl---p
+* sju     2004-12-14 TYPE=AL   NOM31 support TYPE=AL
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-06-10 p(292935) fill po-printed only after successful end
+*                              of printing
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-11-25 NOMALL-856 Symbol handling extended.
+* fhi     2010-12-20 NOMALL-97 Save File Handle for NPR Unix
+* xsetggr 2010-12-21 NOMALL-865 restow due to changes in RMFL---P
+* fhi     2010-03-04 NOMALL-856 Not documented, backed out.
+* fhi     2011-04-26 NOMALL-966 Do not suppress last line with Pr-Exit
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* fhi     2014-08-29 NOMALL-1454 Restowed due to changes in XXUX---P
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* SU3     2016-03-08 NOMALL-1847 PDA RMPRAPIP -> PDA P-PEXIT
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU4     2024-07-25 NOM 353     Recataloged due to changes of RMPR-C
+* ----------------------------- Parameter ------------------------------
+DEFINE DATA
+PARAMETER USING RMFL---P
+PARAMETER
+1 LINE-PARMS
+  2 LINE-CURRENT              (P3)
+  2 LINE-TAB                  (1:100)
+    3 LINE                    (A251)
+    3 REDEFINE LINE
+      4 LINE-L                (A1/1:251)
+    3 LINE-NUMBER             (P10)
+*
+PARAMETER USING XXUX---P
+PARAMETER
+1 P-ERROR-CODE                 (N4)
+1 P-ERROR-TEXT                 (A250)
+************************************************************************
+LOCAL USING P-PEXIT
+LOCAL USING RCCTYP-E
+LOCAL USING RMMCASAP
+LOCAL USING RMASAC-E
+LOCAL
+1 ORDER-STATUS VIEW OF NRM-PRINTOUTS
+  2 PO-STATUS
+  2 PO-LAST-PRINTED-RECNO
+*
+1 I                            (P3)
+1 #STATUS                      (A1)
+1 #UPD-COUNTER                 (N8)  INIT <10>
+1 #SAVE-LINE                   (A251)
+1 #TEMP-LINE                   (A251)
+1 REDEFINE #TEMP-LINE
+  2 #TEMP-CC                   (A1)
+  2 #TEMP-TEXT                 (A250)
+1 LAST-BUFFER                  (L)
+1 #FLUSH-LINE                  (A251)
+1 REDEFINE #FLUSH-LINE
+  2 #FLUSH-CC                  (A1)
+  2 #FLUSH-TEXT                (A250)
+1 #IND                         (I4)
+1 #BIN-ALLOWED                 (L) CONST <FALSE>
+1 #BS2-ALLOWED                 (L) CONST <FALSE>
+1 #TRACING                     (L) CONST <FALSE>
+1 #TRACE-MSG                   (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT (3) PS=0 LS=250
+FORMAT (4) PS=0 LS=250
+*
+ADD 1 TO FLUSH-BUFFERS
+ADD 1 TO FLUSH-COUNTER
+*
+IF FLUSH-SEGMENT = 'L' OR = 'A' AND FLUSH-SEG-BRACKET = 'L' OR = 'A'
+  LAST-BUFFER := TRUE
+END-IF
+*
+FOR I = 1 TO LINE-CURRENT
+  IF FLUSH-BUFFERS = 1 AND I = 1
+    PERFORM OPEN-PRINTER
+  END-IF
+  IF LAST-BUFFER AND I = LINE-CURRENT
+    FLUSH-BRACKET := 'L'
+  END-IF
+  PERFORM CALL-PRINTER-EXIT
+  IF P-ERROR-CODE NE 0
+    ESCAPE BOTTOM
+  END-IF
+  IF FLUSH-BRACKET = 'L'
+    CLOSE PRINTER (3)
+  END-IF
+  FLUSH-BRACKET := 'M'
+END-FOR
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-STATUS
+************************************************************************
+IF FLUSH-POID = 0
+  ESCAPE ROUTINE
+END-IF
+*
+FNDOS. FIND ORDER-STATUS WITH PO-ID = FLUSH-POID
+  PO-STATUS             := #STATUS
+  PO-LAST-PRINTED-RECNO := FLUSH-LINES
+  UPDATE (FNDOS.)
+  END OF TRANSACTION
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-IT
+************************************************************************
+*** Handle carriage control for TYPE=AL. (TYPE=AL reports may contain
+*** a micture of ASA, Machine, and no carriage control).
+*** 1. If first character is a valid ASA carriage control, do nothing
+*** 2. If first character is printable (but not X'89' or X'8B' which
+***    are machine skip to channel 1), assume the record has no
+***    carriage control - shift the record right 1 position and put a
+***    space in column 1.
+*** 3. Otherwise, first character must be machine carriage control so
+***    translate it to ASA.
+*
+IF FLUSH-TYPE-AL = 'Y'
+  #FLUSH-LINE  := LINE(I)
+  EXAMINE FULL RMASAC-ASA-CODES(*) FOR #FLUSH-CC GIVING INDEX #IND
+  IF #IND = 0                            /* not ASA
+    IF #FLUSH-CC = MASK(P) AND #FLUSH-CC NE H'89' AND #FLUSH-CC NE H'8B'
+      RESET #FLUSH-CC
+      #FLUSH-TEXT:= LINE(I)
+      LINE(I):= #FLUSH-LINE
+      RESET FLUSH-SAVE-CC
+    ELSE
+      RMMCASA-PARMS.P-RECORD := LINE (I)
+      RMMCASA-PARMS.P-PREV-CC := FLUSH-SAVE-CC
+      CALLNAT 'RMMCASAN' RMMCASA-PARMS
+      FLUSH-SAVE-CC := RMMCASA-PARMS.P-PREV-CC
+      IF RMMCASA-PARMS.P-PRINT-NUMBER > 0
+        LINE (I) := RMMCASA-PARMS.P-RECORD
+      ELSE
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+  ELSE
+    RESET FLUSH-SAVE-CC
+  END-IF
+END-IF
+DECIDE FOR FIRST CONDITION
+  WHEN FLUSH-CC-TYPE = MACHINE-CODE
+    PERFORM MACHINE-TO-ASA
+  WHEN FLUSH-CC-TYPE = NO-CC
+    RESET #TEMP-CC
+    #TEMP-TEXT := LINE (I)
+    LINE (I) := #TEMP-LINE
+    PERFORM PRINT-LINE
+  WHEN NONE
+    PERFORM PRINT-LINE
+END-DECIDE
+*
+END-SUBROUTINE /* PRINT-IT
+*
+************************************************************************
+DEFINE SUBROUTINE MACHINE-TO-ASA
+************************************************************************
+RMMCASA-PARMS.P-RECORD := LINE (I)
+RMMCASA-PARMS.P-PREV-CC := NAF-CC-SAVE
+CALLNAT 'RMMCASAN' RMMCASA-PARMS
+NAF-CC-SAVE := RMMCASA-PARMS.P-PREV-CC
+IF RMMCASA-PARMS.P-PRINT-NUMBER > 0
+  LINE (I) := RMMCASA-PARMS.P-RECORD
+  PERFORM PRINT-LINE
+END-IF
+*
+END-SUBROUTINE /* MACHINE-TO-ASA
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-LINE
+************************************************************************
+ADD 1 TO FLUSH-LINES
+IF FLUSH-COUNTER > #UPD-COUNTER OR FLUSH-BRACKET = 'L'
+  #STATUS := 'P'
+  PERFORM UPDATE-STATUS
+  RESET FLUSH-COUNTER
+END-IF
+*
+WRITE (4) NOTITLE NOHDR LINE (I) (AL=249)
+*
+END-SUBROUTINE /* PRINT-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE OPEN-PRINTER
+************************************************************************
+DEFINE PRINTER (3) OUTPUT  NAF-LPF PROFILE NAF-PROFILE FORMS   NAF-FORMS
+  DISP    NAF-DISP COPIES  NAF-COPIES NAME    NAF-NAME
+DEFINE PRINTER (4) OUTPUT 'CCONTROL' PROFILE NAF-PROFILE FORMS NAF-FORMS
+  DISP    NAF-DISP COPIES  NAF-COPIES NAME    NAF-NAME
+*
+END-SUBROUTINE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  CALLNAT 'C-NATERN' P-ERROR-TEXT
+  P-ERROR-CODE := 21
+  FLUSH-ERROR := TRUE
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+INCLUDE RMPR-C /*V12-PRINTER-API,CALL-PRINTER-EXIT
+*
+END

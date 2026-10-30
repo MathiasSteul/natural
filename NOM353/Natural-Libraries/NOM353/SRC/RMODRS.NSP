@@ -1,0 +1,142 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMODRS
+* Function  Reset unfinished orders at monitor initialization
+* Version   1.3
+*
+*           Orders with type ranging from 2500 to 4999 are
+*           of type 'in process'. At monitor initialization
+*           any orders with this type must be the result of
+*           an unexpected error condition such as natural process
+*           or adabas going down.
+*
+*           Any orders found will be set to type 'failed'
+*           by adding 5000 to the type, unless a retry mechanism has to
+*           be performed to recover from monitor error conditions.
+*
+* Maintenance
+* uuu     yyyy-mm-dd p(999999) comment
+* gw      1993-02-12           created
+* fhi     2002-09-25 p(218246) Monitor error recovery, program rewritten
+* sju     2003-07-03 p(230407) Reset order type for recovery
+* sju     2004-11-29 nom31     restow for changed NRM-ORDER
+* fhi     2010-07-27 NOMALL-848 Run on little endian machines
+* fhi     2015-04-15 NOMALL-1603 Suppress unnecessary error messages
+* fhi     2017-01-11 NOMALL-1961 Change descriptor of NRM-ORDER
+* fhi     2019-06-14 NOMALL-2267 Still minor errors
+* SU1     2020-06-19 NOMALL-2349 show full msg
+* ---------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+* fhi     2019-06-05 NOMALL-2267 start insertion
+INDEPENDENT
+1 +NOD-CURRENT-NAME          (A16)
+* fhi     2019-06-05 NOMALL-2267 end   insertion
+LOCAL USING RLOG-L
+LOCAL
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-MONITOR-ID
+  2 OD-TYPE
+* fhi     2010-07-27 NOMALL-848 start commenting
+*    2 REDEFINE OD-TYPE 3 OD-TYPE-I2           (I2)
+* fhi     2010-07-27 NOMALL-848 end commenting
+  2 OD-ID
+* fhi     2019-06-05 NOMALL-2267 start insertion
+  2 OD-PARAMETER             (1)
+  2 REDEFINE OD-PARAMETER
+    3 OD-IDENT               (A8)
+    3 OD-FILLER1             (A17)
+* fhi     2019-06-05 NOMALL-2267 end   insertion
+  2 OD-TIME-SCHEDULED
+  2 OD-MAX-RETRIES
+  2 OD-RETRY-INTERVAL
+  2 OD-RETRY-NUMBER
+* fhi     2017-01-11 NOMALL-1961 start commenting
+*  1 #OD-MONITOR-ID-TYPE-TIME (A17) 1 REDEFINE #OD-MONITOR-ID-TYPE-TIME
+*    2 #OD-MONITOR-ID (A8) 2 #OD-TYPE (B2)) 2 #OD-TIME (T)
+* fhi     2017-01-11 NOMALL-1961 end commenting, start insertion
+1 #OD-TYPE-TIME              (A9)
+1 REDEFINE #OD-TYPE-TIME
+  2 #OD-TYPE                 (B2)
+  2 #OD-TIME                 (T)
+* fhi     2017-01-11 NOMALL-1961 end insertion
+*
+1 #SET-FAILED                (I2) CONST <5000>
+* 1 REDEFINE #SET-FAILED * 2 #SET-FAILED-B2          (B2)
+* fhi     2010-07-27 NOMALL-848 2 lines above out, line below in
+1 #SET-FAILED-B2             (B2) CONST <5000>
+* fhi 2010-07-27 NOMALL-848 start commenting
+* 1 #B2 (B2) 1 REDEFINE #B2 2 #I2 (I2)
+* fhi 2010-07-27 NOMALL-848 end  commenting, starting instead
+1 OD-TYPE-I2                 (I2)
+1 #I2                        (I2)
+* fhi 2010-07-27 NOMALL-848 end instead
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+* #OD-MONITOR-ID := G-MONITOR-ID        /* NOMALL-1961 fhi out
+#OD-TYPE              := 2500
+RESET  #OD-TIME
+*
+* READ ORDER BY OD-MONITOR-ID-TYPE-TIME = #OD-MONITOR-ID-TYPE-TIME
+* fhi     2017-01-11 NOMALL-1961 line above out, below in
+READ ORDER BY OD-TYPE-TIME = #OD-TYPE-TIME
+*
+* fhi     2017-01-11 NOMALL-1961 start commenting
+* IF OD-MONITOR-ID NE #OD-MONITOR-ID OR OD-TYPE       GE #SET-FAILED-B2
+* fhi     2017-01-11 NOMALL-1961 end commenting, next line instead
+  IF OD-TYPE       GE #SET-FAILED-B2
+    ESCAPE BOTTOM
+  END-IF
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN OD-RETRY-NUMBER LT OD-MAX-RETRIES
+      ADD 1 TO OD-RETRY-NUMBER
+      OD-TIME-SCHEDULED := OD-TIME-SCHEDULED + (OD-RETRY-INTERVAL * 10)
+      OD-TYPE-I2 := OD-TYPE    /* fhi 2010-07-27 NOMALL-848 in
+      OD-TYPE-I2 := OD-TYPE-I2 - 2500
+      OD-TYPE    := OD-TYPE-I2 /* fhi 2010-07-27 NOMALL-848 in
+*     COMPRESS '7018' OD-ID G-NATRP-ERC OD-RETRY-NUMBER
+* fhi     2019-06-14 NOMALL-2267 line above out, start insertion
+      COMPRESS '7018' OD-ID G-NATRP-ERC +NOD-CURRENT-NAME
+        F#GETIDENT(<OD-IDENT,OD-FILLER1>)
+        OD-RETRY-NUMBER
+* fhi     2019-06-14 NOMALL-2267 end insertion
+        INTO LG-MSG
+      LG-USERID := G-LG-USERID
+      LG-CODE          := 'MO'
+      IF G-NATRP-ERC NE 0           /* NOMALL-1603 fhi in
+        CALLNAT 'RLOG' PL-PARMS
+      WRITE NOTITLE NOHDR / *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+          'Order Id' OD-ID 'received error ' G-NATRP-ERC
+        PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+          'Error-Text:' G-NATRP-ERT /*SU1 (AL=70)
+        WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+          'Current Active Report' G-REPORT
+        WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+          'Retry number' OD-RETRY-NUMBER 'of' OD-MAX-RETRIES /
+      END-IF                        /* NOMALL-1603 fhi in
+    WHEN NONE
+      #I2 := OD-TYPE                /* fhi 2010-07-27 NOMALL-848 was #B2
+      #I2 := #I2 + #SET-FAILED
+      OD-TYPE := #I2                /* fhi 2010-07-27 NOMALL-848 was #B2
+  END-DECIDE
+*
+  UPDATE
+*
+  IF *COUNTER = 50
+    RESET *COUNTER
+    END TRANSACTION
+  END-IF
+*
+END-READ
+END TRANSACTION
+FETCH RETURN 'RMRSETRP' /* backout uncompleted reports
+*
+END

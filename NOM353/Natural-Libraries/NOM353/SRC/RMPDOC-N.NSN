@@ -1,0 +1,128 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member   RMPDOC-N
+* Funktion Dieses Programm erzeugt ein Print-Doc - Kommando aus den
+*          übergebenen Spool-Attributen.
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  96-02-06 s(999999) created
+* gw  96-06-11 s(999999) overlay original attributes with log. printer
+* gw  96-08-06 s(999999) line spacing
+* xsetggr 03-07-21 p(241727) NAT0937 because of change 02-07-18 NOM221
+*                            in RMJBST-P
+* xsetggr 2007-05-14 NOM3201 convert node numbers to 5 figit format
+* fhi     2008-03-19 P303121 Don't overlay spool attributes of binary stuff
+* xsetggr 2008-05-05 p(304350) restow due to changes in RMSPL--L
+* fhi     2009-06-24 N3463     Extend metadata for OPO
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-10-08 NOMALL-97 Use dynamic memory handling
+* SU1     2019-08-20           avoid dynamic references
+* ---------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 RMPDOC-SPOOL-ATTRIBUTES       (A250)
+1 RMPDOC-SPOOL-ATTRIBUTES-ADD   (A750)
+1 RMPDOC-CMD                    (16)
+  2 RMPDOC-CMD-LINE             (A72)
+  2 REDEFINE RMPDOC-CMD-LINE
+    3 RMPDOC-FILLER             (A71)
+    3 RMPDOC-CONTINUATION       (A1)
+  2 REDEFINE RMPDOC-CMD-LINE
+    3 RMPDOC-C                  (A1/1:72)
+1 RMPDOC-CMD-OCC                (I4)
+1 RMPDOC-ERROR-CODE             (N4)
+1 RMPDOC-ERROR-TEXT             (A250)
+1 RMJBST-ENTRIES                (I2)
+1 RMJBST-VAR                    (A20/1:80)
+1 RMJBST-TEXT                   (A72/1:80)
+************************************************************************
+LOCAL USING RMSPL--L
+LOCAL USING RMSR---E
+LOCAL USING RMSPLA-L
+*
+LOCAL
+1 #I                            (I2)
+1 #VAR                          (A20)
+1 #ROUTINE                      (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=81
+*
+PERFORM OVERLAY-WITH-LOGICAL-PRINTER
+*
+/* general part
+CALLNAT 'RMPDOCGN' RMPDOC-SPOOL-ATTRIBUTES RMPDOC-SPOOL-ATTRIBUTES-ADD
+  RMPDOC-CMD (*) RMPDOC-CMD-OCC RMPDOC-ERROR-CODE RMPDOC-ERROR-TEXT
+IF RMPDOC-ERROR-CODE = 0 /* document format
+  CALLNAT 'RMPDOCFN' RMPDOC-SPOOL-ATTRIBUTES RMPDOC-SPOOL-ATTRIBUTES-ADD
+    RMPDOC-CMD (*) RMPDOC-CMD-OCC RMPDOC-ERROR-CODE RMPDOC-ERROR-TEXT
+END-IF
+IF RMPDOC-ERROR-CODE = 0 /* print job control
+  CALLNAT 'RMPDOCCN' RMPDOC-SPOOL-ATTRIBUTES RMPDOC-SPOOL-ATTRIBUTES-ADD
+    RMPDOC-CMD (*) RMPDOC-CMD-OCC RMPDOC-ERROR-CODE RMPDOC-ERROR-TEXT
+END-IF
+IF RMPDOC-ERROR-CODE = 0 /* layout control
+  CALLNAT 'RMPDOCLN' RMPDOC-SPOOL-ATTRIBUTES RMPDOC-SPOOL-ATTRIBUTES-ADD
+    RMPDOC-CMD (*) RMPDOC-CMD-OCC RMPDOC-ERROR-CODE RMPDOC-ERROR-TEXT
+END-IF
+IF RMPDOC-ERROR-CODE = 0 /* resource description
+  CALLNAT 'RMPDOCRN' RMPDOC-SPOOL-ATTRIBUTES RMPDOC-SPOOL-ATTRIBUTES-ADD
+    RMPDOC-CMD (*) RMPDOC-CMD-OCC RMPDOC-ERROR-CODE RMPDOC-ERROR-TEXT
+END-IF
+IF RMPDOC-ERROR-CODE = 0 /* to-printer
+  CALLNAT 'RMPDOCTN' RMPDOC-SPOOL-ATTRIBUTES RMPDOC-SPOOL-ATTRIBUTES-ADD
+    RMPDOC-CMD (*) RMPDOC-CMD-OCC RMPDOC-ERROR-CODE RMPDOC-ERROR-TEXT
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE OVERLAY-WITH-LOGICAL-PRINTER
+************************************************************************
+#SPOOL-ATTRIBUTES := RMPDOC-SPOOL-ATTRIBUTES
+IF #SPOOL-TYPE = DIRECT-INPUT
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+#SPOOL-ATTRIBUTES-EXT := RMPDOC-SPOOL-ATTRIBUTES-ADD
+*
+FOR #I 1 RMJBST-ENTRIES
+  #VAR := SUBSTR (RMJBST-VAR (#I),2,19)
+  IF RMJBST-TEXT (#I) = ' '
+    ESCAPE TOP
+  END-IF
+  DECIDE ON FIRST VALUE #VAR
+    VALUE 'LINES'       #SPOOL-BS2-LINES-PER-PAGE     :=RMJBST-TEXT(#I)
+    VALUE 'HEADER'      #SPOOL-BS2-HEADER-LINE        :=RMJBST-TEXT(#I)
+    VALUE 'PNAME'       #SPOOL-BS2-JOB-NAME           :=RMJBST-TEXT(#I)
+    VALUE 'CLASS'       #SPOOL-BS2-CLASS              :=RMJBST-TEXT(#I)
+    VALUE 'SHIFT'       #SPOOL-BS2-LEFT-MARGIN        :=RMJBST-TEXT(#I)
+    VALUE 'ROTATION'    #SPOOL-BS2-ROTATION           :=RMJBST-TEXT(#I)
+    VALUE 'TRAY'        #SPOOL-BS2-INPUT-TRAY         :=RMJBST-TEXT(#I)
+    VALUE 'TEXT'        #SPOOL-BS2-HEADER-PAGE-TEXT   :=RMJBST-TEXT(#I)
+    VALUE 'FORM'        #SPOOL-BS2-FORM-NAME          :=RMJBST-TEXT(#I)
+    VALUE 'LOOP'        #SPOOL-BS2-LOOP-NAME          :=RMJBST-TEXT(#I)
+    VALUE 'CHARS'       #SPOOL-BS2-CHARS              :=RMJBST-TEXT(#I)
+    VALUE 'DIA'         #SPOOL-BS2-ELECTR-OVER        :=RMJBST-TEXT(#I)
+    VALUE 'FOB'         #SPOOL-BS2-FORM-OVERLAY-BUFFER:=RMJBST-TEXT(#I)
+    VALUE 'DESTINATION' #SPOOL-BS2-DESTINATION        :=RMJBST-TEXT(#I)
+    NONE  IGNORE
+  END-DECIDE
+END-FOR
+*
+RMPDOC-SPOOL-ATTRIBUTES     := #SPOOL-ATTRIBUTES
+RMPDOC-SPOOL-ATTRIBUTES-ADD := #SPOOL-ATTRIBUTES-EXT
+*
+END-SUBROUTINE /* OVERLAY-WITH-LOGICAL-PRINTER
+*
+END

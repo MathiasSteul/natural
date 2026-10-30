@@ -1,0 +1,206 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+************************************************************************
+* XXGMSG-N - Get error message from SYSERR
+*   Read an error message from SYSERR and replace placeholders :n:
+*   with parameters. If more parameters are present than placeholders,
+*   the remaining parameters are added to the last placeholder.
+*
+* Maintenance
+* User  yyyy-mm-dd Issue         Remark
+* ----- ---------------------------------------------------------------
+* bf    1991-04-25             Two new Routines from SYSEXT
+*                                     are used with small USIZE
+* fhi   2010-10-06 NOMALL-97   Rewritten.
+* fhi   2014-04-03 NOMALL-1209 Avoid duplicate message
+* fhi   2014-08-27 NOMALL-1454 Correct language, duplicate parms
+* fhi   2014-09-04 NOMALL-1454 same
+* SU1   2016-08-02 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* SU2   2021-02-27 NOMALL-2454 restruct(no tags)/itrac just for uqac
+* SU3   2021-08-20 NOMALL-2454 remove short DBID/FNR/NODE vars
+* SU4   2021-08-20 NOMALL-2467 avoid 'NAT341L' (itrac for uqac)
+************************************************************************
+*
+DEFINE DATA
+PARAMETER USING XXGMSG-A  /* The Own Interface
+PARAMETER
+1 LANGUAGE        (I1) BY VALUE OPTIONAL
+************************************************************************
+LOCAL     USING XXSUBS-A
+LOCAL
+1 PARM-NAT00064
+  2 ERROR-NUMBER  (N04)
+  2 LIBRARY       (A08)
+  2 LANG-CODE     (I01)
+  2 SHORT-TEXT    (A79)
+  2 RESPONSE      (N04)
+1 PARM-NAT00020
+  2 ERROR-NUMBER  (N4)
+  2 LANG-CODE     (I01)
+  2 SHORT-TEXT    (A79)
+  2 RESPONSE      (N01)
+1 #TEMP-STRING    (A80)
+1 #ERN            (N4)
+1 REDEFINE #ERN
+  2 #ERN-A4       (A4) /*SU4
+1 #ERC            (A250)
+1 #STRING         (A250)
+1 #LASTPROG       (A8)
+1 #LASTPROG2      (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG
+PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG2 02
+RESET PARM-NAT00020 PARM-NAT00064
+IF #XX-ERROR-APPL = ' '
+  CALLNAT 'RGETLIB' PARM-NAT00064.LIBRARY
+ELSE
+  PARM-NAT00064.LIBRARY := #XX-ERROR-APPL
+END-IF
+PARM-NAT00064.SHORT-TEXT := '<notext>'
+#ERN := #XX-ERROR-CODE
+IF #XX-ERROR-TYPE = 'U' OR=' ' AND #ERN < 0
+  #XX-ERROR-TYPE := 'N'
+  #ERN := #ERN * -1
+END-IF
+DECIDE ON FIRST VALUE OF #XX-ERROR-TYPE
+  VALUE 'U',' '
+    PARM-NAT00064.ERROR-NUMBER := #ERN /*#XX-ERROR-CODE
+    IF LANGUAGE SPECIFIED
+      PARM-NAT00064.LANG-CODE :=  LANGUAGE
+    ELSE
+      PARM-NAT00064.LANG-CODE := *LANGUAGE
+    END-IF
+    PARM-NAT00064.RESPONSE := 0
+    IF NOT PARM-NAT00064.ERROR-NUMBER = 1 THRU 9999
+      PARM-NAT00064.RESPONSE := 3
+      PERFORM ERROR
+    END-IF
+    CALLNAT 'NAT00064' PARM-NAT00064
+    DECIDE ON FIRST VALUE OF PARM-NAT00064.RESPONSE
+      VALUE 1   PARM-NAT00064.RESPONSE := 3
+      VALUE 2   PARM-NAT00064.RESPONSE := 4
+      VALUE 3,4 RESET PARM-NAT00064.RESPONSE
+      NONE IGNORE
+    END-DECIDE
+    IF PARM-NAT00064.RESPONSE = 0
+      EXAMINE PARM-NAT00064.SHORT-TEXT FOR 'NOMNOM' REPLACE 'NOM'
+      RESET #ERN
+      SEPARATE PARM-NAT00064.SHORT-TEXT INTO #ERC
+        REMAINDER #STRING WITH DELIMITER ' '
+      IF #ERC IS (N4)
+        #ERN := VAL(#ERC)
+      END-IF
+      #XX-GMSG-PARMS.#XX-SHORT-TEXT := PARM-NAT00064.SHORT-TEXT
+    ELSE
+      PERFORM ERROR
+    END-IF
+  VALUE 'N'
+    PARM-NAT00020.ERROR-NUMBER := #ERN /*#XX-ERROR-CODE
+    IF LANGUAGE SPECIFIED
+      PARM-NAT00020.LANG-CODE :=  LANGUAGE
+    ELSE
+      PARM-NAT00020.LANG-CODE := *LANGUAGE  /* Current LANGUAGE code
+    END-IF
+    CALLNAT 'NAT00020' PARM-NAT00020 /*Read NATURAL Short Error Texts
+    MOVE BY NAME PARM-NAT00020 TO PARM-NAT00064
+    EXAMINE PARM-NAT00064.SHORT-TEXT FOR 'NOMNOM' REPLACE 'NOM'
+    IF PARM-NAT00020.RESPONSE NE 0
+      PARM-NAT00064.RESPONSE := 5
+      PERFORM ERROR
+    END-IF
+/*SU4 COMPRESS 'NAT' #XX-ERROR-CODE-A4 TO #TEMP-STRING LEAVING NO
+    COMPRESS 'NAT' #ERN-A4 TO #TEMP-STRING LEAVING NO /*SU4
+    COMPRESS #TEMP-STRING PARM-NAT00064.SHORT-TEXT
+      TO #XX-GMSG-PARMS.#XX-SHORT-TEXT
+  NONE VALUE
+    PARM-NAT00064.RESPONSE := 1
+    PERFORM ERROR
+END-DECIDE
+PERFORM XXUNIQUE-DEL-DOUBLE #XX-GMSG-PARMS.#XX-SHORT-TEXT
+IF #XX-GMSG-PARMS.#XX-SHORT-TEXT = MASK (*':'N':'*)
+  MOVE BY NAME #XX-GMSG-PARMS TO #XX-SUBS-PARMS
+  CALLNAT 'XXSUBS-N' #XX-SUBS-PARMS /* Substitude dyn. params
+  MOVE BY NAME #XX-SUBS-PARMS TO #XX-GMSG-PARMS
+ELSE
+  DECIDE FOR FIRST CONDITION
+    WHEN        #XX-GMSG-PARMS.#XX-SHORT-TEXT =  MASK ('ESY'NNNN' ')
+      COMPRESS SUBSTR(#XX-GMSG-PARMS.#XX-SHORT-TEXT,1,7) '??'
+        SUBSTR (#XX-GMSG-PARMS.#XX-SHORT-TEXT,9)
+        TO      #XX-GMSG-PARMS.#XX-SHORT-TEXT LEAVING NO
+    WHEN        #XX-GMSG-PARMS.#XX-SHORT-TEXT = MASK (NNNN)
+        AND     #XX-GMSG-PARMS.#XX-SHORT-TEXT NE MASK (NNNN' ')
+      COMPRESS 'NOM'
+        SUBSTR (#XX-GMSG-PARMS.#XX-SHORT-TEXT,1,4) '??'
+        SUBSTR(#XX-GMSG-PARMS.#XX-SHORT-TEXT,5)
+        TO      #XX-GMSG-PARMS.#XX-SHORT-TEXT LEAVING NO
+    WHEN        #XX-GMSG-PARMS.#XX-SHORT-TEXT =  MASK ('NOM'NNNN'E ')
+        OR =                                     MASK ('NOM'NNNN'W ')
+        OR =                                     MASK ('NOM'NNNN'I ')
+      IGNORE
+    WHEN        #XX-GMSG-PARMS.#XX-SHORT-TEXT =  MASK ('NOM'NNNN)
+        AND     #XX-GMSG-PARMS.#XX-SHORT-TEXT NE MASK ('NOM'NNNN' ')
+      COMPRESS SUBSTR(#XX-GMSG-PARMS.#XX-SHORT-TEXT,1,7) '??'
+        SUBSTR (#XX-GMSG-PARMS.#XX-SHORT-TEXT,8)
+        TO      #XX-GMSG-PARMS.#XX-SHORT-TEXT LEAVING NO
+    WHEN        #XX-GMSG-PARMS.#XX-SHORT-TEXT =  MASK ('NOM'NNNN)
+        AND     #XX-GMSG-PARMS.#XX-SHORT-TEXT NE MASK ('NOM'NNNN'  ')
+      COMPRESS SUBSTR(#XX-GMSG-PARMS.#XX-SHORT-TEXT,1,7) '?'
+        SUBSTR (#XX-GMSG-PARMS.#XX-SHORT-TEXT,8)
+        TO      #XX-GMSG-PARMS.#XX-SHORT-TEXT LEAVING NO
+    WHEN ANY
+      EXAMINE   #XX-GMSG-PARMS.#XX-SHORT-TEXT FOR '?' REPLACE WITH ' '
+      IF      #LASTPROG  NE SCAN ('RLISLM')
+          AND #LASTPROG2 NE SCAN ('RLISLM')
+          AND #LASTPROG  NE 'RSUBMSGN'
+        EXAMINE #XX-GMSG-PARMS.#XX-SHORT-TEXT
+          FOR FULL '  ' REPLACE WITH FULL ' '
+      END-IF
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE ERROR
+************************************************************************
+COMPRESS *PROGRAM ': (' PARM-NAT00064.RESPONSE ')'
+  TO #XX-GMSG-PARMS.#XX-SHORT-TEXT LEAVING NO
+DECIDE ON FIRST VALUE OF PARM-NAT00064.RESPONSE
+  VALUE 1
+    COMPRESS NUMERIC #XX-GMSG-PARMS.#XX-SHORT-TEXT
+      'Invalid Message Type ''' #XX-ERROR-TYPE 'nr:' #XX-ERROR-CODE
+      TO #XX-GMSG-PARMS.#XX-SHORT-TEXT LEAVING NO
+  VALUE 2
+    COMPRESS #XX-GMSG-PARMS.#XX-SHORT-TEXT PARM-NAT00064.SHORT-TEXT
+      'Invalid Application.'
+      TO #XX-GMSG-PARMS.#XX-SHORT-TEXT
+  VALUE 3
+    COMPRESS NUMERIC #XX-GMSG-PARMS.#XX-SHORT-TEXT
+      PARM-NAT00064.SHORT-TEXT
+      'Error Number is invalid:' #XX-ERROR-CODE
+      TO #XX-GMSG-PARMS.#XX-SHORT-TEXT
+  VALUE 4
+    COMPRESS #XX-GMSG-PARMS.#XX-SHORT-TEXT PARM-NAT00064.SHORT-TEXT
+      'Invalid language code. Valid is 1 thru 60'
+      TO #XX-GMSG-PARMS.#XX-SHORT-TEXT
+  NONE VALUE
+    COMPRESS PARM-NAT00064.SHORT-TEXT  #XX-ERROR-CODE
+      TO #XX-GMSG-PARMS.#XX-SHORT-TEXT
+END-DECIDE
+*
+END-SUBROUTINE /* ERROR
+*
+END

@@ -1,0 +1,696 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMFOM-N - Maintenance of EOM Object >>> Folder <<<
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-08-03           created
+* SJU 95-09-29 S(227745) NAT1108 IN RDEFFO LINKING FOLDER ON ADD
+* xsethz  2000-07-27 (CE7461) Extend Report and Bundle Names
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2007-12-19 p(300375) add fo-default-location to nrm-folders
+* xsetggr 2008-07-29 p(297859) add check of folder authorization
+* xsetggr 2008-09-12 p(308886) do not allow link folder to itself
+* fhi     2009-07-14 P318926   Folder linking no more allowed.
+* xsetggr 2009-07-16 P318926   improve using grants for general users
+* xsetggr 2011-01-06 NOMALL-907 corrections of folder grants maintenance
+* xsetggr 2010-12-15 NOMALL-907 corrections of finding grants for folder
+* XSETHZ  2010-12-15 NOMALL-907 rename, copy
+* xsetggr 2011-08-02 NOMALL-902 add Folder maintenance API
+* xsetggr 2013-01-02 NOMALL-89 corrections in security-check and
+*                              implement maintaining of grants
+* xsetggr 2013-02-24 NOMALL-1232 correct deletion of links
+* xsetggr 2013-06-17 NOMALL-89 check folder grants with RGRANT-N
+* fhi     2014-07-14 NOMALL-1434 Avoid deletion of own grants
+* SU1     2017-10-09 NOMALL-1823 NOM 3.5: remove CONNECT
+* BLI     2018-01-18 NOMALL-1963 Granting vs. removed links
+* BLI     2018-01-18 NOMALL-1998 Folder grants, maintenance, links
+* fhi     2019-05-13 NOMALL-2272 Correct evaluation of time inverted
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING EOM----P
+PARAMETER USING EOMFOM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL USING EOM----E
+LOCAL USING EOMGRM-P
+LOCAL USING VGRANT-L
+LOCAL USING VFOLD-L
+LOCAL USING VUSERS-L
+LOCAL USING CONST-L
+LOCAL
+1 CHECK-LINK VIEW OF NRM-FOLDER /* BLI NOMALL-1998 change name
+  2 FO-NAME
+  2 FO-USER-ID
+  2 FO-ID
+  2 FO-LINKED-FO-ID
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER-ID (A8)
+    3 FO-LINKED-ID      (B2)
+1 MAIL VIEW OF NRM-MAIL
+  2 MA-FOLDER-TIME
+*
+1 #F-FOLDER-TIME      (A17)
+1 REDEFINE #F-FOLDER-TIME
+  2 #F-USER-ID        (A8)
+  2 #F-FO-ID          (B2)
+  2 #F-TIME           (P13)
+1 #T-FOLDER-TIME      (A17)
+1 REDEFINE #T-FOLDER-TIME
+  2 #T-USER-ID        (A8)
+  2 #T-FO-ID          (B2)
+  2 #T-TIME           (P13)
+1 #FO-USER-NAME       (A24)
+1 REDEFINE #FO-USER-NAME
+  2 #FO-USER-ID       (A8)
+  2 #FO-NAME          (A16)
+1 #FO-NUMBER          (N5)
+1 REDEFINE #FO-NUMBER
+  2 #FO-NUMBER-A      (A5)
+1 #GR-ALLOWED         (L)
+1 #GR-OPTIONS         (A1/1:6)
+1 #GR-USER-ID         (A8)
+1 #GR-OBJECT-NAME     (A25)
+1 #GR-TYPE            (A1)
+1 #GR-TYPE-NAME       (A26)
+1 REDEFINE #GR-TYPE-NAME
+  2 #GR-T             (A1)
+  2 #GR-N             (A25)
+1 #GR-FOLDER-NAME     (A13)
+1 #GR-FOLD-ID-A       (A5)
+1 REDEFINE #GR-FOLD-ID-A
+  2 #GR-FOLD-ID       (N5)
+*
+1 #NEXT-NAME          (A16)
+1 REDEFINE #NEXT-NAME
+  2 #NEXT-NAME-0      (A15)
+  2 #NEXT-NAME-1      (I1)
+1 #EOM-FUNCTION       (I2)
+1 #MSG-NAME           (A32)
+1 #LINK-ADDED         (L)
+1 #ACTV-FOL-FO-ID     (A10)     /* BLI NOMALL-1998 change name start
+1 REDEFINE #ACTV-FOL-FO-ID
+  2 #ACTV-FOL-USER    (A8)
+  2 #ACTV-FOL-ID      (B2)
+1 #LINK-FOL-FO-ID     (A10)
+1 REDEFINE #LINK-FOL-FO-ID
+  2 #LINK-FOL-USER    (A8)
+  2 #LINK-FOL-ID      (B2)
+1 #ACTV-FOL-LINKED    (L)
+1 #LINK-FOL-LINKED    (L)        /* BLI NOMALL-1998 change name end
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET EOMMSG-PARMS
+*
+PERFORM SECURITY-CHECK
+IF EOMMSG-NR NE 0 OR EOMFOM-EOF = 'X'
+  ESCAPE ROUTINE
+END-IF
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-INIT
+    PERFORM INIT-FOLDER-ATTRIBUTES
+  VALUE EOM-ADD
+    PERFORM MODIFY-FOLDER-ATTRIBUTES
+  VALUE EOM-READ, EOM-READHOLD,EOM-READ-NEXT, EOM-READHOLD-NEXT
+    PERFORM READ-FOLDER-ATTRIBUTES
+  VALUE EOM-MODIFY
+    PERFORM MODIFY-FOLDER-ATTRIBUTES
+  VALUE EOM-DELETE
+    PERFORM DELETE-FOLDER
+  VALUE EOM-COPY
+    PERFORM COPY-FOLDER
+  VALUE EOM-RENAME
+    PERFORM RENAME-FOLDER
+  VALUE EOM-COMMIT
+    RESET EOM-LOG-FUNCTION
+    RESET EOM-LOG-OBJECT-NAME
+    END OF TRANSACTION
+  VALUE EOM-BACKOUT
+    RESET EOM-LOG-FUNCTION
+    RESET EOM-LOG-OBJECT-NAME
+    BACKOUT TRANSACTION
+  NONE VALUE
+    EOMMSG-NR := 2600           /* Invalid Function
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SECURITY-CHECK
+************************************************************************
+* BLI NOMALL-1998 object and function security deleted
+RESET #GR-ALLOWED #GR-OPTIONS(*)
+RESET EOM-OBJTYP-SECURITY(*)       /* no user profile values for folders
+  EOM-OBJECT-SECURITY(*)           /* granting flags
+EOM-OBJTYP := 'F'
+*
+IF EOM-USER-TYPE NE 'A'            /* no admin user
+  FNDUS. FIND USERS WITH USER-ID = EOM-USER
+    IF NO RECORDS FOUND
+      IF EOM-DEF-USER NE 'Y'
+        EOMMSG-NR := 2             /* user Id :1: is not defined.
+        EOMMSG-TOKEN(1) := EOM-USER
+        EOMMSG-FIELD-NAME := 'EOM-USER'
+        ESCAPE ROUTINE
+      END-IF
+      FIND USERS WITH USER-ID = 'DEFAULT'
+        EOM-USER-PROFILE := USER-PROFILE
+        EOM-USER-TYPE := PROF-TYPE
+      END-FIND
+      ESCAPE BOTTOM (FNDUS.)
+    END-NOREC
+    EOM-USER-PROFILE := USER-PROFILE
+    EOM-USER-TYPE           := PROF-TYPE
+  END-FIND
+END-IF
+*
+IF EOM-FUNCTION = EOM-READ-NEXT OR = EOM-READHOLD-NEXT
+  #NEXT-NAME   := EOMFOM-I-NAME
+  ADD 1 TO #NEXT-NAME-1
+END-IF
+*
+DECIDE ON FIRST VALUE OF EOM-FUNCTION
+  VALUE EOM-READ-NEXT, EOM-READHOLD-NEXT
+    FOLDER.FO-USER-ID := EOMFOM-I-USER
+    #FO-NAME          := #NEXT-NAME
+    RESET EOM-OBJECT-NAME
+    EOMFOM-EOF := 'X'
+    RD. READ FOLDER WITH FO-USER-NAME = #FO-USER-NAME
+      IF FOLDER.FO-USER-ID NE #FO-USER-ID
+        ESCAPE BOTTOM (RD.)
+      END-IF
+      RESET EOMFOM-EOF
+      PERFORM GET-NAME-FOR-GRANTS
+      IF EOMFOM-EOF = ' '
+        EOM-OBJECT-NAME := EOMFOM-I-NAME := FOLDER.FO-NAME
+        ESCAPE BOTTOM(RD.)
+      END-IF
+    END-READ
+  VALUE EOM-ADD, EOM-MODIFY
+    RESET #MSG-NAME
+    #FO-USER-ID := EOMFOM-I-USER
+    #FO-NAME    := EOMFOM-I-NAME
+    FIND FOLDER WITH FO-USER-NAME = #FO-USER-NAME
+* set #ACTV-FOL-FO-ID
+      #ACTV-FOL-USER   := FOLDER.FO-USER-ID
+      #ACTV-FOL-ID     := FOLDER.FO-ID
+      #GR-FOLD-ID := FOLDER.FO-ID
+      COMPRESS FOLDER.FO-USER-ID #GR-FOLD-ID-A TO
+        #GR-FOLDER-NAME LEAVING NO
+      IF EOM-FUNCTION = EOM-MODIFY AND
+* no link is set yet
+          FOLDER.FO-LINKED-FO-ID = ' ' AND
+* user and folder for linking are filled
+          EOMFOM-LINKED-FOLDER-USERID > ' ' AND
+          EOMFOM-LINKED-FOLDER-NAME > ' '
+        #LINK-ADDED := TRUE
+* Now we check if another folder is linked to the modified folder
+* Note: this can't be done any longer via authorization record only
+        #GR-T := 'F'
+        #GR-N := #GR-FOLDER-NAME
+        RESET #GR-USER-ID            /* NOMALL-1998 insert
+        FNDGUS. FIND GRANTS WITH GR-TYPE-NAME = #GR-TYPE-NAME
+* NOMALL-1998 read all folders of authorized users to check if there are
+* links to it, use #GR-USER-ID as switch to next user, insert
+          IF GR-USERID NE #GR-USER-ID
+            #GR-USER-ID := GR-USERID   /* set first/next granted user
+            #FO-USER-ID := #GR-USER-ID /* set first/next granted user
+            RESET #FO-NAME
+* read folders of granted user
+            FNDGFO. READ CHECK-LINK WITH FO-USER-NAME = #FO-USER-NAME
+              IF CHECK-LINK.FO-USER-ID NE #FO-USER-ID
+* = #GR-USER-ID, see above
+                ESCAPE BOTTOM(FNDGFO.)
+              END-IF
+              IF CHECK-LINK.FO-LINKED-FO-ID = #ACTV-FOL-FO-ID
+* one of the folders is linked to this folder
+                #ACTV-FOL-LINKED := TRUE
+                ESCAPE BOTTOM(FNDGFO.)
+              END-IF
+            END-READ                 /* end FNDGFO.
+          END-IF
+          IF #ACTV-FOL-LINKED
+            ESCAPE BOTTOM(FNDGUS.)
+          END-IF
+        END-FIND                     /* end FNDGUS.
+      END-IF
+    END-FIND
+*
+* Now check the folder to be linked
+*
+    IF #ACTV-FOL-LINKED EQ FALSE        /* BLI NOMALL-1998
+      IF EOMFOM-LINKED-FOLDER-USERID > ' ' AND
+          EOMFOM-LINKED-FOLDER-NAME > ' '
+* Both 'Linked Folder' fields are filled
+        #FO-USER-ID := EOMFOM-LINKED-FOLDER-USERID
+        #FO-NAME    := EOMFOM-LINKED-FOLDER-NAME
+        FNDLNK. FIND CHECK-LINK WITH FO-USER-NAME = #FO-USER-NAME
+          IF NO RECORDS FOUND
+            EOMMSG-NR := 0349            /* linked folder not found
+            EOMMSG-FIELD-NAME := 'EOMFOM-LINKED-FOLDER-USERID'
+            ESCAPE BOTTOM (FNDLNK.)
+          END-NOREC
+* BLI NOMALL-1998 insert check if folder to be linked is linked as well
+          IF CHECK-LINK.FO-LINKED-FO-ID > ' '
+* The user and name of this has to be given to error message 369
+            #LINK-FOL-LINKED := TRUE
+            #LINK-FOL-FO-ID  := CHECK-LINK.FO-LINKED-FO-ID
+            ESCAPE BOTTOM (FNDLNK.)
+          END-IF
+* BLI NOMALL-1998 insert end
+          #GR-FOLD-ID := CHECK-LINK.FO-ID
+          COMPRESS EOMFOM-LINKED-FOLDER-USERID #GR-FOLD-ID-A TO
+            #GR-FOLDER-NAME LEAVING NO
+* #MSG-NAME is used in msg 361 (not authorized to this folder)
+          COMPRESS EOMFOM-LINKED-FOLDER-USERID '/' CHECK-LINK.FO-NAME
+            TO #MSG-NAME LEAVING NO
+        END-FIND
+      END-IF
+    END-IF                    /* BLI NOMALL-1998
+  NONE VALUE
+    #FO-USER-ID := EOMFOM-I-USER
+    #FO-NAME    := EOMFOM-I-NAME
+    FIND FOLDER WITH FO-USER-NAME = #FO-USER-NAME
+      PERFORM GET-NAME-FOR-GRANTS
+    END-FIND
+END-DECIDE
+*
+END-SUBROUTINE /* SECURITY-CHECK
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NAME-FOR-GRANTS
+************************************************************************
+RESET #GR-FOLDER-NAME
+*
+IF EOM-FUNCTION NE EOM-DELETE        /* BLI NOMALL-1963 don't delete
+** IF FOLDER.FO-LINKED-FO-ID > ' '   /* grants of linked folders
+    AND FOLDER.FO-LINKED-FO-ID > ' '
+  #ACTV-FOL-FO-ID := FOLDER.FO-LINKED-FO-ID
+*
+  FNDFOL. FIND CHECK-LINK WITH FO-USER-FO-ID = #ACTV-FOL-FO-ID
+    #GR-FOLD-ID   := CHECK-LINK.FO-ID
+    COMPRESS CHECK-LINK.FO-USER-ID #GR-FOLD-ID-A TO #GR-FOLDER-NAME
+      LEAVING NO
+  END-FIND
+ELSE                /* folder not linked
+  #GR-FOLD-ID := FOLDER.FO-ID
+  COMPRESS FOLDER.FO-USER-ID #GR-FOLD-ID-A TO #GR-FOLDER-NAME
+    LEAVING NO
+END-IF
+*
+END-SUBROUTINE /* GET-NAME-FOR-GRANTS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-FOLDER-ATTRIBUTES
+************************************************************************
+RESET EOMFOM-GENERAL-ATTRIBUTES
+EOMFOM-MAP-LAYOUT := 2
+EOMFOM-DEFAULT-LOCATION := '*'
+*
+END-SUBROUTINE /* INIT-FOLDER-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-FOLDER-ATTRIBUTES
+************************************************************************
+PERFORM VALIDATE-KEY
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+PERFORM FOLDER-ATTRIBUTE-INTERFACE
+*
+END-SUBROUTINE /* READ-FOLDER-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-FOLDER-ATTRIBUTES
+************************************************************************
+PERFORM VALIDATE-KEY
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+PERFORM VALIDATION
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+PERFORM FOLDER-ATTRIBUTE-INTERFACE
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+PERFORM UPDATE-GRANTS
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* MODIFY-FOLDER-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+DECIDE FOR EVERY CONDITION
+  WHEN NOT (EOMFOM-MAP-LAYOUT = 1 THRU 3)
+    EOMMSG-NR := 0350               /* Please enter valid list layout
+    EOMMSG-FIELD-NAME := 'EOMFOM-MAP-LAYOUT'
+    ESCAPE ROUTINE
+*
+  WHEN NOT (EOMFOM-DEFAULT-LOCATION ='*' OR=' ' OR='A' OR='B' OR
+      = 'S' OR = 'D')
+    EOMMSG-NR := 0486          /* select valid location of report
+    EOMMSG-FIELD-NAME := 'EOMFOM-DEFAULT-LOCATION'
+    ESCAPE ROUTINE
+*
+  WHEN EOMFOM-LINKED-FOLDER-USERID NE ' ' AND
+      EOMFOM-LINKED-FOLDER-NAME = ' '
+    EOMMSG-NR := 0356          /* enter linked folder name
+    EOMMSG-FIELD-NAME := 'EOMFOM-LINKED-FOLDER-NAME'
+    ESCAPE ROUTINE
+*
+  WHEN EOMFOM-LINKED-FOLDER-NAME NE ' ' AND
+      EOMFOM-LINKED-FOLDER-USERID = ' '
+    EOMMSG-NR := 0355          /* enter linked folder userid
+    EOMMSG-FIELD-NAME := 'EOMFOM-LINKED-FOLDER-USERID'
+    ESCAPE ROUTINE
+*
+* system folder (Inbasket) may not be linked
+  WHEN EOMFOM-LINKED-FOLDER-USERID NE ' ' AND EOMFOM-ID = 1 THRU 100
+    EOMMSG-NR := 0357          /* folder may not be linked
+    EOMMSG-FIELD-NAME := 'EOMFOM-LINKED-FOLDER-USERID'
+    ESCAPE ROUTINE
+*
+* link to its own?
+  WHEN EOMFOM-LINKED-FOLDER-USERID NE ' ' AND        /* link to user
+      EOMFOM-LINKED-FOLDER-NAME = EOMFOM-I-NAME AND  /* same name
+* BLI NOMALL-1998: EOM-USER is the acting user, i.e. in case of 'admin
+* for' it is necessary to check foilder's user (EOMFOM-I-USER)
+**    EOMFOM-LINKED-FOLDER-USERID = EOM-USER         /* BLI NOMALL-1998
+      EOMFOM-LINKED-FOLDER-USERID = EOMFOM-I-USER    /* BLI NOMALL-1998
+    EOMMSG-NR := 0357         /* (same) folder may not be linked
+    EOMMSG-FIELD-NAME := 'EOMFOM-LINKED-FOLDER-NAME'
+    ESCAPE ROUTINE
+*
+  WHEN EOM-FUNCTION = EOM-ADD OR=EOM-MODIFY
+* prevent linked chains - the folder to be linked is already linked to
+* another folder. Propose that for direct linking.
+    IF #LINK-FOL-LINKED
+      EOMMSG-NR := 0369         /* Please link folder :1: / :2:
+      EOMMSG-FIELD-NAME := 'EOMFOM-LINKED-FOLDER-USERID'
+      FNDLNA. FIND CHECK-LINK WITH FO-USER-FO-ID = #LINK-FOL-FO-ID
+        EOMMSG-TOKEN(1) := CHECK-LINK.FO-USER-ID
+        EOMMSG-TOKEN(2) := CHECK-LINK.FO-NAME
+      END-FIND
+      ESCAPE ROUTINE
+    END-IF
+*
+    IF EOM-USER-TYPE NE 'A' AND EOMFOM-LINKED-FOLDER-NAME >  ' '
+      #GR-USER-ID := EOMFOM-I-USER          /* for-userid if link
+      #GR-OBJECT-NAME := #GR-FOLDER-NAME
+      CALLNAT 'RGRANT-N' #GR-USER-ID 'F' #GR-OBJECT-NAME
+        #GR-ALLOWED #GR-OPTIONS (1:6)
+      IF NOT #GR-ALLOWED
+        EOMMSG-NR := 0361 /* not authorized to this folder
+        EOMMSG-FIELD-NAME := 'EOMFOM-LINKED-FOLDER-USERID'
+        EOMMSG-TOKEN(1) := EOMFOM-I-USER
+        EOMMSG-TOKEN(2) := #MSG-NAME
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+  WHEN EOM-FUNCTION NE EOM-ADD      /* added folders are empty anyway
+    PERFORM CHECK-EMPTY-FOLDER
+    IF EOMMSG-NR NE 0
+      ESCAPE ROUTINE
+    END-IF
+    IF #ACTV-FOL-LINKED
+* there are links from other folders to the active folder
+      EOMMSG-NR := 0371 /* Command rejected, folder is already linked
+      EOMMSG-FIELD-NAME := 'EOMFOM-NAME'
+      ESCAPE ROUTINE
+    END-IF
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-KEY
+************************************************************************
+IF EOMFOM-I-NAME = ' '
+  EOMMSG-NR := 0351          /* Please enter Folder name.
+  EOMMSG-FIELD-NAME := 'EOMFOM-I-NAME'
+  ESCAPE ROUTINE
+END-IF
+IF EOMFOM-I-USER = ' '
+  EOMMSG-NR := 0366          /* Please enter For User ID.
+  EOMMSG-FIELD-NAME := 'EOMFOM-I-USER'
+  ESCAPE ROUTINE
+END-IF
+FIND USERS WITH USER-ID = EOMFOM-I-USER
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0002 /* user Id :1: is not defined.
+    EOMMSG-FIELD-NAME := 'EOMFOM-I-USER'
+    ESCAPE ROUTINE
+  END-NOREC
+END-FIND
+*
+END-SUBROUTINE /* VALIDATE-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-GRANTS
+************************************************************************
+RESET EOMMSG-NR #GR-ALLOWED #GR-OPTIONS(*)
+*
+IF #GR-FOLDER-NAME = ' '                /* if eom-function = eom-add
+  #GR-FOLD-ID := EOMFOM-ID
+  COMPRESS EOMFOM-I-USER #GR-FOLD-ID-A TO #GR-FOLDER-NAME LEAVING NO
+END-IF
+*
+#GR-TYPE   := 'F'
+#GR-OBJECT-NAME := #GR-FOLDER-NAME
+#GR-USER-ID := EOMFOM-I-USER
+CALLNAT 'RGRANT-N' #GR-USER-ID #GR-TYPE #GR-OBJECT-NAME #GR-ALLOWED
+  #GR-OPTIONS(*)
+*
+IF EOMFOM-ID > 1 AND EOMFOM-LINKED-FOLDER-NAME = ' '
+  IF NOT #GR-ALLOWED
+    #EOM-FUNCTION := EOM-ADD               /* add owner grants
+    EOMGRM-OPTION(*) := 'Y'
+    PERFORM CALL-GRANT-MAINTENANCE
+  ELSE
+    IF #GR-USER-ID = EOMFOM-I-USER
+      #EOM-FUNCTION := EOM-READHOLD
+      PERFORM CALL-GRANT-MAINTENANCE
+      #EOM-FUNCTION := EOM-MODIFY
+      EOMGRM-OPTION(*) := 'Y'
+      PERFORM CALL-GRANT-MAINTENANCE
+    END-IF
+  END-IF
+END-IF
+*
+IF EOMFOM-LINKED-FOLDER-NAME > ' '
+AND EOMFOM-LINKED-FOLDER-USERID = EOMFOM-I-USER                       /*
+  IF EOM-FUNCTION = EOM-ADD
+  OR (EOM-FUNCTION = EOM-MODIFY AND NOT #GR-ALLOWED)                  /*
+    IF NOT #GR-ALLOWED
+      #EOM-FUNCTION := EOM-ADD
+      EOMGRM-OPTION(*) := 'Y'
+      PERFORM CALL-GRANT-MAINTENANCE
+    ELSE
+      IF #GR-USER-ID = EOMFOM-I-USER
+        #EOM-FUNCTION := EOM-READHOLD
+        PERFORM CALL-GRANT-MAINTENANCE
+        #EOM-FUNCTION := EOM-MODIFY
+        EOMGRM-OPTION(*) := 'Y'
+        PERFORM CALL-GRANT-MAINTENANCE
+      END-IF
+    END-IF
+  END-IF
+END-IF
+*
+IF EOMFOM-ID > 1 AND EOMFOM-LINKED-FOLDER-USERID > ' '
+AND EOMFOM-LINKED-FOLDER-USERID NE EOMFOM-I-USER                      /*
+  IF EOM-FUNCTION = EOM-MODIFY
+    #GR-TYPE    := 'F'
+    #GR-USER-ID := EOMFOM-I-USER
+    #GR-FOLD-ID := EOMFOM-ID
+    COMPRESS EOMFOM-I-USER #GR-FOLD-ID-A TO #GR-OBJECT-NAME LEAVING NO
+    RESET #GR-ALLOWED #GR-OPTIONS(*)
+    CALLNAT 'RGRANT-N' #GR-USER-ID #GR-TYPE #GR-OBJECT-NAME
+      #GR-ALLOWED #GR-OPTIONS(*)
+* BLI NOMALL-1963 Granting vs. removed links, comment
+**  IF NOT (#GR-OPTIONS(*) NE 'Y') AND #GR-USER-ID = EOMFOM-I-USER
+**    #EOM-FUNCTION := EOM-DELETE         /* delete owner grants
+**    PERFORM CALL-GRANT-MAINTENANCE
+**  END-IF
+  END-IF
+  IF EOM-USER-TYPE = 'A' AND NOT #GR-ALLOWED
+    EOMGRM-OPTION(1)   := 'N'
+    EOMGRM-OPTION(2:6) := 'Y'
+    #EOM-FUNCTION      := EOM-ADD
+    PERFORM CALL-GRANT-MAINTENANCE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* UPDATE-GRANTS
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-GRANT-MAINTENANCE
+************************************************************************
+EOMGRM-I-USER := EOMFOM-I-USER
+EOMGRM-I-TYPE := 'F'
+EOMGRM-I-NAME := #GR-FOLDER-NAME
+CALLNAT 'EOMGRM-N' #EOM-FUNCTION EOMGRM-PARMS EOMMSG-PARMS
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-FOLDER
+************************************************************************
+PERFORM VALIDATE-KEY
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+IF EOMFOM-I-NAME = '#Inbasket' OR = '#Listeneingang'
+  EOMMSG-NR := 0358              /* You may not delete this folder.
+  EOMMSG-FIELD-NAME := 'EOMFOM-I-NAME'
+  ESCAPE ROUTINE
+END-IF
+*
+PERFORM CHECK-EMPTY-FOLDER
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+CALLNAT 'EOMFOMVN' EOM-PARMS EOMFOM-PARMS EOMMSG-PARMS
+*
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+* BLI NOMALL-1963 delete all grants of folder, but no longer the grants
+* of linked folder, i.e. see GET-NAME-FOR-GRANTS
+EOMGRM-I-NAME := #GR-FOLDER-NAME
+RESET EOMGRM-I-USER
+EOMGRM-I-TYPE := 'F'
+EOMGRM-I-AUTO-COMMIT := 50
+CALLNAT 'EOMGRM-N' EOM-DELETE-ALL EOMGRM-PARMS EOMMSG-PARMS
+*
+END-SUBROUTINE /* DELETE-FOLDER
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-FOLDER
+************************************************************************
+PERFORM VALIDATE-KEY
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+IF EOMFOM-I-NEWNAME = ' '
+  EOMMSG-NR := 0351         /* Please enter Folder name.
+  EOMMSG-FIELD-NAME := 'EOMFOM-I-NEWNAME'
+  ESCAPE ROUTINE
+END-IF
+IF EOMFOM-I-NEWNAME = '#Inbasket' OR = '#Listeneingang'
+  EOMMSG-NR := 0033         /* :1: already defined.
+  EOMMSG-TOKEN (1) := EOMFOM-I-NEWNAME
+  EOMMSG-FIELD-NAME := 'EOMFOM-I-NEWNAME'
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'EOMFOMVN' EOM-PARMS EOMFOM-PARMS EOMMSG-PARMS
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* COPY-FOLDER
+*
+************************************************************************
+DEFINE SUBROUTINE RENAME-FOLDER
+************************************************************************
+PERFORM VALIDATE-KEY
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+IF EOMFOM-I-NEWNAME = ' '
+  EOMMSG-NR := 0351          /* Please enter Folder name.
+  EOMMSG-FIELD-NAME := 'EOMFOM-I-NEWNAME'
+  ESCAPE ROUTINE
+END-IF
+IF EOMFOM-I-NAME = '#Inbasket' OR = '#Listeneingang'
+  EOMMSG-NR := 0367        /* You may not rename this folder.
+  EOMMSG-FIELD-NAME := 'EOMFOM-I-NAME'
+  ESCAPE ROUTINE
+END-IF
+IF EOMFOM-I-NEWNAME = '#Inbasket' OR = '#Listeneingang'
+  EOMMSG-NR := 0033        /* :1: already defined
+  EOMMSG-TOKEN (1) := EOMFOM-I-NEWNAME
+  EOMMSG-FIELD-NAME := 'EOMFOM-I-NEWNAME'
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'EOMFOMVN' EOM-PARMS EOMFOM-PARMS EOMMSG-PARMS
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* RENAME-FOLDER
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-EMPTY-FOLDER
+************************************************************************
+RESET EOMMSG-NR
+* function modify but linked folder fields not changed
+IF EOM-FUNCTION = EOM-MODIFY AND NOT #LINK-ADDED
+  ESCAPE ROUTINE
+END-IF
+* Now check linked folder
+#FO-USER-ID := EOMFOM-I-USER
+#FO-NAME           := EOMFOM-I-NAME
+RESET #F-FOLDER-TIME #T-FOLDER-TIME
+*
+FNDFO. FIND FOLDER WITH FO-USER-NAME = #FO-USER-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 352        /* Folder not defined.
+    EOMMSG-FIELD-NAME := 'EOMFOM-I-NAME'
+    ESCAPE ROUTINE
+  END-NOREC
+*
+  #F-USER-ID     := FOLDER.FO-USER-ID
+  #F-FO-ID       := FOLDER.FO-ID
+  RESET  #F-TIME
+  #T-FOLDER-TIME := #F-FOLDER-TIME
+  #T-TIME        := #CONST-INV-TIME
+  #FO-NUMBER     := FOLDER.FO-ID
+END-FIND
+*
+HISMA. HISTOGRAM (1) MAIL FOR MA-FOLDER-TIME FROM #F-FOLDER-TIME
+ENDING AT     #T-FOLDER-TIME                                          /*
+  IF EOM-FUNCTION = EOM-DELETE OR = EOM-MODIFY
+    EOMMSG-NR := 354        /* folder not empty
+    EOMMSG-TOKEN(1) := EOMFOM-I-NAME
+  ELSE
+    EOMMSG-NR := 371 /* link rejected - linked folder is linked,to
+  END-IF
+  EOMMSG-FIELD-NAME := 'EOMFOM-I-NAME'
+  ESCAPE ROUTINE
+END-HISTOGRAM
+*
+END-SUBROUTINE /* CHECK-EMPTY-FOLDER
+*
+************************************************************************
+DEFINE SUBROUTINE FOLDER-ATTRIBUTE-INTERFACE
+************************************************************************
+CALLNAT 'EOMFOMGN' EOM-PARMS EOMFOM-PARMS EOMMSG-PARMS
+*
+END-SUBROUTINE
+*
+INCLUDE C-EOMERR /*ON ERROR
+*
+END

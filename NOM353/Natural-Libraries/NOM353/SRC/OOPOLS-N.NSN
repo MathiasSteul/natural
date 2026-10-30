@@ -1,0 +1,772 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* OOPOLS-N - OPO Dialog LIST function
+*
+* Maintenance:
+* xsetggr 2009-10-20 N3460 created
+* xsetggr 2009-12-18 P320734 improve error msgs for OPO Dialog
+*                            and change
+* xsetggr 2010-02-05 P320734 add status 'X'
+* xsetggr 2010-02-19 N3460   set option 'DL'
+* xsetggr 2010-01-03 N3460   allow ' ' in the tag 'title'/'titel'
+* fhi     2010-03-24 P320734 Scan reports in bundles also
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-10-08 NOMALL-97 Use dynamic memory handling
+* fhi     2011-05-03 NOMALL-935 Correct NAT1326 in 5820
+* raya    2011-08-28 NOMALL-1051 Correct NAT1326 in substr
+* xsetggr 2011-09-15 NOMALL-1051 prevent NAT1326 in line 5020
+* xsetggr 2011-12-12 NOMALL-1076 prevent NAT1326
+* fhi     2013-06-03 OPO-36      Change extended attr to 150 length
+* fhi     2015-05-18 NOMALL-1552 Show real size, not base64 size
+* SU1     2016-02-10 NOMALL-1819 reset rc
+* SU2     2018-05-04             NAT ERR in LUW only in english
+* fhi     2019-05-13 NOMALL-2272 Correct evaluation of time inverted
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING OOPOLW-A
+PARAMETER USING OOPOLS-A
+* *****
+LOCAL USING RMSPL--L
+LOCAL USING RTXT---L
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING CONST-L         /* NOMALL-2272 fhi in
+*
+LOCAL
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-SOURCE
+  2 AR-SENDER
+  2 AR-SPOOL-ATTRIBUTES
+  2 AR-SPOOL-ATTR-EXTENDED (120)
+  2 AR-REPORT-RNB
+  2 AR-NUMBER-OF-LINES
+  2 AR-PROCESS-TIME
+  2 AR-PROCESS-TIME-INV
+  2 AR-CC-TYPE
+  2 AR-SOURCE-SENDER-TIME-INV
+1 PO VIEW OF NRM-PRINTOUTS
+  2 PO-ID
+  2 PO-USERID
+  2 PO-STATUS
+  2 PO-REPNAME
+  2 PO-REPRNB
+  2 PO-CREATED
+  2 PO-MSG
+1 BC VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-BUNDLE
+  2 BC-BUNDRNB
+  2 BC-REPNAME
+  2 BC-REPNO
+  2 BC-REPRNB
+  2 BC-STATUS
+1 #BUNDLE-RNB              (A31)
+1  REDEFINE #BUNDLE-RNB
+  2 #BUNDLE                (A25)
+  2 #BUNRNB                (P11)
+* *****
+1 #I2                      (I4)
+1 #IMAX                    (I4)
+1 #DATE-15                 (A15)
+1 REDEFINE #DATE-15
+  2 #DATE                  (A8)
+  2 #TIME                  (A7)
+1 #REPORT-RNB              (A31)
+1  REDEFINE #REPORT-RNB
+  2 #REPNAME               (A25)
+  2 #RNB                   (P11)
+1 #NAT-PREF                (A3)   INIT <'NAT'>
+1 #ES-MSG-PREF             (A7)   INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM            (A3)
+  2 #ES-MSG-NR             (N4)
+1 #SELECTED                (L)
+1 #TT                      (T)
+1 #SOURCE-SENDER           (A40)  /* OPO-36 was (39)
+1 REDEFINE #SOURCE-SENDER
+  2 #AR-SOURCE             (A16)
+  2 #AR-SENDER             (A16)
+  2 #AR-PROCESS-TIME-INV   (P13)
+  2 #AR-ACTIVE             (A1)   /* OPO-36 fhi in
+1 #SOURCE-SENDER-E         (A40)  /* OPO-36 was (39)
+1 REDEFINE #SOURCE-SENDER-E
+  2 #SOURCE-E              (A16)
+  2 #SENDER-E              (A16)
+  2 #AR-PROCESS-TIME-INV-E (P13)
+  2 #AR-ACTIVE-E           (A1)   /* OPO-36 fhi in
+1 #PO-ID                   (P7)
+* 1 #MAX-TIME                (P13) CONST <9999999999999>
+* fhi     2019-05-13 NOMALL-2272 line above out, below in
+1 #MAX-TIME                (P13)
+1 #PROCESS-TIME            (T)
+1 #PROCESS-TIME-P          (P13)
+1 #SELECTION               (L)
+1 #SEL-SOURCE              (A16)
+1 #SEL-SENDER              (A16)
+1 #SOURCE-S                (A16)
+1 #SENDER-S                (A16)
+1 #SENDER                  (A16)
+1 REDEFINE #SENDER
+  2 #SENDER-2              (A15)
+  2 #SENDER-1              (I1)
+1 #SOURCE                  (A16)
+1 REDEFINE #SOURCE
+  2 #SOURCE-2              (A15)
+  2 #SOURCE-1              (I1)
+1 #AR-ISN                  (P10)
+1 #PO-ISN                  (P10)
+1 #START-ISN-AR            (P10)
+1 #START-ISN-PO            (P10)
+1 #STATUS-TEXT             (L)
+1 #STATUS-CODE             (A1)
+1 #GET-IT                  (L)    INIT<TRUE>
+1 #MSG                     (A60)
+1 #TAG-DELETE              (A250)
+1 #XML-TEMP                (A)   DYNAMIC
+1 #POS-REL                 (I2)
+1 #POS-ABS                 (I2)
+1 #POS-SEMI                (I2) /* OPO-36 fhi in
+* fhi     2010-10-08 NOMALL-97 start commenting
+*  1 #SPOOL-ATTR-EXTENDED     (A30000)
+*  1 REDEFINE #SPOOL-ATTR-EXTENDED
+*    2 #SPOOL-ATTR-EX-1       (A250/120)
+* fhi     2010-10-08 NOMALL-97 end commenting, start insertion
+1 #SPOOL-ATTR-EXTENDED     (A)  DYNAMIC
+* fhi     2010-10-08 NOMALL-97 end insertion
+1 #ES-MSG-TXT              (A250) /* NOMALL-97 was (A70)
+1 #I                       (I4)   /* NOMALL-97 in
+1 #POS                     (I4)   /* NOMALL-97 in
+1 #NAT-ERR                 (L)
+1 #L                       (I4)
+1 #STRING                  (A7)
+1 #POS-EN                  (I4)
+1 #POS-ST                  (I4)
+1 #LEN                     (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#MAX-TIME := #CONST-INV-TIME /* NOMALL-2272 fhi in
+RESET ES-RC ES-NUMBER #ES-MSG-NR #TT #REPORT-RNB OOPOLS-LIST(*)
+  ES-MSG-NR /*SU1
+ES-OPTION-COUNT := 10
+ES-SORTKEY := ES-SORTORDER := ES-STARTINDEX := 1
+ES-FIELD-COUNT := 11
+*
+#IMAX := *OCC(OOPOLS-ID) /*48 SU1 was 53 /* OPO-36 was 68
+OOPOLS-FIELD-LENGTH(1) := 25    /* repname
+OOPOLS-FIELD-LENGTH(2) := 911   /* rnb
+OOPOLS-FIELD-LENGTH(3) := 907   /* id
+OOPOLS-FIELD-LENGTH(4) := 101   /* filename-type SU1 was 50
+OOPOLS-FIELD-LENGTH(5) := 1     /* status code
+OOPOLS-FIELD-LENGTH(6) := 80    /* status
+OOPOLS-FIELD-LENGTH(7) := 33    /* source/sender
+OOPOLS-FIELD-LENGTH(8) := 909   /* lines
+OOPOLS-FIELD-LENGTH(9) := 909   /* kbytes
+OOPOLS-FIELD-LENGTH(10) := 815  /* creation time
+OOPOLS-FIELD-LENGTH(11) := 150  /* meta data, OPO-36 was 50
+*
+ES-EOF := 'X'
+*
+IF OOPOLW-WORK > ' '                     /* not first portions of data
+  #AR-SOURCE       := OOPOLW-SOURCE
+  #AR-SENDER       := OOPOLW-SENDER
+  MOVE EDITED OOPOLW-DATE TO #PROCESS-TIME (EM=YYYYMMDDHHIISST)
+  #PROCESS-TIME-P  := #PROCESS-TIME
+  #AR-PROCESS-TIME-INV := #MAX-TIME - #PROCESS-TIME-P
+  #START-ISN-PO    := OOPOLW-PO-ISN-N
+  #REPNAME         := OOPOLW-REPNAME
+  IF OOPOLW-REPRNB > ' '
+    #RNB := VAL(OOPOLW-REPRNB)
+  ELSE
+    RESET #RNB
+  END-IF
+  #START-ISN-AR        := OOPOLW-AR-ISN-N
+  RESET OOPOLW-WORK
+ELSE                                     /* first portion
+  #AR-PROCESS-TIME-INV := #MAX-TIME
+  RESET #START-ISN-AR #START-ISN-PO #REPORT-RNB
+END-IF
+#SEL-SOURCE  := ES-KEY-PARM(1)
+#SEL-SENDER  := ES-KEY-PARM(2)
+*
+PERFORM INIT-SELECTION-KEYS
+*
+PERFORM READ-AR-SOURCE-SENDER
+*
+IF ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-SELECTION-KEYS
+************************************************************************
+RESET #AR-PROCESS-TIME-INV-E #AR-ACTIVE-E /* OPO-36 #ar-active-e in
+*
+#SOURCE-S := #SEL-SOURCE
+DECIDE FOR FIRST CONDITION
+  WHEN #SOURCE-S > ' ' AND #SOURCE-S = SCAN '*'
+    EXAMINE #SOURCE-S FOR '*' DELETE
+    IF #AR-SOURCE = ' '
+      #AR-SOURCE := #SOURCE-S
+    END-IF
+    COMPRESS #SOURCE-S H'FF' TO #SOURCE-E LEAVING NO
+  WHEN #SOURCE-S > ' ' AND #SOURCE-S NE SCAN '*'
+    #SOURCE-E := #SOURCE-S
+    IF #AR-SOURCE = ' '
+      #AR-SOURCE := #SOURCE-S
+    END-IF
+  WHEN #SOURCE-S = ' '
+    COMPRESS #SOURCE-S H'FF' TO #SOURCE-E LEAVING NO
+  WHEN NONE IGNORE
+END-DECIDE
+*
+#SENDER-S := #SEL-SENDER
+DECIDE FOR FIRST CONDITION
+  WHEN #SENDER-S > ' ' AND #SENDER-S = SCAN '*'
+    EXAMINE #SENDER-S FOR '*' DELETE
+    COMPRESS #SENDER-S H'FF' TO #SENDER-E LEAVING NO
+  WHEN #SENDER-S > ' ' AND #SENDER-S NE SCAN '*'
+    #AR-SENDER := #SENDER-E := #SENDER-S
+  WHEN #SENDER-S = ' '
+    COMPRESS #SENDER-S H'FF' TO #SENDER-E LEAVING NO
+  WHEN ANY RESET #AR-SENDER
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* INIT-SELECTION-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-AR-SOURCE-SENDER
+************************************************************************
+RDAR. READ AR BY AR-SOURCE-SENDER-TIME-INV STARTING FROM #SOURCE-SENDER
+  IF AR-SOURCE > #SOURCE-E
+    ESCAPE BOTTOM(RDAR.)
+  END-IF
+  RESET #SPOOL-ATTRIBUTES #AR-ISN
+  #SELECTED := TRUE
+  IF #START-ISN-AR = *ISN(RDAR.)
+    RESET #START-ISN-AR
+  END-IF
+  #AR-ISN := *ISN(RDAR.)
+  PERFORM #SELECT
+*
+  ACCEPT IF #SELECTED
+*
+  #SPOOL-ATTRIBUTES := AR.AR-SPOOL-ATTRIBUTES
+  PERFORM READ-PRINTOUT
+  IF #GET-IT /* No status 'D' reports found in READ-PRINTOUT
+    PERFORM READ-BUNDLE-CONTENTS
+  END-IF
+  IF #I2 > #IMAX
+    ESCAPE BOTTOM(RDAR.)
+  END-IF
+* if no printouts yet created
+  IF #GET-IT AND #PO-ID = 0
+    ADD 1 TO #I2
+    IF #I2 > #IMAX                      /* save keys in work area
+      PERFORM FILL-WORK
+      ESCAPE BOTTOM(RDAR.)
+    END-IF
+    PERFORM DATA-TO-PDA
+    ES-NUMBER := #I2
+  END-IF
+  RESET #REPORT-RNB
+END-READ
+*
+END-SUBROUTINE /* READ-AR-SOURCE-SENDER
+*
+************************************************************************
+DEFINE SUBROUTINE FILL-WORK
+************************************************************************
+IF #PO-ID > 0
+  OOPOLW-REPNAME  := PO.PO-REPNAME
+  OOPOLW-REPRNB   := PO.PO-REPRNB
+  OOPOLW-PO-ISN-N := #PO-ISN
+ELSE
+  RESET OOPOLW-PO-ISN
+  OOPOLW-REPNAME  := AR.AR-REPNAME
+  OOPOLW-REPRNB   := AR.AR-REPRNB
+END-IF
+OOPOLW-SOURCE   := AR.AR-SOURCE
+OOPOLW-SENDER   := AR.AR-SENDER
+OOPOLW-AR-ISN-N := #AR-ISN
+MOVE EDITED AR.AR-PROCESS-TIME (EM=YYYYMMDDHHIISST) TO OOPOLW-DATE
+*
+ES-NUMBER := #IMAX
+RESET  ES-EOF
+*
+END-SUBROUTINE /* FILL-WORK
+*
+************************************************************************
+DEFINE SUBROUTINE #SELECT
+************************************************************************
+IF (#START-ISN-AR > 0 AND #START-ISN-AR NE #AR-ISN)
+    OR (NOT (AR.AR-SENDER = #SENDER-S THRU #SENDER-E))
+    OR (#REPNAME > ' ' AND #RNB > 0 AND
+    AR.AR-REPNAME NE #REPNAME AND AR.AR-REPRNB NE #RNB)
+    OR (AR.AR-PROCESS-TIME-INV > #AR-PROCESS-TIME-INV)
+  RESET #SELECTED
+END-IF
+*
+END-SUBROUTINE /* #SELECT
+*
+************************************************************************
+DEFINE SUBROUTINE READ-PRINTOUT
+************************************************************************
+RESET #PO-ID #PO-ISN #STATUS-CODE #MSG
+#GET-IT := TRUE
+*
+IF #REPORT-RNB = ' '
+  #REPNAME := AR.AR-REPNAME
+  #RNB     := AR.AR-REPRNB
+END-IF
+*
+NUM. FIND NUMBER PO WITH PO-REPORT-RNB = #REPORT-RNB AND PO-STATUS = 'D'
+IF *NUMBER (NUM.) > 0
+  RESET #GET-IT
+  ESCAPE ROUTINE
+END-IF
+*
+FNPO. FIND PO WITH PO-REPORT-RNB = #REPORT-RNB
+  #PO-ISN   := *ISN(FNPO.)
+  IF #PO-ISN = #START-ISN-PO
+    RESET #START-ISN-PO
+  END-IF
+  IF #START-ISN-PO > 0 AND #PO-ISN NE #START-ISN-PO
+    ESCAPE TOP
+  END-IF
+*
+  IF NOT #GET-IT
+    ESCAPE BOTTOM (FNPO.)
+  END-IF
+*
+  #MSG := PO-MSG
+  #PO-ID := PO-ID
+  #STATUS-CODE := PO-STATUS
+*
+  ADD  1 TO #I2
+  IF #I2 > #IMAX                      /* save keys in work area
+    PERFORM FILL-WORK
+    ESCAPE BOTTOM /*(FNPO.)
+  END-IF
+  PERFORM DATA-TO-PDA
+  ES-NUMBER := #I2
+*
+END-FIND
+*
+END-SUBROUTINE /* READ-PRINTOUT
+*
+************************************************************************
+DEFINE SUBROUTINE READ-BUNDLE-CONTENTS
+************************************************************************
+* RESET #PO-ID #PO-ISN #STATUS-CODE #MSG /* OPO-36 fhi out
+#GET-IT := TRUE
+*
+IF #REPORT-RNB = ' '
+  #REPNAME := AR.AR-REPNAME
+  #RNB     := AR.AR-REPRNB
+END-IF
+*
+FNBC. FIND (1) BC WITH BC-REPORT-RNB = #REPORT-RNB
+  #BUNDLE := BC-BUNDLE
+  #BUNRNB := BC-BUNDRNB
+  NUM2. FIND NUMBER PO WITH PO-BUNDLE-RNB=#BUNDLE-RNB AND PO-STATUS='D'
+  IF *NUMBER (NUM2.) > 0
+    RESET #GET-IT
+    ESCAPE ROUTINE
+  END-IF
+*
+  FNPO2. FIND PO WITH PO-BUNDLE-RNB = #BUNDLE-RNB
+    #PO-ISN := *ISN(FNPO2.)
+    IF #PO-ISN = #START-ISN-PO
+      RESET #START-ISN-PO
+    END-IF
+    IF #START-ISN-PO > 0 AND #PO-ISN NE #START-ISN-PO
+      ESCAPE TOP
+    END-IF
+*
+    IF NOT #GET-IT
+      ESCAPE BOTTOM (FNPO2.)
+    END-IF
+*
+    #MSG := PO-MSG
+    #PO-ID := PO-ID
+    #STATUS-CODE := PO-STATUS
+*
+    ADD 1 TO #I2
+    IF #I2 > #IMAX                      /* save keys in work area
+      PERFORM FILL-WORK
+      ESCAPE BOTTOM /*(FNPO2.)
+    END-IF
+    PERFORM DATA-TO-PDA
+    ES-NUMBER := #I2
+*
+  END-FIND
+END-FIND
+*
+END-SUBROUTINE /* READ-BUNDLE-CONTENTS
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-TO-PDA
+************************************************************************
+RESET #DATE-15
+  #STATUS-TEXT
+  #SPOOL-ATTR-EXTENDED
+*
+OOPOLS-REPNAME(#I2) := AR.AR-REPNAME
+OOPOLS-REPRNB (#I2) := AR.AR-REPRNB
+OOPOLS-ID     (#I2) := #PO-ID
+* filename.filetype for direct input reports
+IF #SPOOL-TYPE = 17
+  PERFORM GET-TITLE
+  IF OOPOLS-FILENAME-TYPE(#I2) = ' '
+    COMPRESS #SPOOL-DI-FILENAME '.' #SPOOL-DI-FILETYPE
+      TO OOPOLS-FILENAME-TYPE(#I2)  LEAVING NO /*(A50+1+(A50)-> (A101)
+  END-IF
+END-IF
+* status
+IF #PO-ID > 0                  /* printout already created
+  OOPOLS-STATUS-CODE(#I2)  := #STATUS-CODE
+  PERFORM GET-STATUS-TEXT
+ELSE                           /* printout no yet created
+  RESET OOPOLS-STATUS-CODE(#I2)
+  #ES-MSG-NR := ##TXT-TO-BE-PRINTED
+  #STATUS-TEXT := TRUE
+  PERFORM GET-MSG-TXT
+END-IF
+IF AR.AR-SOURCE > ' '
+  COMPRESS AR.AR-SOURCE '/' AR.AR-SENDER INTO OOPOLS-OWNER(#I2)
+    LEAVING NO
+ELSE
+  RESET OOPOLS-OWNER(#I2)
+END-IF
+* lines , kbytes
+IF AR.AR-CC-TYPE = 5           /* binary documents
+  RESET OOPOLS-LINES (#I2)
+* OOPOLS-BYTES(#I2) := #SPOOL-DI-SIZE / 1024 + 1
+* fhi     2015-05-18 NOMALL-1552 line above out, below in
+  OOPOLS-BYTES(#I2) := (#SPOOL-DI-SIZE / 1024 + 1) * 3 / 4
+ELSE
+  RESET OOPOLS-BYTES(#I2)
+  OOPOLS-LINES(#I2) := AR.AR-NUMBER-OF-LINES
+END-IF
+*  created time
+IF AR.AR-PROCESS-TIME NE #TT
+  MOVE EDITED AR.AR-PROCESS-TIME (EM=YYYYMMDD) TO #DATE
+  MOVE EDITED AR.AR-PROCESS-TIME (EM=HHIISST)  TO #TIME
+ELSE
+  RESET #DATE-15
+END-IF
+OOPOLS-TIME(#I2) := #DATE-15
+*
+PERFORM GET-SPOOL-ATTR-EXTENDED
+*
+IF PO-STATUS = 'P' OR = 'X' OR = 'O'
+  OOPOLS-OPTIONS (#I2,1) := 'DL'
+END-IF
+*
+END-SUBROUTINE /* DATA-TO-PDA
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SPOOL-ATTR-EXTENDED
+************************************************************************
+* #SPOOL-ATTR-EX-1(*) := AR.AR-SPOOL-ATTR-EXTENDED(*)
+* fhi     2010-10-08 NOMALL-97 line above out, below in
+PERFORM FILL-ATTR-EXTENDED
+*
+* fhi     2013-06-03 OPO-36 start commenting
+*  #TAG-DELETE := 'exx_' *  PERFORM DELETE-TAG
+*  #TAG-DELETE := 'rpc_' *  PERFORM DELETE-TAG
+*  #TAG-DELETE := 'nat_' *  PERFORM DELETE-TAG
+*  #TAG-DELETE := 'source=' *  PERFORM DELETE-TAG
+*  #TAG-DELETE := 'sender=' *  PERFORM DELETE-TAG
+*  #TAG-DELETE := 'domain=' *  PERFORM DELETE-TAG
+*  #TAG-DELETE := 'filename=' *  PERFORM DELETE-TAG
+*  #TAG-DELETE := 'filetype=' *  PERFORM DELETE-TAG
+*  #TAG-DELETE := 'title='
+*  PERFORM DELETE-TAG
+*  #TAG-DELETE := 'titel='
+*  PERFORM DELETE-TAG
+* fhi     2013-06-03 OPO-36 end commenting, start insertion
+PERFORM DELETE-TAG #SPOOL-ATTR-EXTENDED 'exx_'
+PERFORM DELETE-TAG #SPOOL-ATTR-EXTENDED 'rpc_'
+PERFORM DELETE-TAG #SPOOL-ATTR-EXTENDED 'nat_'
+PERFORM DELETE-TAG #SPOOL-ATTR-EXTENDED 'source='
+PERFORM DELETE-TAG #SPOOL-ATTR-EXTENDED 'sender='
+PERFORM DELETE-TAG #SPOOL-ATTR-EXTENDED 'domain='
+PERFORM DELETE-TAG #SPOOL-ATTR-EXTENDED 'filename='
+PERFORM DELETE-TAG #SPOOL-ATTR-EXTENDED 'filetype='
+PERFORM DELETE-TAG #SPOOL-ATTR-EXTENDED 'title='
+PERFORM DELETE-TAG #SPOOL-ATTR-EXTENDED 'titel='
+PERFORM HIDE-TAGS  #SPOOL-ATTR-EXTENDED
+* fhi     2013-06-03 OPO-36 end insertion
+*
+* xsetggr 2011-09-15 NOMALL-1051 insert next 2 lines
+#LEN := *LENGTH(#SPOOL-ATTR-EXTENDED)
+IF #LEN GE 150 /* OPO-36 was 50
+  OOPOLS-SPOOL-ATTR-EXTENDED(#I2) :=
+    SUBSTR(#SPOOL-ATTR-EXTENDED,1,150) /* OPO-36 fhi was '...1,50'
+* fhi     2013-06-03 OPO-36 start insertion
+  EXAMINE DIRECTION BACKWARD OOPOLS-SPOOL-ATTR-EXTENDED(#I2) FOR ';'
+    GIVING POSITION IN #POS-SEMI
+  IF #POS-SEMI > 1
+    #LEN := #POS-SEMI - 1
+  END-IF
+  OOPOLS-SPOOL-ATTR-EXTENDED(#I2) :=
+    SUBSTR(#SPOOL-ATTR-EXTENDED,1,#LEN)
+* fhi     2013-06-03 OPO-36 end   insertion
+ELSE                         /* xsetggr 2011-09-15 NOMALL-1051 start
+  OOPOLS-SPOOL-ATTR-EXTENDED(#I2) :=
+    SUBSTR(#SPOOL-ATTR-EXTENDED,1,#LEN)
+* xsetggr 2011-09-15 NOMALL-1051 end
+END-IF
+*
+END-SUBROUTINE /* GET-SPOOL-ATTR-EXTENDED
+*
+************************************************************************
+* fhi     2013-06-03 OPO-36 start commenting
+* --------------------------------------------------------------------
+*  DEFINE SUBROUTINE DELETE-TAG
+*  REDUCE DYNAMIC #XML-TEMP TO 0    /* xsetggr 2011-12-12 NOMALL-1076 in
+*  REPEAT
+*    EXAMINE #SPOOL-ATTR-EXTENDED FOR #TAG-DELETE
+*      GIVING POSITION IN #POS-ABS
+*    IF #POS-ABS = 0
+*      ESCAPE BOTTOM
+*    END-IF
+*    MOVE #SPOOL-ATTR-EXTENDED  TO #XML-TEMP
+*    #POS-ABS := #POS-ABS - 1
+*    IF #POS-ABS > 0
+*      MOVE SUBSTR(#XML-TEMP,1,#POS-ABS) TO #SPOOL-ATTR-EXTENDED
+*    ELSE
+*      RESET #SPOOL-ATTR-EXTENDED
+*    END-IF
+*    ADD 2 TO #POS-ABS
+*    EXAMINE SUBSTR(#XML-TEMP,#POS-ABS) FOR ';'
+*      GIVING POSITION IN #POS-REL
+*    IF #POS-REL > 0
+*      #POS-ABS := #POS-ABS + #POS-REL
+*  * xsetggr 2011-12-12 NOMALL-1076 insert next line
+*      IF #POS-ABS LE *LENGTH(#XML-TEMP)
+*        COMPRESS #SPOOL-ATTR-EXTENDED SUBSTR(#XML-TEMP,#POS-ABS)
+*          TO #SPOOL-ATTR-EXTENDED LEAVING NO
+*      END-IF                          /* xsetggr 2011-12-12 NOMALL-1076 in
+*    END-IF
+*  END-REPEAT
+*  END-SUBROUTINE
+* fhi     2013-06-03 OPO-36 end commenting
+*
+************************************************************************
+DEFINE SUBROUTINE GET-TITLE
+************************************************************************
+RESET #LEN  #STRING
+*
+* #SPOOL-ATTR-EX-1 (*) := AR-SPOOL-ATTR-EXTENDED(*)
+* EXAMINE #SPOOL-ATTR-EXTENDED FOR ' ' GIVING LENGTH #LEN
+* fhi     2010-10-08 NOMALL-97 2 lines above out, below in
+PERFORM FILL-ATTR-EXTENDED
+*
+#STRING := 'title='
+PERFORM EXTRACT-META
+IF OOPOLS-FILENAME-TYPE(#I2) = ' '
+  #STRING := 'titel='
+  PERFORM FILL-ATTR-EXTENDED    /* xsetggr 2011-12-12 NOMALL-1076 in
+  PERFORM EXTRACT-META
+END-IF
+*
+END-SUBROUTINE /* GET-TITLE
+*
+************************************************************************
+* fhi     2010-10-08 NOMALL-97 start insertion
+DEFINE SUBROUTINE FILL-ATTR-EXTENDED
+************************************************************************
+REDUCE DYNAMIC #SPOOL-ATTR-EXTENDED TO 0
+FOR #I = 1 TO 120
+  IF AR-SPOOL-ATTR-EXTENDED (#I) = ' '
+    ESCAPE TOP
+  END-IF
+  #POS := *LENGTH (#SPOOL-ATTR-EXTENDED) + 1
+  MOVE AR-SPOOL-ATTR-EXTENDED (#I) TO SUBSTR (#SPOOL-ATTR-EXTENDED,#POS)
+END-FOR
+#LEN  := *LENGTH (#SPOOL-ATTR-EXTENDED)
+END-SUBROUTINE /* FILL-ATTR-EXTENDED
+*
+************************************************************************
+* fhi     2010-10-08 NOMALL-97 end insertion
+DEFINE SUBROUTINE EXTRACT-META
+************************************************************************
+RESET #POS-REL #POS-ABS #L OOPOLS-FILENAME-TYPE (#I2)
+*
+EXAMINE #SPOOL-ATTR-EXTENDED FOR ';' GIVING POSITION #POS-ABS
+  LENGTH IN #LEN /* fhi NOMALL-935 in
+*
+REPEAT
+  RESET #XML-TEMP
+  IF #POS-ABS = 0                                    /* last tag
+    #XML-TEMP := #SPOOL-ATTR-EXTENDED
+    EXAMINE #XML-TEMP FOR '=' GIVING POSITION IN #POS-REL
+    IF #POS-REL GT 0 AND (#LEN - #POS-REL) GE 1 /* raya nomall-1051 in
+      IF SUBSTR (#XML-TEMP,1,#POS-REL) = #STRING
+        ADD 1 TO #POS-REL
+        #POS-EN  := #LEN - #POS-REL + 1
+        OOPOLS-FILENAME-TYPE(#I2) := SUBSTR(#XML-TEMP,#POS-REL,#POS-EN)
+      END-IF
+    END-IF                                /*raya nomall-1051 in
+    ESCAPE BOTTOM
+  END-IF
+  #L      := #POS-ABS - 1
+  #POS-ST := #POS-ABS + 1
+  IF #L GT 0                             /* raya nomall-1051 in
+    #XML-TEMP := SUBSTR(#SPOOL-ATTR-EXTENDED,1,#L)
+  END-IF                                 /* raya nomall-1051 in
+* #SPOOL-ATTR-EXTENDED := SUBSTR(#SPOOL-ATTR-EXTENDED,#POS-ST,#LEN)
+* fhi     2011-05-03 NOMALL-935 line above out, start insertion
+  #L := #LEN - #POS-ST + 1
+  IF #L < 1
+    REDUCE DYNAMIC #SPOOL-ATTR-EXTENDED TO 0
+  ELSE
+    #SPOOL-ATTR-EXTENDED := SUBSTR(#SPOOL-ATTR-EXTENDED,#POS-ST,#L)
+  END-IF
+* fhi     2011-05-03 NOMALL-935 end insertion
+*
+  EXAMINE #XML-TEMP FOR '=' GIVING POSITION IN #POS-REL
+* IF #POS-REL GT 0 AND (#L - #POS-REL) GE 1   /* raya nomall-1051 in
+* xsetggr 2011-12-12 NOMALL-1076 line above out, next line in
+  IF #POS-REL > 0 AND (#POS-ABS - #POS-REL) GE 1
+    IF SUBSTR(#XML-TEMP,1,#POS-REL) = #STRING
+      ADD 1 TO #POS-REL
+      #POS-EN  := #POS-ABS - #POS-REL
+* xsetggr 2011-12-12 NOMALL-1076 line above in, next line out
+/*    #POS-EN  := #L - #POS-REL + 1
+      OOPOLS-FILENAME-TYPE(#I2) := SUBSTR(#XML-TEMP,#POS-REL,#POS-EN)
+      ESCAPE BOTTOM
+    END-IF                                    /*raya nomall-1051 in
+  END-IF
+* EXAMINE #SPOOL-ATTR-EXTENDED FOR ' ' GIVING LENGTH #LEN
+* fhi     2011-05-03 NOMALL-935 line above out, below in
+  #LEN := *LENGTH (#SPOOL-ATTR-EXTENDED)
+  EXAMINE #SPOOL-ATTR-EXTENDED FOR ';' GIVING POSITION #POS-ABS
+  UNTIL #LEN < 1    /* NOMALL-935 fhi in
+END-REPEAT
+*
+END-SUBROUTINE /* EXTRACT-META
+*
+************************************************************************
+DEFINE SUBROUTINE GET-STATUS-TEXT
+************************************************************************
+RESET #ES-MSG-NR
+DECIDE ON FIRST VALUE OF #STATUS-CODE
+  VALUE 'R'
+    #ES-MSG-NR := ##TXT-READY-TO-PRINT
+  VALUE 'T'
+    IF #MSG = MASK(NNNN) AND #MSG IS (N4)
+      #ES-MSG-NR := VAL (#MSG)
+    ELSE
+      #ES-MSG-NR := ##TXT-PRINTER-IS-BUSY
+    END-IF
+  VALUE 'A', 'O'
+    IF #MSG = MASK(NNNN)
+      #ES-MSG-NR := VAL(#MSG)
+    END-IF
+  VALUE 'P'
+    IF #MSG = MASK(NNNN) AND #MSG IS (N4)
+      #ES-MSG-NR := VAL (#MSG)
+    ELSE
+      #ES-MSG-NR := ##TXT-SENT-TO-PRINTER
+    END-IF
+  VALUE 'H'
+    #ES-MSG-NR := ##TXT-HOLD
+  VALUE 'C'
+    #ES-MSG-NR := ##TXT-CONFIRMATION-REQUIRED
+  VALUE 'S'
+    #ES-MSG-NR := ##TXT-PRINTER-STOPPED
+  VALUE 'F'
+    IF #MSG = MASK(NNNN) AND #MSG IS (N4)
+      #ES-MSG-NR := VAL(#MSG)
+    ELSE
+      OOPOLS-STATUS(#I2) := #MSG
+    END-IF
+  VALUE 'E'
+    IF #MSG = MASK(NNNN) AND #MSG IS (N4)
+      #ES-MSG-NR := VAL(#MSG)
+    ELSE
+      OOPOLS-STATUS(#I2) := #MSG
+    END-IF
+  VALUE 'X'
+    IF PO.PO-MSG NE ' '
+      OOPOLS-STATUS(#I2) := PO.PO-MSG
+    ELSE
+      #ES-MSG-NR := ##TXT-EXTERNAL-OK
+    END-IF
+  ANY VALUE
+    IF #ES-MSG-NR NE 0
+      #STATUS-TEXT := TRUE
+      PERFORM GET-MSG-TXT
+      EXAMINE OOPOLS-STATUS(#I2) FOR #ES-MSG-PREF DELETE
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* GET-STATUS-TEXT
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+IF #NAT-ERR
+  NADA2000.OBJECT-KIND  := 'N'
+  IF *MACHINE-CLASS NE 'MAINFRAME' /*SU2
+    NADA2000.OPT-LANGUAGE := 1 /*NAT LUW only english
+  END-IF
+ELSE
+  NADA2000.OBJECT-KIND    := 'U'
+END-IF
+NADA2000.ERROR-NUMBER   := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+NADA2000.LIBRARY        := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+IF NOT #STATUS-TEXT
+  ES-MSG-NR  := #ES-MSG-NR
+  ES-MSG-TXT := SHORT-MSG
+  IF NOT #NAT-ERR
+    EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+  ELSE
+    EXAMINE ES-MSG-TXT FOR #NAT-PREF DELETE
+    RESET #NAT-ERR
+  END-IF
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+  EXAMINE ES-MSG-TXT FOR ':2:' REPLACE ' '
+  ES-RC := 1
+ELSE
+  OOPOLS-STATUS(#I2) := SHORT-MSG
+  RESET #STATUS-TEXT
+END-IF
+*
+END-SUBROUTINE /* GET-MSG-TXT
+* -------------------------------------------------------------------
+ON ERROR
+  ES-RC := 1
+  ES-MSG-NR := *ERROR-NR
+  COMPRESS *PROGRAM 'Natural error' *ERROR-NR 'in line' *ERROR-LINE
+    TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+* --------------------------------------------------------------------
+END

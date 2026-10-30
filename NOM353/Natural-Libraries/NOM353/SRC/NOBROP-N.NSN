@@ -1,0 +1,330 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOBROP-N - NOM API Report in Bundle Maintenance
+*
+* Maintenance:
+* XSETGGR 2002-05-21 created
+* XSETGGR 2002-08-06 add printer validation
+* XSETGGR 2002-11-14 use new parameter ES-APP-SERVER-LIBRARY
+* XSETGGR 2007-03-22 replace call of ES...-N to direct call of module
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* XSETGGR 2007-07-19 p(295731) set default sep copies
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* XSETHZ  2010-04-15 P323994 Suspended bundles
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* xsetggr 2012-11-30 NOMALL-89 add authorization check of printer
+* fhi     2015-06-30 NOMALL-1655 Leave copies field as entered
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOBROP-A
+************************************************************************
+LOCAL USING VMBRP-L
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING NOMODE-A
+LOCAL USING RLOG-L
+LOCAL
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+  2 R-SEPMEM
+  2 REDEFINE R-SEPMEM
+    3 R-SEPSTART (A8)
+    3 R-SEPEND   (A8)
+1 BUNDLES VIEW OF NRM-BUNDLES
+  2 B-DESC
+  2 B-FLUSH-REPORTS (10)
+1 #ES-CONTROL               (A250)
+1 #ES-INPUT-AREA            (A253/1:3)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1  REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+  2 REDEFINE #ES-MSG-FIELD-INDEX
+    3 #ES-MSG-FIELD-INDEX1  (N2)
+    3 #ES-MSG-FIELD-INDEX2  (N2)
+1 #DEFNO                    (N3)  CONST <1>
+1 #BR-BUNDLE-REPORT         (A50)
+1 REDEFINE #BR-BUNDLE-REPORT
+  2 #BR-BUNDLE              (A25)
+  2 #BR-REPORT              (A25)
+1 #GRANTS                   (A1/6)
+1 #GR-USER                  (A8)
+1 #USER-LIB                 (A8)
+1 #GR-OBJECT                (A25)
+1 #GRANTED                  (L)
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+#BR-BUNDLE := ES-KEY-PARM(1)
+#BR-REPORT := ES-KEY-PARM(2)
+NOMOD-PARMS := ES-SELECT
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+DECIDE ON FIRST VALUE OF ES-FUNCTION
+  VALUE 'OP'
+    DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+      VALUE ' '
+        PERFORM READ-RECORD
+      VALUE 'NEW'
+        PERFORM NEW-RECORD
+        IF ES-RC = 0
+          PERFORM WRITE-LOG-RECORD
+          END TRANSACTION
+        END-IF
+      VALUE 'UPD'
+        PERFORM UPDATE-RECORD
+        IF ES-RC = 0
+          PERFORM WRITE-LOG-RECORD
+          END TRANSACTION
+        END-IF
+      NONE VALUE IGNORE
+    END-DECIDE
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-RECORD
+************************************************************************
+RESET NOBR-PARMS
+RESET #ES-MSG-FIELD #ES-MSG-NR
+FNDBU. FIND BUNDLE-REPORT WITH BR-BUNDLE-REPORT = #BR-BUNDLE-REPORT
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0449            /* bundle does not contain report
+    #ES-MSG-FIELD-NAME := 'BUNDLE'
+    ESCAPE BOTTOM (FNDBU.)
+  END-NOREC
+/* read general attributes
+  NOBR-BUNDLE           := BR-BUNDLE
+  NOBR-REPORT           := BR-REPNAME
+  NOBR-PRINTER          := BR-PRINTER
+  NOBR-REPORT-COPIES    := BR-REPNO
+  NOBR-SEPARATOR-COPIES := BR-SEPNO
+  NOBR-SEQUENCE-NUMBER  := BR-SEQNO
+  NOBR-GROUP            := BR-GROUP
+  NOBR-PAGEDEF          := BR-PAGEDEF
+  NOBR-FORMDEF          := BR-FORMDEF
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* READ-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE NEW-RECORD
+************************************************************************
+#BR-BUNDLE := NOBR-BUNDLE
+#BR-REPORT := NOBR-REPORT
+FNNEW.
+FIND NUMBER BUNDLE-REPORT WITH BR-BUNDLE-REPORT = #BR-BUNDLE-REPORT
+IF *NUMBER(FNNEW.) = 0
+  PERFORM VALIDATION-S
+  IF #ES-MSG-NR NE 0
+    PERFORM GET-MSG-TXT
+    ESCAPE ROUTINE
+  ELSE
+    PERFORM ASSIGN-ATTRIBUTE-VALUES
+    PERFORM GET-OPTIONS
+    STORE BUNDLE-REPORT
+    FIND BUNDLES WITH B-BUNDLE = ES-KEY-PARM(1)
+      NOBR-DESC := B-DESC
+    END-FIND
+    FNDNUM. FIND NUMBER BUNDLE-REPORT WITH BR-BUNDLE = NOBR-BUNDLE
+    NOBR-REP-NUMBER := *NUMBER(FNDNUM.)
+    NOBR-TYPE-ACTIVE := 'Y'
+  END-IF
+ELSE
+  #ES-MSG-NR :=  0050    /* report is already in bundle
+  #ES-MSG-FIELD-NAME := 'BUNDLE'
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* NEW-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+FNDMOD. FIND BUNDLE-REPORT WITH BR-BUNDLE-REPORT = #BR-BUNDLE-REPORT
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0449        /* bundle does not contain report
+    ESCAPE BOTTOM (FNDMOD.)
+  END-NOREC
+  PERFORM VALIDATION-S
+  IF #ES-MSG-NR = 0
+    GETMOD. GET BUNDLE-REPORT *ISN(FNDMOD.)
+    PERFORM ASSIGN-ATTRIBUTE-VALUES
+    PERFORM GET-OPTIONS
+    UPDATE (GETMOD.)
+  END-IF
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* UPDATE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-ATTRIBUTE-VALUES
+************************************************************************
+BR-BUNDLE   := NOBR-BUNDLE
+BR-REPNAME  := NOBR-REPORT
+BR-PRINTER  := NOBR-PRINTER
+IF NOBR-GROUP = ' '
+  BR-GROUP  := SUBSTR(NOBR-BUNDLE,1,8)
+ELSE
+  BR-GROUP  := NOBR-GROUP
+END-IF
+IF NOBR-SEQUENCE-NUMBER = 0
+  BR-SEQNO := #DEFNO
+ELSE
+  BR-SEQNO := NOBR-SEQUENCE-NUMBER
+END-IF
+BR-SEPNO   := NOBR-SEPARATOR-COPIES
+FIND REPORTS WITH R-REPNAME = BR-REPNAME
+  NOBR-SEPMEM := R-SEPMEM
+END-FIND
+IF NOBR-SEPMEM = ' ' AND NOBR-SEPARATOR-COPIES > 0
+  NOBR-SEPMEM := 'DEFAULT'
+END-IF
+BR-REPNO   := NOBR-REPORT-COPIES
+BR-PAGEDEF := NOBR-PAGEDEF
+BR-FORMDEF := NOBR-FORMDEF
+*
+END-SUBROUTINE /* ASSIGN-ATTRIBUTE-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION-S
+************************************************************************
+PERFORM VALIDATION
+ES-CONTROL := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+*
+END-SUBROUTINE /* VALIDATION-S
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+RESET #ES-MSG-NR #ES-MSG-FIELD
+/* validation of general attributes
+DECIDE FOR EVERY CONDITION
+  WHEN NOBR-BUNDLE = ' '
+    #ES-MSG-NR := 0042            /* bundle name is required
+    #ES-MSG-FIELD-NAME := 'BUNDLE'
+    ESCAPE ROUTINE
+  WHEN NOBR-REPORT = ' '
+    #ES-MSG-NR := 0041           /* report name is required
+    #ES-MSG-FIELD-NAME := 'REPORT'
+    ESCAPE ROUTINE
+  WHEN NOBR-PRINTER NE ' '
+    ES-KEY-PARM(1) := NOBR-PRINTER
+    ES-OBJECT := 'PR'
+    ES-FUNCTION := 'EX'
+    CALLNAT 'NOXXEX-N' ES-CONTROL ES-INPUT
+    IF ES-RC NE 0
+      #ES-MSG-NR := 0108   /* printer not defined
+      #ES-MSG-FIELD-NAME  := 'PRINTER'
+      ESCAPE ROUTINE
+    END-IF
+    IF ES-USER-TYPE NE 'A'
+      #GR-OBJECT := NOBR-PRINTER
+      CALLNAT 'NOGRRU-N' 'P' #GR-OBJECT ES-USER #GR-USER #GRANTED
+      IF NOT  #GRANTED
+        #ES-MSG-NR := 1090
+        #ES-MSG-FIELD-NAME  := NOBR-PRINTER
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE GET-OPTIONS
+************************************************************************
+RESET #GRANTS(*)
+NOBR-OPTIONS(*) := ' '
+NOBR-BN-OPTIONS(1) := ' '
+FIND BUNDLES WITH B-BUNDLE = NOBR-REPORT
+  IF B-FLUSH-REPORTS(*) = NOBR-REPORT
+    NOBR-OPTIONS(1) := 'DL'
+  END-IF
+END-FIND
+IF ES-USER-TYPE NE 'A'
+  CALLNAT 'NOGROU-N'
+    'B' NOBR-BUNDLE ES-USER #GR-USER #GRANTS(*)
+  IF #GRANTS(1) NE 'Y' AND #GRANTS(3) NE 'Y'
+    NOBR-OPTIONS(1) := 'DL'
+    NOBR-BN-OPTIONS(1) := 'DL'
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* GET-OPTIONS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+IF ES-MSG-NR = 0150       /* enter date in format :1:
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ES-DATE-FORMAT
+END-IF
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+EXAMINE ES-MSG-TXT FOR ':2:' REPLACE ' '
+ES-MSG-FIELD := #ES-MSG-FIELD
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+IF NOMOD-LOG-TYPES (*) = 'B'
+  DECIDE ON FIRST ES-EXTEND-FUNCTION
+    VALUE 'NEW'
+      COMPRESS '0301' NOBR-REPORT NOBR-BUNDLE TO LG-MSG
+    VALUE 'UPD'
+      COMPRESS '0302' NOBR-REPORT NOBR-BUNDLE TO LG-MSG
+    ANY VALUE
+      LG-USERID      := ES-USER
+      LG-CODE        := 'BM'
+      LG-REPNAME     := NOBR-REPORT
+      LG-BUNDLE      := NOBR-BUNDLE
+      LG-OBJECT-NAME := NOBR-BUNDLE
+      CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+    NONE VALUE IGNORE
+  END-DECIDE
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+END

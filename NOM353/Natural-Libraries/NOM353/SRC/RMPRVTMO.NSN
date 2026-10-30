@@ -1,0 +1,578 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member       RMPRVTMO
+* Version      1.3
+* Function     Print Object with NPR SPOOLING-PRINT
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 95-10-09 s(999999) old version saved
+* mrs 95-10-09 s(999999) various modifications due to changes in
+*              'Print to vtam' logic in ESY
+* mrs 95-10-09 s(999999) write trace messages if trace='yes'
+* sju 95-10-09 s(228453) new return code (98) to stop printing
+* gw  95-12-20 s(236055) max wait time
+* gw  96-03-18 s(999999) asis mode
+* jwo 96-12-11 s(239530) asis mode, suppress '+' in the end
+* sju 99-06-28 p(183721) new printer exit return code 97 (means don't
+*                        call again until next report separator)
+* sju 00-04-25 p(191368) monitor multitasking
+* fhi 00-08-24 QA03      Use NAT23006 for error values
+* fhi     2003-07-29 P(227985) Clear unused modules
+* sju 04-07-15 NOM31     Extra parm for RMEVNT-N
+* HH  04-07-29 CHANGE PROCESS-STATEMENT IN FIND(1)-STATEMENT
+* sju 04-12-14 TYPE=AL   NOM31 support TYPE=AL
+* fhi 10-02-18 P307403   VTAM Prtr waits forever after separator page
+*
+*         SPOOLING-PRINT VIEW (FNR=206)
+*         -----------------------------
+*     A1 PRINTER(a8)=xxxxxxxx,
+*          The VTAM LU name.
+*     A2 RECORD(a250)=record,
+*          The record to be printed.
+*     FN FUNCTION(a8)=fffffff,
+*           PRINT - Print record
+*           STATUS - Return status of last request for printer.
+*           CLOSE - End of report.
+*           DISC  - Disconnect VTAM session with printer
+*           TRACEON - Start trace on printer.
+*           TRACEOFF - Stop trace on printer.
+*     A3 CONTROL(a3)=vvv,
+*           YES - Position 1 of record has control code (ASA/machine).
+*     A4 FLUSH(a3)=vvv,
+*           YES - Force printer buffer to be sent.
+*     A5 BRACKET(a8)=bbbbbbb
+*           FIRST - First record with more to come.
+*           MIDDLE - Not first record with more to come.
+*           LAST   - Last record.
+*         The purpose of this field is to ensure that a report with
+*         multiple buffers will not be interrupted by a report from
+*         another user on the same printer.
+*     A7 TRACE(a3)=vvv,
+*           YES - Snap print buffer after it is sent (for debugging) .
+*     A8 LOGMODE(a8)=llllllll,
+*         The VTAM logmode to use for the printer.
+*     A9 WSF-QUERY(a3)=www,
+*           YES - Send 'wsf-query' command to printer.
+*        This is done to obtain the printer's physical characteristics.
+*        The default is 'NO' .
+*     A6 STATUS-CODE(n2) can be specified in format buffer
+*     ID IDENTIFIER(a8) Needed if multiple print requests are performed
+*        in parallel. All requests to the same printer should have the
+*        same identifier.
+*
+*  ERRORS :
+*     840 - Vtam printer ACB is not open
+*     843 - Printer not defined to vtam
+*     844 - Buffer waiting to be printed
+*     845 - Printer is active for user xxxxxxxx
+*     846 - Use "FUNCTION=STATUS" to get results.
+*           After a buffer has been sent to printer, you must issue
+*           'FUNCTION=STATUS' to obtain the result of the last print
+*           request.
+*           Field STATUS-CODE will contain a code, and ERROR-TEXT will
+*           contain the result in text format :
+*           0 - Buffer printed successfully
+*               You can now continue printing.
+*           1 - Print failed - function=xxxxxxx, fdbk=ffff
+*               xxxxxxx - name of vtam function which failed
+*               ffff - vtam feedback
+*               You can now continue printing.
+*           2 - Log-on for printer is in progress
+*           3 - Printer is active
+*               Buffer is being printed at this moment
+*           4 - Buffer is waiting to be printed.
+*               Buffer will be printed soon.
+*           5 - No activity on printer
+*               Printer was never active, or status was already
+*               returned.
+*
+*
+*         SPOOLING-PRINTER-INFO VIEW (FNR=42)
+*         -----------------------------------
+*        1 RECORD IS RETURNED FOR EACH PRINTER THAT WAS USED
+*       A1 NAME(a8) - Vtam printer LU name
+*
+*       A2 ADABAS-USER(b4) - ADABAS user-id of last user of printer
+*
+*       A3 NATURAL-USER(b4) - NATURAL user-id of last user of printer
+*
+*       A4 LAST-ACTIVITY(n7) - How many seconds have passed since last
+*                              activity.
+*
+*       A5 SESSION-ID(b4) - VTAM session id (If a session exists)
+*
+*       A6 BIND-AREA(a25) - The VTAM BIND area (after session created)
+*                           (For internal use)
+*
+*       A7 BRACKETS(a3) - 'YES' - Printer is in brackets.
+*
+*       A8 WSF-REPLY(a250) - Text returned from printer is response to
+*                            WSF QUERY. (For internal use).
+*
+*       A9 STATUS(a30) - Status of printer
+*
+*       AA LU-TYPE(a1) - Type of printer (LU 0/1/3)
+*
+*       AB LOGMODE(a8) - The VTAM logmode that was used.
+*
+*       AC SEND-COUNT(n7) - The number of buffers sent to printer.
+*
+*         NEW ERROR-CODES
+*         ===============
+*
+*     840 - VTAM PRINTER ACB IS NOT OPEN
+*     843 - PRINTER NOT DEFINED TO VTAM
+*     844 - BUFFER WAITING TO BE PRINTED
+*     845 - PRINTER IS ACTIVE FOR USER XXXXXXXX
+*     846 - USE "FUNCTION=STATUS" TO GET RESULTS.
+*
+* xsetggr 2004-11-23 p(258871) recat due to changes in rmfl---p
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-06-10 p(292935) fill po-printed only after successful end
+*                              of printing
+* xsetggr 2010-03-22 P307403   corrupted printouts with sep NONE
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-12-20 NOMALL-97 Save File Handle for NPR Unix
+* xsetggr 2010-12-21 NOMALL-865 restow due to changes in RMFL---P
+* fhi     2011-04-26 NOMALL-966 Do not suppress last line with Pr-Exit
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* fhi     2014-08-29 NOMALL-1454 Restowed due to changes in XXUX---P
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* SU3     2016-03-08 NOMALL-1847 PDA RMPRAPIP -> PDA P-PEXIT
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU5     2024-07-25 NOM 353     Recataloged due to changes of RMPR-C
+* ----------------------------- Parameter ------------------------------
+DEFINE DATA
+PARAMETER USING RMFL---P
+PARAMETER
+1 LINE-PARMS
+  2 LINE-CURRENT              (P3)
+  2 LINE-TAB                  (1:100)
+    3 LINE                    (A251)
+    3 REDEFINE LINE
+      4 LINE-L                (A1/1:251)
+    3 LINE-NUMBER             (P10)
+*
+PARAMETER USING XXUX---P
+PARAMETER
+1 P-ERROR-CODE                (N4)
+1 P-ERROR-TEXT                (A250)
+************************************************************************
+LOCAL USING P-PEXIT
+LOCAL USING RCCTYP-E
+LOCAL USING RMASAC-E
+LOCAL USING RMMCASAP
+LOCAL
+1 SPOOLING-PRINT VIEW OF SPOOLING-PRINT
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 STATUS-CODE
+  2 VTAM-FDBK
+  2 REDEFINE VTAM-FDBK
+    3 VTAM-FDBK-A3            (A3)
+  2 VTAM-SENSE
+  2 REDEFINE VTAM-SENSE
+    3 VTAM-SENSE-A4           (A4)
+1 ORDER-STATUS VIEW OF NRM-PRINTOUTS
+  2 PO-STATUS
+  2 PO-LAST-PRINTED-RECNO
+* *****
+1 #LENGTH                     (N3)
+1 #TOTAL-LENGTH               (N5)
+1 I                           (P3)
+1 #F                          (P3)
+1 #STATUS                     (A1)
+1 #UPD-COUNTER                (N8)  INIT <10>
+1 #SAVE-LINE                  (A251)
+1 CLOSE-STATUS                (L)
+1 LAST-BUFFER                 (L)
+1 FIRST-BUFFER                (L)
+1 BUFFER-PRINTED              (L)
+1 PRINTER-ERROR               (L)
+1 #BRACKET                    (A8)  INIT <'MIDDLE'>
+1 #FLUSH                      (A3)  INIT <'NO'>
+1 #CONTROL                    (A3)  INIT <'NO'>
+1 #SAVE-CONTROL               (A3)
+1 #WAIT-TIME                  (P3)
+1 #WAIT-MAX                   (P4) INIT <300>
+1 #NUM-OF-PRINTED-BUFFERS     (P8)
+1 #CONST-WAIT                 (A8) CONST <'WAIT    '>
+1 #CONST-ONE-SECOND           (N4) CONST <1>
+1 #ERROR-COUNT                (P3)
+1 #TRACE-MSG                  (A100)
+1 #EVENT-MESSAGE              (A250)
+1 #FLUSH-LINE                 (A251)
+1 REDEFINE #FLUSH-LINE
+  2 #FLUSH-CC                 (A1)
+  2 #FLUSH-TEXT               (A250)
+1 #IND                        (I4)
+1 #BIN-ALLOWED                (L) CONST <TRUE>
+1 #BS2-ALLOWED                (L) CONST <FALSE>
+1 #TRACING                    (L) CONST <FALSE>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT (0) LS=133
+*
+ADD 1 TO FLUSH-BUFFERS
+ADD 1 TO FLUSH-COUNTER
+*
+IF FLUSH-SEGMENT = 'L' OR = 'A' AND FLUSH-SEG-BRACKET = 'L' OR = 'A'
+  LAST-BUFFER := TRUE
+END-IF
+IF FLUSH-SEGMENT = 'F' OR = 'A' AND FLUSH-SEG-BRACKET = 'F' OR = 'A'
+  FIRST-BUFFER := TRUE
+END-IF
+*
+DECIDE ON FIRST VALUE FLUSH-CC-TYPE
+  VALUE ASA-CODE      #CONTROL := 'YES'
+  VALUE MACHINE-CODE  #CONTROL := 'YES'
+  NONE                #CONTROL := 'NO'
+END-DECIDE
+*
+FOR I = 1 TO LINE-CURRENT
+  DECIDE FOR FIRST CONDITION
+    WHEN FIRST-BUFFER AND I = 1
+      #BRACKET := 'FIRST'
+      IF VTAM-FEED-BEFORE > 0
+        PERFORM PRINT-FEED-BEFORE
+      END-IF
+      IF P-ERROR-CODE = 0
+        PERFORM CALL-PRINTER-EXIT
+      END-IF
+      IF P-ERROR-CODE NE 0
+        PERFORM CANCEL-PRINTER
+        ESCAPE BOTTOM
+      END-IF
+    WHEN LAST-BUFFER AND I = LINE-CURRENT
+      FLUSH-BRACKET := 'L'
+      PERFORM CALL-PRINTER-EXIT
+      IF VTAM-FEED-AFTER > 0 AND P-ERROR-CODE = 0
+        PERFORM PRINT-FEED-AFTER
+      END-IF
+      IF P-ERROR-CODE = 0
+        PERFORM CLOSE-PRINTOUT
+      ELSE
+        PERFORM CANCEL-PRINTER
+      END-IF
+      ESCAPE BOTTOM
+    WHEN NONE
+      PERFORM CALL-PRINTER-EXIT
+      IF P-ERROR-CODE NE 0
+        PERFORM CANCEL-PRINTER
+        ESCAPE BOTTOM
+      END-IF
+  END-DECIDE
+END-FOR
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-STATUS
+************************************************************************
+IF FLUSH-POID = 0
+  ESCAPE ROUTINE
+END-IF
+*
+FNDOS. FIND ORDER-STATUS WITH PO-ID = FLUSH-POID
+  PO-STATUS      := #STATUS
+  PO-LAST-PRINTED-RECNO := FLUSH-LINES
+  UPDATE (FNDOS.)
+  END OF TRANSACTION
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-IT
+************************************************************************
+*** Handle carriage control for TYPE=AL. (TYPE=AL reports may contain
+*** a micture of ASA, Machine, and no carriage control).
+*** 1. If first character is a valid ASA carriage control, do nothing
+*** 2. If first character is printable (but not X'89' or X'8B' which
+***    are machine skip to channel 1), assume the record has no
+***    carriage control - shift the record right 1 position and put a
+***    space in column 1.
+*** 3. Otherwise, first character must be machine carriage control so
+***    translate it to ASA.
+*
+IF FLUSH-TYPE-AL = 'Y'
+  #FLUSH-LINE  := LINE(I)
+  EXAMINE FULL RMASAC-ASA-CODES(*) FOR #FLUSH-CC
+    GIVING INDEX IN #IND
+  IF #IND = 0                            /* not ASA
+    IF #FLUSH-CC = MASK(P) AND #FLUSH-CC NE H'89'
+        AND #FLUSH-CC NE H'8B'
+      RESET #FLUSH-CC
+      #FLUSH-TEXT:= LINE(I)
+      LINE(I):= #FLUSH-LINE
+      RESET FLUSH-SAVE-CC
+    ELSE
+      RMMCASA-PARMS.P-RECORD := LINE (I)
+      RMMCASA-PARMS.P-PREV-CC := FLUSH-SAVE-CC
+      CALLNAT 'RMMCASAN' RMMCASA-PARMS
+      FLUSH-SAVE-CC := RMMCASA-PARMS.P-PREV-CC
+      IF RMMCASA-PARMS.P-PRINT-NUMBER > 0
+        LINE (I) := RMMCASA-PARMS.P-RECORD
+      ELSE
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+  ELSE
+    RESET FLUSH-SAVE-CC
+  END-IF
+END-IF
+ADD 1 TO FLUSH-LINES
+IF FLUSH-COUNTER > #UPD-COUNTER OR #FLUSH = 'YES'
+  #STATUS := 'P'
+  PERFORM UPDATE-STATUS
+  RESET FLUSH-COUNTER
+END-IF
+*
+RESET #ERROR-COUNT
+*
+IF VTAM-MODE NE MASK ('A')
+  IF #CONTROL = 'YES' AND VTAM-CONTROL = 'N'
+    RESET LINE-L (I,1)
+  END-IF
+ELSE
+  #CONTROL := 'NO'
+  #LENGTH := 251
+  #TOTAL-LENGTH := 5020         /* #length * 20 lines in buf
+  IF  LAST-BUFFER AND I = LINE-CURRENT /* flush with last line
+    #FLUSH := 'YES'
+  END-IF
+END-IF
+*
+REP. REPEAT
+  FIND SPOOLING-PRINT WITH NODE =  VTAM-NODE AND FUNCTION ='PRINT'
+      AND PRINTER = VTAM-PRINTER AND FLUSH   = #FLUSH
+      AND CONTROL = #CONTROL AND BRACKET = #BRACKET
+      AND RECORD  = LINE (I) AND TRACE   = VTAM-TRACE
+      AND LOGMODE = VTAM-LOGMODE AND VTAM-BRACKET = 'Y'
+      AND MODE    = VTAM-MODE AND LENGTH  = #LENGTH
+      AND TOTAL-LENGTH = #TOTAL-LENGTH
+*
+    IF #BRACKET = 'FIRST'
+      COMPRESS 'printing po-id=' FLUSH-POID TO #TRACE-MSG LEAVING NO
+      PERFORM TRACE-MESSAGE
+    END-IF
+*
+    COMPRESS 'fnc=print' ',erc=' ERROR-CODE ',flush=' #FLUSH
+      ',control='  #CONTROL ',bracket='  #BRACKET
+      ',mode='     VTAM-MODE ',logmode='  VTAM-LOGMODE
+      ',ert='      ERROR-TEXT TO #TRACE-MSG LEAVING NO
+    PERFORM TRACE-MESSAGE
+*
+    IF ERROR-CODE = 846 OR = 844
+      #ERROR-COUNT := #ERROR-COUNT + 1
+      IF #ERROR-COUNT > 50
+        ESCAPE BOTTOM (REP.)
+      END-IF
+      PERFORM PRINTER-STATUS
+      IF P-ERROR-CODE NE 0
+        ESCAPE ROUTINE
+      END-IF
+    ELSE
+      ESCAPE BOTTOM (REP.)
+    END-IF
+  END-FIND
+END-REPEAT
+*
+IF ERROR-CODE = 0
+  IF FLUSH-BRACKET NE 'L'
+    FLUSH-BRACKET := 'M'
+  END-IF
+  IF #BRACKET NE 'LAST'
+    RESET INITIAL #BRACKET
+  END-IF
+ELSE
+  P-ERROR-CODE := 0005
+  P-ERROR-TEXT := ERROR-TEXT
+  FLUSH-ERROR := TRUE
+END-IF
+*
+END-SUBROUTINE /* PRINT-IT
+*
+************************************************************************
+DEFINE SUBROUTINE PRINTER-STATUS
+************************************************************************
+RESET BUFFER-PRINTED #WAIT-TIME
+STATUS-LOOP. REPEAT
+  FIND SPOOLING-PRINT WITH NODE = VTAM-NODE AND PRINTER = VTAM-PRINTER
+      AND FUNCTION = 'STATUS' AND TRACE    = VTAM-TRACE
+*
+    COMPRESS 'fnc=stat' ',erc='  ERROR-CODE ',stat=' STATUS-CODE
+      ',fdbk=' VTAM-FDBK-A3 ',sense=' VTAM-SENSE-A4 ',ert='  ERROR-TEXT
+      TO #TRACE-MSG LEAVING NO
+    PERFORM TRACE-MESSAGE
+*
+    DECIDE FOR FIRST CONDITION
+      WHEN (ERROR-CODE = 844 OR = 846) OR
+          (CLOSE-STATUS = TRUE AND STATUS-CODE = 2 THRU 4)
+        CALLNAT 'RMEVNT-N' VTAM-NODE 'NOMPRVTM' #CONST-WAIT /*wait 1 sec
+          #CONST-ONE-SECOND P-ERROR-CODE P-ERROR-TEXT #EVENT-MESSAGE
+        IF P-ERROR-CODE = 999
+          PRINTER-ERROR := TRUE
+          P-ERROR-CODE := 0005
+          FLUSH-ERROR := TRUE
+          ESCAPE ROUTINE
+        END-IF
+        IF VTAM-MAX-WAIT NE 0
+          #WAIT-MAX := VTAM-MAX-WAIT
+        END-IF
+        ADD 1 TO #WAIT-TIME
+        IF #WAIT-TIME = #WAIT-MAX
+          PRINTER-ERROR := TRUE
+          P-ERROR-CODE := 0719
+          FLUSH-ERROR := TRUE
+          RESET P-ERROR-TEXT
+        END-IF
+      WHEN ERROR-CODE = 0
+        BUFFER-PRINTED := TRUE
+        ADD 1 TO #NUM-OF-PRINTED-BUFFERS
+      WHEN NONE
+        P-ERROR-CODE := 0005
+        P-ERROR-TEXT := ERROR-TEXT
+        PRINTER-ERROR := TRUE
+        FLUSH-ERROR := TRUE
+    END-DECIDE
+  END-FIND
+  UNTIL PRINTER-ERROR OR BUFFER-PRINTED
+END-REPEAT
+*
+END-SUBROUTINE /* PRINTER-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-PRINTOUT
+************************************************************************
+#CONTROL := 'YES'
+*
+IF NOT P-ERROR-CODE > 0 AND VTAM-MODE NE MASK ('A')
+  LINE (1) := '+'
+  I := 1
+  #BRACKET := 'LAST'
+  #FLUSH   := 'YES'
+  PERFORM PRINT-IT
+END-IF
+IF P-ERROR-CODE = 0
+  PERFORM CLOSE-PRINTER
+  CLOSE-STATUS := TRUE
+  PERFORM PRINTER-STATUS
+  PERFORM DISCONNECT-PRINTER
+ELSE
+  PERFORM CANCEL-PRINTER
+END-IF
+*
+END-SUBROUTINE /* CLOSE-PRINTOUT
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-FEED-BEFORE
+************************************************************************
+#SAVE-CONTROL := #CONTROL
+#SAVE-LINE    := LINE (I)
+#CONTROL      := 'YES'
+*
+FOR #F = 1 TO VTAM-FEED-BEFORE
+  I := 1
+  LINE (I) := '1'
+  PERFORM PRINT-IT
+  IF P-ERROR-CODE NE 0
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+*
+#CONTROL := #SAVE-CONTROL
+LINE (I) := #SAVE-LINE
+*
+END-SUBROUTINE /* PRINT-FEED-BEFORE
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-FEED-AFTER
+************************************************************************
+#CONTROL := 'YES'
+*
+FOR #F = 1 TO VTAM-FEED-AFTER
+  I := 1
+  LINE (I) := '1'
+  PERFORM PRINT-IT
+  IF P-ERROR-CODE NE 0
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* PRINT-FEED-AFTER
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-PRINTER
+************************************************************************
+FIND(1) SPOOLING-PRINT WITH NODE = VTAM-NODE AND  PRINTER = VTAM-PRINTER
+    AND  FUNCTION  =  'CLOSE' AND  TRACE     =  VTAM-TRACE
+END-FIND
+COMPRESS 'fnc=close' ',erc=' SPOOLING-PRINT.ERROR-CODE
+  ',ert=' SPOOLING-PRINT.ERROR-TEXT TO #TRACE-MSG LEAVING NO
+PERFORM TRACE-MESSAGE
+*
+END-SUBROUTINE /* CLOSE-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE CANCEL-PRINTER
+************************************************************************
+FIND(1) SPOOLING-PRINT WITH NODE = VTAM-NODE AND  PRINTER = VTAM-PRINTER
+    AND FUNCTION = 'CANCEL' AND TRACE = VTAM-TRACE
+END-FIND
+COMPRESS 'fnc=cancel' ',erc=' SPOOLING-PRINT.ERROR-CODE
+  ',ert=' SPOOLING-PRINT.ERROR-TEXT TO #TRACE-MSG LEAVING NO
+PERFORM TRACE-MESSAGE
+*
+END-SUBROUTINE /* CANCEL-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE DISCONNECT-PRINTER
+************************************************************************
+FIND(1) SPOOLING-PRINT WITH NODE = VTAM-NODE AND PRINTER = VTAM-PRINTER
+    AND FUNCTION = 'DISC' AND TRACE =  VTAM-TRACE
+END-FIND
+COMPRESS 'fnc=disc' ',erc=' SPOOLING-PRINT.ERROR-CODE
+  ',ert=' SPOOLING-PRINT.ERROR-TEXT TO #TRACE-MSG LEAVING NO
+PERFORM TRACE-MESSAGE
+*
+END-SUBROUTINE /* DISCONNECT-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE TRACE-MESSAGE
+************************************************************************
+IF VTAM-TRACE = 'YES'
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS)
+    #TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* TRACE-MESSAGE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  CALLNAT 'C-NATERN' P-ERROR-TEXT
+  P-ERROR-CODE := 21
+  FLUSH-ERROR := TRUE
+  PERFORM CANCEL-PRINTER
+  ESCAPE ROUTINE
+END-ERROR
+*
+INCLUDE RMPR-C /*V12-PRINTER-API,CALL-PRINTER-EXIT
+*
+END

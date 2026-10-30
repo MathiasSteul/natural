@@ -1,0 +1,304 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RDEFCP
+* Function  Define Codepage Defaults
+* ÜÜ OPEN: on map:A20/defined:A64 ÜÜ
+*
+* Maintenance
+* uuu yyyy-mm-dd
+* SU      2017-07-18 NOMALL-2034 NOM 3.5: created
+* SU1     2017-12-11             codepage len:A50->A64
+* fhi     2018-03-24 NOMALL-1918 Add CP from text member in SYSNOMU
+*                                ÜÜÜ To be checked by SU ÜÜÜ
+* ----------------------------------------------------------------------
+DEFINE DATA
+GLOBAL USING NRM-GL
+*
+LOCAL USING RPFK---L
+LOCAL USING XXGMSG-A
+LOCAL
+1 #FATHER-PROG     (A8) INIT <'RDFMEN'>
+1 CV-MAP           (C)  INIT <(AD=I CD=NE)>
+1 L-HEADER         (A78)
+1 #ALLOWED         (L)
+1 #FUNC            (A1)
+1 #LANGUAGE        (I1)
+1 #MARK            (I4)
+1 #I               (I2)
+1 #I1              (I2)
+1 #I2              (I2)
+1 #CP-MAX          (I2) CONST <15>
+1 #FUNC-CP         (A1)
+1 #LAST-UPDATE     (T)
+1 #LAST-UPDATE-USER(A16)
+1 #LAST-MOD        (A40)
+1 #CP-TAB          (*)
+  2 #CP            (A64)
+  2 #CP-DESC       (A78)
+1 #MAP             (1:#CP-MAX)
+  2 #MAP-CP        (A64)
+  2 #MAP-CP-DESC   (A78)
+1 #MAP-CP-OLD      (A64/1:#CP-MAX)
+1 #MAP-CP-ORIG     (A64/1:#CP-MAX)
+1 #MAP-CP-TMP      (A64/1:#CP-MAX)
+1 #FIRST           (L) INIT <TRUE>
+1 #FIRST-DISP      (L)
+1 #CODEPAGE-OLD    (A64) /*SU1 A50->A64
+1 #N-HEADER
+  2 MAIN-LINE      (A78)
+  2 DATE-FORMAT    (A1)
+  2 MAP-NAME       (A8)
+1 #CP-DYN          (A) DYNAMIC
+1 #CP-DYN-DESC     (A) DYNAMIC
+1 #DATA-OK         (L)
+1 #BACKOUT         (L)
+1 TAB-OUT          (1:*) /*contains the xref of the used code pages
+  2 #CP2           (A) DYNAMIC
+  2 #OBJ-TYPE      (A) DYNAMIC
+  2 #NAME          (A) DYNAMIC
+1 #OBJ-TYPE2       (A20)
+1 #LONG            (L)  /*long CP names or short
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET G-COMMIT G-LINECOM(*)
+MAP-NAME := *PROGRAM
+CALLNAT 'N-HEADER' #N-HEADER
+*
+#XX-ERROR-CODE := 7002
+CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+WRITE TITLE LEFT 2T MAIN-LINE (AD=OI CD=GR DY=<TU>)
+  / #XX-SHORT-TEXT (AL=68) 70T 'Page:' *PAGE-NUMBER (NL=3) /
+*
+#FUNC := 'M' /*only M possible G-C-FUNC SU 2017-11
+MAIN-LOOP. REPEAT
+  IF #FUNC = 'M'
+    #FUNC-CP := 'H' /*get default list with HOLD
+    CALLNAT 'NARPSEC' G-USER-PROFILE 'MMO' #ALLOWED
+  ELSE
+    #FUNC-CP := 'D' /*get default list
+    CALLNAT 'NARPSEC' G-USER-PROFILE 'DMO' #ALLOWED
+    CV-MAP := (AD=IP)
+  END-IF
+  INCLUDE C-NALLOW
+  CALLNAT 'N-CP-TAB' #FUNC-CP #CP-TAB (*) #LAST-UPDATE #LAST-UPDATE-USER
+  RESET #MAP (*) #LONG
+  FOR #I = 1 TO *OCC(#CP)
+    #MAP-CP      (#I) := #CP      (#I)
+    #MAP-CP-DESC (#I) := #CP-DESC (#I)
+    EXAMINE #MAP-CP (#I) FOR ' ' GIVING LENGTH #I1
+    IF #I1 > 20
+      #LONG := TRUE
+    END-IF
+  END-FOR
+  IF #FIRST
+    RESET #FIRST
+    #MAP-CP-ORIG (*) := #MAP-CP (*)
+  END-IF
+  FIND-LOOP. REPEAT /*in CC: ESCAPE BOTTOM (FIND-LOOP.)
+    SCREEN-LOOP. REPEAT
+      IF #LANGUAGE NE *LANGUAGE
+        PERFORM INIT-PFKEYS
+        PERFORM SET-PFKEYS
+        #LANGUAGE := *LANGUAGE
+      END-IF
+*
+      PERFORM FLIP-DISPLAY
+      CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDEFAVM&'
+      CALLNAT 'N-HEAD2' #LAST-UPDATE-USER #LAST-UPDATE
+        #LAST-MOD G-DATE-FORMAT
+
+*
+      IF #MARK = 0
+        #MARK := POS(G-DIRECT-COMMAND)
+      END-IF
+      CALLNAT 'N-CP-TAB' '+' #MAP (*) 2X /*get desc
+      #MAP-CP-OLD (*) := #MAP-CP (*)
+      IF #LONG
+        INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+          MARK #MARK USING MAP 'RDEFCP-&'
+      ELSE
+        INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+          MARK #MARK USING MAP 'RDEFCP&'
+      END-IF
+*
+      INCLUDE RPFKVA-C
+      INCLUDE C-DIRECT
+      DECIDE ON FIRST VALUE OF G-PF-FUNC
+        VALUE ##PFK-EXIT
+          IF G-AUTOCOMMIT = 'I'
+            BACKOUT TRANSACTION
+          END-IF
+          INCLUDE C-ESCAP2
+        VALUE ##PFK-DISPLAY-LONG-NAMES /*toggle
+          IF #LONG
+            RESET #LONG
+          ELSE
+            #LONG := TRUE
+          END-IF
+
+        NONE IGNORE /*handled in RPFKED-C
+      END-DECIDE
+      INCLUDE RPFKED-C
+      RESET #MARK G-NATRP-ERC G-NATRP-ERT
+*
+      IF CV-MAP MODIFIED OR G-MAP-MODIFIED
+        G-COMMIT := G-MAP-MODIFIED := #DATA-OK := TRUE
+        PERFORM CHECK-CP
+        IF G-NATRP-ERC NE 0
+          RESET #DATA-OK
+          ESCAPE TOP
+        END-IF
+        /*update without ET
+        #LAST-UPDATE-USER := G-USERID
+        CALLNAT 'N-CP-TAB' 'U' #MAP (*) #LAST-UPDATE #LAST-UPDATE-USER
+        G-NATRP-ERC := 0032
+        INCLUDE C-COMMIT
+      END-IF
+      INCLUDE REXDO--C
+    END-REPEAT /*(SCREEN-LOOP.)
+    ESCAPE BOTTOM (FIND-LOOP.)
+  END-REPEAT /*(FIND-LOOP.)
+END-REPEAT /*(MAIN-LOOP.)
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-CP
+************************************************************************
+/* Select '*':
+FOR #I= 1 TO #CP-MAX
+  IF #MAP-CP (#I) = SCAN'*'
+    #CP-DYN      := #MAP-CP (#I)
+    #CP-DYN-DESC := #MAP-CP-DESC (#I)
+    CALLNAT 'N-CP-HLP' '?' #CP-DYN #CP-DYN-DESC
+    IF #CP-DYN = SCAN H'01' /*mult. select
+      PERFORM MULT-SELECTED
+    ELSE
+      IF #CP-DYN = SCAN'*' /*nothing selected - use old value
+        #MAP-CP (#I) := #MAP-CP-OLD (#I)
+      ELSE
+        #MAP-CP      (#I) := #CP-DYN
+        #MAP-CP-DESC (#I) := #CP-DYN-DESC
+      END-IF
+    END-IF
+  END-IF
+END-FOR
+/*
+PERFORM CHECK-IF-CP-USED
+IF G-NATRP-ERC NE 0
+  ESCAPE ROUTINE
+END-IF
+/* Check for Duplicate entries / Compress list:
+FOR #I = #CP-MAX TO 1 STEP -1
+  IF #I > 1 AND #MAP-CP (#I) = #MAP-CP (1:#I - 1) AND #MAP-CP(#I) NE ' '
+    G-NATRP-ERC := 604 /*Duplicate member in list.
+    G-NATRP-ERT := #MAP-CP (#I)
+    #MARK := POS(#MAP-CP (#I))
+    ESCAPE ROUTINE
+  END-IF
+  IF #MAP-CP (#I) NE ' ' OR #I=#CP-MAX
+    ESCAPE TOP
+  END-IF
+  #MAP-CP      (#I:#CP-MAX - 1) := #MAP-CP      (#I+1:#CP-MAX)
+  #MAP-CP-DESC (#I:#CP-MAX - 1) := #MAP-CP-DESC (#I+1:#CP-MAX)
+  RESET #MAP-CP (#CP-MAX) #MAP-CP-DESC (#CP-MAX)
+END-FOR
+FOR #I= 1 TO #CP-MAX
+  IF #MAP-CP (#I) = ' '
+    ESCAPE TOP
+  END-IF
+  #CODEPAGE-OLD := #MAP-CP (#I)
+* Check via MOVE ENCODED:
+  CALLNAT 'N-CP-CHK' #MAP-CP (#I) G-NATRP-ERC G-NATRP-ERT
+  IF G-NATRP-ERC NE 0
+      AND G-NATRP-ERC NE 4 /* 4: user defined CP. NOMALL-1918 fhi in
+    #MARK := POS(#MAP-CP (#I))
+    ESCAPE ROUTINE
+  END-IF
+  RESET G-NATRP-ERC /* NOMALL-1918 fhi in
+END-FOR
+*
+END-SUBROUTINE /* CHECK-CP
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-IF-CP-USED /*CP used in node/report ?
+************************************************************************
+RESET G-NATRP-ERC G-NATRP-ERT *PAGE-NUMBER #MARK
+CALLNAT 'N-CP-XRF' 'C' #MAP-CP (*) #MAP-CP-OLD (*) TAB-OUT(*)
+  G-NATRP-ERC G-NATRP-ERT
+IF G-NATRP-ERC = 0
+  ESCAPE ROUTINE
+END-IF
+FOR #I = 1 TO *OCC(#CP2)
+  #FIRST-DISP := TRUE
+  DECIDE ON FIRST VALUE OF #OBJ-TYPE (#I)
+    VALUE 'ND' #OBJ-TYPE2 := 'Node'
+    VALUE 'RP' #OBJ-TYPE2 := 'Report'
+    NONE       #OBJ-TYPE2 := #OBJ-TYPE (#I)
+  END-DECIDE
+  DISPLAY 'Codepage' #CP2 (#I) (AL=15) 'Object Type' #OBJ-TYPE2 (AL=15)
+    'Name' #NAME  (#I) (AL=15)
+END-FOR
+* Restore removed entries which are in use:
+SEPARATE G-NATRP-ERT INTO #MAP-CP-TMP (*) IGNORE
+  WITH DELIMITER ',' GIVING NUMBER #I1
+FOR #I = 1 TO #I1
+  FOR #I2 = 1 TO *OCC(#MAP-CP)
+    IF #MAP-CP-OLD (#I2) = #MAP-CP-TMP (#I)
+      #MAP-CP (#I2) := #MAP-CP-TMP (#I)
+      IF #MARK = 0
+        #MARK := POS(#MAP-CP (#I2))
+      END-IF
+    END-IF
+  END-FOR
+END-FOR
+*
+END-SUBROUTINE /* CHECK-IF-CP-USED
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+RESET G-PF
+*
+INCLUDE RPFSTD-C
+INCLUDE RPFCOM-C
+G-PF-IDENT (9)  := ##PFN-DISPLAY-LONG-NAMES
+G-PF-CODE  (9)  := ##PFK-DISPLAY-LONG-NAMES
+G-PF-IDENT (21) := ##PFN-DISPLAY-LONG-NAMES
+G-PF-CODE  (21) := ##PFK-DISPLAY-LONG-NAMES
+CALLNAT 'RPFINI-N' G-PF G-PFB
+SET KEY PF01=HELP NAMED G-PF-TEXT (1)
+SET KEY PF13=HELP NAMED G-PF-TEXT (1)
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE MULT-SELECTED
+************************************************************************
+FOR #I1 = #I TO #CP-MAX
+  IF #MAP-CP (#I1) NE ' ' AND #I1 NE #I
+    ESCAPE TOP
+  END-IF
+  SEPARATE #CP-DYN      INTO #MAP-CP      (#I1) REMAINDER #CP-DYN
+    WITH DELIMITER H'01'
+  SEPARATE #CP-DYN-DESC INTO #MAP-CP-DESC (#I1) REMAINDER #CP-DYN-DESC
+    WITH DELIMITER H'01'
+END-FOR
+REDUCE DYNAMIC #CP-DYN TO 0
+REDUCE DYNAMIC #CP-DYN-DESC TO 0
+*
+END-SUBROUTINE /* MULT-SELECTED
+* --------------------------------------- set pfkeys -------------------
+INCLUDE RPFSET-C
+*
+END

@@ -1,0 +1,65 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* STARTUP - Start/Stop Monitor
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* gw      1998-10-21 s(999999) created
+* xsetggr 2007-05-08 NOM3201   Support 5 byte node numbers
+* fhi     2016-11-19 NOMALL-1620 Use SAT version 33 permanently
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL USING SATFNC3E
+LOCAL USING SATOS03P
+LOCAL
+1 G-NATRP-ERC (N4)
+1 G-NATRP-ERT (A78)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY PF3
+*
+RESET SATOS-PARMS-03 (*)
+*
+INPUT
+  'Start NOM monitor' (I)
+  // '  Node ......' SATOS-NODE-N5
+  // '  NOM DBID ..' SATOS-SERVDBID-N5
+  / '  NOM FNR ...' SATOS-SERVFNR-N5
+  // 'PF3' (I) 'Exit'
+*
+IF *PF-KEY = 'PF3'
+  STOP
+END-IF
+*
+SATOS-SATVERS := 33
+CALLNAT SAT-ONLINE-START SATOS-SATVERS SATOS-PARMS-03 (*)
+*
+DECIDE ON FIRST SATOS-ERROR-CODE
+  VALUE 0
+    IF SATOS-TYPE = 'BATCH'
+      G-NATRP-ERC := 1500
+      COMPRESS SATOS-BATCH-JOBNAME '/' SATOS-BATCH-JOB-NUMBER
+        TO G-NATRP-ERT LEAVING NO
+    ELSE
+      G-NATRP-ERC := 1520
+      G-NATRP-ERT := SATOS-SUBTASK-NAME
+    END-IF
+  VALUE 5500:5999
+    G-NATRP-ERC := 0005
+    G-NATRP-ERT := SATOS-ERROR-TEXT
+  NONE VALUE
+    G-NATRP-ERC := 1521
+    G-NATRP-ERT := SATOS-ERROR-CODE
+END-DECIDE
+*
+REINPUT *G-NATRP-ERC,G-NATRP-ERT
+*
+END

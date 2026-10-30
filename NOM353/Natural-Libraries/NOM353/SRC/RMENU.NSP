@@ -1,0 +1,559 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMENU
+* Version   1.3
+* Function  EOM Main Menu
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-06-23 s(999999) rewritten
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* sju 02-02-26 nom221    Incorrect message if NOMEX003 sets error code
+* fhi 02-06-13 s(225125) Add email notificaton, NOMEX010
+* fhi 03-08-05 P(213773) DC components not always displayed.
+*                        Deleted comments before year 2000
+* xsetggr 06-08-07 p(279851) point 8 in Main menu not always displayed
+* xsetggr 2007-10-04 p(298112) prevent missing values of AIV
+* xsetggr 2010-01-25 P300184   use G-LANGUAGE for checking
+* raya    2012-11-29 NOMALL-1214 check cat date of nomex*
+* raya    2013-05-09 NOMALL-1214 backout check cat date of nomex*
+* fhi     2017-06-20 NOMALL-1620 set local node variables
+* fhi     2018-02-07 NOMALL-1918 Adapt for Unix
+* SU1     2020-06-09 NOMALL-2414 NOP install:check LFILE 216 too
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+* ----------------------------------------------------------------------
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE      (L/1:20)
+*
+LOCAL USING RPFK---L
+LOCAL USING SATFNC3E
+LOCAL USING SATIP--P
+LOCAL USING SATLF02P /*SU1
+LOCAL USING RINTAP-P
+LOCAL USING RMT----L
+LOCAL USING PROF-LOC
+*
+LOCAL
+1 #FATHER-PROG           (A8) INIT <'NATRPEND'>
+1 #OPTION                (N2)
+1 #MENU-ENTRY            (12)
+  2 #MENU-LINE           (A70)
+  2 #MENU-IDENT          (I2)
+  2 #MENU-PROG           (A30)
+  2 #OPTIONS             (L)
+1 NSCL-PARMS
+  2 NSCL-APPLID          (A8)
+  2 NSCL-USERID          (A8)
+  2 NSCL-ERC             (N4)
+  2 NSCL-PPARM1          (A250)
+1 #LINE                  (A38/34)
+1 I                      (N3)
+1 J                      (N3)
+1 P                      (N3)
+1 A                      (P2)
+1 #L                     (N3)
+1 #TLINE                 (A60)
+1 REDEFINE #TLINE
+  2 #TFIL1               (A2)
+  2 #TNUM                (A2)
+  2 #TFIL2               (A1)
+  2 #TTEXT               (A55)
+1 #OL-IDENT              (I2/1:5)
+1 #OTHER-LINES
+  2 #OL-LINES            (1:5)
+    3 #OL-TEXT           (A70)
+1 REDEFINE #OTHER-LINES
+  2 #C-LINE              (A70)
+  2 #M-LINE              (A70)
+  2 #H-LINE              (A70)
+  2 #DC-LINE             (A70)
+  2 #A-LINE              (A70)
+1 L-HEADER               (A78)
+1 #LANGUAGE              (I1)
+1 #LOGON                 (A20)
+1 #COMMAND               (A60)
+1 #LIBRARY-ID            (A8)
+1 SECURITY-ACTIVE        (L)
+1 LOGON-ALLOWED          (L)
+
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+END TRANSACTION
+*
+CALLNAT 'NSC-ACT' SECURITY-ACTIVE
+*
+IF NOT G-CAPPL-CHECKED
+  PERFORM INSTALLED-APPLICATIONS
+END-IF
+IF NOT G-DCAPPL-CHECKED
+  PERFORM INSTALLED-DC-PRODUCTS
+END-IF
+*
+G-SEL-CD := (AD=V CD=YE)
+G-LIST-CD := (AD=D CD=NE)
+*
+SET CONTROL 'L'
+INCLUDE C-INDIC
+PROFILE-STRING := G-USER-PROFILE
+*
+DECIDE FOR EVERY CONDITION
+  WHEN PROF-REPORTS NE ' '        #OPTIONS(1) := TRUE
+  WHEN PROF-BUNDLES NE ' '        #OPTIONS(2) := TRUE
+  WHEN PROF-PRINTERS NE ' '       #OPTIONS(3) := TRUE
+  WHEN PROF-LISTS NE ' '          #OPTIONS(4) := TRUE
+  WHEN PROF-AREPS NE ' '          #OPTIONS(5) := TRUE
+  WHEN PROF-ABUNDS NE ' '         #OPTIONS(6) := TRUE
+  WHEN PROF-ARCHIVE-ADMIN = 'Y'   #OPTIONS(9) := TRUE
+  WHEN PROF-PRINTOUTS NE ' '      #OPTIONS(7) := TRUE
+  WHEN PROF-STARTUP ='Y' OR PROF-SHUTDOWN ='Y' OR PROF-DEFAULTS NE ' '
+  OR PROF-USERS NE ' ' OR PROF-NODES NE ' ' OR PROF-PHYSICAL NE ' '   /*
+  OR PROF-CALENDARS NE ' ' OR PROF-ARCHIVE = 'Y' OR PROF-REVIVE = 'Y' /*
+    #OPTIONS(8) := TRUE
+  WHEN NONE IGNORE
+END-DECIDE
+*
+#OPTIONS(10) := TRUE
+*
+IF G-USER-TYPE = 'A'
+  #OPTIONS(1:10) := TRUE
+END-IF
+*
+RESET G-LINECOM(*)
+IF G-FLIP-STATUS = 'L'
+  G-FLIP-STATUS := 'P'
+END-IF
+*
+REPEAT
+  IF #LANGUAGE NE *LANGUAGE
+    MOVE G-LANGUAGE TO #LANGUAGE *LANGUAGE
+    PERFORM INIT-PFKEYS
+    PERFORM SET-PFKEYS
+    PERFORM INIT-MENU-TEXT
+    PERFORM MOVE-TEXT-TO-SCREEN
+  END-IF
+*
+  RESET G-LINECOM (*) G-FLIPLINES (*)
+*
+  SET CONTROL 'YB'
+  SET CONTROL 'WB'
+  PERFORM FLIP-DISPLAY
+  IF G-NATRP-ERC = 0
+    G-NATRP-ERC := 10
+  END-IF
+*
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RMENUM& '
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'RMENUM&'
+  RESET G-NATRP-ERC G-NATRP-ERT
+*
+  MOVE LEFT G-DIRECT-COMMAND TO G-DIRECT-COMMAND
+  DECIDE ON FIRST VALUE OF G-DIRECT-COMMAND
+    VALUE '1','2','3','4','5','6','7','9'
+      COMPRESS '>' G-DIRECT-COMMAND TO G-DIRECT-COMMAND LEAVING NO
+    VALUE '8'
+      G-DIRECT-COMMAND := '>8.0'
+    VALUE '10','?'
+      REINPUT FULL USING HELP
+    VALUE '20', '21', '22', '23'
+      PERFORM LOGON-TO-DC-PRODUCT
+    VALUE '30', '31', '32', '33', '34'
+      PERFORM LOGON-TO-APPLICATION
+    NONE VALUE IGNORE
+  END-DECIDE
+*
+  INCLUDE C-DIRECT
+  INCLUDE RPFKVA-C
+*
+  DECIDE ON FIRST VALUE OF G-PF-FUNC
+    VALUE 'HELP'
+      #OPTION := 10
+    VALUE 'EXIT'
+      #OPTION := 11
+    VALUE 'FLIP'
+      PERFORM FLIP-HANDLE
+      ESCAPE TOP
+    VALUE 'FOLLOW'
+      PERFORM FOLLOW-MONITOR
+      ESCAPE TOP
+    NONE VALUE IGNORE
+  END-DECIDE
+*
+  #OPTIONS (11) := TRUE
+*
+  IF NOT (#OPTION = 1 THRU 11)
+    REINPUT *0007 MARK *#OPTION ALARM
+  END-IF
+*
+  IF NOT #OPTIONS(#OPTION)
+    REINPUT *0007
+  ELSE
+    G-DIRECT-COMMAND := #MENU-PROG(#OPTION)
+    INCLUDE C-DIRECT
+  END-IF
+*
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-MENU-TEXT
+************************************************************************
+#MENU-IDENT (01) := ##MTN-LIST-REPORT
+#MENU-IDENT (02) := ##MTN-LIST-BUNDLE
+#MENU-IDENT (03) := ##MTN-LIST-PRINTERS
+#MENU-IDENT (04) := ##MTN-LIST-LIST
+#MENU-IDENT (05) := ##MTN-MENU-AREPORTS
+#MENU-IDENT (06) := ##MTN-LIST-ABUNDLES
+#MENU-IDENT (07) := ##MTN-LIST-PRINTOUTS
+#MENU-IDENT (08) := ##MTN-MENU-ADMIN
+#MENU-IDENT (09) := ##MTN-LIST-ARCHIVE
+#MENU-IDENT (10) := ##MTN-HELP
+*
+#MENU-PROG  (01) := ##MTC-LIST-REPORT
+#MENU-PROG  (02) := ##MTC-LIST-BUNDLE
+#MENU-PROG  (03) := ##MTC-LIST-PRINTERS
+#MENU-PROG  (04) := ##MTC-LIST-LIST
+#MENU-PROG  (05) := ##MTC-MENU-AREPORTS
+#MENU-PROG  (06) := ##MTC-LIST-ABUNDLES
+#MENU-PROG  (07) := ##MTC-LIST-PRINTOUTS
+#MENU-PROG  (08) := ##MTC-MENU-ADMIN
+#MENU-PROG  (09) := ##MTC-LIST-ARCHIVE
+#MENU-PROG  (10) := ##MTC-HELP
+#MENU-PROG  (11) := ##MTC-QUIT
+FOR J = 1 TO 12
+  IF #MENU-IDENT (J) NE 0
+    CALLNAT 'RLTINI-N' #MENU-IDENT (J) #MENU-LINE  (J) G-TXB
+  END-IF
+END-FOR
+#OL-IDENT (02) := ##MTN-CONTRL-FUNC
+#OL-IDENT (01) := ##MTN-MAINT-FUNC
+#OL-IDENT (03) := ##MTN-MISC-FUNC
+#OL-IDENT (04) := ##MTN-DC-PRODUCTS
+#OL-IDENT (05) := ##MTN-APPLICATIONS
+FOR J = 1 TO 5
+  IF #OL-IDENT (J) NE 0
+    CALLNAT 'RLTINI-N' #OL-IDENT (J) #OL-TEXT  (J) G-TXB
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* INIT-MENU-TEXT
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+RESET G-PF-IDENT (12) G-PF-IDENT (24)
+  G-PF-CODE  (12) G-PF-CODE  (24)
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE MOVE-TEXT-TO-SCREEN
+************************************************************************
+RESET #OPTIONS (11) #L #LINE(*)
+*
+IF #OPTIONS (1:4) = TRUE
+  #LINE (1) := #C-LINE
+  PERFORM MAINTENANCE-TO-SCREEN
+END-IF
+*
+IF #OPTIONS (5:9) = TRUE
+  #LINE (8) := #M-LINE
+  PERFORM CONTROL-TO-SCREEN
+END-IF
+*
+PERFORM HELP-TO-SCREEN
+*
+IF NOT (#OPTIONS (1:10) = TRUE)
+  SET CONTROL 'WC8L50B12/15F'
+  INPUT USING MAP 'RMENUW&'
+  SET CONTROL 'WB'
+  RELEASE STACK
+  STOP
+END-IF
+*
+IF G-DCAPPL-NUMBER > 0
+  #LINE (18) := #DC-LINE
+  PERFORM DC-PRODUCTS-TO-SCREEN
+END-IF
+*
+IF G-CAPPL-NUMBER > 0
+  #LINE (25) := #A-LINE
+  PERFORM APPLICATIONS-TO-SCREEN
+END-IF
+*
+END-SUBROUTINE /* MOVE-TEXT-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE MAINTENANCE-TO-SCREEN
+************************************************************************
+#L := 2
+FOR I 1 TO 4
+  IF #OPTIONS(I)
+    ADD 1 TO #L
+    #TFIL1 := '<'
+    #TFIL2 := '>'
+    MOVE RIGHT I TO #TNUM
+    #TTEXT := #MENU-LINE(I)
+    #LINE(#L) := #TLINE
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* MAINTENANCE-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE CONTROL-TO-SCREEN
+************************************************************************
+#L := 9
+FOR I 5 TO 9
+  IF #OPTIONS(I)
+    ADD 1 TO #L
+    #TFIL1 := '<'
+    #TFIL2 := '>'
+    MOVE RIGHT I TO #TNUM
+    #TTEXT := #MENU-LINE(I)
+    #LINE(#L) := #TLINE
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* CONTROL-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE HELP-TO-SCREEN
+************************************************************************
+#L := 15
+FOR I 10 TO 10
+  IF #OPTIONS(I)
+    ADD 1 TO #L
+    #TFIL1 := '<'
+    #TFIL2 := '>'
+    MOVE RIGHT I TO #TNUM
+    #TTEXT := #MENU-LINE(I)
+    #LINE(#L) := #TLINE
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* HELP-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE DC-PRODUCTS-TO-SCREEN
+************************************************************************
+#L := I := 19
+*
+FOR P = 1 TO G-DCAPPL-NUMBER
+  ADD 1 TO #L
+  ADD 1 TO I
+  MOVE RIGHT I TO #TNUM
+  #TFIL1 := '<'
+  #TFIL2 := '>'
+  #TTEXT := G-DCAPPL-PRODNAME (P)
+  #LINE (#L) := #TLINE
+END-FOR
+*
+END-SUBROUTINE /* DC-PRODUCTS-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE APPLICATIONS-TO-SCREEN
+************************************************************************
+#L := 26
+I := 29
+*
+FOR P = 1 TO G-CAPPL-NUMBER
+  ADD 1 TO #L
+  ADD 1 TO I
+  MOVE RIGHT I TO #TNUM
+  #TFIL1 := '<'
+  #TFIL2 := '>'
+  #TTEXT := G-CAPPL-PRODNAME (P)
+  #LINE (#L) := #TLINE
+END-FOR
+*
+END-SUBROUTINE /* APPLICATIONS-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE INSTALLED-DC-PRODUCTS
+************************************************************************
+G-DCAPPL-CHECKED := TRUE
+*
+SATIP-SATVERS := 21
+CALLNAT SAT-INSTALLED-PRODUCTS SATIP-SATVERS SATIP-PARMS (*)
+*
+IF SATIP-PRODVERS (*) NE ' '
+  FOR A = 1 TO 10
+    LOGON-ALLOWED := TRUE
+    IF SATIP-PRODVERS (A) = ' ' OR= SCAN 'NOM' OR = SCAN 'EOM'
+      ESCAPE TOP
+    END-IF
+    NSCL-APPLID := SATIP-LIBRARY (A)
+    IF NSCL-APPLID = ' ' /*SPF - check via user exit
+      IF +G-NOMEXIT-ACTIVE (3)
+        CALLNAT 'NOMEX003' G-USERID LOGON-ALLOWED G-NATRP-ERC G-NATRP-ERT
+        RESET G-NATRP-ERC G-NATRP-ERT
+      END-IF
+    ELSE
+* see EOR(DCAGD1-P
+      IF SATIP-LIBRARY (A) = 'SYSEOR' /*SU1
+        PERFORM CHECK-EOR-LFILE
+        IF NOT LOGON-ALLOWED
+          ESCAPE TOP
+        END-IF
+      END-IF
+      PERFORM LOGON-ALLOWED
+    END-IF
+    IF NOT LOGON-ALLOWED
+      ESCAPE TOP
+    END-IF
+    ADD 1 TO G-DCAPPL-NUMBER
+    G-DCAPPL-LOGON-ALLOWED (G-DCAPPL-NUMBER) := LOGON-ALLOWED
+    G-DCAPPL-PRODVERS      (G-DCAPPL-NUMBER) := SATIP-PRODVERS (A)
+    G-DCAPPL-PRODNAME      (G-DCAPPL-NUMBER) := SATIP-PRODNAME (A)
+    G-DCAPPL-LIBRARY       (G-DCAPPL-NUMBER) := SATIP-LIBRARY (A)
+    G-DCAPPL-COMMAND       (G-DCAPPL-NUMBER) := SATIP-COMMAND (A)
+  END-FOR
+END-IF
+*
+END-SUBROUTINE /* INSTALLED-DC-PRODUCTS
+*
+************************************************************************
+DEFINE SUBROUTINE INSTALLED-APPLICATIONS
+************************************************************************
+G-CAPPL-CHECKED := TRUE
+CALLNAT 'RINTAP-N' RINTAP-PARMS
+RESET G-CAPPL-NUMBER G-CAPPL-TAB (*)
+*
+IF RINTAP-PRODNAME (*) NE ' '
+  FOR A = 1 TO 5
+    IF RINTAP-PRODNAME (A) = ' '
+      ESCAPE BOTTOM
+    END-IF
+    NSCL-APPLID := RINTAP-LIBRARY (A)
+    PERFORM LOGON-ALLOWED
+    IF NOT LOGON-ALLOWED
+      ESCAPE TOP
+    END-IF
+    ADD 1 TO G-CAPPL-NUMBER
+    G-CAPPL-LOGON-ALLOWED (G-CAPPL-NUMBER) := LOGON-ALLOWED
+    G-CAPPL-PRODNAME      (G-CAPPL-NUMBER) := RINTAP-PRODNAME (A)
+    G-CAPPL-LIBRARY       (G-CAPPL-NUMBER) := RINTAP-LIBRARY  (A)
+    G-CAPPL-COMMAND       (G-CAPPL-NUMBER) := RINTAP-COMMAND  (A)
+    G-CAPPL-PARAMETER     (G-CAPPL-NUMBER) := RINTAP-PARAMETER (A)
+  END-FOR
+END-IF
+*
+END-SUBROUTINE /* INSTALLED-APPLICATIONS
+*
+************************************************************************
+DEFINE SUBROUTINE LOGON-TO-DC-PRODUCT
+************************************************************************
+P := VAL (G-DIRECT-COMMAND)
+SUBTRACT 19 FROM P
+IF G-DCAPPL-PRODVERS (P) = ' '
+  REINPUT *0007 ALARM
+END-IF
+IF NOT G-DCAPPL-LOGON-ALLOWED (P)
+  REINPUT *0020 ALARM
+END-IF
+STACK TOP COMMAND 'RRETURN'
+FETCH RETURN 'NRMPUTAI'
+STACK TOP COMMAND 'NRMGETAI'
+CALLNAT 'RGETLIB' #LIBRARY-ID
+STACK TOP COMMAND 'LOGON' #LIBRARY-ID
+*
+IF G-DCAPPL-LIBRARY (P) =  ' '
+  RESET #LOGON
+ELSE
+  NSCL-APPLID := G-DCAPPL-LIBRARY (P)
+  COMPRESS 'LOGON' G-DCAPPL-LIBRARY (P) TO #LOGON
+END-IF
+*
+COMPRESS G-DCAPPL-COMMAND (P) TO #COMMAND
+STACK TOP COMMAND #COMMAND
+*
+IF #LOGON NE ' '
+  STACK TOP COMMAND #LOGON
+END-IF
+FETCH RETURN 'NRMPUTGL'
+RELEASE VARIABLES
+STOP
+*
+END-SUBROUTINE /* LOGON-TO-DC-PRODUCT
+*
+************************************************************************
+DEFINE SUBROUTINE LOGON-TO-APPLICATION
+************************************************************************
+P := VAL (G-DIRECT-COMMAND)
+SUBTRACT 29 FROM P
+IF G-CAPPL-PRODNAME (P) = ' '
+  REINPUT *0007 ALARM
+END-IF
+*
+IF NOT G-CAPPL-LOGON-ALLOWED (P)
+  REINPUT *0020 ALARM
+END-IF
+*
+COMPRESS 'LOGON' G-CAPPL-LIBRARY (P) TO #LOGON
+COMPRESS G-CAPPL-COMMAND (P)  G-CAPPL-PARAMETER (P) TO #COMMAND
+*
+STACK TOP COMMAND 'RRETURN'
+FETCH RETURN 'NRMPUTAI'
+STACK TOP COMMAND 'NRMGETAI'
+CALLNAT 'RGETLIB' #LIBRARY-ID
+STACK TOP COMMAND 'LOGON' #LIBRARY-ID
+STACK TOP COMMAND #COMMAND
+STACK TOP COMMAND #LOGON
+FETCH RETURN 'NRMPUTGL'
+RELEASE VARIABLES
+STOP
+*
+END-SUBROUTINE /* LOGON-TO-APPLICATION
+*
+************************************************************************
+DEFINE SUBROUTINE LOGON-ALLOWED
+************************************************************************
+LOGON-ALLOWED := TRUE
+*
+IF NOT SECURITY-ACTIVE
+  ESCAPE ROUTINE
+END-IF
+*
+NSCL-USERID := *USER
+RESET NSCL-PPARM1
+CALLNAT 'NSC---L' NSCL-APPLID NSCL-USERID NSCL-ERC NSCL-PPARM1
+IF NSCL-ERC NE 0
+  LOGON-ALLOWED := FALSE
+END-IF
+*
+END-SUBROUTINE /* LOGON-ALLOWED
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-EOR-LFILE /*SU1
+************************************************************************
+SATLF-FUNCTION := 'GET'
+SATLF-LFILE    := 216 /*EOR
+SATLF-SATVERS  := 21
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+IF SATLF-ERROR-CODE NE 0 /*handle it as OK
+  PRINT NOTITLE NOHDR (AD=L) *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    '--> Error on LFILE: func=' SATLF-FUNCTION 'LFILE=' SATLF-LFILE
+    / SATLF-ERROR-CODE SATLF-ERROR-TEXT
+ELSE
+  IF SATLF-DBID-N5 = 0 OR SATLF-FNR-N5 = 0
+    RESET LOGON-ALLOWED
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CHECK-EOR-LFILE
+*
+INCLUDE RPFSET-C /*SUBROUTINE SET-PFKEYS
+*
+END

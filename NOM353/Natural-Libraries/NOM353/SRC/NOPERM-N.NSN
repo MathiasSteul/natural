@@ -1,0 +1,483 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOPERM-N - API Type: Permissions - read Permissions from NOM Profiles
+* The real implementation should get the Permissions for all objects
+* defined in framework
+* May set result Codes in ESMPERMA:
+*  0: OK
+*  1: User not known in application profiles (no permission for app)
+*
+* User-Id Date        Marked    Comment
+* WRKMFR  2002-04-10  created (test mode)
+* XSETHZ 2002-04-22   created
+* XSETHZ 2002-11-05   modified
+* XSETHZ 2002-11-05   modified
+* XSETHZ 2003-08-08   use default user profile
+* XSETGGR 2007-03-22  replace call of ES...-N to direct call of module
+* XSETGGR 2007-03-23  change es-permissions.version
+* XSETHZ  2007-03-24  test result view
+* XSETHZ  2007-04-24  permissions for CS and TE added
+* XSETHZ  2008-02-04  permissions for AX and LC added (loc. act. rep.)
+* XSETHZ  2008-06-18  P307593 Tech. info added
+* XSETHZ  2008-12-17  P307593 Tech. info : Applic-name out
+* XSETHZ  2008-12-18  P309491 Copy NSC user NOM0023
+* XSETHZ  2009-12-11  N4005
+* XSETHZ  2011-01-25  N175.2 : My Desktop (tree, filter, view)
+* XSETHZ  2011-02-15  NOMALL-951
+* XSETHZ  2011-08-04  NOMALL-1037
+* xsetggr 2012-02-02  NOMALl-1020 do not use RLOG-P anymore
+* xsetggr 2012-08-14  NOMALL-78 disabled maintenance of long records
+* XSETHZ  2012-09-14  NOMALL-94 Changes to version
+* BLI     2012-09-14  NOMALL-94 Remove version check at all
+* XSETHZ  2023-03-22  NOMVI added
+* XSETHZ  2013-04-04  CONNECT & AR-FILTER-SUBSTR added
+* CF1     2014-07-14  NOMALL-1444 Limit Export task access
+* CF2     2015-05-28  NOMALL-1637 Set access rights for MS and MC
+* CF3     2017-04-20  NOMALL-1910 Separate rights for MS and MC from SD
+* CF4     2017-04-20  NOMALL-1910 Reorder rights for AD/RD and AT/RT/CT
+*                                 and restructured module
+* CF5     2018-01-08  NOMALL-2062 Add new object type Event (EV)
+* SU1     2018-02-13  NOMALL-1823 NOM 3.5: remove CONNECT
+* CF6     2018-11-22  NOMALL-2174 No CA/3GL maintenance for LUW
+* CF7     2019-01-17  NOMALL-1964 No restrictions on folder functions
+* CF8     2019-07-15  NOMALL-2301 Set access rights for EV and CP
+* CF9     2019-07-17  NOMALL-2304 correct access rights for FL
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER USING ESMPERMA
+************************************************************************
+LOCAL USING ESMCNT-A
+LOCAL USING ESMINP-A
+LOCAL USING NOUSUP-A
+LOCAL USING NOUSUP-L
+LOCAL USING NOMODE-A
+LOCAL USING NOMOOP-A
+LOCAL
+1 #OBJECTS (A2/100) INIT <
+  'MF','CF','AF','GR','RP',     /* ( 1 :  5)
+  'BR','BN','PR','DL','MB',     /* ( 6 : 10)
+  'FO','FL','AS','AR','AB',     /* (11 : 15)
+  'BC','PO','US','LG','LM',     /* (16 : 20)
+  'LP','LU','UL','DS','DM',     /* (21 : 25)
+  'DR','DB','DA','DV','DC',     /* (26 : 30)
+  'DO','DN','DE','DP','D3',     /* (31 : 35)
+  'DU','CA','PH','MM','MT',     /* (36 : 40)
+  'AT','RT','CT','SF','CS',     /* (41 : 45)
+  'AD','RD','VS','TE','AX',     /* (46 : 50)
+  'LC','AA','SD','OO','EX',     /* (51 : 55)
+  'EV','CP'>                    /* (56 : 57)          /* CF5 /* CF8
+1 #I          (I4)
+1 #PROF100    (A100)
+1 #LANGUAGE   (I1)
+1 P-KIND      (A1) INIT <'C'>   /* Catalogued
+1 P-OBJECT    (A8)              /* Object name (<AA>PERM-N)
+1 P-LIBRARIES (A8/0:8)    /* Out   Appl library and 8 steplibs
+1 P-OBJ-FOUND (A8/0:8)    /* Out   Oject name if found
+1 P-ERT       (A70)       /* Out   Message in case of error
+1 #NSC-ACTIVE (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET OBJ-PERM(*)
+/* Get the current application library
+NOMO-APPLIC-ID-NOM-2 := ES-PERMISSIONS.APP-SERVER-LIBRARY
+TECH-APPLIC-ID-NOM-2 := ES-PERMISSIONS.APP-SERVER-LIBRARY
+RESET ES-APP-SERVER-LIBRARY ES-PERMISSIONS.APP-SERVER-LIBRARY
+/*
+P-OBJECT := 'NOPERM-N'
+CALLNAT 'ES-SLO-N' P-KIND P-OBJECT P-LIBRARIES (0:8)
+  P-OBJ-FOUND (0:8) P-ERT
+FOR #I = 0 TO 8
+  IF P-OBJ-FOUND (#I) = P-OBJECT
+    ES-APP-SERVER-LIBRARY := P-LIBRARIES (#I)
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+IF ES-APP-SERVER-LIBRARY = ' '
+  ES-APP-SERVER-LIBRARY := NOMO-APPLIC-ID-NOM-2
+END-IF
+ES-PERMISSIONS.APP-SERVER-LIBRARY := ES-APP-SERVER-LIBRARY
+/* --------------------------------------------------------------------
+/* Read the monitor default options
+ES-USER          := ES-PERMISSIONS.USER-NAME
+ES-APPLICATION   := 'NO'
+ES-OBJECT        := 'MO'
+ES-FUNCTION      := 'OP'
+ES-ORIG-FUNCTION := 'OP'
+/*
+CALLNAT 'NOMOOP-N' ES-CONTROL ES-INPUT NOMO-PARMS
+RC := ES-RC
+IF ES-RC = 0 OR ES-RC = 1 AND ES-MSG-NR = 2
+    AND (NOMO-USER-AUTODEF = 'P' OR = 'Y')
+  NOMOD-SPOOL-TYPE      := NOMO-SPOOL-TYPE
+  NOMOD-SYSTEM-TYPE     := NOMO-SYSTEM-TYPE
+  NOMOD-LOG-TYPES(*)    := NOMO-LOG-TYPES(*)
+  NOMOD-USER-AUTODEF    := NOMO-USER-AUTODEF
+  NOMOD-MONITOR-NODE    := NOMO-MONITOR-NODE
+  NOMOD-NATRPT-DBID     := NOMO-NATRPT-DBID
+  NOMOD-NATRPT-FNR      := NOMO-NATRPT-FNR
+  NOMOD-SUPPORT-LONG-NAMES := NOMO-SUPPORT-LONG-NAMES
+  NOMOD-AR-FILTER-SUBSTR   := NOMO-AR-FILTER-SUBSTR
+  DATE-FORMAT           := NOMO-DATE-FORMAT
+  TECH-NOM-VERSION      := NOMO-VERSION
+  TECH-NOM-VERSION-DATE := NOMO-VERSION-DATE
+  TECH-SAT-VERSION      := NOMO-SAT-VERSION
+  TECH-SAT-VERSION-DATE := NOMO-SAT-VERSION-DATE
+  TECH-EDITOR           := NOMO-EDITOR
+  TECH-EDITOR-DATE      := NOMO-EDITOR-DATE
+  TECH-ESY-VERSION      := NOMO-ESY-VERSION
+  TECH-OP-SYSTEM        := NOMO-OP-SYSTEM
+  TECH-APPLIC-ID-SAT    := *APPLIC-ID
+  TECH-APPLIC-ID-NOM    := ES-APP-SERVER-LIBRARY
+  TECH-NAT-VERSION      := NOMO-NAT-VERSION
+  TECH-NAT-VERSION-SP   := NOMO-NAT-VERSION-SP
+  TECH-SERVER-TYPE      := NOMO-SERVER-TYPE
+  TECH-MACHINE-CLASS    := *MACHINE-CLASS
+  TECH-NOMVI            := NOMO-NOMVI
+  /*
+  /* Read the user profile of the current ES-USER
+  ES-OBJECT      := 'US'
+  ES-FUNCTION    := 'UP'
+  ES-KEY-PARM(1) := ES-USER
+  CALLNAT 'NOUSUP-N' ES-CONTROL ES-INPUT NOUSP-PARMS
+  RC := ES-RC
+  IF RC NE 0 AND (NOMOD-USER-AUTODEF = 'Y' OR = 'P')
+    RESET RC ES-RC ES-MSG-NR
+    IF ES-LANGUAGE = 2
+      #LANGUAGE := 2
+    ELSE
+      #LANGUAGE := 1
+    END-IF
+    /*
+    /* Get (or create) default user
+    CALLNAT 'RDEFUS-N' ES-USER #LANGUAGE #PROF100 ES-USER
+    NOUSP-PROFILE := #PROF100
+    /*
+    /* Read the monitor default options - exact match required
+    ES-APPLICATION   := 'NO'
+    ES-OBJECT        := 'MO'
+    ES-FUNCTION      := 'OP'
+    ES-ORIG-FUNCTION := 'OP'
+    CALLNAT 'NOMOOP-N' ES-CONTROL ES-INPUT NOMO-PARMS
+    RC := ES-RC
+    IF ES-RC = 0
+      NOMOD-SPOOL-TYPE      := NOMO-SPOOL-TYPE
+      NOMOD-SYSTEM-TYPE     := NOMO-SYSTEM-TYPE
+      NOMOD-LOG-TYPES(*)    := NOMO-LOG-TYPES(*)
+      NOMOD-USER-AUTODEF    := NOMO-USER-AUTODEF
+      NOMOD-MONITOR-NODE    := NOMO-MONITOR-NODE
+      NOMOD-NATRPT-DBID     := NOMO-NATRPT-DBID
+      NOMOD-NATRPT-FNR      := NOMO-NATRPT-FNR
+      NOMOD-SUPPORT-LONG-NAMES := NOMO-SUPPORT-LONG-NAMES
+      NOMOD-AR-FILTER-SUBSTR   := NOMO-AR-FILTER-SUBSTR
+      DATE-FORMAT           := NOMO-DATE-FORMAT
+      TECH-NOM-VERSION      := NOMO-VERSION
+      TECH-NOM-VERSION-DATE := NOMO-VERSION-DATE
+      TECH-SAT-VERSION      := NOMO-SAT-VERSION
+      TECH-SAT-VERSION-DATE := NOMO-SAT-VERSION-DATE
+      TECH-EDITOR           := NOMO-EDITOR
+      TECH-EDITOR-DATE      := NOMO-EDITOR-DATE
+      TECH-ESY-VERSION      := NOMO-ESY-VERSION
+      TECH-OP-SYSTEM        := NOMO-OP-SYSTEM
+      TECH-APPLIC-ID-SAT    := *APPLIC-ID
+      TECH-APPLIC-ID-NOM    := ES-APP-SERVER-LIBRARY
+      TECH-APPLIC-ID-NOM-2  := NOMO-APPLIC-ID-NOM-2
+      TECH-NAT-VERSION      := NOMO-NAT-VERSION
+      TECH-NAT-VERSION-SP   := NOMO-NAT-VERSION-SP
+      TECH-SERVER-TYPE      := NOMO-SERVER-TYPE
+      TECH-NOMVI            := NOMO-NOMVI
+      TECH-MACHINE-CLASS    := *MACHINE-CLASS
+    END-IF
+  END-IF
+END-IF
+/* --------------------------------------------------------------------
+/* Verify and apply permission flags, if final result code = 0
+IF RC = 0
+  ES-PERMISSIONS.VERSION := 2 /* INTERFACE VERSION
+  PROFILE-STRING         := NOUSP-PROFILE
+  /*
+  NOMOD-CONFIRM            := PROF-CONFIRM
+  NOMOD-PRINTER            := PROF-PRINTER
+  NOMOD-MY-DESKTOP-ALLOVED := 'Y'
+  NOMOD-MY-DESKTOP-OPTIONS := PROF-MY-DESKTOP-OPTIONS
+  NOMOD-RESTRICT-ABUN      := PROF-RESTRICT-ABUN
+  /*
+  ES-LANGUAGE              := #LANGUAGE
+  ES-PERMISSIONS.USER-TYPE := PROF-TYPE
+  OBJ-PERM-CODE (1:100)    := #OBJECTS(1:100)
+  OBJ-PERM-LEVEL(1:100)    := 3
+  OBJ-CONF-LEVEL(1:100)    := 1
+  /* ------------------------------------------------------------------
+  IF PROF-TYPE = 'A'
+    /* ===============================================
+    /* Profile/User type Administrator has full access
+    /*
+    NOMOD-ARCHIVE      := 'Y'
+    NOMOD-REVIVE       := 'Y'
+    NOMOD-FLUSH        := 'Y'
+    OBJ-PERM-LEVEL(39) := 5 /* Allow fct. MS+MC for obj. MM (39) /* CF2
+  ELSE
+    /* ====================================================
+    /* Profile/User types General user, Operator and
+    /* Limited operator have explicitly granted rights only
+    /*
+    NOMOD-ARCHIVE := PROF-ARCHIVE
+    NOMOD-REVIVE  := PROF-REVIVE
+    NOMOD-FLUSH   := PROF-FLUSH
+    /* Reports 'RP' ---------------------------------------
+    #I := 5
+    DECIDE ON FIRST VALUE OF PROF-REPORTS
+      VALUE 'D'
+        OBJ-PERM-LEVEL(#I) := 1
+      VALUE 'M'
+        OBJ-PERM-LEVEL(#I) := 2
+      VALUE 'P'
+        OBJ-PERM-LEVEL(#I) := 3
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I) := 0
+    END-DECIDE
+    /* Bundles 'BN' ---------------------------------------
+    #I := 7
+    DECIDE ON FIRST VALUE OF PROF-BUNDLES
+      VALUE 'D'
+        OBJ-PERM-LEVEL(#I) := 1
+      VALUE 'M'
+        OBJ-PERM-LEVEL(#I) := 2
+      VALUE 'P'
+        OBJ-PERM-LEVEL(#I) := 3
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I) := 0
+    END-DECIDE
+    /* Reports in Bundle 'BR' -----------------------------
+    #I := 6
+    /* The lowest rights of 'RP' and 'BN' apply to 'BR'
+    IF OBJ-PERM-LEVEL(5) LT OBJ-PERM-LEVEL(7)
+      OBJ-PERM-LEVEL(#I) := OBJ-PERM-LEVEL(5)
+    ELSE
+      OBJ-PERM-LEVEL(#I) := OBJ-PERM-LEVEL(7)
+    END-IF
+    /* Printers 'PR' --------------------------------------
+    #I := 8
+    DECIDE ON FIRST VALUE OF PROF-PRINTERS
+      VALUE 'D'
+        OBJ-PERM-LEVEL(#I) := 1
+      VALUE 'M'
+        OBJ-PERM-LEVEL(#I) := 2
+      VALUE 'P'
+        OBJ-PERM-LEVEL(#I) := 3
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I) := 0
+    END-DECIDE
+    /* Distribution Lists 'DL', Member List 'MB' ----------
+    #I := 9
+    DECIDE ON FIRST VALUE OF PROF-LISTS
+      VALUE 'D'
+        OBJ-PERM-LEVEL(#I:#I+1) := 1
+      VALUE 'M'
+        OBJ-PERM-LEVEL(#I:#I+1) := 2
+      VALUE 'P'
+        OBJ-PERM-LEVEL(#I:#I+1) := 3
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I:#I+1) := 0
+    END-DECIDE
+    /* Folder List (Folders at UserProfiles) 'FL',   ------
+    /* (Note: Folders 'FO' do not longer have limitations)
+    #I := 12                                             /* CF9 ->
+    DECIDE ON FIRST VALUE OF PROF-USERS /* use for FL
+      VALUE 'D'
+        OBJ-PERM-LEVEL(#I) := 1
+      VALUE 'M'
+        OBJ-PERM-LEVEL(#I) := 2
+      VALUE 'P'
+        OBJ-PERM-LEVEL(#I) := 3
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I) := 0
+    END-DECIDE
+    /* Summary 'AS', Active Reports 'AR' ------------------
+    #I := 13
+    DECIDE ON FIRST VALUE OF PROF-AREPS
+      VALUE 'D'
+        OBJ-PERM-LEVEL(#I:#I+1) := 1  /* only AS + AR    /* CF7
+      VALUE 'M'
+        OBJ-PERM-LEVEL(#I:#I+1) := 2  /* only AS + AR    /* CF7
+      VALUE 'P'
+        OBJ-PERM-LEVEL(#I:#I+1) := 3  /* only AS + AR    /* CF7
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I:#I+1) := 0    /* AS, AR
+    END-DECIDE                                           /* CF9 <-
+    /* Active Bundles 'AB',          ----------------------
+    /* Active Reports in Bundle 'BC'
+    #I := 15
+    DECIDE ON FIRST VALUE OF PROF-ABUNDS
+      VALUE 'D'
+        OBJ-PERM-LEVEL(#I:#I+1) := 1
+      VALUE 'M'
+        OBJ-PERM-LEVEL(#I:#I+1) := 2
+      VALUE 'P'
+        OBJ-PERM-LEVEL(#I:#I+1) := 3
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I:#I+1) := 0
+    END-DECIDE
+    /* Printouts 'PO' --------------------------------------
+    #I := 17
+    DECIDE ON FIRST VALUE OF PROF-PRINTOUTS
+      VALUE 'D'
+        OBJ-PERM-LEVEL(#I) := 1
+      VALUE 'M'
+        OBJ-PERM-LEVEL(#I) := 2
+      VALUE 'P'
+        OBJ-PERM-LEVEL(#I) := 3
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I) := 0
+    END-DECIDE
+    /* Users 'US', User Log List 'LU' ---------------------
+    #I := 18
+    DECIDE ON FIRST VALUE OF PROF-USERS
+      VALUE 'D'
+        OBJ-PERM-LEVEL(#I) := 1
+        OBJ-PERM-LEVEL(#I + 4) := 1
+      VALUE 'M'
+        OBJ-PERM-LEVEL(#I) := 2
+        OBJ-PERM-LEVEL(#I + 4) := 2
+      VALUE 'P'
+        OBJ-PERM-LEVEL(#I) := 3
+        OBJ-PERM-LEVEL(#I + 4) := 3
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I) := 0
+        OBJ-PERM-LEVEL(#I + 4) := 0
+    END-DECIDE
+    /* Monitor log 'LM' -----------------------------------
+    /* Defaults 'DS' (24) ... 'DU' (36) -------------------
+    #I := 24
+    DECIDE ON FIRST VALUE OF PROF-DEFAULTS
+      VALUE 'D'
+        OBJ-PERM-LEVEL(#I:#I+12) := 1
+      VALUE 'M'
+        OBJ-PERM-LEVEL(#I:#I+12) := 2
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I:#I+12) := 0
+    END-DECIDE
+    /* Calendars 'CA' -------------------------------------
+    #I := 37
+    DECIDE ON FIRST VALUE OF PROF-CALENDARS
+      VALUE 'D'
+        OBJ-PERM-LEVEL(#I) := 1
+      VALUE 'M'
+        OBJ-PERM-LEVEL(#I) := 2
+      VALUE 'P'
+        OBJ-PERM-LEVEL(#I) := 3
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I) := 0
+    END-DECIDE
+    /* Physical Printers 'PH' -----------------------------
+    #I := 38
+    DECIDE ON FIRST VALUE OF PROF-PHYSICAL
+      VALUE 'D'
+        OBJ-PERM-LEVEL(#I) := 1
+      VALUE 'M'
+        OBJ-PERM-LEVEL(#I) := 2
+      VALUE 'P'
+        OBJ-PERM-LEVEL(#I) := 3
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I) := 0
+    END-DECIDE
+    /*                                                 /* CF3 ->
+    /* Monitor 'MM', Monitor Tasks 'MT' -------------------
+    #I := 39
+    DECIDE FOR FIRST CONDITION
+      WHEN PROF-SHUTDOWN = 'Y'          /* Shutdown Monitor (MC)
+        OBJ-PERM-LEVEL(#I:#I+1) := 2  /* All functions allowed
+      WHEN PROF-STARTUP = 'Y'           /* Start Monitor (MS)
+        OBJ-PERM-LEVEL(#I:#I+1) := 1  /* Start, Wake, Log, Status and
+        /* Display parameters allowed
+      WHEN NONE
+        OBJ-PERM-LEVEL(#I:#I+1) := 0  /* No Monitor Maintenance allowed
+    END-DECIDE
+    /* Start Archive Task 'AT',  --------------------------
+    /* Start Condense Task'CT'                           /* CF4 ->
+    #I := 41
+    DECIDE ON FIRST VALUE OF PROF-ARCHIVE
+      VALUE 'Y'
+        OBJ-PERM-LEVEL(#I) := OBJ-PERM-LEVEL(#I+2) := 2
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I) := OBJ-PERM-LEVEL(#I+2) := 0
+    END-DECIDE
+    /* Start Revive task 'RT' -----------------------------
+    #I := 42
+    DECIDE ON FIRST VALUE OF PROF-REVIVE
+      VALUE 'Y'
+        OBJ-PERM-LEVEL(#I) := 2
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I) := 0
+    END-DECIDE                                           /* CF4 <-
+    /* Copy NSC 'CS' : admins only ------------------------
+    #I := 45
+    OBJ-PERM-LEVEL(#I) := 0
+    /* Archive Data Sets 'AD',          -------------------
+    /* Reports in Archive Data Set 'RD'                  /* CF4 ->
+    #I := 46
+    DECIDE ON FIRST VALUE OF PROF-ARCHIVE-ADMIN
+      VALUE 'Y'
+        OBJ-PERM-LEVEL(#I:#I+1) := 2
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I:#I+1) := 0
+    END-DECIDE                                           /* CF4 <-
+    /* Transfer objects 'TE' : admins only ----------------
+    #I := 49
+    OBJ-PERM-LEVEL(#I) := 0
+    /* Active reports 'AX', Localisation 'LC' -------------
+    #I := 50
+    DECIDE ON FIRST VALUE OF PROF-AREPS
+      VALUE 'D'
+        OBJ-PERM-LEVEL(#I:#I+1) := 1
+      VALUE 'M'
+        OBJ-PERM-LEVEL(#I:#I+1) := 2
+      VALUE 'P'
+        OBJ-PERM-LEVEL(#I:#I+1) := 3
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I:#I+1) := 0
+    END-DECIDE
+    /* Defaults (Node) 'SD' -------------------------------
+    #I := 53
+    DECIDE ON FIRST VALUE OF PROF-DEFAULTS
+      VALUE 'D'
+        OBJ-PERM-LEVEL(#I) := 1
+      VALUE 'M'
+        OBJ-PERM-LEVEL(#I) := 2
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I) := 0
+    END-DECIDE
+    /* Export Task 'EX' : admins only ---------------------
+    #I := 55                            /* CF1 ->
+    OBJ-PERM-LEVEL(#I) := 0             /* CF1 <-
+    /* Defaults (Email Messages + Codepages) 'EV'+'CP' ----
+    #I := 56                                             /* CF8 ->
+    DECIDE ON FIRST VALUE OF PROF-DEFAULTS
+      VALUE 'D'
+        OBJ-PERM-LEVEL(#I:#I+1) := 1
+      VALUE 'M'
+        OBJ-PERM-LEVEL(#I:#I+1) := 2
+      NONE VALUE
+        OBJ-PERM-LEVEL(#I:#I+1) := 0
+    END-DECIDE                                           /* CF8 <-
+  END-IF
+END-IF
+/*
+CALLNAT 'NSC-ACT' #NSC-ACTIVE
+IF NOT #NSC-ACTIVE
+  OBJ-PERM-LEVEL(45) := 0
+END-IF
+IF *MACHINE-CLASS NE 'MAINFRAME'                           /* CF6 ->
+  OBJ-PERM-LEVEL(31) := 0    /* No CA maintenance for LUW
+  OBJ-PERM-LEVEL(35) := 0    /* No 3GL maintenance for LUW
+END-IF                                                     /* CF6 <-
+*
+APP-USER-DATA := NOMOD-PARMS
+*
+END

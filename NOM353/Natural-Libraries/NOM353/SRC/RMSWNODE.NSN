@@ -1,0 +1,832 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* **********************************************************************
+* RMSWNODE  -  Switch to next Mainframe Node or access a specific one
+*
+* Note:  If AIV variables are changed or added, don't forget to adapt
+* RMPUTGL and RMGETGL accordingly.
+*
+* FUNC = 'N' (next):
+*   Read next MF node definition and switch to this node.
+*   If no more node definition is found, switch to first MF node (cycle)
+* FUNC = 'L':
+*   Read the definition of the local node where "M-TYPE = 'M'"
+*   If not found, throw INSTALL-ERROR, if found, switch to local node
+*
+* Do if node to be switched:
+* Fill AIV variables with remote node definition fields.
+* If the node number has changed:
+*   - logoff from old MF NPR node if the new node is remote
+*   - logon  to   new MF NPR node
+*
+* Notes:
+* - To be called with: FETCH RETURN 'RMSWNODE' ä'N'!'L'ü
+* - Indicator that the local monitor node is active:
+*   +NOD-LOCAL-ID = +NOD-CURRENT-ID
+* - Indicator that the local monitor is on Unix:
+*   +NOD-LOCAL-NODE  = 0
+* - +NOD-LOCAL-NODE is the node number of the local node. It is set if
+*   function 'L' is executed. So this has to be the first function
+*   called.
+* - AIV variable description see below
+* - We have to omit monitor mainframe control routines (EVENTING,...)
+*   if +NOD-LOCAL-NODE = 0 Replaces former conditions:
+*   *MACHINE-CODE =/NE 'MAINFRAME' or G-MONITOR-NODE =/NE 0
+*
+* Maintenance
+* uuuuuuuu yyyy-mm-dd iTrac       Remark
+* fhi      2016-08-15 NOMALL-1621 Created.
+* fhi      2016-09-27 NOMALL-1621 Some errors after first run of NOM 3.5
+* fhi      2016-10-20 NOMALL-1621 Rewritten
+* fhi      2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi      2017-05-08 NOMALL-1917 Check for correct NPR version
+* fhi      2017-06-08 NOMALL-1961 Add funtion 'G',  no tags
+* fhi      2017-06-19 NOMALL-1961 Add BS2 handling, no tags
+* fhi      2018-02-20 NOMALL-1918 Add system/spool types, no tags
+*                                 Function 'G' deleted
+* fhi      2018-03-12 NOMALL-1918 Rewritten. no tags
+* fhi      2018-03-16 NOMALL-1918 Get it on Unix / Correct NPR Logons
+* SU1      2018-03-28 NOMALL-2092 unix:LOGON to old node(only 1 node)+..
+* fhi      2018-04-25 NOMALL-1918 Set M-TYPE to 'E' for severe errors
+* fhi      2018-07-17 NOMALL-2061 Supply internal local node id
+* fhi      2018-07-18 NOMALL-1621 Suspend MF node if necessary
+* fhi      2018-09-19 NOMALL-1621 Handle missing NPR MF on Unix-NOM
+* fhi      2018-10-04 NOMALL-1621 Suspend if NPR RC 5999, no tags
+* fhi      2018-10-29 NOMALL-2125 Don't use Unix node code pages
+* fhi      2019-03-13 NOMALL-2249 Set BS2000 AIVs correctly
+* SU2     2019-07-17 NOMALL-2297 trace codepage+check it here
+* SU3     2019-12-16 NOMALL-2364 NAT0954-do not set monitor to Error
+* SU4     2020-05-07 NOMALL-2397 remove trace
+* BLI     2020-06-04 NOMALL-2397 Error with local Mainframe monitor
+* SU5     2020-04-27 NOMALL-2349 use N-ESYLG
+* SU6     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* BLI     2021-10-08 NOMALL-2498 MF-TYPE I -> S, update
+* SU7     2022-02-10 NOMALL-2521 avoid NPR LOGON in online mode
+* BLI1    2022-10-21 NOMALL-2578 Check trigger container for remote node
+* SU8     2023-11-20 NOMALL-2654 NOM 36 / no uqaced for NOM35
+*                                NPR LOGON err: show user + avoid loop
+* SU9     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 FUNC                     (A1)   BY VALUE /* 'L' (local) 'N' (next)
+1 TASK-NUMBER              (N3)   BY VALUE
+1 NATRP-DBID               (N5)   BY VALUE
+1 NATRP-FNR                (N5)   BY VALUE
+1 TRACING                  (L)    OPTIONAL
+1 #FOUND                   (L)    OPTIONAL /* set if loc. node was #FOUND
+************************************************************************
+INDEPENDENT
+1 +NOD-LOCAL-NODE          (N5)  /* node number of the local node
+1 +NOD-LOCAL-ID            (A20) /* MONITOR-ID  of the local node
+1 +NOD-LOCAL-NAME          (A16) /* MONITOR-ID local node, without 'R-'
+1 +NOD-LOCAL-INTERNAL-ID   (P11) /* Internal node id of the local node
+1 +NOD-LOCAL-USER          (A8)  /* ESY-User    of  the local node
+1 +NOD-LOCAL-SYSTEM-TYPE   (A8)  /* System type of the local node
+1 +NOD-LOCAL-SPOOL-TYPE    (A8)  /* Spool  type of the local node
+1 +NOD-LOCAL-CODEPAGE      (A64) /* Codepage of the local node
+1 +NOD-LOCAL-BS2-DEST      (A8/4)/* Devices of local node, NOMALL-2249
+1 +NOD-CURRENT-NODE        (N5)  /* Current node number active
+1 +NOD-CURRENT-ID          (A20) /* MONITOR-ID of current node
+1 +NOD-CURRENT-INTERNAL-ID (P11) /* Internal node id of the curr. node
+1 +NOD-CURRENT-NAME        (A16) /* Current node, without 'R-'
+1 +NOD-CURRENT-USER        (A8)  /* ESY-User    of the current node
+1 +NOD-CURRENT-CODEPAGE    (A64) /* Codepage of the current node
+1 +NOD-CURRENT-SPOOL-TYPE  (A8)  /* Spool  type of the current node
+1 +NOD-CURRENT-TEMP-CLASS  (A1)  /* temp   class for mainframe nodes
+1 +NOD-CURRENT-ERROR-CLASS (A1)  /* error  class for mainframe nodes
+1 +NOD-CURRENT-CLASSES     (A1/20) /*    Current JES2 output classes
+1 +NOD-CURRENT-JES3-CLASSES(A1/20) /* Current JES3 output classes
+1 +NOD-PROCESSED           (L)   /* All nodes processed since last 'L'
+/* function. Set only if local node is currently active.
+/* To be handled with RMSC* programs.
+1 +G-BS2-RENAME            (L)
+1 +G-BS2-COPY              (L)
+1 +G-BS2-DEST              (A8/4)
+1 +CMRDC                   (A1)
+*
+/*SU6 LOCAL USING VMONIT-L
+/*SU6 LOCAL USING VMONITUL
+LOCAL USING VUXDEF-L
+LOCAL USING SATSL--E
+*
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR /*SU6
+  2 M-JOBCARD (A72/1:3)
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU6
+  2 MF-REMOTE-CODEPAGE     (A64)
+  2 MF-PRODUCT-NAME        (A16)
+  2 MF-INTERNAL-NODE-ID    (P11)
+  2 MF-TYPE                (A1)
+  2 MF-NPR-USERID          (A8)
+  2 MF-TIME-SCHEDULE       (A1)
+  2 MF-SPOOL-TYPE          (A8)
+  2 MF-SYSTEM-TYPE         (A8)
+  2 MF-MONITOR-ID          (A20)
+  2 MF-MONITOR-NODE        (N5)
+  2 MF-TEMP-CLASS          (A4)
+  2 MF-PRINT-CLASS         (A1)
+  2 MF-CLASSES             (A1/1:20)
+  2 MF-JES3-OUTPUT-CLASSES (A1/1:20)
+  2 MF-BS2-DEST            (A8/1:4)
+  2 MF-ERR-CLASS           (A1)
+1 SYSTEM-INFO VIEW OF SYSTEM-INFO
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 NODE-ID
+  2 ESY-VERSION
+  2 SYSTEM-TYPE
+  2 SPOOL-TYPE
+  2 PRODUCT-NAME
+1 API-DEFAULTS VIEW OF NRM-MONITOR  /* BLI1 ->
+  2 M-MONITOR-ID           (A20)
+  2 M-TIME-SCHEDULE        (A1)
+  2 M-NATRPT-DBID-N5       (N5)
+  2 M-NATRPT-FNR-N5        (N5)     /* BLI1 <-
+*
+1 #MSG                     (A250)
+1 #I                       (I4)
+1 #TRACING                 (L)
+1 #TRACE-MSG               (A250)
+1 #CATDATE                 (A19)
+1 #NOD-MONITOR-NODE-OLD    (N5)
+1 #ERC                     (N4)
+1 #ERT                     (A250)
+*
+1 #NOD-CURRENT-PRINT-CLASS (A1)  /* print class for mainframe nodes
+1 #NOD-CURRENT-SYSTEM-TYPE (A8)  /* SYSTEM TYPE OF THE CURRENT NODE
+1 #NOD-LOCAL-CLASSES     (A1/20) /* JES2 output classes local node
+1 #NOD-LOCAL-JES3-CLASSES(A1/20) /* JES3 output classes local node
+1 #NOD-LOCAL-ERROR-CLASS   (A1)  /* error  class for mainframe nodes
+1 #NOD-LOCAL-JOBCARD     (A72/3) /* job card fields local monitor node
+1 #NOD-LOCAL-PRINT-CLASS   (A1)  /* Print class for local mainframe node
+1 #NOD-LOCAL-TEMP-CLASS    (A1)  /* Temp  class for local mainframe node
+*
+1 DB_ERR_STR-23            (A16)
+1 REDEFINE DB_ERR_STR-23
+  2 DB_STATUS-23           (B1)
+  2 DB_TYPE-23             (A1)
+  2 DB_DBID-23             (B2)
+  2 DB_FNR-23              (B2)
+  2 DB_COMMAND-23          (A2)
+  2 DB_RESP-23             (B2)
+  2 DB_SUBCODE-23          (B2)
+  2 DB_ADD1F2B-23          (B2)
+1 #MF                      (L)
+1 #MF-LOCAL-NODE           (L)   /* BLI NOMALL-2397
+1 #UPDATE-MF-TYPE          (A1)  /* BLI NOMALL-2498
+1 #CALLER                  (A8) INIT <*PROGRAM>
+1 #MONITOR-ID              (A20) /*SU6
+*
+1 #CONST-MONITOR-API-DEFAULTS (A8) INIT<'API-DEFS'> /* BLI1 ->
+1 #TRIGGER-CONTAINER (L)                            /* BLI1 <-
+1 #MF-NPR-USERID           (A8) /*SU8
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *MACHINE-CLASS = 'MAINFRAME'
+  #MF := TRUE
+END-IF
+IF TRACING SPECIFIED
+  #TRACING := TRACING
+END-IF
+INCLUDE CMRDC
+IF #TRACING
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS *PROGRAM 'cataloged at' #CATDATE 'function:' FUNC
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  COMPRESS 'local:' +NOD-LOCAL-ID 'current:' +NOD-CURRENT-ID
+    '*Codepage:' *CODEPAGE TO #TRACE-MSG /*SU2
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+DECIDE ON FIRST VALUE OF FUNC
+  VALUE 'N'  /* get next node
+    PERFORM LOCAL-NODE
+    IF +NOD-CURRENT-ID = ' ' /* begin with local node = current node
+      IF #TRACING
+        #TRACE-MSG :=
+          '+NOD-CURRENT-ID is empty. Current node will be local node'
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      PERFORM AIV-CURRENT-FROM-LOCAL
+    ELSE
+      PERFORM NEXT-NODE
+      IF +NOD-CURRENT-ID = ' ' /* if no real next found BLI NOMALL-2498
+        IF #TRACING
+          #TRACE-MSG :=
+            '+NOD-CURRENT-ID is empty. Current node will be local node'
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+        PERFORM AIV-CURRENT-FROM-LOCAL
+      END-IF                                     /* BLI NOMALL-2498 end
+      IF +NOD-CURRENT-ID = +NOD-LOCAL-ID
+        +NOD-PROCESSED := TRUE
+        IF #TRACING
+          #TRACE-MSG := '+NOD-PROCESSED set to true.'
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+      ELSE
+        +NOD-PROCESSED := FALSE
+        IF #TRACING
+          #TRACE-MSG := '+NOD-PROCESSED set to false.'
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+      END-IF
+    END-IF
+  VALUE 'L'  /* get local node
+    PERFORM LOCAL-NODE
+    PERFORM AIV-CURRENT-FROM-LOCAL
+  NONE
+    *ERROR-NR := 999 /* Internal error. wrong function
+END-DECIDE
+IF #TRACING
+  COMPRESS *PROGRAM 'ended. Switched to node' +NOD-CURRENT-NAME
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  COMPRESS 'New node number:' +NOD-CURRENT-NODE 'With ESY user'
+    +NOD-CURRENT-USER TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE NEXT-NODE
+************************************************************************
+RESET #TRIGGER-CONTAINER /* BLI1 ->
+TR. FIND (1) API-DEFAULTS WITH M-MONITOR-ID = #CONST-MONITOR-API-DEFAULTS
+  IF M-TIME-SCHEDULE (TR.) = 'Y' AND M-NATRPT-DBID-N5 (TR.) GT 0
+  AND M-NATRPT-FNR-N5 (TR.) GT 0                                      /*
+    #TRIGGER-CONTAINER := TRUE
+  END-IF
+END-FIND /* BLI1 <-
+*
+RESET #ERC #ERT
+NEXT-NODE. FOR #I = 1 TO 2
+  IF #I = 2 OR (NOT #MF AND +NOD-CURRENT-ID = +NOD-LOCAL-ID)
+    +NOD-CURRENT-ID := 'R-' /* Begin chain
+  END-IF
+  IF #TRACING
+    COMPRESS '#I:' #I 'current-id:' +NOD-CURRENT-ID TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+  RDMON. READ MF-NODE BY MF-MONITOR-ID = +NOD-CURRENT-ID
+    IF #TRACING
+      COMPRESS 'Read node definition' MF-MONITOR-ID TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+    DECIDE FOR EVERY CONDITION
+      WHEN +NOD-CURRENT-ID = MF-MONITOR-ID /* still the same
+        #NOD-MONITOR-NODE-OLD := MF-MONITOR-NODE
+        IF #TRACING
+          COMPRESS 'Old node:' MF-MONITOR-NODE TO #TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+        IF MF-MONITOR-ID NE +NOD-LOCAL-ID
+          PERFORM LOGOFF-FROM-ESY
+        END-IF
+        RESET #ERC #ERT    /* BLI NOMALL-2379
+        ESCAPE TOP
+      WHEN MF-MONITOR-ID NE MASK ('R-')                   /* end chain
+        ESCAPE BOTTOM(RDMON.)
+      WHEN MF-TYPE ='D' OR='E'               /* BLI-NOMALL-2498 D,E only
+        IF #TRACING
+          COMPRESS 'Node' MF-MONITOR-ID
+            'ignored. Type is ' MF-TYPE TO #TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+        RESET #ERC #ERT    /* BLI NOMALL-2379
+        ESCAPE TOP
+      WHEN NONE
+        PERFORM GET-NPR-NODE                 /* sets #ERC for local mf
+        IF #ERC NE 0
+          PERFORM #TERMINATE /*STOP here ÜÜÜ
+        END-IF
+*
+        IF (NOT #TRIGGER-CONTAINER AND        /* BLI1 ->
+            MF-MONITOR-ID NE +NOD-LOCAL-ID AND
+            NOT(MF-TYPE ='D' OR='M' OR='E') AND
+            #UPDATE-MF-TYPE NE 'E')
+        OR (MF-SPOOL-TYPE = 'POWR') /*SU9 ->                          /*
+          IF MF-SPOOL-TYPE = 'POWR'
+            COMPRESS '4501' MF-SPOOL-TYPE TO #MSG /*Inv. Spool Type::1:
+            PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+          END-IF /*SU9 <-
+          #UPDATE-MF-TYPE := 'E'
+        END-IF                               /* BLI1 <-
+*
+        IF #UPDATE-MF-TYPE NE ' '            /* BLI NOMALL-2498 start
+          UPD2. GET MF-NODE *ISN(RDMON.)
+          IF MF-TYPE NE #UPDATE-MF-TYPE
+            MF-TYPE := #UPDATE-MF-TYPE
+            UPDATE (UPD2.)
+            DECIDE ON FIRST VALUE OF #UPDATE-MF-TYPE
+              VALUE 'S' COMPRESS '2026' SUBSTR(MF-MONITOR-ID,3) TO #MSG
+              VALUE 'A' COMPRESS '2043' SUBSTR(MF-MONITOR-ID,3) TO #MSG
+              VALUE 'E' COMPRESS '2069' SUBSTR(MF-MONITOR-ID,3) TO #MSG
+              ANY PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+              NONE  IGNORE
+            END-DECIDE
+          END-IF
+          END TRANSACTION
+        END-IF
+        RESET #ERC #ERT #UPDATE-MF-TYPE
+        IF MF-TYPE ='D' OR='E' OR='I' OR='S'
+          ESCAPE TOP /*next node
+        END-IF
+*
+        PERFORM AIV-CURRENT-FROM-NODE        /* sets #MSG
+*
+        IF #MSG NE ' ' OR MF-TYPE ='E'
+          RESET +NOD-CURRENT-ID #ERC #ERT
+          ESCAPE TOP /*next node
+        END-IF
+        IF MF-MONITOR-NODE NE #NOD-MONITOR-NODE-OLD
+          PERFORM LOGON-TO-ESY
+          IF #ERC NE 0
+            IF MF-MONITOR-ID NE +NOD-LOCAL-ID
+              RESET +NOD-CURRENT-ID #ERC #ERT
+              UPD3. GET MF-NODE *ISN(RDMON.)
+              IF MF-TYPE NE 'E'
+                MF-TYPE := 'E'
+                UPDATE (UPD3.)
+                COMPRESS '2069' SUBSTR(MF-MONITOR-ID,3) TO #MSG
+                PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+              END-IF
+              END TRANSACTION
+              ESCAPE TOP
+            END-IF
+          END-IF
+          ESCAPE BOTTOM (NEXT-NODE.)
+        END-IF                               /* BLI NOMALL-2498 end
+    END-DECIDE
+  END-READ
+  IF NOT #MF
+    #I := 3 /*handle LUW nodes
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+IF #I = 3
+  PERFORM AIV-CURRENT-FROM-LOCAL
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* NEXT-NODE
+*
+************************************************************************
+DEFINE SUBROUTINE LOCAL-NODE
+************************************************************************
+IF #MF
+  RDLOC. READ(1) MF-NODE BY MF-TYPE-ID = 'MR-'
+    IF #TRACING
+      COMPRESS 'Node' MF-MONITOR-ID 'read as local node' TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+  END-READ
+  IF MF-TYPE NE 'M' OR MF-MONITOR-ID NE MASK('R-')
+    IF #FOUND SPECIFIED
+      #FOUND := FALSE
+      ESCAPE MODULE
+    END-IF
+    PERFORM INSTALL-ERROR
+  END-IF
+  IF #FOUND SPECIFIED
+    #FOUND := TRUE
+  END-IF
+  #MF-LOCAL-NODE := TRUE        /* NOMALL-2397 BLI
+  PERFORM GET-NPR-NODE
+  RESET #MF-LOCAL-NODE
+  IF #ERC NE 0 /*monitor unavailable: terminate
+    PERFORM XXRLOG-WRITE-LOG 'W' #ERT
+    PERFORM #TERMINATE /*STOP here ÜÜÜ
+  END-IF
+  IF #ERC = 0 AND NOT #FOUND SPECIFIED
+* no logon if the existence is in focus only
+    PERFORM LOGON-TO-ESY
+    IF #ERC NE 0
+      PERFORM #TERMINATE /*STOP here ÜÜÜ SU8
+    END-IF
+  END-IF
+  PERFORM AIV-LOCAL-FROM-NODE
+ELSE /*LUW
+  RESET +NOD-LOCAL-NAME
+  RDUX. READ (1) UX-NODES BY UX-SUSP-NAME = 'L'
+    IF UX-NODE-SUSPEND NE 'M' AND UX-NODE-SUSPEND NE 'L'
+      ESCAPE BOTTOM (RDUX.)
+    END-IF
+    RESET #NOD-LOCAL-TEMP-CLASS #NOD-LOCAL-PRINT-CLASS
+      #NOD-LOCAL-CLASSES (*) #NOD-LOCAL-JES3-CLASSES (*)
+      +NOD-LOCAL-NODE +NOD-LOCAL-INTERNAL-ID
+    +NOD-LOCAL-ID := +NOD-LOCAL-NAME := UX-NODE-NAME
+    +NOD-LOCAL-USER         := UX-NODE-USERID
+    +NOD-LOCAL-SYSTEM-TYPE  := *OS
+    +NOD-LOCAL-SPOOL-TYPE   := 'UNIX'
+    +NOD-LOCAL-CODEPAGE  := *CODEPAGE
+  END-READ
+  IF +NOD-LOCAL-NAME = ' '
+    IF #FOUND SPECIFIED
+      #FOUND := FALSE
+      ESCAPE MODULE
+    END-IF
+    PERFORM INSTALL-ERROR
+  END-IF
+  IF #FOUND SPECIFIED
+    #FOUND := TRUE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* LOCAL-NODE
+*
+************************************************************************
+DEFINE SUBROUTINE LOGON-TO-ESY
+************************************************************************
+IF *DEVICE NE 'BATCH' /*SU7
+  ESCAPE ROUTINE
+END-IF
+#MF-NPR-USERID := MF-NPR-USERID /*SU8
+CALLNAT 'N-ESYLG' 1X MF-MONITOR-NODE MF-NPR-USERID #CALLER #ERC #ERT 1X
+IF #ERC NE 0
+  COMPRESS 'NOM0005 User ID' #MF-NPR-USERID /*SU8
+    'could not logon to node' MF-MONITOR-NODE TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+  COMPRESS '7128' MF-MONITOR-NODE #ERT TO #ERT
+  #ERC := 7128
+  PERFORM XXRLOG-WRITE-LOG 'W' #ERT
+ELSE
+  IF #TRACING
+    COMPRESS 'ESY Logon done for node' MF-MONITOR-NODE
+      'User ID' MF-NPR-USERID TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* LOGON-TO-ESY
+*
+************************************************************************
+DEFINE SUBROUTINE LOGOFF-FROM-ESY
+************************************************************************
+#MF-NPR-USERID := MF-NPR-USERID /*SU8
+CALLNAT 'N-ESYLG' SATSL-LOGOFF MF-MONITOR-NODE
+  MF-NPR-USERID #CALLER #ERC #ERT 2X #TRACING
+RESET #NOD-MONITOR-NODE-OLD /*SU1
+IF #ERC NE 0
+  COMPRESS 'NOM0005 User ID' #MF-NPR-USERID /*SU8
+    'could not logoff from node' MF-MONITOR-NODE TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+  COMPRESS '7128' MF-MONITOR-NODE #ERT TO #ERT
+  #ERC := 7128
+  PERFORM XXRLOG-WRITE-LOG 'W' #ERT
+ELSE
+  IF #TRACING
+    COMPRESS 'ESY Logoff done for node' MF-MONITOR-NODE
+      'User ID' MF-NPR-USERID TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* LOGOFF-FROM-ESY
+*
+************************************************************************
+DEFINE SUBROUTINE AIV-CURRENT-FROM-LOCAL
+************************************************************************
++NOD-CURRENT-ID               := +NOD-LOCAL-ID
++NOD-CURRENT-INTERNAL-ID      := +NOD-LOCAL-INTERNAL-ID
++NOD-CURRENT-NAME             := +NOD-LOCAL-NAME
++NOD-CURRENT-NODE             := +NOD-LOCAL-NODE
+#NOD-CURRENT-SYSTEM-TYPE      := +NOD-LOCAL-SYSTEM-TYPE
++NOD-CURRENT-SPOOL-TYPE       := +NOD-LOCAL-SPOOL-TYPE
++NOD-CURRENT-CLASSES (*)      := #NOD-LOCAL-CLASSES (*)
++NOD-CURRENT-JES3-CLASSES (*) := #NOD-LOCAL-JES3-CLASSES (*)
++NOD-CURRENT-TEMP-CLASS       := #NOD-LOCAL-TEMP-CLASS
++NOD-CURRENT-ERROR-CLASS      := #NOD-LOCAL-ERROR-CLASS
+#NOD-CURRENT-PRINT-CLASS      := #NOD-LOCAL-PRINT-CLASS
++NOD-CURRENT-USER             := +NOD-LOCAL-USER
++NOD-CURRENT-CODEPAGE         := +NOD-LOCAL-CODEPAGE
+IF #NOD-CURRENT-SYSTEM-TYPE = SCAN('BS2')
+  +G-BS2-DEST (1:4) := +NOD-LOCAL-BS2-DEST (1:4)
+END-IF
+IF #TRACING
+  COMPRESS 'Current node:' +NOD-CURRENT-NODE
+    '/ system type:' #NOD-CURRENT-SYSTEM-TYPE
+    '/ ESY user:' +NOD-CURRENT-USER TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  IF #NOD-CURRENT-SYSTEM-TYPE NE SCAN('BS2')
+    COMPRESS 'Spool classes: temp:' +NOD-CURRENT-TEMP-CLASS
+      '- print:' #NOD-CURRENT-PRINT-CLASS
+      '- error:' +NOD-CURRENT-ERROR-CLASS TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  ELSE
+    DECIDE FOR EVERY CONDITION
+      WHEN +G-BS2-RENAME
+        #TRACE-MSG := 'Files will be renamed by the monitor,'
+      WHEN NOT +G-BS2-RENAME
+        #TRACE-MSG := 'Files will not be renamed by the monitor,'
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      WHEN +G-BS2-COPY
+        COMPRESS #TRACE-MSG 'files will be copied by the monitor.'
+          TO #TRACE-MSG
+      WHEN NOT +G-BS2-COPY
+        COMPRESS #TRACE-MSG
+          'Files will not be copied by the monitor.' TO #TRACE-MSG
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* AIV-CURRENT-FROM-LOCAL
+*
+************************************************************************
+DEFINE SUBROUTINE AIV-LOCAL-FROM-NODE
+************************************************************************
++NOD-LOCAL-ID               := MF-MONITOR-ID
++NOD-LOCAL-INTERNAL-ID      := MF-INTERNAL-NODE-ID
++NOD-LOCAL-NAME             := SUBSTR(+NOD-LOCAL-ID,3)
++NOD-LOCAL-NODE             := MF-MONITOR-NODE
++NOD-LOCAL-USER             := MF-NPR-USERID
+#NOD-LOCAL-CLASSES (*)      := MF-CLASSES (*)
+#NOD-LOCAL-JES3-CLASSES (*) := MF-JES3-OUTPUT-CLASSES (*)
+#NOD-LOCAL-TEMP-CLASS       := MF-TEMP-CLASS
+#NOD-LOCAL-PRINT-CLASS      := MF-PRINT-CLASS
+#NOD-LOCAL-ERROR-CLASS      := MF-ERR-CLASS
++NOD-LOCAL-SYSTEM-TYPE      := MF-SYSTEM-TYPE
++NOD-LOCAL-SPOOL-TYPE       := MF-SPOOL-TYPE
++NOD-LOCAL-CODEPAGE         := MF-REMOTE-CODEPAGE
++NOD-LOCAL-BS2-DEST (1:4)   := MF-BS2-DEST (1:4)
+IF +NOD-LOCAL-CODEPAGE = ' ' /*LOCAL cp checked in RMINIT
+  +NOD-LOCAL-CODEPAGE  := *CODEPAGE /*no checked - Natural has done
+END-IF
+RESET +G-BS2-RENAME +G-BS2-COPY
+DECIDE ON FIRST VALUE OF MF-TIME-SCHEDULE
+  VALUE 'K' +G-BS2-COPY   := TRUE
+  VALUE 'Y' +G-BS2-RENAME := TRUE
+  NONE IGNORE /*VALUE 'N',' '
+END-DECIDE
+#MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+FIND-MONIT. FIND NRM-MONITOR WITH M-MONITOR-ID = #MONITOR-ID
+  #NOD-LOCAL-JOBCARD (*) := M-JOBCARD (*)
+END-FIND
+*
+IF #TRACING
+  COMPRESS 'Node set to:' +NOD-LOCAL-NAME '(' +NOD-LOCAL-NODE
+    ') Codepage:' +NOD-LOCAL-CODEPAGE TO #TRACE-MSG /*SU1
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  COMPRESS 'Local system type set to:' +NOD-LOCAL-SYSTEM-TYPE
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  COMPRESS 'Got jobcards:' TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  COMPRESS #NOD-LOCAL-JOBCARD (1) TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  COMPRESS #NOD-LOCAL-JOBCARD (2) TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  COMPRESS #NOD-LOCAL-JOBCARD (3) TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  IF +NOD-LOCAL-SYSTEM-TYPE NE SCAN('BS2')
+    #TRACE-MSG := 'Local spool classes set to:'
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    COMPRESS 'output:' #NOD-LOCAL-CLASSES (*)
+      '- temp:'  #NOD-LOCAL-TEMP-CLASS
+      '- print:' #NOD-LOCAL-PRINT-CLASS
+      '- error:' #NOD-LOCAL-ERROR-CLASS TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  ELSE
+    DECIDE FOR EVERY CONDITION
+      WHEN +G-BS2-RENAME
+        #TRACE-MSG := 'Files will be renamed by the monitor,'
+      WHEN NOT +G-BS2-RENAME
+        #TRACE-MSG := 'Files will not be renamed by the monitor,'
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      WHEN +G-BS2-COPY
+        COMPRESS #TRACE-MSG 'files will be copied by the monitor.'
+          TO #TRACE-MSG
+      WHEN NOT +G-BS2-COPY
+        COMPRESS #TRACE-MSG
+          'Files will not be copied by the monitor.' TO #TRACE-MSG
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* AIV-LOCAL-FROM-NODE
+*
+************************************************************************
+DEFINE SUBROUTINE AIV-CURRENT-FROM-NODE
+************************************************************************
++NOD-CURRENT-NODE           := MF-MONITOR-NODE
++NOD-CURRENT-ID             := MF-MONITOR-ID
++NOD-CURRENT-INTERNAL-ID    := MF-INTERNAL-NODE-ID
++NOD-CURRENT-NAME           := SUBSTR(+NOD-CURRENT-ID,3)
+#NOD-CURRENT-SYSTEM-TYPE    := MF-SYSTEM-TYPE
++NOD-CURRENT-SPOOL-TYPE     := MF-SPOOL-TYPE
++NOD-CURRENT-USER           := MF-NPR-USERID
++NOD-CURRENT-CLASSES  (*)   := MF-CLASSES (*)
++NOD-CURRENT-JES3-CLASSES(*):= MF-JES3-OUTPUT-CLASSES (*)
+#NOD-CURRENT-PRINT-CLASS    := MF-PRINT-CLASS
++NOD-CURRENT-ERROR-CLASS    := MF-ERR-CLASS
++NOD-CURRENT-TEMP-CLASS     := MF-TEMP-CLASS
++NOD-CURRENT-CODEPAGE       := MF-REMOTE-CODEPAGE
++G-BS2-DEST (1:4)           := MF-BS2-DEST (1:4)
+IF +NOD-CURRENT-CODEPAGE = ' '
+  +NOD-CURRENT-CODEPAGE  := *CODEPAGE
+END-IF
+RESET #MSG
+DECIDE FOR EVERY CONDITION /*see RMINIT SU2
+  WHEN *CODEPAGE = ' ' AND +NOD-CURRENT-CODEPAGE NE ' '
+    #MSG := F#GETMSG (<-8314>) /*NAT8314 No Natural ICU handler avail.
+  WHEN +NOD-CURRENT-CODEPAGE NE ' ' /*check CP
+    CALLNAT 'N-CP-CHK' +NOD-CURRENT-CODEPAGE #ERC #ERT
+    IF NOT (#ERC = 0 OR=4) /* 4 = user defined
+      #MSG := F#GETMSG (<#ERC,#ERT>)
+    END-IF
+  WHEN #MSG NE ' '
+    PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+    IF MF-TYPE = 'M' /*monitor error SU3 ->
+      #MSG := '1575' /*Monitor shutdown due to severe error.
+    ELSE /*SU3 <-
+      UPD1. GET MF-NODE *ISN(RDMON.)
+      IF MF-TYPE NE 'E'
+        MF-TYPE := 'E' /*error
+        UPDATE (UPD1.)
+        COMPRESS '2069' SUBSTR(MF-MONITOR-ID,3) /*node:1:deact. by mon.
+          '(' MF-MONITOR-NODE ',' +NOD-CURRENT-CODEPAGE ')' TO #MSG
+      END-IF
+    END-IF
+    PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+    END TRANSACTION
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+************************************************************************
+IF #TRACING
+  COMPRESS 'Node set to:' +NOD-CURRENT-NAME '(' +NOD-CURRENT-NODE
+    ') Codepage:' +NOD-CURRENT-CODEPAGE TO #TRACE-MSG LEAVING NO /*SU1
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  COMPRESS 'CURRENT ESY USER SET TO:' +NOD-CURRENT-USER TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  COMPRESS 'Local system type set to:' +NOD-LOCAL-SYSTEM-TYPE
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  IF #NOD-CURRENT-SYSTEM-TYPE NE SCAN('BS2')
+    #TRACE-MSG := 'Spool classes set to:'
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    COMPRESS 'temp:' +NOD-CURRENT-TEMP-CLASS
+      '- print:' #NOD-CURRENT-PRINT-CLASS
+      '- error:' +NOD-CURRENT-ERROR-CLASS TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  ELSE
+    DECIDE FOR EVERY CONDITION
+      WHEN +G-BS2-RENAME
+        #TRACE-MSG := 'Files will be renamed,'
+      WHEN NOT +G-BS2-RENAME
+        #TRACE-MSG := 'Files will not be renamed,'
+      WHEN +G-BS2-COPY
+        COMPRESS #TRACE-MSG 'files will be copied.' TO #TRACE-MSG
+      WHEN NOT +G-BS2-COPY
+        COMPRESS #TRACE-MSG 'files will not be copied.' TO #TRACE-MSG
+      WHEN ANY
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* AIV-CURRENT-FROM-NODE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NPR-NODE
+************************************************************************
+RESET SYSTEM-INFO #ERC #UPDATE-MF-TYPE           /* BLI NOMALL-2498
+FNDNPR. FIND SYSTEM-INFO WITH NODE = MF-MONITOR-NODE
+  IF NO RECORDS FOUND
+    ENTER
+  END-NOREC
+  DECIDE FOR FIRST CONDITION
+    WHEN SYSTEM-INFO.ERROR-CODE NE 0
+      IF #MF-LOCAL-NODE OR MF-MONITOR-ID EQ +NOD-LOCAL-ID
+* BLI NOMALL-2397 terminate via XXCONTRM except online
+        COMPRESS 'NOM0005 Local node failed with' SYSTEM-INFO.ERROR-CODE
+          SYSTEM-INFO.ERROR-TEXT TO #ERT
+        #ERC := 5
+        PERFORM XXRLOG-WRITE-LOG 'W' #ERT
+      ELSE
+        #UPDATE-MF-TYPE := F#SUSP (<MF-MONITOR-ID,MF-TYPE, /*NOMALL-2498
+          SYSTEM-INFO.ERROR-CODE,SYSTEM-INFO.ERROR-TEXT>)
+        IF #TRACING                         /* BLI NOMALL-2498
+          COMPRESS 'XFSUSP called for' MF-MONITOR-NODE 'from' MF-TYPE
+            'error' SYSTEM-INFO.ERROR-CODE 'to' #UPDATE-MF-TYPE TO
+            #TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+      END-IF
+    WHEN SYSTEM-INFO.ESY-VERSION < '3.6.2'
+      COMPRESS 'NOM0005 ESY Server must be upgraded. Version:'
+        SYSTEM-INFO.ESY-VERSION '- version at least required: 3.6.2'
+        'Node:' MF-MONITOR-NODE TO #ERT
+      #ERC := 5
+      PERFORM XXRLOG-WRITE-LOG 'W' #ERT
+      IF NOT (MF-TYPE ='M')                 /* BLI NOMALL-2498 start
+        RESET #ERC
+      END-IF
+      IF NOT(MF-TYPE ='M' OR='D' OR='E')
+        #UPDATE-MF-TYPE:='E'                /* error
+      END-IF                                /* BLI NOMALL-2498 end
+    WHEN SYSTEM-INFO.ERROR-CODE = 0
+      MF-SYSTEM-TYPE  := SYSTEM-INFO.SYSTEM-TYPE
+      MF-SPOOL-TYPE   := SYSTEM-INFO.SPOOL-TYPE
+      MF-PRODUCT-NAME := SYSTEM-INFO.PRODUCT-NAME
+      EXAMINE MF-PRODUCT-NAME FOR 'OSD' REPLACE 'BS2000'
+      IF MF-SPOOL-TYPE = ' '                    /* NPR is down
+        RESET MF-SYSTEM-TYPE
+        IF NOT(MF-TYPE ='D' OR='M' OR='E' OR='S')
+          #UPDATE-MF-TYPE := 'S'      /* suspend  BLI NOMALL-2498
+        END-IF
+      ELSE /* Deactivated/Error/Monitor/Active
+        IF NOT(MF-TYPE ='D' OR='E' OR='M' OR='A')
+          #UPDATE-MF-TYPE := 'A'      /* active   BLI NOMALL-2498
+        END-IF
+      END-IF
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-FIND
+*
+END-SUBROUTINE /* GET-NPR-NODE
+*
+************************************************************************
+DEFINE SUBROUTINE INSTALL-ERROR
+************************************************************************
+#MSG := '0491' /*Monitor record not found.
+IF *DEVICE = 'BATCH'
+  PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+ELSE
+  PERFORM XXRLOG-WRITE-LOG 'M' #MSG /* Resolve msg only
+  PRINT #MSG
+END-IF
+/*#MSG := '7104' /*NOM is not installed properly-contact NOM admin.
+#MSG := '9105' /*NOM is not installed correctly.Contact NOM admin
+IF *DEVICE = 'BATCH'
+  PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+ELSE
+  PERFORM XXRLOG-WRITE-LOG 'M' #MSG /* Resolve msg only
+  PRINT #MSG
+END-IF
+IF #MF AND *DEVICE = 'BATCH'
+  FETCH RETURN 'RMRDCDSP'
+  FETCH RETURN 'RDCDISIO'
+END-IF
+END TRANSACTION /* do it before exit
+STACK TOP COMMAND 'FIN'
+STACK TOP COMMAND 'LASTMSG'
+STOP
+*
+END-SUBROUTINE /* INSTALL-ERROR
+*
+************************************************************************
+DEFINE SUBROUTINE #TERMINATE /*STOP here ÜÜÜ SU8
+************************************************************************
+IF *DEVICE NE 'BATCH'
+  ESCAPE ROUTINE
+END-IF
+#MSG := '5501' /* Abnormal termination
+PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+END TRANSACTION /* do it before abend
+CALLNAT 'XXCONTRM' 'T' TASK-NUMBER #ERC #ERT #TRACING
+*
+END-SUBROUTINE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF *ERROR-NR = 3148 OR = 5999 /* NPR MF is missing
+    CALLNAT 'NAT23019' DB_ERR_STR-23
+    IF DB_DBID-23 = +NOD-CURRENT-NODE
+      GTMON. GET MF-NODE *ISN(RDMON.)
+      IF NOT (MF-TYPE ='D' OR='E' OR='M')
+        MF-TYPE := 'S'                       /* BLI NOMALL-2498 start
+      END-IF
+      UPDATE (GTMON.)
+      COMPRESS 'NAT3148 or NAT5999 occurred with NPR node'
+        +NOD-CURRENT-NODE ' --> node set to suspended'
+        TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+      END TRANSACTION
+      FETCH 'RMONITOR'                       /* BLI NOMALL-2498 end
+    END-IF
+  END-IF
+*
+END-ERROR
+*
+END

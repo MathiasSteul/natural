@@ -1,0 +1,204 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member       RCOPPH
+* Function     Physical Printer Copy
+* Version      1.3
+*
+* Maintenance
+* UUU YY-MM-DD Sagsis Desciption
+* --- -------- ------ --------------------------------------------------
+* mrs 91-12-29 141159 support languages other than english
+* gw  93-03-03        cleaned up
+* gw      1993-11-18 999999   remove security check - grants don't exist
+* xsiszha 2000-08-15 (CE7461)  Extend Report and Bundle Names
+* xsetggr 2001-12-06 p(208312) add msg confirms copying of printer
+* xsetggr 2007-10-25 NRT2185   default values of UNIXLP printers
+* xsetggr 2008-11-28 P311915   default printers DEFAULTA - DEFAULTZ
+* xsetggr 2010-11-03 NOMALL-865 restow due to changes in EOMPHTYE
+* xsetggr 2012-09-25 NOMALL-89  grants for physical printers no more use
+*                               out internal subroiutine Security-check
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-03-05 NOMALL-1281 show last update user+date
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL  USING VPHPR-L
+LOCAL  USING ROT----L
+LOCAL  USING EOMPHTYE
+LOCAL  USING EOM----E
+LOCAL  USING EOMMSG-P
+LOCAL  USING EOMGRM-P
+LOCAL
+1 PR VIEW OF NRM-PRINTERS
+  2 P-ID
+1 DEFAULT-PRINTER VIEW OF NRM-PRINTERS
+  2 P-ID
+  2 P-NAME
+  2 P-PHYSICAL-NAME
+  2 P-ATTRIBUTES(25)
+  2 P-LAST-UPDATE      /*SU2
+  2 P-LAST-UPDATE-USER /*SU2
+* *****
+1 #FROM-PRT                    (A8)
+1 #TO-PRT                      (A8)
+1 #FATHER-PROG                 (A8) INIT <'RLISPH'>
+1 #ALLOWED                     (L)/* xsetggr 2012-09-25 NOMALL-89 rename
+1 #P-ID-E                      (A8)
+1 #P-ID                        (A8) INIT <'DEFAULT '>
+1 REDEFINE #P-ID
+  2 #P-ID-1                    (A7)
+  2 #SUFFIX                    (A1)
+1 #TABLE1                      (A1/26)
+1 #TABLE                       (A26)
+  INIT <'ABCDEFGHIJKLMNOPQRSTUVWXYZ'>
+1 REDEFINE #TABLE
+  2 #TABLE-A                   (A1/26)
+1 #I                           (P2)
+1 #J                           (P2)
+1 #K                           (P2) /* xsetggr 2008-11-28 P311915 in
+1 #NEW-SUFFIX                  (L)  /* xsetggr 2008-11-28 P311915 in
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+* xsetggr 2012-09-25 NOMALl-89 use only user profile values check as
+* grants of type 'H' no more useed
+*
+CALLNAT 'NARPSEC' G-USER-PROFILE 'MPH' #ALLOWED
+INCLUDE C-NALLOW           /* xsetggr 2012-09-25 NOMALL-89 end
+*
+CALLNAT 'ROTINI-N' ##EQO-PHYSICAL-PRINTER G-OBJ-TYPE G-OTB
+*
+INPUT G-C-PRINTER
+*
+#FROM-PRT := G-C-PRINTER
+*
+FNDPH. FIND NUMBER PHYSICAL-PRINTERS WITH PH-VTAMID = #FROM-PRT
+IF *NUMBER (FNDPH.) = 0
+  G-NATRP-ERC := 0108
+  INCLUDE C-ESCAPE
+END-IF
+*
+SET KEY PF3
+REPEAT
+  SET CONTROL 'WFC11L53B05/15F'
+  SET CONTROL 'MB'
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'RCOPPHM&'
+  RESET G-NATRP-ERC G-NATRP-ERT
+  IF *PF-KEY = 'PF3'
+    SET CONTROL 'WB'
+    INCLUDE C-ESCAPE
+  END-IF
+  IF #TO-PRT = ' '
+    REINPUT *0106, G-OBJ-TYPE MARK *#TO-PRT ALARM
+  END-IF
+  FIND-PHYS. FIND NUMBER PHYSICAL-PRINTERS WITH PH-VTAMID = #TO-PRT
+  IF *NUMBER (FIND-PHYS.) > 0
+    REINPUT *33,G-OBJ-TYPE ALARM
+  END-IF
+*
+  FIND-SOURCE. FIND PHYSICAL-PRINTERS WITH PH-VTAMID = #FROM-PRT
+    PHYSICAL-PRINTERS.PH-VTAMID           := #TO-PRT
+    PHYSICAL-PRINTERS.PH-LAST-UPDATE      := *TIMX /*SU2
+    PHYSICAL-PRINTERS.PH-LAST-UPDATE-USER := G-USERID /*SU2
+    STORE PHYSICAL-PRINTERS
+    IF PH-PRINTER-TYPE = ##PHYS-UNIXLP
+      PERFORM CREATE-DEFAULTS
+      IF EOMMSG-NR NE 0 OR NOT #NEW-SUFFIX
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+* xsetggr 2012-09-05 NOMALL-89 out next lines
+*   GRANTS.GR-USERID := G-USERID GRANTS.GR-OBJECT-NAME := #TO-PRT
+*   GRANTS.GR-OBJECT-TYPE := 'H' GRANTS.GR-OPTION(1:6) := 'Y'
+*   STORE GRANTS                 /* xsetggr 2012-09-05 NOMALL-89 end
+    MOVE 35 TO G-NATRP-ERC
+    MOVE G-OBJ-TYPE TO G-NATRP-ERT
+    END TRANSACTION
+  END-FIND
+* xsetggr 01-12-06 p(208312) insert line
+  RESET #TO-PRT
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-DEFAULTS
+************************************************************************
+MOVE 'Z' TO #SUFFIX            /* xsetggr 2008-11-28 p(311915) was h'ff'
+#P-ID-E := #P-ID
+* RESET #SUFFIX
+* xsetggr 2008-11-28 p(311915) linea above out, next line in
+#SUFFIX := 'A'
+FNDDEF. FIND DEFAULT-PRINTER WITH P-PHYSICAL-NAME = #TO-PRT
+    AND P-ID = #P-ID THRU #P-ID-E
+  IF NO RECORDS FOUND
+    RESET DEFAULT-PRINTER
+    DEFAULT-PRINTER.P-ATTRIBUTES (*) := PH-ATTRIBUTES(*)
+    PERFORM ADD-DEFAULT
+    ESCAPE BOTTOM (FNDDEF.)
+  END-NOREC
+* PERFORM ADD-DEFAULT              /* xsetggr 2008-11-28 P311015 out
+END-FIND
+*
+END-SUBROUTINE /* CREATE-DEFAULTS
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-DEFAULT
+************************************************************************
+PERFORM GET-SUFFIX
+IF NOT #NEW-SUFFIX /* xsetggr 2008-11-28 P311915 in
+  BACKOUT TRANSACTION
+  REINPUT *0167, G-OBJ-TYPE MARK *#TO-PRT ALARM
+END-IF
+DEFAULT-PRINTER.P-ID               := #P-ID
+DEFAULT-PRINTER.P-PHYSICAL-NAME    := #TO-PRT
+DEFAULT-PRINTER.P-LAST-UPDATE      := *TIMX /*SU2
+DEFAULT-PRINTER.P-LAST-UPDATE-USER := G-USERID /*SU2
+COMPRESS 'Default values for' #TO-PRT TO DEFAULT-PRINTER.P-NAME
+STORE DEFAULT-PRINTER
+*
+EOMGRM-I-NAME     := #P-ID
+EOMGRM-I-TYPE     := 'P'
+EOMGRM-I-USER     := G-USERID
+EOMGRM-OPTION (*) := 'Y'
+CALLNAT 'EOMGRM-N' EOM-ADD EOMGRM-PARMS EOMMSG-PARMS /* Mnt Grant
+END TRANSACTION                  /* xsetggr 2008-11-28 P311915 start
+*
+END-SUBROUTINE /* ADD-DEFAULT        /* xsetggr 2008-11-28 P311915 end
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SUFFIX
+************************************************************************
+RESET #TABLE1(*) #I #NEW-SUFFIX      /* xsetggr 2008-11-28 P311915 in
+HPR. HISTOGRAM PR FOR P-ID STARTING FROM #P-ID THRU #P-ID-E
+  #P-ID := P-ID
+  ADD 1 TO #I
+  IF #I > 26                         /* xsetggr 2008-11-28 P311915 start
+    RESET #SUFFIX
+    ESCAPE BOTTOM (HPR.)
+  END-IF                             /* xsetggr 2008-11-28 P311915 end
+  #TABLE1(#I) := #SUFFIX
+END-HISTOGRAM
+* IF #SUFFIX = ' ' #SUFFIX := 'A' END-IF /* no default printers
+* xsetggr 2008-11-28 P311915 line above out, next line in
+IF #SUFFIX NE ' ' AND #I < 26
+  TB. FOR #K = 1 TO 26    /* xsetggr 2008-11-28 P311915 change #I to #K
+    EXAMINE #TABLE1(*) FOR #TABLE-A(#K) GIVING INDEX IN #J
+    IF #J = 0
+      #SUFFIX := #TABLE-A(#K)
+      ESCAPE BOTTOM (TB.)
+    END-IF
+  END-FOR
+  #NEW-SUFFIX := TRUE                   /* xsetggr 2008-11-28 P311915 in
+END-IF                                  /* xsetggr 2008-11-28 P311915 in
+END-SUBROUTINE /* GET-SUFFIX
+*
+END

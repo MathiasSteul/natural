@@ -1,0 +1,280 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMUSMGN - DB Interface EOM Object User
+*
+* Maintenance
+* SJU 95-10-04 S(999999) CREATED
+* xsethz   2000-05-18 s(CE4962)
+*    READ-NEXT, READ-HOLD-NEXT, RENAME, COPY added
+* fhi      2000-08-24 QA03      Use NAT23006 for error values
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-12 NOMALL-1058 Log delete from NOM API online user
+* xsetggr 2013-04-25 ES-104 restow due changes in EOMUSM-P
+* SU1     2013-09-16 NOMALL-1281 last update user+date
+* SU2     2018-12-03 NOMALL-2182 Reject reserved names 'ADMIN'+'PUBLIC'
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING EOM----P
+PARAMETER USING EOMUSM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL USING EOM----E
+LOCAL USING VUSERS-L
+LOCAL
+1 #NEXT-USER-ID               (A8)
+1 REDEFINE #NEXT-USER-ID
+  2 #NEXT-USER-ID-7           (A7)
+  2 #NEXT-USER-ID-1           (I1)
+1 #OBJ                        (A50)
+1 #USER                       (A8)
+1 #APPL                       (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-READ, EOM-READHOLD
+    PERFORM READ-GENERAL-ATTRIBUTES
+  VALUE EOM-ADD, EOM-MODIFY
+    PERFORM MODIFY-GENERAL-ATTRIBUTES
+  VALUE EOM-DELETE
+    PERFORM DELETE-USER
+  VALUE EOM-READ-NEXT, EOM-READHOLD-NEXT
+    PERFORM READ-NEXT-USER
+  VALUE EOM-RENAME
+    PERFORM RENAME-USER
+  VALUE EOM-COPY
+    PERFORM COPY-USER
+  NONE  IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-GENERAL-ATTRIBUTES
+************************************************************************
+FNDUS. FIND USERS WITH USER-ID = EOMUSM-I-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 2
+    EOMMSG-TOKEN (1) := EOMUSM-I-NAME
+    ESCAPE BOTTOM (FNDUS.)
+  END-NOREC
+  PERFORM GET-FIELDS
+  IF EOM-FUNCTION = EOM-READHOLD
+    UPD. GET USERS *ISN (FNDUS.)
+    IF USER-ID NE USER-ID
+      UPDATE (UPD.)
+    END-IF
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-GENERAL-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-NEXT-USER
+************************************************************************
+#NEXT-USER-ID := EOMUSM-I-NAME
+ADD 1 TO #NEXT-USER-ID-1
+EOMUSM-EOF := 'X'
+RDUS. READ USERS WITH USER-ID = #NEXT-USER-ID
+  RESET EOMUSM-EOF
+  PERFORM GET-FIELDS
+  IF EOM-FUNCTION = EOM-READHOLD-NEXT
+    UPDN. GET USERS *ISN (RDUS.)
+    IF USER-ID NE USER-ID
+      UPDATE (UPDN.)
+    END-IF
+  END-IF
+  ESCAPE BOTTOM
+END-READ
+*
+END-SUBROUTINE /* READ-NEXT-USER
+*
+***********************************************************************
+DEFINE SUBROUTINE MODIFY-GENERAL-ATTRIBUTES
+************************************************************************
+FNDMOD. FIND USERS WITH USER-ID = EOMUSM-I-NAME
+  IF NO RECORDS FOUND
+    IF EOM-FUNCTION = EOM-ADD
+      USER-ID := EOMUSM-I-NAME
+    END-IF
+  END-NOREC
+  DECIDE FOR FIRST CONDITION
+    WHEN EOM-FUNCTION = EOM-ADD AND *NUMBER (FNDMOD.) > 0
+      EOMMSG-NR := 0771
+      BACKOUT TRANSACTION
+    WHEN EOM-FUNCTION = EOM-MODIFY AND *NUMBER (FNDMOD.) = 0
+      EOMMSG-NR := 2
+    WHEN EOMUSM-I-NAME = ' '  EOMMSG-NR := 0614 /*SU2 ->
+    WHEN EOMUSM-I-NAME = 'ADMIN'    EOMMSG-NR := 0517
+    WHEN EOMUSM-I-NAME = 'PUBLIC'   EOMMSG-NR := 0518 /*SU2 <-
+    WHEN ANY
+      EOMMSG-TOKEN (1) := EOMUSM-I-NAME
+      ESCAPE BOTTOM (FNDMOD.)
+    WHEN NONE IGNORE
+  END-DECIDE
+  IF *NUMBER (FNDMOD.) > 0
+    GETMOD. GET USERS *ISN (FNDMOD.)
+  END-IF
+*
+  USER-PASSWORD      := EOMUSM-PASSWORD
+  USER-PROFILE       := EOMUSM-PROFILE
+  MR-MRS             := EOMUSM-TITLE
+  LAST-NAME          := EOMUSM-LAST-NAME
+  FIRST-NAME         := EOMUSM-FIRST-NAME
+  INITIAL            := EOMUSM-INITIAL
+  WORK-TITLE         := EOMUSM-WORK-TITLE
+  WORK-ORGANIZATION  := EOMUSM-WORK-ORGANIZATION
+  WORK-LOCATION      := EOMUSM-WORK-LOCATION
+  WORK-DEPT-NAME     := EOMUSM-WORK-DEPT-NAME
+  WORK-DEPT-NUM      := EOMUSM-WORK-DEPT-NUM
+  WORK-ADDRESS(1:3)  := EOMUSM-WORK-ADDRESS(1:3)
+  WORK-CITY          := EOMUSM-WORK-CITY
+  WORK-STATE-PROV    := EOMUSM-WORK-STATE-PROV
+  WORK-POSTAL-CODE   := EOMUSM-WORK-POSTAL-CODE
+  WORK-COUNTRY       := EOMUSM-WORK-COUNTRY
+  WORK-PHONE-COUNTRY := EOMUSM-WORK-PHONE-COUNTRY
+  WORK-PHONE         := EOMUSM-WORK-PHONE
+  WORK-PHONE-EXT     := EOMUSM-WORK-EXT
+  HOME-ADDRESS(1:3)  := EOMUSM-HOME-ADDRESS(1:3)
+  HOME-CITY          := EOMUSM-HOME-CITY
+  HOME-STATE-PROV    := EOMUSM-HOME-STATE-PROV
+  HOME-POSTAL-CODE   := EOMUSM-HOME-POSTAL-CODE
+  HOME-COUNTRY       := EOMUSM-HOME-COUNTRY
+  HOME-PHONE-COUNTRY := EOMUSM-HOME-PHONE-COUNTRY
+  HOME-PHONE         := EOMUSM-HOME-PHONE
+  PERFORM FILL-LAST-MOD
+*
+  IF *NUMBER (FNDMOD.) = 0
+    STORE USERS
+*************************** ADD DEFAULT FOLDER
+  ELSE
+    UPDATE (GETMOD.)
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* MODIFY-GENERAL-ATTRIBUTES
+*
+***********************************************************************
+DEFINE SUBROUTINE DELETE-USER
+***********************************************************************
+DELUS. FIND USERS WITH USER-ID = EOMUSM-I-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 2
+    EOMMSG-TOKEN (1) := EOMUSM-I-NAME
+    ESCAPE BOTTOM (DELUS.)
+  END-NOREC
+  DELETE
+  #OBJ := EOMUSM-I-NAME
+  #USER := EOM-USER
+  #APPL := EOM-LIBRARY
+  PERFORM RMLOGDEL #OBJ 'USER' #USER #APPL
+*
+END-FIND
+*
+END-SUBROUTINE /* DELETE-USER
+*
+***********************************************************************
+DEFINE SUBROUTINE RENAME-USER
+***********************************************************************
+FREN. FIND USERS WITH USER-ID = EOMUSM-I-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 2
+    EOMMSG-TOKEN (1) := EOMUSM-I-NAME
+    ESCAPE BOTTOM
+  END-NOREC
+  PERFORM CHECK-USERID /*SU2
+  UPDATE
+END-FIND
+*
+END-SUBROUTINE /* RENAME-USER
+*
+***********************************************************************
+DEFINE SUBROUTINE COPY-USER
+***********************************************************************
+FIND USERS WITH USER-ID = EOMUSM-I-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 2
+    EOMMSG-TOKEN (1) := EOMUSM-I-NAME
+    ESCAPE BOTTOM
+  END-NOREC
+  EOMUSM-PROFILE := USER-PROFILE
+  PERFORM CHECK-USERID /*SU2
+  STORE USERS
+END-FIND
+*
+END-SUBROUTINE /* COPY-USER
+*
+***********************************************************************
+DEFINE SUBROUTINE GET-FIELDS
+***********************************************************************
+EOMUSM-I-NAME             := USER-ID
+EOMUSM-PASSWORD           := USER-PASSWORD
+EOMUSM-PROFILE            := USER-PROFILE
+EOMUSM-TITLE              := MR-MRS
+EOMUSM-LAST-NAME          := LAST-NAME
+EOMUSM-FIRST-NAME         := FIRST-NAME
+EOMUSM-INITIAL            := INITIAL
+EOMUSM-WORK-TITLE         := WORK-TITLE
+EOMUSM-WORK-ORGANIZATION  := WORK-ORGANIZATION
+EOMUSM-WORK-LOCATION      := WORK-LOCATION
+EOMUSM-WORK-DEPT-NAME     := WORK-DEPT-NAME
+EOMUSM-WORK-DEPT-NUM      := WORK-DEPT-NUM
+EOMUSM-WORK-ADDRESS(1:3)  := WORK-ADDRESS(1:3)
+EOMUSM-WORK-CITY          := WORK-CITY
+EOMUSM-WORK-STATE-PROV    := WORK-STATE-PROV
+EOMUSM-WORK-POSTAL-CODE   := WORK-POSTAL-CODE
+EOMUSM-WORK-COUNTRY       := WORK-COUNTRY
+EOMUSM-WORK-PHONE-COUNTRY := WORK-PHONE-COUNTRY
+EOMUSM-WORK-PHONE         := WORK-PHONE
+EOMUSM-WORK-EXT           := WORK-PHONE-EXT
+EOMUSM-HOME-ADDRESS(1:3)  := HOME-ADDRESS(1:3)
+EOMUSM-HOME-CITY          := HOME-CITY
+EOMUSM-HOME-STATE-PROV    := HOME-STATE-PROV
+EOMUSM-HOME-POSTAL-CODE   := HOME-POSTAL-CODE
+EOMUSM-HOME-COUNTRY       := HOME-COUNTRY
+EOMUSM-HOME-PHONE-COUNTRY := HOME-PHONE-COUNTRY
+EOMUSM-HOME-PHONE         := HOME-PHONE
+**.. := US-LAST-UPDATE      /*SU1 in ????
+**.. := US-LAST-UPDATE-USER /*SU1 in ????
+*
+END-SUBROUTINE /* GET-FIELDS
+*
+***********************************************************************
+DEFINE SUBROUTINE FILL-LAST-MOD
+***********************************************************************
+US-LAST-UPDATE      := *TIMX /*SU1 in
+US-LAST-UPDATE-USER := EOM-USER /*SU1 in
+*
+END-SUBROUTINE /* FILL-LAST-MOD
+*
+***********************************************************************
+DEFINE SUBROUTINE CHECK-USERID /*SU2
+***********************************************************************
+USER-ID := EOMUSM-I-NEWNAME
+DECIDE ON FIRST VALUE OF USER-ID
+  VALUE ' '        EOMMSG-NR := 0614
+  VALUE 'ADMIN'    EOMMSG-NR := 0517
+  VALUE 'PUBLIC'   EOMMSG-NR := 0518
+  ANY
+    EOMMSG-TOKEN (1) := EOMUSM-I-NAME
+    ESCAPE BOTTOM
+  NONE IGNORE
+END-DECIDE
+PERFORM FILL-LAST-MOD
+*
+END-SUBROUTINE /* CHECK-USERID
+* --------------------------------------- on error ---------------------
+INCLUDE C-EOMERR
+*
+END

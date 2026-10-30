@@ -1,0 +1,68 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMPOTWN - Set scheduled time for printout
+*            depending on physical printer time windows
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* gw      1993-07-05         created
+* xsetggr 2007-05-03 NOM3201 restow due changes in EOMPOM-P
+* xsetggr 2007-05-29 p(294790) restow due changed eompom-p
+* xsetggr 2007-06-27 NOM3201   support 5 byte node numbers and 11 byte
+*                              run numbers - restow due changes eompom-p
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER USING EOMPOM-P
+LOCAL
+1 PHYSICAL-PRINTER VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-TIME-WINDOWS      (1:8)
+  2 C*PH-TIME-WINDOWS
+*
+1 #I                     (I2)
+1 #TIME                  (A4)
+1 #TIME-FROM-TO          (A8)
+1 REDEFINE #TIME-FROM-TO
+  2 #TIME-FROM           (A4)
+  2 #TIME-TO             (A4)
+1 #DATE                  (D)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET EOMPOM-SCHEDULED
+*
+FIND (1) PHYSICAL-PRINTER WITH PH-VTAMID = EOMPOM-PHYSICAL-NAME
+END-FIND
+*
+IF C*PH-TIME-WINDOWS = 0
+  EOMPOM-SCHEDULED := *TIMX
+ELSE
+  FOR #I 1 C*PH-TIME-WINDOWS
+    MOVE EDITED *TIMX (EM=HHII) TO #TIME
+    #TIME-FROM-TO := PH-TIME-WINDOWS (#I)
+    DECIDE FOR FIRST CONDITION
+      WHEN #TIME = #TIME-FROM THRU #TIME-TO
+        EOMPOM-SCHEDULED := *TIMX
+        ESCAPE ROUTINE
+      WHEN #TIME < #TIME-FROM
+        MOVE EDITED #TIME-FROM TO EOMPOM-SCHEDULED (EM=HHII)
+        ADD *DATX TO EOMPOM-SCHEDULED
+        ESCAPE ROUTINE
+      WHEN #TIME > #TIME-FROM AND #I = C*PH-TIME-WINDOWS
+        MOVE EDITED PH-TIME-WINDOWS (1) TO EOMPOM-SCHEDULED (EM=HHII)
+        #DATE := *TIMX
+        ADD 1 TO #DATE
+        ADD #DATE TO EOMPOM-SCHEDULED
+        ESCAPE ROUTINE
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+  END-FOR
+END-IF
+*
+END

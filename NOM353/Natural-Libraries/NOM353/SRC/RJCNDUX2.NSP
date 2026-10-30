@@ -1,0 +1,192 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RJCNDUX2
+* Version   1.3
+* Function  Condense archive data sets for Unix
+* This routine will be called from RJCONDUX if a work file format
+* with length bytes is detected (work file type SAG without a
+* file type in the filename). In this case we trust on the length
+* byte and read the whole record regardless of hex 0A characters
+* contained. See header explanation in RJCONDUX for details.
+*
+* This routine reads the work file as type 'SAG'
+* and writes it as type 'PORTABLE'
+*
+* Template  RJCONDNS
+*
+* Maintenance
+* uuuuuuuu yyyy-mm-dd iTrac       Comment
+* fhi      2011-12-01 NOMALL-1073 Created from RJCONDNS
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-07-11 NOMALL-1279 fill fields for Adabas Vista (RJCONDUC)
+* SU3     2014-11-05 NOMALL-1450 fill fields for Adabas Vista (RJCONDUC)
+* SU4     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* BLI     2016-04-21 NOMALL-1844 no physic expiration, source, target
+* SU5     2016-08-10 NOMALL-1814(NOM3.5) remove AdaVista fields
+* BLI     2018-03-21 GDA vs. AIV
+* BLI     2020-03-19 NOMALL-2285 correct AD-ORIGINAL..., no VISTA at all
+* SU6     2020-05-22 NOMALL-2349 several changes
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+*
+LOCAL USING RJ-L
+LOCAL USING VARDSN-L
+LOCAL USING VDSNRP-L
+LOCAL USING RLOG-L
+LOCAL USING CONST-L
+LOCAL USING VARCIV-L
+LOCAL USING SATLGV1P
+LOCAL USING RACTLF-A
+LOCAL USING VUSARC-L
+LOCAL USING NOMUDA-P
+LOCAL USING SAT00009
+LOCAL USING RIDREC-L
+* ----------------------------------------------------------------------
+LOCAL
+1 ACT-REP VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-ARCHIVE-DATA-SET
+  2 AR-ARCHIVE-VOLSER        (1:2)
+** 1 AD-VISTA VIEW OF NRM-ARCHIVE-DATASET /*SU5   BLI-NOMALL-2285
+**  2 AD-OBJECT-TYPE
+**  2 AD-OBJECT-TIME
+*
+1 #WKF-RECORD                (A)     DYNAMIC
+1 #RECORD                    (A253)
+1 REDEFINE    #RECORD
+  2 #I-RECORD-TYPE           (A1) /* 'I' IDENT RECORD, 'T' TEXT         RECORD
+  2 #ARCHIVED-FROM           (A1) /* 'S' SPOOL, 'D' DATABASE
+  2 #DR-REP-RNB-KEY          (A31)
+  2 REDEFINE    #DR-REP-RNB-KEY
+    3 #REPNAME               (A25)
+    3 #REPRNB                (P11)
+1 #V32-ID-RECORD             (A146)
+1 REDEFINE #V32-ID-RECORD
+  2 #V32-RECORD-TYPE         (A1)
+  2 #V32-ARCHIVED-FROM       (A1)
+  2 #V32-REPNAME             (A25)
+  2 #V32-REPRNB              (P11)
+  2 #V32-JOBNAME             (A8)
+  2 #V32-JOBNO               (N7)
+  2 #V32-NODE                (N5)
+  2 #V32-REST                (A93)
+* *****
+1 #COPY-IT                   (L) INIT <FALSE>
+1 #EXPIRED                   (I4)
+1 #REP-NO                    (I4)
+* BLI 2016-04-21 NOMALL-1844 added below comments and rename vars
+** 1 #CONDENSE-DSNAME             (A54)
+** 1 #ARC-DSNAME                  (A44)
+* BLI 2016-04-21 NOMALL-1844 above out, below in
+1 #SOURCE-DSNAME             (A54) /* archive 'source' to be condensed
+1 #TARGET-DSNAME             (A44) /* new 'target' archive
+*
+1 #RECLEN                    (I4)
+1 #OLD-DR-REP-RNB-KEY        (A31)
+1 EOMSYSNR                   (B2)
+1 #FIRST-VOLSER              (A6)
+1 #LAST-VOLSER               (A6)
+1 #VOLSERS                   (A6/1:20)
+** 1 #PHYSICAL-EXPIRATION-DATE  (A8) /* BLI 2016-04-21 NOMALL-1844
+1 #USERARC-ID                (A10)  INIT <'USERARC00'>
+1 REDEFINE #USERARC-ID
+  2 #USERARC-FIXED           (A8)
+  2 #USERARC-NUMBER          (N1)
+1 #ARCHIVE-NAME              (A8)   INIT <'Standard'>
+1 #ORIG-REP                  (P7)
+1 #UPDATE                    (L)
+1 #CONDNS-RC                 (N4)
+1 #UPD-ISN                   (P10)   /* BLI-NOMALL-2285
+1 #FUNCTION                  (A10) CONST <'Condenser'>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE WORK FILE 1 TYPE 'PORTABLE' ATTRIBUTES 'APPEND'
+DEFINE WORK FILE 2 TYPE 'SAG'
+*
+PERFORM INIT /*RJCONDUC
+*
+IF #NATLIB NE ' ' AND #NATMEM NE ' '
+  PERFORM CONDENSE-VIA-USEREXIT
+ELSE
+  READ WORK FILE 2 #RECORD GIVING LENGTH #RECLEN
+    PERFORM HANDLE-RECORD
+  END-WORK
+*
+  IF #COPY-IT
+    PERFORM UPDATE-REPORT-CONTROL-INFO
+  END-IF
+  #UPDATE := TRUE
+  PERFORM UPDATE-TARGET-CONTROL-INFO
+  PERFORM UPDATE-SOURCE-CONTROL-INFO
+*
+  COMPRESS '0468' #REP-NO TO LG-MSG
+  PERFORM #RLOG
+  COMPRESS '0469' #EXPIRED TO LG-MSG
+  PERFORM #RLOG
+  IF #STEPLIB-ADDED
+    PERFORM REMOVE-STEPLIB
+  END-IF
+  IF #CONDNS-RC = 4
+    TERMINATE 4
+  END-IF
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Condenser terminated normally'
+  TERMINATE 0
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-RECORD
+************************************************************************
+IF #RECORD.#I-RECORD-TYPE = 'I'  /* id record, FHI266 #record. added
+  ADD 1 TO #ORIG-REP
+  IF #COPY-IT                          /* update previous report
+    PERFORM GET-CURRENT-VOLSER
+    PERFORM UPDATE-REPORT-CONTROL-INFO
+  END-IF
+  PERFORM CONVERT-RECORD
+  #COPY-IT := TRUE
+  FIND-ARC. FIND DATASET-REPORT WITH DR-REPORT-RNB = #DR-REP-RNB-KEY
+    IF NO
+      DR-STATUS := 'D'
+    END-NOREC
+    IF DR-STATUS = 'D'                 /* will be deleted at midnight
+      #COPY-IT := FALSE /* by expiration date
+      ADD 1 TO #EXPIRED
+    END-IF
+**  IF DR-ARCHIVE-DSNAME NE #ARC-DSNAME
+* BLI 2016-04-21 NOMALL-1844 above out, below in
+    IF DR-ARCHIVE-DSNAME NE #SOURCE-DSNAME
+      #COPY-IT := FALSE /* must be an abended archive
+    END-IF
+    #OLD-DR-REP-RNB-KEY := #DR-REP-RNB-KEY
+  END-FIND
+END-IF
+IF #COPY-IT
+  RESIZE DYNAMIC #WKF-RECORD TO 0
+  MOVE SUBSTR(#RECORD,1,#RECLEN) TO #WKF-RECORD
+  WRITE WORK FILE 1 VARIABLE #WKF-RECORD
+  IF #RECORD.#I-RECORD-TYPE = 'I'/* id record, FHI266 #record. added
+    ADD 1 TO #REP-NO
+    PERFORM GET-CURRENT-VOLSER
+    #FIRST-VOLSER := #LAST-VOLSER
+    PERFORM UPDATE-TARGET-CONTROL-INFO
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* HANDLE-RECORD
+************************************************************************
+INCLUDE RJCONDUC /* Common subroutines for RJCONDUX and RJCNDUX* prgr
+INCLUDE RJ-C ''' ''' /*ON ERROR
+*
+END

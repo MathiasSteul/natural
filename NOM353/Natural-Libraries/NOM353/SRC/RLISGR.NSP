@@ -1,0 +1,507 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RLISGR    LIST AUTHORIZATIONS FOR AN OBJECT
+*
+* MAINTENANCE:
+* GW  91-07-31  don't display archive/revive authorization for printer
+* mrs 92-01-07   s(141159) support languages other than english
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsiszha 2000-08-07 (CE7461) Extend Report and Bundle Names
+* SJU 04-06-22  s(252751) Transfer grants
+* SJU 05-03-09  NOM31     NOMEX012 object maintenance
+* SJU 05-03-10  NOM31     Disable NOMEX012 object maintenance
+* xsetggr 2005-10-26  p(270950) ISN fields must be P10, not P8
+* XSETHZ  2010-12-15 NOMALL-907
+* xsetggr 2011-01-06 NOMALL-907 delete folder link if delete grants
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-11-22 NOMALL-1075 evaluate value of G-CONFIRM
+* raya    2011-12-12 NOMALL-1074 arc/rev irrelevant in bunles - omit
+* xsetggr 2012-09-04 NOMALL-1198 omit arc/rev for distribution lists
+* xsetggr 2012-12-18 NOMALL-89   implement line command validation
+* xsetggr 2013-05-27 NOMALL-89   prevent deletion of owner auth for
+*                                default folder
+* xsetggr 2013-06-19 NOMALL-1198 restow due corrections in C-CHKLC
+* xsetggr 2013-06-21 NOMALL-89 do not allow delete owner authorization
+*                    of folders by non-admin user
+* BLI     2017-01-16 NOMALL-1983 omit arc/rev for reports
+* BLI     2017-01-17 NOMALL-1984 differ MODIFY/DISPLAY (C-CHKLC)
+* SU1     2022-03-03 NOMALL-2536 restruct
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  NRM-GL
+LOCAL  USING  RLC----L
+LOCAL  USING  RPFK---L
+LOCAL  USING  ROT----L
+LOCAL  USING  VGRANT-L
+LOCAL  USING  PROF-LOC
+LOCAL
+1 FOLDER VIEW OF NRM-FOLDER
+  2 FO-ID
+  2 FO-USER-ID
+  2 FO-LINKED-FO-ID
+1 US VIEW OF NRM-USERS
+  2 USER-PROFILE
+1 L-SCREEN
+  2 L-IDENT             (I2/10)
+  2 L-USERID            (A8/10)
+  2 L-ISN               (P10/10)
+  2 L-OPTION            (A1/10,6)
+  2 L-MARK              (A2/10)
+  2 CV-MARK             (C/10)
+  2 #BOTLINE            (A78)
+  2 REDEFINE    #BOTLINE
+    3 #BOT-1            (A31)
+    3 #BOT-2            (A16)
+    3 #BOT-3            (A31)
+  2 REDEFINE    #BOTLINE
+    3 #MORE-1           (A34)
+    3 #MORE-2           (A10)
+    3 #MORE-3           (A34)
+*
+1 I                     (N5)
+1 #TOP                  (N5) INIT <1>
+1 END-OF-DATA           (L)
+1 #CONFIRMED            (L)
+1 LOWER-CASE            (L) CONST <FALSE>
+1 #OBJECT-NAME-C        (A32)
+1 #ALLOWED              (L)
+1 #UPDATE               (L)
+1 #DELETE               (L)
+1 #FATHER-PROG          (A8) INIT <'RMENU'>
+1 #OBJECT-TYPE          (A35)
+1 REDEFINE #OBJECT-TYPE
+  2 #OBJECT-TYPE-32     (A32)
+1 #OBJECT-IDENT         (I2)
+1 #GR-TYPE-NAME         (A26)
+1 REDEFINE    #GR-TYPE-NAME
+  2 #GR-T               (A1)
+  2 #GR-N               (A25)
+1 #GR-START             (A34)
+1 REDEFINE    #GR-START
+  2 #GRS-TYPE           (A1)
+  2 #GRS-OBJECT         (A25)
+  2 #GRS-USERID         (A8)
+1 #GR-END               (A34)
+1 REDEFINE    #GR-END
+  2 #GRE-TYPE           (A1)
+  2 #GRE-OBJECT         (A25)
+  2 #GRE-USERID         (A8)
+1 CV-SELECTION          (C/1)
+1 CV-LINES              (C)
+1 F                     (P2)
+1 #LANGUAGE             (I1)
+1 #NOFLINES             (P2) INIT <10>
+1 #FO-USER-FO-ID        (A10)
+1 REDEFINE #FO-USER-FO-ID
+  2 #FO-USER            (A8)
+  2 #FO-ID              (B2)
+1 #OBJ-NAME-FOLDER      (A25)
+1 #OBJ-FOLDER-ID        (N5)
+1 REDEFINE #OBJ-FOLDER-ID
+  2 #OBJ-FOLDER-ID-A    (A5)
+1 #FO-LINKED-ID         (A10)
+1 REDEFINE #FO-LINKED-ID
+  2 #FO-LINKED-USER     (A8)
+  2 #FO-LINKED-FO-ID    (B2)
+1 #LEN                  (N2)
+1 #J                    (N2)
+1 #PROF-USER            (N1)
+1 #PROF-USER-2          (N1)
+1 #MSG-USER             (A8)
+1 #GRANTED              (L)
+1 #GRANTS               (A1/6)
+1 #ARCREV               (A7)
+1 #OBJ                  (A50)
+1 #ARCHIVE              (L)
+1 #OBJTYPE              (A2)
+1 #TYPE                 (A1)
+1 #REVIVE               (L)
+1 #CHK-USER             (A8)
+1 #CHK-FO-ID-A          (A5)
+1 REDEFINE #CHK-FO-ID-A
+  2 #CHK-FO-ID          (N5)
+1 #K                    (I2)
+1 #STRING               (A25)
+1 #G-USERID             (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET G-COMMIT
+INCLUDE CVIDEO
+#FATHER-PROG := G-FATHER-PROG
+#GRS-TYPE := #GRE-TYPE := #TYPE := G-C-OBJTYPE
+#GRS-OBJECT := #GRE-OBJECT := G-C-OBJNAME
+MOVE ALL H'00'   TO #GRS-USERID
+MOVE ALL H'FF'   TO #GRE-USERID
+IF G-USER-TYPE NE 'A'
+  PERFORM GET-FOLDER-DATA
+END-IF
+*
+DECIDE ON FIRST VALUE OF G-C-OBJTYPE
+  VALUE 'R' #OBJECT-IDENT := ##EQO-REPORT
+  VALUE 'B' #OBJECT-IDENT := ##EQO-BUNDLE
+  VALUE 'L' #OBJECT-IDENT := ##EQO-LIST
+  VALUE 'P' #OBJECT-IDENT := ##EQO-PRINTER
+  VALUE 'F' #OBJECT-IDENT := ##EQO-FOLDER
+  NONE IGNORE
+END-DECIDE
+*
+#OBJTYPE := 'GR'
+*
+REPEAT
+  G-C-FUNC := 'L'
+  IF #LANGUAGE NE *LANGUAGE
+    #LANGUAGE := *LANGUAGE
+    CALLNAT 'ROTINI-N' ##EQO-AUTHORIZATION G-OBJ-TYPE G-OTB
+    CALLNAT 'ROTINI-N' #OBJECT-IDENT #OBJECT-TYPE-32 G-OTB
+    COMPRESS #OBJECT-TYPE-32 '-' G-C-OBJNAME INTO #OBJECT-TYPE
+    PERFORM INIT-LINECOM
+    PERFORM INIT-PFKEYS
+  END-IF
+  PERFORM SET-PFKEYS
+  INCLUDE RMVHLP-C
+*
+  PERFORM GET-RECORDS
+  SET CONTROL 'WC21L61B3/19F'
+  SET CONTROL 'M15'
+  IF #FATHER-PROG NE MASK('RMIG')
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'RLISGRM&'
+  ELSE
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'RLISGR2&'
+  END-IF
+  INCLUDE RPFKVA-C
+  RESET G-NATRP-ERC G-NATRP-ERT
+  INCLUDE C-DIRECT
+  DECIDE ON FIRST VALUE OF G-PF-FUNC
+    VALUE 'HELP'
+      REINPUT USING HELP
+    VALUE 'ADD'
+      G-C-FUNC := 'A'
+      PERFORM COMMIT-WORK
+      G-C-OBJTYPE := #TYPE
+      FETCH RETURN 'RDEFGR'
+      RESET #LANGUAGE
+    VALUE 'EXIT'
+      INCLUDE C-ESCAPE
+    VALUE 'UP'    SUBTRACT 10 FROM #TOP
+      IF #TOP < 1
+        #TOP := 1
+      END-IF
+      END-OF-DATA := FALSE
+    VALUE 'DOWN'  IF NOT END-OF-DATA
+        ADD 10 TO #TOP
+      END-IF
+    VALUE 'MENU'
+      INCLUDE C-MENU
+    NONE VALUE IGNORE
+  END-DECIDE
+  PERFORM LINE-COMMANDS
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-RECORDS
+************************************************************************
+RESET L-SCREEN I
+CV-MARK(*) := (AD=P)
+*
+FINDRECS. READ  GRANTS  BY GR-TYPE-OBJ-USER STARTING FROM #GR-START
+  IF GR-OBJECT-TYPE NE #GRE-TYPE OR GR-OBJECT-NAME NE #GRE-OBJECT OR
+      GR-USERID > #GRE-USERID
+    ESCAPE BOTTOM
+  END-IF
+*
+  ACCEPT IF *COUNTER >=#TOP
+  ADD 1 TO I
+  IF I > 10
+    IF G-NATRP-ERC = 0
+      IF #TOP > 1
+        G-NATRP-ERC := 0013
+      ELSE
+        G-NATRP-ERC := 0011
+      END-IF
+    END-IF
+    ESCAPE BOTTOM
+  END-IF
+  IF GR-OBJECT-TYPE='P' OR='B' OR='L' OR='R'/*BLI 2017-01-13 NOMALL-1983
+    L-OPTION(I,1:4) := GR-OPTION(1:4)
+    RESET #ARCREV
+  ELSE
+    L-OPTION(I,1:6) := GR-OPTION(1:6)
+    #ARCREV := 'Arc Rev'
+  END-IF
+  L-USERID(I) := GR-USERID
+  L-ISN(I) := *ISN
+  RESET CV-MARK(I)
+END-READ
+IF I <= 10
+  DECIDE FOR FIRST CONDITION
+    WHEN G-NATRP-ERC NE 0
+      IGNORE
+    WHEN #TOP = 1
+      G-NATRP-ERC := 0014
+    WHEN NONE
+      G-NATRP-ERC := 0012
+  END-DECIDE
+  END-OF-DATA := TRUE
+END-IF
+*
+END-SUBROUTINE /* GET-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE LINE-COMMANDS
+************************************************************************
+IF L-MARK(*) = '.'
+  INCLUDE C-ESCAPE
+END-IF
+RESET L-IDENT (*)
+INCLUDE RLCMTI-C
+* --- VALIDATE LINE COMMANDS
+PERFORM CHECK-PROF-USER
+*
+FOR I 1 TO 10
+  DECIDE ON FIRST VALUE OF L-IDENT (I)
+    VALUE ##EQU-DELETE /* IGNORE
+      IF #GRS-TYPE = 'F' AND #PROF-USER < 3
+        REINPUT *0020 MARK *L-MARK(I) ALARM
+      END-IF
+      IF G-USER-TYPE NE 'A'
+        IF #GRS-TYPE = 'F' AND L-USERID(I) = #CHK-USER AND
+            #CHK-FO-ID = 1  AND       /* default folder
+            NOT(L-OPTION(I,*) NE 'Y')     /* owner grants
+          REINPUT *0020 MARK *L-MARK(I) ALARM
+        END-IF
+      END-IF
+    VALUE ##EQU-MODIFY /* IGNORE
+      IF #GRS-TYPE = 'F' AND #PROF-USER < 2
+        REINPUT *0020 MARK *L-MARK(I) ALARM
+      END-IF
+    NONE VALUE
+      IGNORE
+  END-DECIDE        /* (0271)
+*
+  G-C-OBJTYPE := #OBJTYPE
+END-FOR           /* (0268)
+*
+INCLUDE C-CHKLC
+* --- LOCAL LINE COMMAND       DELETE
+FOR I 1 TO 10
+  IF L-IDENT(I) = ##EQU-DELETE
+    G-NATRP-ERC := 0017
+    #OBJECT-NAME-C := L-USERID(I)
+    IF G-CONFIRM
+      CALLNAT 'N-CNFRM' #OBJECT-NAME-C 'U' G-DISPLAY-LONG-NAMES
+        #CONFIRMED G-NATRP-ERT LOWER-CASE
+    END-IF
+    IF #CONFIRMED OR NOT G-CONFIRM
+      PERFORM DELETE-FOLDER-LINKS
+      DGU. GET GRANTS L-ISN(I)
+      DELETE RECORD(DGU.)
+      COMPRESS #GR-T '/' #GR-N TO #OBJ LEAVING NO
+      PERFORM RMLOGDEL #OBJ 'GRANT'
+      INCLUDE L-COMMIT
+      G-NATRP-ERC := 0018
+    END-IF          /* (3430)
+  END-IF
+END-FOR
+* --- EXTERNAL LINE COMMANDS
+FOR I 1 TO 10
+  DECIDE ON FIRST VALUE OF L-IDENT (I)
+    VALUE ##EQU-MODIFY
+      G-C-GUSERID :=        L-USERID(I)
+      G-C-FUNC := 'M'
+      G-C-OBJTYPE := #GRS-TYPE
+      PERFORM COMMIT-WORK
+      FETCH RETURN 'RDEFGR'
+      RESET #LANGUAGE
+    NONE VALUE IGNORE
+  END-DECIDE        /* (0271)
+END-FOR           /* (0268)
+*
+END-SUBROUTINE /* LINE-COMMANDS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-LINECOM
+************************************************************************
+G-LC-IDENT (01) := ##EQU-MODIFY
+G-LC-IDENT (02) := ##EQU-DELETE
+G-LC-NUM := 2
+CALLNAT 'RLCINI-N' G-OBJ-TYPE G-LC G-LCB
+CALLNAT 'RFLIPG-N' G-LC G-LINECOM (*)
+*
+END-SUBROUTINE /* INIT-LINECOM
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+IF #FATHER-PROG NE MASK('RMIG')
+  INCLUDE RPFADD-C
+END-IF
+INCLUDE RPFBRW-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-PROF-USER
+************************************************************************
+IF G-C-OBJTYPE NE 'F'
+  ESCAPE ROUTINE
+END-IF
+*
+RESET #PROF-USER #PROF-USER-2
+PERFORM FIND-LINKED-USER
+*
+IF G-USER-TYPE = 'A' OR G-USERID = G-FOR-USERID  /* own folders
+AND #FO-LINKED-USER = G-USERID            /* not linked or linked to own
+  #PROF-USER := 3
+  ESCAPE ROUTINE
+END-IF
+FIND US WITH USER-ID = G-USERID
+  PROFILE-STRING := USER-PROFILE
+  DECIDE ON FIRST VALUE OF PROF-USERS
+    VALUE 'D'
+      #PROF-USER := 1
+    VALUE 'M'
+      #PROF-USER := 2
+    VALUE 'P'
+      #PROF-USER := 3
+    NONE VALUE
+      #PROF-USER := 0
+      #MSG-USER := #FO-LINKED-USER
+  END-DECIDE
+END-FIND
+* userid when folder list called from user list
+IF G-USERID NE G-FOR-USERID
+  FIND US WITH USER-ID = G-FOR-USERID
+    PROFILE-STRING := USER-PROFILE
+    IF PROF-TYPE = 'A'
+      #PROF-USER-2 := 3
+    ELSE
+      DECIDE ON FIRST VALUE OF PROF-USERS
+        VALUE 'D'
+          #PROF-USER-2 := 1
+        VALUE 'M'
+          #PROF-USER-2 := 2
+        VALUE 'P'
+          #PROF-USER-2 := 3
+        NONE VALUE
+          #PROF-USER-2 := 0
+          #MSG-USER := G-FOR-USERID
+      END-DECIDE
+      IF #PROF-USER-2 < #PROF-USER
+        #PROF-USER := #PROF-USER-2
+      END-IF
+    END-IF
+  END-FIND
+END-IF
+* linked folder ne ' ', but not nor currect userid, not for-user
+IF NOT (#FO-LINKED-USER = G-USERID OR = G-FOR-USERID)
+  FIND US WITH USER-ID = #FO-LINKED-USER
+    PROFILE-STRING := USER-PROFILE
+    IF PROF-TYPE = 'A'
+      #PROF-USER-2 := 3
+    ELSE
+      DECIDE ON FIRST VALUE OF PROF-USERS
+        VALUE 'D'
+          #PROF-USER-2 := 1
+        VALUE 'M'
+          #PROF-USER-2 := 2
+        VALUE 'P'
+          #PROF-USER-2 := 3
+        NONE VALUE
+          #PROF-USER-2 := 0
+          #MSG-USER := #FO-LINKED-USER
+      END-DECIDE
+    END-IF
+    IF #PROF-USER-2 < #PROF-USER
+      #PROF-USER := #PROF-USER-2
+    END-IF
+  END-FIND
+ELSE
+  #PROF-USER := #PROF-USER-2 := 3
+END-IF
+*
+IF G-USER-TYPE NE 'A' AND ((#FO-LINKED-USER NE G-FOR-USERID
+AND G-USERID NE G-FOR-USERID) OR #FO-LINKED-USER NE G-USERID)         /*
+  #G-USERID := G-USERID
+  CALLNAT 'RGRANT-N' #G-USERID #GRS-TYPE G-C-OBJNAME #GRANTED #GRANTS(*)
+  IF #GRANTS(1) NE 'Y' AND #PROF-USER > 1        /* not owner grant
+    #PROF-USER := 1                              /* only display
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CHECK-PROF-USER
+*
+************************************************************************
+DEFINE SUBROUTINE FIND-LINKED-USER
+************************************************************************
+RESET #J #LEN #FO-LINKED-USER #OBJ-FOLDER-ID-A
+#OBJ-NAME-FOLDER := G-C-OBJNAME
+*
+EXAMINE #OBJ-NAME-FOLDER  FOR ' ' GIVING LENGTH IN #LEN
+#J := #LEN - 5
+#FO-LINKED-USER := SUBSTR(#OBJ-NAME-FOLDER,1,#J)
+ADD 1 TO #J
+#OBJ-FOLDER-ID-A := SUBSTR(#OBJ-NAME-FOLDER,#J,#LEN)
+#FO-LINKED-FO-ID := #OBJ-FOLDER-ID
+*
+END-SUBROUTINE /* FIND-LINKED-USER
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-FOLDER-LINKS
+************************************************************************
+IF G-C-OBJTYPE NE 'F'
+  ESCAPE ROUTINE
+END-IF
+* done only for folders
+#FO-USER := L-USERID(I)
+RESET #FO-ID
+RDFO. READ FOLDER WITH FO-USER-FO-ID = #FO-USER-FO-ID
+  ACCEPT IF FO-USER-ID = L-USERID(I) AND  FO-ID > 100
+  IF FO-LINKED-FO-ID > ' '
+    PERFORM FIND-LINKED-USER
+    IF FO-LINKED-FO-ID = #FO-LINKED-ID
+      GETFO. GET FOLDER *ISN(RDFO.)
+      RESET FO-LINKED-FO-ID
+      UPDATE (GETFO.)
+      END TRANSACTION
+    END-IF
+  END-IF
+END-READ
+*
+END-SUBROUTINE /*DELETE-FOLDER-LINKS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-FOLDER-DATA
+************************************************************************
+RESET #STRING #CHK-USER
+*
+IF G-C-OBJTYPE NE 'F'
+  ESCAPE ROUTINE
+END-IF
+* analyze folder name
+#STRING := G-C-OBJNAME
+EXAMINE #STRING FOR ' ' GIVING LENGTH IN #K
+IF #K > 5
+  SUBTRACT 5 FROM #K
+  #CHK-USER := SUBSTR(#STRING,1,#K)
+  ADD 1 TO #K
+  #CHK-FO-ID-A := SUBSTR(#STRING,#K,5)
+END-IF
+*
+END-SUBROUTINE /* GET-FOLDER-DATA
+*
+INCLUDE RPFSET-C
+*
+END

@@ -1,0 +1,477 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOBCOP-N - NOM API Report in Bundle Maintenance
+*
+* Maintenance:
+* XSETGGR 2002-05-21 created
+* XSETGGR 2002-08-06 add validation of printer and separation members
+* XSETGGR 2002-08-23 change CHECK-SOURCE
+* XSETGGR 2002-10-10 changes
+* XSETGGR 2002-11-12 changes CHECK-SOURCE
+* XSETGGR 2002-11-14 use new parameter es-app-server-library
+* sju     2003-03-18 special  TYPE=AL
+* xsetggr 2004-02-24 p(250342) implement 'NONE'/'KEIN' separator page
+* fhi     2005-04-19 NOM3107  Support 7-byte job numbers
+* XSETGGR 2006-02-15 no changes, restow
+* XSETGGR 2006-07-31 change CHECK-SOURCE as in NOARLS-N
+* XSETGGR 2007-03-22 replace call of ES...-N to direct call of module
+* XSETGGR 2007-06-27 NOM3201 Support P11 format run numbers
+* fhi     2007-07-12 NOM3202 C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2007-10-09 NOM3203 return NOBC-LINES when read record
+* xsetggr 2008-03-06 change option 'BR' to 'BB'
+*                    and return bytes of binary docs for list
+* xsetggr 2008-05-05 p(304350) get size of binary docs from spool-attr.
+* XSETHZ  2008-07-23 p(307577) sse full name of ES-APP-SERVER-LIBRARY
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-08-26 NOMALL-870 use NOSRCK-N for source existance check
+*                    and check folder grants to set options
+* xsetggr 2012-11-30 NOMAL-89 add authorization check of printer
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-07-04 NOMALL-1279 fill fields for Adabas Vista
+* SU3     2014-11-05 NOMALL-1450 fill fields for Adabas Vista
+* SU4     2015-06-01 NOMALL-1552 Show real size, not base64 size
+* fhi     2015-06-30 NOMALL-1655 Leave copies field as entered
+* SU5     2016-01-15 NOMALL-1802 do not update Adabas Vista fields
+* SU6     2016-08-05 NOM 3.5: remove unused code/use N-NONE+N-SEPME2
+* HEB1    2020-09-28 NOMALL-2439 return error message to client/NOMLOG
+* ---------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOBCOP-A
+************************************************************************
+LOCAL USING VBURP-L
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RMSPL--L
+LOCAL
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-NUMBER-OF-LINES
+  2 AR-SPOOL-ATTRIBUTES
+  2 AR-CC-TYPE
+/*SU6 2 AR-SOURCE-ID 2 AR-CURRENT-LOCATION 2 AR-REVIVE
+/*SU6 2 AR-REVIVE-EXPIRATION 2 AR-ARCHIVE 2 AR-EXPIRATION
+/*SU5  2 AR-OBJECT-TYPE /*SU2
+/*SU5  2 AR-OBJECT-TIME /*SU2
+1 MA VIEW OF NRM-MAIL
+  2 MA-USERID
+  2 MA-FO-ID
+1 FOLDER VIEW OF NRM-FOLDER
+  2 FO-LINKED-FO-ID         (A10)
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER        (A8)
+    3 FO-LINKED-ID          (B2)
+************************************************************************
+1 #ES-CONTROL               (A250)
+1 #ES-INPUT-AREA            (A253/1:3)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1  REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+  2 REDEFINE #ES-MSG-FIELD-INDEX
+    3 #ES-MSG-FIELD-INDEX1  (N2)
+    3 #ES-MSG-FIELD-INDEX2  (N2)
+1 #DEFNO                    (N3)  CONST <1>
+1 #AR-REPORT-RNB            (A31)
+1 REDEFINE #AR-REPORT-RNB
+  2 #AR-REPORT              (A25)
+  2 #AR-RNB                 (P11)
+1 #BC-BUNDLE-RNB-REPORT-RNB (A62)
+1 REDEFINE #BC-BUNDLE-RNB-REPORT-RNB
+  2 #BC-BUNDLE              (A25)
+  2 #BC-BUNDRNB             (P11)
+  2 #BC-REPORT              (A25)
+  2 #BC-REPRNB              (P11)
+1 #I                        (I2)
+1 #CHARS                    (A92)
+1 REDEFINE #CHARS
+  2 #CHARS-V                (A23/4)
+1 #CHARS-S                  (A23)
+1 #CHARSN                   (P2)
+1 #CHARSL                   (P2)
+1 #GRANTED                  (L)
+1 #GRANT-OBJECT             (A25)
+1 #GRANT-USER               (A8)
+1 #SOURCE-EXIST             (L)
+1 #LIBRARY-ID               (A8)
+1 #BIN-SIZE                 (I4)
+1 #BIN                      (L)
+1 #RECNUM                   (I4)
+1 #ERC                      (N4)
+1 #ERT                      (A250)
+1 #A4                       (A4)
+1 REDEFINE #A4
+  2 #I4                     (I4)
+1 #BROWSE                   (L)
+1 #GRANTS                   (A1/6)
+1 #FO-NAME                  (A25)
+1 #FO-USER-ID               (A10)
+1 REDEFINE #FO-USER-ID
+  2 #FO-USER                (A8)
+  2 #FO-ID                  (B2)
+1 #FO-ID-N                  (N5)
+1 REDEFINE #FO-ID-N
+  2 #FO-ID-A                (A5)
+1 #NATRP-ERC                (N4)                         /* HEB1
+1 #NATRP-ERT                (A250)                       /* HEB1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC
+#BC-BUNDLE        := ES-KEY-PARM(1)
+#BC-BUNDRNB       := VAL(ES-KEY-PARM(2))
+#BC-REPORT        := ES-KEY-PARM(3)
+#BC-REPRNB        := VAL(ES-KEY-PARM(4))
+#ES-CONTROL       := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+#LIBRARY-ID       := ES-APP-SERVER-LIBRARY
+DECIDE ON FIRST VALUE OF ES-FUNCTION
+  VALUE 'OP'
+    DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+      VALUE ' '
+        PERFORM READ-RECORD
+      VALUE 'UPD'
+        PERFORM UPDATE-RECORD
+        IF ES-RC = 0
+          END TRANSACTION
+        END-IF
+      NONE VALUE IGNORE
+    END-DECIDE
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-RECORD
+************************************************************************
+RESET NOBC-PARMS #ES-MSG-FIELD #ES-MSG-NR
+FNDBU. FIND BUNDLE-CONTENTS WITH
+    BC-BUNDLE-RNB-REPORT-RNB = #BC-BUNDLE-RNB-REPORT-RNB
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0449            /* bundle does not contain report
+    #ES-MSG-FIELD-NAME := 'BUNDLE'
+    ESCAPE BOTTOM (FNDBU.)
+  END-NOREC
+  NOBC-BUNDLE           := BC-BUNDLE
+  NOBC-BUNDRNB          := BC-BUNDRNB
+  NOBC-REPORT           := BC-REPNAME
+  NOBC-REPRNB           := BC-REPRNB
+  NOBC-PRINTER          := BC-PRINTER
+  NOBC-REPORT-COPIES    := BC-REPNO
+  NOBC-GROUP            := BC-GROUP
+  NOBC-SEQUENCE-NUMBER  := BC-SEQNO
+  NOBC-SEPSTART         := BC-SEPSTART
+  NOBC-SEPEND           := BC-SEPEND
+  CALLNAT 'N-NONE' NOBC-SEPSTART NOBC-SEPEND /*SU6
+  NOBC-SEPARATOR-COPIES := BC-SEPNO
+  NOBC-PAGEDEF          := BC-PAGEDEF
+  NOBC-FORMDEF          := BC-FORMDEF
+  NOBC-FORM             := BC-FORM
+  NOBC-FCB              := BC-FCB
+  NOBC-CHARS            := BC-CHARS
+  NOBC-FLASH            := BC-FLASH
+  PERFORM GET-LINES
+  RESET NOBC-OPTIONS(*)
+        #NATRP-ERC #NATRP-ERT                           /* HEB1
+  CALLNAT 'NOSRCK-N' BC-REPNAME BC-REPRNB #SOURCE-EXIST
+            #NATRP-ERC #NATRP-ERT ES-USER (AD=O)        /* HEB1
+  ES-APP-SERVER-LIBRARY (AD=O)                          /* HEB1
+  IF #NATRP-ERC NE 0                                    /* HEB1 >
+    ES-RC := 1
+    ES-MSG-NR := #NATRP-ERC
+    ES-MSG-TXT := #NATRP-ERT
+    ESCAPE MODULE
+  END-IF                                                /* HEB1 <
+*
+  IF NOT #SOURCE-EXIST
+    NOBC-OPTIONS(1) := 'BB'
+    NOBC-OPTIONS(2) := 'PR'
+  END-IF
+  IF #BIN AND #BIN-SIZE = 0
+    NOBC-OPTIONS(3) := 'BB'
+  END-IF
+  IF ES-USER-TYPE NE 'A'
+    PERFORM CHECK-FOLDER-GRANTS
+    IF NOT #BROWSE
+      NOBC-OPTIONS(4) := 'BB'
+    END-IF
+  END-IF
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* READ-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+FNDMOD. FIND BUNDLE-CONTENTS WITH
+    BC-BUNDLE-RNB-REPORT-RNB = #BC-BUNDLE-RNB-REPORT-RNB
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0449  /* bundle does not contain report
+    ESCAPE BOTTOM (FNDMOD.)
+  END-NOREC
+  PERFORM VALIDATION
+  ES-CONTROL := #ES-CONTROL
+  ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+  IF #ES-MSG-NR = 0
+    GETMOD. GET BUNDLE-CONTENTS *ISN(FNDMOD.)
+    BC-BUNDLE   := NOBC-BUNDLE
+    BC-BUNDRNB  := NOBC-BUNDRNB
+    BC-REPNAME  := NOBC-REPORT
+    BC-REPRNB   := NOBC-REPRNB
+    BC-PRINTER  := NOBC-PRINTER
+    BC-REPNO    := NOBC-REPORT-COPIES
+    BC-SEPSTART := NOBC-SEPSTART
+    BC-SEPEND   := NOBC-SEPEND
+* fhi     2015-06-30 NOMALL-1655 start commenting
+*   IF NOBC-SEPARATOR-COPIES = 0 AND
+*   (NOT (NOBC-SEPSTART = ' ' OR = 'NONE' OR = 'KEIN') OR
+*   NOT (NOBC-SEPEND = ' ' OR = 'NONE' OR = 'KEIN')) BC-SEPNO := 1 ELSE
+* fhi     2015-06-30 NOMALL-1655 end   commenting
+    BC-SEPNO    := NOBC-SEPARATOR-COPIES
+*   END-IF   /* NOMALL-1655 fhi out
+    BC-PAGEDEF  := NOBC-PAGEDEF
+    BC-FORMDEF  := NOBC-FORMDEF
+    BC-FORM     := NOBC-FORM
+    BC-FCB      := NOBC-FCB
+    BC-CHARS    := NOBC-CHARS
+    BC-FLASH    := NOBC-FLASH
+    NOBC-SEQUENCE-NUMBER := BC-SEQNO
+    NOBC-GROUP  := BC-GROUP
+    PERFORM GET-LINES
+    RESET NOBC-OPTIONS(*)
+          #NATRP-ERC #NATRP-ERT                         /* HEB1
+    CALLNAT 'NOSRCK-N' BC-REPNAME BC-REPRNB #SOURCE-EXIST
+            #NATRP-ERC #NATRP-ERT ES-USER (AD=O)        /* HEB1
+            ES-APP-SERVER-LIBRARY (AD=O)                /* HEB1
+    IF #NATRP-ERC NE 0                                  /* HEB1 >
+      ES-RC := 1
+      ES-MSG-NR := #NATRP-ERC
+      ES-MSG-TXT := #NATRP-ERT
+      ESCAPE MODULE
+    END-IF                                              /* HEB1 <
+*
+    IF NOT #SOURCE-EXIST
+      NOBC-OPTIONS(1) := 'BB'
+      NOBC-OPTIONS(2) := 'PR'
+    END-IF
+    IF #BIN AND #BIN-SIZE = 0
+      NOBC-OPTIONS(3) := 'BB'
+    END-IF
+/*SU5 BC-OBJECT-TYPE := 'BC' /*SU3 BC-OBJECT-TIME := *TIMX /*SU3
+    UPDATE (GETMOD.)
+  END-IF
+  IF ES-USER-TYPE NE 'A'
+    PERFORM CHECK-FOLDER-GRANTS
+    IF NOT #BROWSE
+      NOBC-OPTIONS(4) := 'BB'
+    END-IF
+  END-IF
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* UPDATE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-FOLDER-GRANTS
+************************************************************************
+RESET #BROWSE
+#AR-REPORT := BC-REPNAME
+#AR-RNB    := BC-REPRNB
+MA1. FIND MA WITH MA-REP-RNB = #AR-REPORT-RNB
+  RESET #GRANTS(*) #GRANT-USER
+  DECIDE FOR FIRST CONDITION
+/* mailed to es-user  own folder
+    WHEN MA-USERID = ES-USER  AND MA-FO-ID = 0001
+      #BROWSE := TRUE
+/* mailed to es-user , to linked folder
+    WHEN MA-USERID = ES-USER  AND MA-FO-ID NE 0001
+      #FO-ID   := MA-FO-ID
+      #FO-USER := MA-USERID
+      FIND FOLDER WITH FO-USER-FO-ID = #FO-USER-ID
+        #FO-ID-N := FO-LINKED-ID
+        COMPRESS FO-LINKED-USER #FO-ID-A TO #FO-NAME LEAVING NO
+        CALLNAT 'NOGROU-N' 'F' #FO-NAME ES-USER #GRANT-USER #GRANTS(*)
+        IF #GRANTS(4) NE 'Y'
+          #BROWSE := FALSE
+        ELSE
+          #BROWSE := TRUE
+        END-IF
+      END-FIND
+/* mailed not to es-user , but contains in linked folder
+    WHEN MA-USERID NE ES-USER  AND MA-FO-ID = 0001
+      #FO-ID-N := MA-FO-ID
+      COMPRESS MA-USERID #FO-ID-A TO #FO-NAME LEAVING NO
+      CALLNAT 'NOGROU-N' 'F' #FO-NAME ES-USER #GRANT-USER #GRANTS(*)
+      IF #GRANTS(4) NE 'Y'
+        #BROWSE := FALSE
+      ELSE
+        #BROWSE := TRUE
+      END-IF
+    WHEN NONE IGNORE
+  END-DECIDE
+  IF #BROWSE
+    ESCAPE BOTTOM(MA1.)
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* CHECK-FOLDER-GRANTS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-LINES
+************************************************************************
+RESET #BIN #BIN-SIZE
+#AR-REPORT  := BC-REPNAME
+#AR-RNB     := BC-REPRNB
+AR-UPD. FIND AR WITH AR-REPORT-RNB = #AR-REPORT-RNB
+  IF AR-CC-TYPE = 0005
+    RESET NOBC-LINES
+    #BIN := TRUE
+    #SPOOL-ATTRIBUTES := AR-SPOOL-ATTRIBUTES
+    IF NOT (#SPOOL-DI-SIZE = #I4 OR = 0)
+/*SU4 #BIN-SIZE := #SPOOL-DI-SIZE / 1024 +1
+      #BIN-SIZE := (#SPOOL-DI-SIZE / 1024) * 3 / 4 + 1 /*SU4
+    ELSE
+      PERFORM GET-BINARY-SIZE
+      AR-SPOOL-ATTRIBUTES := #SPOOL-ATTRIBUTES
+/*SU5 AR-OBJECT-TYPE      := 'AR' /*SU2
+/*SU5 AR-OBJECT-TIME      := *TIMX /*SU2
+      UPDATE (AR-UPD.)
+      END TRANSACTION
+    END-IF
+    NOBC-BYTES := #BIN-SIZE
+  ELSE
+    RESET NOBC-BYTES
+    NOBC-LINES := AR.AR-NUMBER-OF-LINES
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* GET-LINES
+*
+************************************************************************
+DEFINE SUBROUTINE GET-BINARY-SIZE
+************************************************************************
+RESET #BIN-SIZE #RECNUM #ERC #ERT
+CALLNAT 'RBINSZ-N' BC-REPNAME BC-REPRNB 'R' #RECNUM #BIN-SIZE #ERC #ERT
+IF #ES-MSG-NR = 0 AND #BIN-SIZE NE 0
+  #SPOOL-DI-SIZE := #BIN-SIZE
+  #BIN-SIZE := #BIN-SIZE / 1024 + 1
+END-IF
+*
+END-SUBROUTINE /* GET-BINARY-SIZE
+*
+/*SU6 DEFINE SUBROUTINE CHECK-SOURCE
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+RESET #ES-MSG-NR #ES-MSG-FIELD
+IF NOBC-BUNDLE = ' '
+  #ES-MSG-NR := 0405            /* bundle name is required
+  #ES-MSG-FIELD-NAME := 'BUNDLE'
+  ESCAPE ROUTINE
+END-IF
+IF NOBC-REPORT = ' '
+  #ES-MSG-NR := 0041           /* report name is required
+  #ES-MSG-FIELD-NAME := 'REPORT'
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'N-SEPME2' ES-CONTROL ES-INPUT NOBC-SEPSTART 'SEPSTART' /*SU6
+  NOBC-SEPEND 'SEPEND' 'R' #ES-MSG-NR #ES-MSG-FIELD-NAME
+IF #ES-MSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+DECIDE FOR EVERY CONDITION
+* fhi     2015-06-30 NOMALL-1655 start commenting
+* WHEN (NOBC-SEPSTART > ' ' OR NOBC-SEPEND > ' ') AND
+*     NOBC-SEPARATOR-COPIES = 0
+*   NOBC-SEPARATOR-COPIES := #DEFNO
+* fhi     2015-06-30 NOMALL-1655 end   commenting
+  WHEN NOBC-PRINTER NE  ' '
+    IF NOBC-REPORT-COPIES = 0
+      NOBC-REPORT-COPIES := #DEFNO
+    END-IF
+    ES-KEY-PARM(1) := NOBC-PRINTER
+    ES-OBJECT := 'PR'
+    ES-FUNCTION := 'EX'
+    CALLNAT 'NOXXEX-N' ES-CONTROL ES-INPUT
+    IF ES-RC NE 0
+      #ES-MSG-NR := 0108
+      #ES-MSG-FIELD-NAME  := 'PRINTER'
+      ESCAPE ROUTINE
+    END-IF
+  WHEN NOBC-PRINTER = ' ' AND NOBC-REPORT-COPIES > 0
+    #ES-MSG-NR := 0106
+    #ES-MSG-FIELD-NAME := 'PRINTER'
+    ESCAPE ROUTINE
+  WHEN NOBC-PRINTER > ' ' AND ES-USER-TYPE NE 'A'
+    #GRANT-OBJECT := NOBC-PRINTER
+    CALLNAT 'NOGRRU-N' 'P' #GRANT-OBJECT ES-USER #GRANT-USER #GRANTED
+    IF NOT  #GRANTED
+      #ES-MSG-NR := 1090
+      #ES-MSG-FIELD-NAME  := NOBC-PRINTER
+      ESCAPE ROUTINE
+    END-IF
+  WHEN NONE IGNORE
+END-DECIDE
+IF NOBC-CHARS NE ' '
+  SEPARATE NOBC-CHARS LEFT INTO #CHARS-V(*) WITH DELIMITER ' '
+    GIVING NUMBER IN #CHARSN
+  FOR #I 1 TO #CHARSN
+    MOVE #CHARS-V(#I) TO #CHARS-S
+    EXAMINE #CHARS-S FOR 'X' GIVING LENGTH IN #CHARSL
+    IF #CHARSL > 4
+      #ES-MSG-NR := 0111  /*char set name should not exceed 5 chars
+      #ES-MSG-FIELD-NAME := NOBC-CHARS
+      ESCAPE ROUTINE
+    END-IF
+  END-FOR
+END-IF
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #LIBRARY-ID  /*'NOM221'
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+IF ES-MSG-NR = 0150       /* enter date in format :1:
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ES-DATE-FORMAT
+END-IF
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+EXAMINE ES-MSG-TXT FOR ':2:' REPLACE ' '
+ES-MSG-FIELD := #ES-MSG-FIELD
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+END

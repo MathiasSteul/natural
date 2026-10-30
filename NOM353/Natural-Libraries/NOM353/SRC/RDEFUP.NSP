@@ -1,0 +1,227 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDEFUP    DEFINE A  USER  PROFILE
+*
+* MAINTENANCE:
+* uuu yy-mm-dd s(999999) ...
+* GW  91-08-06 s(127438) add security check
+* mrs 91-12-28 s(141159) support languages other than english
+* mrs 92-01-17 s(141159) PROF-LANGUAGE implemented
+* mrs 92-02-21 s(144687) display g-userid
+* mrs 93-11-23 s(999999) editor profile implemented
+* mrs 94-03-10 s(999999) external user
+* gw  97-02-07 s(261503) new user type 'O' (operator) for printout queue
+* sju 99-11-29 p(188153) new profile entry for restrict active bundles
+* sju 00-01-14 p(190849) new profile entry for active bundle list format
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* XSISWS  2000-06-08  CE 7592  DLOG for non-admin
+* xsisgg  2000-07-28  CE 7461  new field in user profile to display
+*                              long report and bundle names
+* xsetggr 2005-10-26 P(270950) ISN fields must be P10, not P8
+* fhi     2006-06-07 p(279849) Introduce new Revive profile 'M'
+* fhi     2007-05-24 P293939   Introduce new User type 'P' Printer
+*                              associated.
+* XSETHZ  2008-11-05 P299405   'sort flag' for act. rep. added
+* XSETHZ  2008-12-16 P312667   MAP changed(sort selected active reports)
+* xsetggr 2013-04-18 ES-104    implement PROF-AR-FILTER-SUBSTR
+* SU1     2013-09-16 NOMALL-1281 last update user+date
+* SU2     2014-03-05 NOMALL-1281 show last update user+date
+* fhi     2014-07-10 NOMALL-1440 Change default for filter setting
+* SU3     2015-12-04 NOMALL-1783 'Set default filter to substring'-MSG
+* SU4     2022-07-04 NOMALL-2559 docu: ' ' is valid for auth.
+* ----------------------------------------------------------------------
+*
+DEFINE DATA GLOBAL USING  NRM-GL
+LOCAL  USING  RPFK---L
+LOCAL  USING  VUSERS-L
+*
+LOCAL
+1 #FATHER-PROG (A8) INIT <'RDEFUS'>
+1 #USERNAME    (A60)
+1 CV-MAP       (C) INIT < (AD=I CD=NE)>
+1 L-HEADER     (A78)
+*
+1 #FUNC        (A1)
+1 #ALLOWED     (L)
+1 #LANGUAGE    (I1)
+1 #LAST-MOD    (A40) /*SU2
+1 #DMP         (A4) CONST <'DMP '> /*SU4
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET G-LINECOM (*) G-COMMIT
+#FUNC := G-C-FUNC
+DECIDE ON EVERY VALUE OF #FUNC
+  VALUE 'D'
+    CALLNAT 'NARPSEC' G-USER-PROFILE 'DUS' #ALLOWED
+    INCLUDE C-NALLOW
+  VALUE 'M'
+    CALLNAT 'NARPSEC' G-USER-PROFILE 'MUS' #ALLOWED
+    INCLUDE C-NALLOW
+  NONE IGNORE
+END-DECIDE
+*
+MAIN-LOOP. REPEAT
+  FIND-LOOP. FIND USERS WITH USER-ID = G-C-USERID
+    IF NO RECORDS FOUND
+      G-NATRP-ERC := 0602
+      INCLUDE C-ESCAPE
+    END-NOREC
+    IF G-C-FUNC = 'D'
+      CV-MAP := (AD=P)
+    ELSE
+      GETREC. GET USERS *ISN(FIND-LOOP.)
+    END-IF
+    IF NOT G-SUPPORT-LONG-NAMES AND PROF-DISPLAY-LONG-NAMES = 'Y'
+      RESET PROF-DISPLAY-LONG-NAMES
+    END-IF
+    IF PROF-AR-SORT = ' '
+      PROF-AR-SORT := 'N'
+    END-IF
+    IF NOT(PROF-AR-FILTER-SUBSTR = 'Y' OR = 'N')
+      PROF-AR-FILTER-SUBSTR := 'N'
+    END-IF
+    CALLNAT 'N-HEAD2' US-LAST-UPDATE-USER US-LAST-UPDATE /*SU2
+      #LAST-MOD G-DATE-FORMAT /*SU2
+    COMPRESS LAST-NAME ',' TO #USERNAME LEAVING NO
+    COMPRESS #USERNAME FIRST-NAME TO #USERNAME
+    SCREEN-LOOP. REPEAT
+      IF #LANGUAGE NE *LANGUAGE
+        #LANGUAGE := *LANGUAGE
+        PERFORM INIT-PFKEYS
+      END-IF
+      PERFORM SET-PFKEYS
+      RESET G-MAP-MODIFIED
+      CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDEFUPM1'
+      SET CONTROL 'WMB'
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+        USING MAP 'RDEFUPM&'
+      INCLUDE RPFKVA-C
+      RESET G-NATRP-ERC G-NATRP-ERT
+      INCLUDE C-DIRECT
+      INCLUDE RPFKED-C
+      PERFORM FLIP-DISPLAY
+      IF CV-MAP MODIFIED
+        PERFORM VALIDATE-INPUT
+        US-LAST-UPDATE      := *TIMX /*SU1 in
+        US-LAST-UPDATE-USER := G-USERID /*SU1 in
+        UPDATE (GETREC.)
+        INCLUDE C-COMMIT
+        G-NATRP-ERC := 32
+      END-IF
+      INCLUDE REXDO--C
+    END-REPEAT /* (SCREEN-LOOP.)
+  END-FIND     /* (FIND-LOOP.)
+END-REPEAT     /* MAIN-LOOP.)
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+DECIDE FOR EVERY CONDITION
+  WHEN NOT(PROF-CONFIRM = ' ' OR = 'Y' OR = 'N')
+    REINPUT *0618 MARK *PROF-CONFIRM ALARM
+  WHEN NOT(PROF-LANGUAGE = '1' THRU '2')
+    REINPUT *0036 MARK *PROF-LANGUAGE ALARM
+  WHEN NOT(PROF-TYPE = 'A' OR = 'G' OR = 'O' OR = 'P')
+    REINPUT *0620 MARK *PROF-TYPE ALARM
+  WHEN NOT(PROF-REPORTS = 'D' OR = 'M' OR = 'P' OR = ' ')
+    REINPUT *0617 MARK *PROF-REPORTS ALARM
+  WHEN NOT(PROF-CALENDARS  = 'D' OR = 'M' OR = 'P' OR = ' ')
+    REINPUT *0617 MARK *PROF-CALENDARS ALARM
+  WHEN NOT(PROF-BUNDLES = 'D' OR = 'M' OR = 'P' OR = ' ')
+    REINPUT *0617 MARK *PROF-BUNDLES ALARM
+  WHEN #DMP NE SCAN PROF-LISTS /*SU4
+    REINPUT *0617 MARK *PROF-LISTS ALARM
+  WHEN NOT(PROF-FLUSH = 'Y' OR = 'N'  OR = ' ')
+    REINPUT *0618 MARK *PROF-FLUSH ALARM
+  WHEN #DMP NE SCAN PROF-USERS
+    REINPUT *0617 MARK *PROF-USERS ALARM
+  WHEN #DMP NE SCAN PROF-AREPS
+    REINPUT *0617 MARK *PROF-AREPS ALARM
+  WHEN #DMP NE SCAN PROF-PRINTERS
+    REINPUT *0617 MARK *PROF-PRINTERS ALARM
+  WHEN #DMP NE SCAN PROF-PHYSICAL
+    REINPUT *0617 MARK *PROF-PHYSICAL ALARM
+  WHEN #DMP NE SCAN PROF-DEST
+    REINPUT *0617 MARK *PROF-DEST ALARM
+  WHEN #DMP NE SCAN PROF-LOCATION
+    REINPUT *0617 MARK *PROF-LOCATION ALARM
+  WHEN NOT(PROF-ARCHIVE-ADMIN = 'Y' OR = 'N')
+    REINPUT  *0618 MARK *PROF-ARCHIVE-ADMIN ALARM
+  WHEN NOT(PROF-ARCHIVE = 'Y' OR = 'N' OR = 'M' OR = ' ')
+    REINPUT *0618 MARK *PROF-ARCHIVE ALARM
+  WHEN NOT(PROF-REVIVE = 'Y' OR = 'N' OR = 'M' OR = ' ')
+    REINPUT *0618 MARK *PROF-REVIVE ALARM
+  WHEN NOT(PROF-STARTUP = 'Y' OR = 'N' OR = ' ')
+    REINPUT *0618 MARK *PROF-STARTUP ALARM
+  WHEN NOT(PROF-EDT-PREFIX = 'Y' OR = 'N' OR = ' ')
+    REINPUT *0618 MARK *PROF-EDT-PREFIX ALARM
+  WHEN NOT(PROF-EDT-KEYS = 'Y' OR = 'N' OR = ' ')
+    REINPUT *0618 MARK *PROF-EDT-KEYS ALARM
+  WHEN NOT(PROF-EXTERNAL = 'Y' OR = 'N' OR = ' ')
+    REINPUT *0618 MARK *PROF-EXTERNAL ALARM
+  WHEN NOT(PROF-SHUTDOWN = 'Y' OR = 'N' OR = ' ')
+    REINPUT *0617 MARK *PROF-SHUTDOWN ALARM
+  WHEN NOT(PROF-DEFAULTS = 'D' OR = 'M' OR = ' ')
+    REINPUT *0619 MARK *PROF-DEFAULTS ALARM
+  WHEN #DMP NE SCAN PROF-NODES
+    REINPUT *0617 MARK *PROF-NODES ALARM
+  WHEN #DMP NE SCAN PROF-ABUNDS
+    REINPUT *0617 MARK *PROF-ABUNDS  ALARM
+  WHEN #DMP NE SCAN PROF-PRINTOUTS
+    REINPUT *0617 MARK *PROF-PRINTOUTS ALARM
+  WHEN NOT(PROF-AUTOCOMMIT = 'E' OR = 'I')
+    REINPUT *0625 MARK *PROF-AUTOCOMMIT ALARM
+  WHEN NOT(PROF-RESTRICT-ABUN = 'Y' OR = 'N' OR = ' ')
+    REINPUT *0618 MARK *PROF-RESTRICT-ABUN ALARM
+  WHEN NOT(PROF-ABUN-LIST-FORMAT = '1' OR = '2' OR = ' ')
+    REINPUT *0007 MARK *PROF-ABUN-LIST-FORMAT ALARM
+  WHEN  NOT(PROF-DISPLAY-MONITOR = 'Y' OR = 'N' OR = ' ')
+    REINPUT *0007 MARK *PROF-DISPLAY-MONITOR ALARM
+  WHEN NOT (PROF-DISPLAY-LONG-NAMES = 'Y' OR ='N' OR =' ')
+    REINPUT *0618 MARK *PROF-DISPLAY-LONG-NAMES ALARM
+  WHEN NOT G-SUPPORT-LONG-NAMES AND PROF-DISPLAY-LONG-NAMES = 'Y'
+    REINPUT  *0637 MARK *PROF-DISPLAY-LONG-NAMES ALARM
+  WHEN G-SUPPORT-LONG-NAMES AND PROF-DISPLAY-LONG-NAMES = 'Y'
+      AND NOT G-DISPLAY-LONG-NAMES
+    G-DISPLAY-LONG-NAMES := TRUE
+  WHEN PROF-DISPLAY-LONG-NAMES = ' ' AND G-SUPPORT-LONG-NAMES
+    PROF-DISPLAY-LONG-NAMES := 'Y'
+    G-DISPLAY-LONG-NAMES := TRUE
+  WHEN PROF-DISPLAY-LONG-NAMES = ' ' AND NOT G-SUPPORT-LONG-NAMES
+    PROF-DISPLAY-LONG-NAMES := 'N'
+    RESET  G-DISPLAY-LONG-NAMES
+  WHEN NOT(PROF-AR-SORT = 'D' OR = 'N')
+    REINPUT *0682 MARK *PROF-AR-SORT  ALARM
+  WHEN NOT (PROF-AR-FILTER-SUBSTR = 'Y' OR = 'N' OR = ' ')
+    REINPUT *0618 MARK *PROF-AR-FILTER-SUBSTR /*SU3 was 199
+  WHEN PROF-AR-FILTER-SUBSTR = ' '
+    PROF-AR-FILTER-SUBSTR := 'N'
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFCOM-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+INCLUDE RPFSET-C
+*
+END

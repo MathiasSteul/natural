@@ -1,0 +1,265 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RARCDSN
+* Version   3.2
+* Function  Synhronize Archive dsname for Active Reports with dsname of
+*          the archive data set that contains them.
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* xsetggr 2007-12-03 NRT2488   created
+* SU1     2014-07-04 NOMALL-1279 fill fields for Adabas Vista
+* SU2     2014-11-05 NOMALL-1450 fill fields for Adabas Vista
+* SU3     2016-01-18 NOMALL-1802 do not update Adabas Vista fields
+* SU4     2016-07-29 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  NRM-GL
+* ----------------------------- LDA's ---------------------------------
+LOCAL  USING RPFK---L
+LOCAL  USING XXGMSG-A
+LOCAL  USING RLOG-L
+LOCAL  USING PROF-LOC
+* -----------------------------local Variables--------------------------
+LOCAL
+1 NRM-ACTIVE-REPORTS VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-ARCHIVE-DATA-SET
+/*SU3 2 AR-OBJECT-TYPE /*SU1
+/*SU3 2 AR-OBJECT-TIME /*SU1
+1 NRM-DATASET-REPORT VIEW OF NRM-DATASET-REPORT
+  2 DR-ARCHIVE-DSNAME
+  2 DR-REPNAME
+  2 DR-REPRNB
+/*SU3 2 DR-OBJECT-TYPE /*SU2
+/*SU3 2 DR-OBJECT-TIME /*SU2
+1 NRM-ARCHIVE-DATASET VIEW OF NRM-ARCHIVE-DATASET
+  2 AD-ARCHIVE-DSNAME
+/*SU3 2 AD-OBJECT-TYPE /*SU2
+/*SU3 2 AD-OBJECT-TIME /*SU2
+1 #FATHER-PROG        (A8)  INIT <'RMENU'>
+1 #AR-KEY             (A31)
+1 REDEFINE #AR-KEY
+  2 #AR-REP           (A25)
+  2 #AR-RNB           (P11)
+1 #ET-COUNT           (I2)
+1 L-HEADER            (A78)
+1 L-NEW-ARC           (A44)
+1 L-ARC               (A44)
+1 L-ISN               (P10)
+1 L-REP-COUNT         (I4)
+1 L-LOG               (A1) INIT <'N'>
+1 L-ET-COUNT          (N5) INIT <30>
+1 L-REFRESH-COUNT     (N5) INIT <1000>
+1 CV-MAP              (C)  INIT < (AD=I CD=NE)>
+1 #LANGUAGE           (I1)
+1 #SCREEN-COUNT       (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+/*SU4 OPTIONS MCG=OFF
+RESET G-COMMIT
+*
+DEFINE WINDOW RECORDS-MODIFIED SIZE 5*40 BASE 08/15 CONTROL SCREEN
+*
+IF *DATA GT 0
+  INPUT L-ARC L-ISN
+END-IF
+MAIN-LOOP. REPEAT
+*
+  RESET G-NATRP-ERC G-NATRP-ERT
+  SCREEN-LOOP. REPEAT
+*
+    IF #LANGUAGE NE *LANGUAGE
+      #LANGUAGE := *LANGUAGE
+      PERFORM INIT-PFKEYS
+      PERFORM SET-PFKEYS
+    END-IF
+*
+    PERFORM FLIP-DISPLAY
+    SET CONTROL 'L'
+    SET CONTROL 'WB'
+    CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RARCDSM&'
+    RESET G-MAP-MODIFIED
+*
+    INPUT WITH TEXT G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RARCDSM&'
+    RESET G-NATRP-ERC G-NATRP-ERT
+    INCLUDE RPFKVA-C
+    INCLUDE C-DIRECT
+    DECIDE ON FIRST VALUE OF G-PF-FUNC
+      VALUE 'HELP'     REINPUT USING HELP
+      VALUE 'EXIT'     ESCAPE BOTTOM(MAIN-LOOP.)
+      VALUE 'FLIP'     PERFORM FLIP-HANDLE
+      VALUE 'DO'       PERFORM VALIDATE-INPUT
+        PERFORM CHANGE-DSNAME
+      VALUE 'MENU'     ESCAPE BOTTOM(MAIN-LOOP.)
+      ANY              RESET G-DIRECT-COMMAND
+      NONE             IGNORE
+    END-DECIDE
+    IF (CV-MAP MODIFIED OR G-MAP-MODIFIED)
+        AND G-PF-IDENT (05) = ##PFN-COMMIT
+      PERFORM VALIDATE-INPUT
+    END-IF
+*
+  END-REPEAT
+END-REPEAT
+IF G-PF-FUNC = 'MENU'
+  FETCH #FATHER-PROG
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+PROFILE-STRING := G-USER-PROFILE
+IF PROF-ARCHIVE-ADMIN NE 'Y'
+  REINPUT *0020 MARK *G-DIRECT-COMMAND
+END-IF
+*
+IF L-NEW-ARC = ' '
+  REINPUT *4116 MARK *L-NEW-ARC
+END-IF
+IF NOT L-LOG = 'Y' OR = 'N'
+  REINPUT *1099 MARK *L-LOG
+END-IF
+IF L-REFRESH-COUNT = 0
+  L-REFRESH-COUNT := 1000
+END-IF
+IF L-ET-COUNT = 0
+  L-ET-COUNT := 30
+END-IF
+FIND NRM-ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = L-NEW-ARC
+  REINPUT *0478,L-NEW-ARC MARK *L-NEW-ARC
+END-FIND
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE CHANGE-DSNAME
+************************************************************************
+PERFORM CHECK-SCREEN-COUNT
+FNDAD. FIND NRM-ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = L-ARC
+  IF NO RECORDS FOUND
+    REINPUT *479   MARK *L-ARC
+  END-NOREC
+  PERFORM CHECK-SCREEN-COUNT
+  AD-ARCHIVE-DSNAME := L-NEW-ARC
+/*SU3 AD-OBJECT-TYPE := 'AD' /*SU2
+/*SU3 AD-OBJECT-TIME := *TIMX /*SU2
+  UPDATE
+  PERFORM CHECK-SCREEN-COUNT
+  IF #ET-COUNT GE L-ET-COUNT
+    RESET #ET-COUNT
+    END TRANSACTION
+    PERFORM CHECK-SCREEN-COUNT
+  END-IF
+END-FIND
+FIND NRM-DATASET-REPORT WITH DR-ARCHIVE-DSNAME = L-ARC
+  PERFORM CHECK-SCREEN-COUNT
+  #AR-REP:= DR-REPNAME
+  #AR-RNB:= DR-REPRNB
+  DR-ARCHIVE-DSNAME := L-NEW-ARC
+/*SU3 DR-OBJECT-TYPE := 'DR' /*SU2
+/*SU3 DR-OBJECT-TIME := *TIMX /*SU2
+  UPDATE
+  PERFORM CHECK-SCREEN-COUNT
+  ADD 1 TO #ET-COUNT
+  IF #ET-COUNT GE L-ET-COUNT
+    RESET #ET-COUNT
+    END TRANSACTION
+    PERFORM CHECK-SCREEN-COUNT
+  END-IF
+  ACTREP. FIND NRM-ACTIVE-REPORTS WITH AR-REPORT-RNB = #AR-KEY
+    PERFORM CHECK-SCREEN-COUNT
+    AR-ARCHIVE-DATA-SET := L-NEW-ARC
+/*SU3 AR-OBJECT-TYPE := 'AR' /*SU1
+/*SU3 AR-OBJECT-TIME := *TIMX /*SU1
+    UPDATE (ACTREP.)
+    PERFORM CHECK-SCREEN-COUNT
+    IF L-LOG = 'Y'
+      COMPRESS DR-REPNAME '/' DR-REPRNB TO LG-OBJECT-NAME
+      COMPRESS '0480' LG-OBJECT-NAME INTO LG-MSG
+      PERFORM WRITE-LOG
+    END-IF
+    ADD 1 TO #ET-COUNT
+    ADD 1 TO L-REP-COUNT
+    IF #ET-COUNT GE L-ET-COUNT
+      RESET #ET-COUNT
+      END TRANSACTION
+      PERFORM CHECK-SCREEN-COUNT
+    END-IF
+  END-FIND
+END-FIND
+END TRANSACTION
+COMPRESS '0481' L-REP-COUNT INTO LG-MSG
+PERFORM WRITE-LOG
+#XX-ERROR-CODE:= 0481
+#XX-MSG-DYNA(1):= L-REP-COUNT
+INCLUDE XXGMSG-C
+G-NATRP-ERT:= #XX-SHORT-TEXT
+PERFORM RESET-PF5
+*
+END-SUBROUTINE /* CHANGE-DSNAME
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-SCREEN-COUNT
+************************************************************************
+ADD 1 TO #SCREEN-COUNT
+IF #SCREEN-COUNT GT L-REFRESH-COUNT
+  RESET #SCREEN-COUNT
+  SET CONTROL 'N'
+  INPUT WINDOW = 'RECORDS-MODIFIED' (AD=OI)
+    /  'Modified' L-REP-COUNT 'reports'
+END-IF
+*
+END-SUBROUTINE /* CHECK-SCREEN-COUNT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG
+************************************************************************
+LG-USERID:= G-USERID
+LG-CODE:= 'MO'
+CALLNAT 'RLOG' PL-PARMS
+PERFORM CHECK-SCREEN-COUNT
+ADD 1 TO #ET-COUNT
+IF #ET-COUNT GE L-ET-COUNT
+  RESET #ET-COUNT
+  END TRANSACTION
+  PERFORM CHECK-SCREEN-COUNT
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE RESET-PF5
+************************************************************************
+RESET  G-PF-IDENT (05) G-PF-CODE  (05) G-PF-IDENT (17) G-PF-CODE  (17)
+CALLNAT 'RPFINI-N' G-PF G-PFB
+PERFORM SET-PFKEYS
+*
+END-SUBROUTINE /* RESET-PF5
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+G-PF-IDENT (05) := ##PFN-COMMIT
+G-PF-CODE  (05) := ##PFK-COMMIT
+G-PF-IDENT (17) := ##PFN-COMMIT
+G-PF-CODE  (17) := ##PFK-COMMIT
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+* --------------------------------------- set pfkeys -------------------
+INCLUDE RPFSET-C
+*
+END

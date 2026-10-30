@@ -1,0 +1,90 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    N-SEPME2
+* Function  Handle Separator Pages/Members: check reports/bundles
+*
+* Version   3.4
+*
+* Maintenance:
+* uuu     yyyy-mm-dd itrac ....
+* SU      2016-08-16 NOM3.5      created
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER USING ESMCNT-A /*In/Out
+PARAMETER USING ESMINP-A /*In/Out
+PARAMETER
+1 #MEM-START        (A8)                    /*In
+1 #NAME-START       (A20) BY VALUE OPTIONAL /*In
+1 #MEM-END          (A8)                    /*In
+1 #NAME-END         (A20) BY VALUE OPTIONAL /*In
+1 #REPORT           (A1) /*R=report / ELSE=bundle /*In
+1 #ES-MSG-NR        (N4)                    /*Out
+1 #ES-MSG-FIELD-NAME(A28)                   /*Out
+* *****
+LOCAL
+1 #MEM              (A8)
+1 #PRE              (A1)
+1 #I                (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #ES-MSG-NR #ES-MSG-FIELD-NAME
+IF #REPORT = 'R' OR='r'
+  #PRE := 'R' /*Report
+ELSE
+  #PRE := 'B' /*Bundle
+END-IF
+FOR #I = 1 TO 2
+  IF #I = 1
+    #MEM := #MEM-START
+  ELSE
+    #MEM := #MEM-END
+  END-IF
+  IF #MEM =' ' OR='NONE' OR='KEIN'
+    ESCAPE TOP /*ok:next mem
+  END-IF
+  IF SUBSTR(#MEM,1,1) NE #PRE OR SUBSTR(#MEM,2,1) NE 'S' /*RS/BS
+    IF #PRE = 'R' /*Report
+      #ES-MSG-NR := 0423 /*NOM0423 Separator name must start with 'RS'.
+    ELSE
+      #ES-MSG-NR := 0416 /*NOM0416 Separator name must start with 'BS'.
+    END-IF
+    ESCAPE BOTTOM
+  END-IF
+* Check if member exist:
+  COMPRESS ES-APP-SERVER-LIBRARY 'U' TO ES-KEY-PARM(1) LEAVING NO
+  ES-KEY-PARM(2) := #MEM
+  CALLNAT 'NOSFEX-N' ES-CONTROL ES-INPUT
+  IF ES-RC NE 0
+    #ES-MSG-NR := 2103  /* separator member not found
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+IF #ES-MSG-NR = 0
+  ESCAPE ROUTINE
+END-IF
+IF #I = 1
+  IF #NAME-START SPECIFIED
+    #ES-MSG-FIELD-NAME := #NAME-START
+  END-IF
+  IF #ES-MSG-FIELD-NAME = ' '
+    #ES-MSG-FIELD-NAME := 'SEP-START'
+  END-IF
+ELSE
+  IF #NAME-END SPECIFIED
+    #ES-MSG-FIELD-NAME := #NAME-END
+  END-IF
+  IF #ES-MSG-FIELD-NAME = ' '
+    #ES-MSG-FIELD-NAME := 'SEP-END'
+  END-IF
+END-IF
+*
+END

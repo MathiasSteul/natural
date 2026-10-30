@@ -1,0 +1,126 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMTRCATT - Trace spool attributes, fill trace variable
+*
+* Creation and Maintenance History
+* uuu     yyyy-mm-dd s(999999) ...
+* fhi     2018-09-07 NOMALL-2141 created.
+* fhi     2019-10-21 NOMALL-2294 Don't trace empty spool attributes
+* bli     2019-10-21 NOMALL-2294 fill spool attributes
+* bli     2021-05-03 NOMALL-2446 wrong entries in XXHASH
+* SU1     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+*
+DEFINE DATA PARAMETER
+1 SPOOL-ATTRIBUTES     (A250)
+1 #TRACE-MSG           (A250)
+1 SOURCE-ATTRIBUTES    (A250) OPTIONAL
+************************************************************************
+LOCAL USING RMSR---E
+LOCAL USING RMSPL--L
+LOCAL USING RMSR---L
+LOCAL
+1 #SPOOL-TYPE-MAX        (I1) CONST <17>   /* BLI was 16 NOMALL-2446
+1 #SPOOL-TYPE-TEXTS      (A20/#SPOOL-TYPE-MAX)
+  INIT <
+  'JES2',
+  'JES3',
+  'POWER', /*MUST stay to be upward compatible SU1
+  'NOM-DATA-BASE',
+  'SEQUENTIAL-FILE-MVS',
+  'SEQUENTIAL-FILE-VSE', /*MUST stay to be upward compatible SU1
+  'SEQUENTIAL-FILE-BS2',
+  'LMS',
+  'EPS',      /* BLI NOMALL-2446 must stay to be upward compatible
+  'NAT',
+  'NAF',
+  'JES2-QUEUE-ENTRY',
+  'JES3-QUEUE-ENTRY',
+  'CMASPOOL',
+  'SAPSPOOL', /*SU2 must stay to be upward compatible
+  'SEQUENTIAL-FILE-UNIX',
+  'DIRECT-INPUT'
+  >
+1 #S-ATTRIBUTES               (A250)
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#SPOOL-ATTRIBUTES := SPOOL-ATTRIBUTES /* BLI NOMALL-2294
+IF SOURCE-ATTRIBUTES SPECIFIED
+  #S-ATTRIBUTES := SOURCE-ATTRIBUTES
+ELSE
+  RESET #S-ATTRIBUTES
+END-IF
+*
+IF #SPOOL-TYPE > 0 AND #SPOOL-TYPE LE #SPOOL-TYPE-MAX
+  COMPRESS 'Spool-type:' #SPOOL-TYPE-TEXTS(#SPOOL-TYPE) TO #TRACE-MSG
+ELSE
+  RESET #TRACE-MSG
+END-IF
+DECIDE ON FIRST VALUE OF #SPOOL-TYPE
+  VALUES JES2,JES2-QUEUE-ENTRY,JES3,JES3-QUEUE-ENTRY
+    COMPRESS #TRACE-MSG '- node:'       #SPOOL-JES-NODE
+      '-job-name:'   #SPOOL-JES-JOB-NAME
+      '-job-number:' #SPOOL-JES-JOB-NUMBER '-dstype:' #SPOOL-JES-DSTYPE
+      '-dsno:'       #SPOOL-JES-DSNO      '-key:' #SPOOL-JES-DATASET-KEY
+      '-group:'      #SPOOL-JES-GROUP-ID   '-proc:' #SPOOL-JES-PROCNAME
+      '-step:'       #SPOOL-JES-STEPNAME   '-DD:'   #SPOOL-JES-DDNAME
+      '-dest:'       #SPOOL-JES-DESTINATION TO #TRACE-MSG
+  VALUE NOM-DATA-BASE
+    IF #S-ATTRIBUTES NE ' '
+      COMPRESS #TRACE-MSG '- file-idnt:' #NOMDB-FILE-IDENT
+        '- DB-id:'     #NOMDB-ID '- DB-old:'    #NOMDB-DBID-OLD
+        '- FNR-old:'   #NOMDB-FNR-OLD '- DB:'        #NOMDB-DBID
+        '- FNR:'       #NOMDB-FNR TO #TRACE-MSG
+    ELSE
+      COMPRESS #TRACE-MSG '(source-attrib. not supplied)' TO #TRACE-MSG
+    END-IF
+  VALUE SEQUENTIAL-FILE-MVS
+    IF #S-ATTRIBUTES NE ' '
+      COMPRESS #TRACE-MSG '- node:' #FMVS-NODE
+        '- dsname:'    #FMVS-DSNAME '- recfm:'     #FMVS-RECFM
+        '- lrecl:'     #FMVS-LRECL '- blksize:'   #FMVS-BLKSIZE
+        '- volser:'    #FMVS-VOLSER '- rep-form:'  #FMVS-REP-FORMAT
+        TO #TRACE-MSG
+    ELSE
+      COMPRESS #TRACE-MSG '(source-attrib. not supplied)' TO #TRACE-MSG
+    END-IF
+  VALUE SEQUENTIAL-FILE-BS2
+    COMPRESS #TRACE-MSG '- node:' #SPOOL-BS2-NODE
+      '-job-name:'  #SPOOL-BS2-JOB-NAME '-user:' #SPOOL-BS2-USER-ID
+      '-job-id:' #SPOOL-BS2-JOB-ID
+      '-origin:' #SPOOL-BS2-ORIGINATOR-JOB-ID
+      '-dest:'   #SPOOL-BS2-DESTINATION
+      '-device:' #SPOOL-BS2-DEVICE TO #TRACE-MSG
+  VALUE SEQUENTIAL-FILE-UNIX
+    COMPRESS #TRACE-MSG '-node-name:' #SPOOL-UNIX-NODE-NAME
+      '-user:'      #SPOOL-UNIX-USERID '-group:'     #SPOOL-UNIX-GROUP
+      '-DB:'        #SPOOL-UNIX-CONTAINER-DBID
+      '-FNR:'       #SPOOL-UNIX-CONTAINER-FNR '-size:' #SPOOL-UNIX-SIZE
+      '-file:'      #SPOOL-UNIX-FILE-NAME     '-path:' #SPOOL-UNIX-PATH
+      TO #TRACE-MSG
+  VALUE DIRECT-INPUT
+    COMPRESS #TRACE-MSG '-st-id:' #SPOOL-DI-ST-ID
+      '-rpc-srv:'   #SPOOL-DI-RPC-SERVER '-user:'      #SPOOL-DI-USERID
+      '-file-type:' #SPOOL-DI-FILETYPE '-DB:'  #SPOOL-DI-CONTAINER-DBID
+      '-FNR:'       #SPOOL-DI-CONTAINER-FNR '-size:' #SPOOL-DI-SIZE
+      '-file:' #SPOOL-DI-FILENAME '-path:' #SPOOL-DI-PATH TO #TRACE-MSG
+  VALUES NAT,NAF
+    COMPRESS #TRACE-MSG '-st-id:' #SPOOL-NAF-ST-ID
+      '-DB:' #SPOOL-NAF-DBID '-FNR:' #SPOOL-NAF-FNR
+      '-user:'      #SPOOL-NAF-USER-ID '-dest:'      #SPOOL-NAF-DEST
+      '- pnr:'       #SPOOL-NAF-PNR '- natpgm:'    #SPOOL-NAF-NATPGM
+      '- natlib:'    #SPOOL-NAF-NATLIB '- name:'      #SPOOL-NAF-NAME
+      '- time:'      #SPOOL-NAF-TIME '- disp:'      #SPOOL-NAF-DISP
+      TO #TRACE-MSG
+  NONE /*LMS,EPS,CMASPOOL,SAPSPOOL     /* BLI NOMALL-2446
+    RESET #TRACE-MSG /*POWER, SEQUENTIAL-FILE-VSE /*SU1
+END-DECIDE
+*
+END

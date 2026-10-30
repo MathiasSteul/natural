@@ -1,0 +1,195 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* MIGEND - Set NOM version in directory file
+*
+* Maintenance
+* uuu YY-MM-DD Sagsis Desciption
+* --- -------- ------ --------------------------------------------------
+* gw  94-01-13        created
+* fhi 02-11-27 fhi104 set SYSSAT as steplib, NOMVER-* has been moved to it.
+* sju 05-03-07 p(262794) IUPD number greater than 9
+* fhi 07-05-30 P297047   Replace RSTEPLIB, old comments deleted
+* fhi     08-03-26 fhi249    Replace NOMVER-P with NOMVER-A
+* XSETHZ  09-02-04 P307593   Replace NOMVER-N with PRDVER-N
+* XSETHZ  09-02-04 P307593   Add Version date
+* fhi     2009-02-27 P300323 Rename RGETSTEP to NOMGSTEP delivered in SYSTEM
+* fhi     2009-04-14 P315875 Don't do anything if database not accessible
+* fhi     2009-05-28 P317285 Change NOMVER with NOMVI...
+* fhi     2010-03-25 P324799 NAT0934 in 190 if called by another prgr.
+* fhi     2010-06-25 NOMALL-812  Add record for Lfile-91 check
+* fhi     2010-07-23 NOMALL-838  Call MIGPRT additionally
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2012-01-30 NOMALL-812  Add record for Lfile-91 check
+* fhi     2012-07-27 NOMALL-1183 Log activities to monitor log
+* fhi     2012-07-31 NOMALL-1183 Log activities to monitor log
+* bli     2012-09-19 NOMALL-94 Introduce 2 digit versions
+* xsetggr 2012-11-28 NOMALL-89 call NRM-GRANTS migration
+* xsetggr 2013-01-14 ES-104 add migration of mail records
+* raya    2013-03-21 NOMALL-1214 check cat dates of all user exits
+* fhi     2013-05-08 NOMALL-1214 Introducing new migration flags
+* fhi     2014-02-11 NOMALL-1318 Improve messages
+* fhi     2014-03-17 NOMALL-1380 Make it independent from MIGMAIL
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2019-01-35 NOMALL-2212 Adapt to new mig programs
+* fhi     2019-02-15 NOMALL-2234 If no monitor record, inform user
+* fhi     2019-03-11 NOMALL-2248 INSTALL does not fill version info
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL USING NOMVI-2A
+LOCAL USING RACTLF-A
+LOCAL USING XXGMSG-A
+LOCAL
+1 MONITOR VIEW OF NRM-MONITOR
+  2 M-MONITOR-ID
+  2 M-NATRPT-DBID-N5
+  2 M-NATRPT-FNR-N5
+  2 M-VERSION
+  2 REDEFINE M-VERSION
+    3 M-VERS-VERSION-N             (N2)
+    3 M-VERS-RELEASE-N             (N2)
+    3 M-VERS-SP-N                  (N2)
+    3 M-VERS-CF-N                  (N4)
+    3 M-VERS-MIGRATION-IN-PROGRESS (A1)
+    3 M-VERS-DATE                  (A8)
+    3 M-VERS-NO-OF-MIG-PROGS       (N2)
+    3 M-VERS-MIGRATION-COMPL       (A1/10)
+*
+1 P-ERC         (N4)
+1 #TRACE-MSG    (A250)
+1 #I            (I4)
+1 #MIG-FUNCTION (A15/10) INIT <'Monitor','Printer'>
+1 #MIG-PROG     (A08/10) INIT <'MIGMON','MIGPRT'>
+1 #MONITOR-ID   (A20)
+1 #FOUND        (L)
+1 #LASTPROG     (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+CALLNAT 'NOMGSTEP' '*' P-ERC
+PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG
+CALLNAT 'NOMVI-2N' NOMVI
+*
+INCLUDE MIG----C 'SET-MONITOR-ID' 'MONITOR'
+IF NOT #FOUND
+  FIND MONITOR WITH M-MONITOR-ID = 'INTERNAL-NODE-ID'
+    IF NO RECORDS FOUND
+      MOVE 1611 TO #XX-ERROR-CODE /* First installation detected
+      ESCAPE BOTTOM
+    END-NOREC
+    #XX-ERROR-CODE := 1612  /* Monitor record should already have
+/*                          been written. Installation errorÜ
+  END-FIND
+  CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+  #TRACE-MSG := #XX-SHORT-TEXT
+  PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+  IF #LASTPROG NE 'INSTALL' /* called by INSTALL
+    PRINT #TRACE-MSG
+  END-IF
+  END TRANSACTION
+  ESCAPE ROUTINE
+END-IF
+END TRANSACTION
+MONITOR.M-MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+FIND MONITOR WITH M-MONITOR-ID = MONITOR.M-MONITOR-ID
+  IF M-VERS-MIGRATION-IN-PROGRESS = 'Y'
+    FOR #I = 1 TO M-VERS-NO-OF-MIG-PROGS
+      IF M-VERS-MIGRATION-COMPL (#I) NE 'Y'
+        COMPRESS '1570' #MIG-FUNCTION (#I) #MIG-PROG (#I) TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+        IF #LASTPROG NE 'INSTALL' /* called by INSTALL
+          PRINT #TRACE-MSG
+        END-IF
+      END-IF
+    END-FOR
+    IF M-VERS-MIGRATION-COMPL (1:M-VERS-NO-OF-MIG-PROGS) NE 'Y'
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+  M-VERS-VERSION-N             := NOMVI-VERSION
+  M-VERS-RELEASE-N             := NOMVI-RELEASE
+  M-VERS-SP-N                  := NOMVI-SP
+  M-VERS-CF-N                  := NOMVI-CF
+  M-VERS-MIGRATION-IN-PROGRESS := 'N'
+  M-VERS-MIGRATION-COMPL (*)   := 'Y'
+  M-VERS-DATE                  := NOMVI-CF-DATE
+  UPDATE
+  COMPRESS 'NOM0005 Written version information:' M-VERSION
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+  IF #LASTPROG NE 'INSTALL' /* called by INSTALL
+    PRINT #TRACE-MSG
+  END-IF
+  END TRANSACTION
+*
+END-FIND
+*
+RACTLF-LFILE-1 := 91
+CALLNAT 'RACTLF-N' RACTLF-PARMS
+IF RACTLF-ERROR-CODE NE 0
+  #TRACE-MSG := 'NOM0005 No Lfile 91 found, ignoring.'
+  PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+  IF #LASTPROG NE 'INSTALL' /* called by INSTALL
+    PRINT #TRACE-MSG
+  END-IF
+  END TRANSACTION
+  ESCAPE ROUTINE
+END-IF
+FILE91. FIND MONITOR WITH M-MONITOR-ID = 'FILE91'
+  IF NO RECORDS FOUND
+    #TRACE-MSG := 'NOM0005 Writing new Lfile 91 control record'
+    PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+    IF #LASTPROG NE 'INSTALL' /* called by INSTALL
+      PRINT #TRACE-MSG
+    END-IF
+  END-NOREC
+  M-MONITOR-ID     := 'FILE91'
+  M-NATRPT-DBID-N5 := RACTLF-DBID-1
+  M-NATRPT-FNR-N5  := RACTLF-FNR-1
+  COMPRESS 'NOM0005 Setting Lfile 91 to physical file DB'
+    M-NATRPT-DBID-N5 'FNR' M-NATRPT-FNR-N5 TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+  IF #LASTPROG NE 'INSTALL' /* called by INSTALL
+    PRINT #TRACE-MSG
+  END-IF
+  IF *NUMBER (FILE91.) = 0
+    STORE MONITOR /*FILE91
+  ELSE
+    UPDATE (FILE91.)
+  END-IF
+  END TRANSACTION
+END-FIND
+COMPRESS 'NOM0005 MIGEND successfully completed.' M-VERSION
+  TO #TRACE-MSG
+PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+IF #LASTPROG NE 'INSTALL' /* called by INSTALL
+  PRINT #TRACE-MSG
+END-IF
+END TRANSACTION
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SET-MONITOR-ID /* called by MIG----C
+************************************************************************
+MONITOR.M-MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+*
+END-SUBROUTINE /* SET-MONITOR-ID
+************************************************************************
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  CALLNAT 'C-NATERN' #TRACE-MSG 'W'
+*
+END-ERROR
+*
+END

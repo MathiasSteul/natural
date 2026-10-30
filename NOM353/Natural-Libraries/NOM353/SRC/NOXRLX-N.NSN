@@ -1,0 +1,121 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOXRLX-N - NOM API List of Bundles where a report is contained
+*
+* Maintenance:
+* XSETGGR 2002-08-19           created
+* xsetggr 2007-07-04 NOM3201   Support P11 format run numbers
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* CF1     2015-12-14 NOMALL-1794 Suppress sending header texts
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOXRLX-A
+************************************************************************
+LOCAL USING ESMCONSL
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL
+1 ACT-BUNDLES VIEW OF NRM-ACTIVE-BUNDLES
+  2 AB-STATUS
+1 BUNDLE-CONTENTS VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-BUNDLE
+  2 BC-BUNDRNB
+  2 BC-REPNAME
+  2 BC-REPRNB
+  2 BC-PRINTER
+  2 BC-GROUP
+  2 BC-SEQNO
+1 #BC-REPORT-RNB     (A31)
+1 REDEFINE #BC-REPORT-RNB
+  2 #BC-REPORT       (A25)
+  2 #BC-REPRNB       (P11)
+1 #AB-BUNDLE-RNB     (A31)
+1 REDEFINE #AB-BUNDLE-RNB
+  2 #AB-BUNDLE       (A25)
+  2 #AB-BUNRNB       (P11)
+1 #I2                (I4)
+1 #IMAX              (I4)
+1 #REPRNB-A11        (A11)
+1 REDEFINE #REPRNB-A11
+  2 #REPRNB-N11      (N11)
+1 #MSG-NR            (N4) CONST <6114>
+1 #I                 (I2)
+1 P-ERC              (N4)      /* CF1
+1 P-VERSION-A10      (A10)     /* CF1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-NUMBER ES-STARTINDEX ES-SORTKEY ES-SORTORDER
+  ES-OPTION-COUNT
+ES-EOF := 'X'
+#IMAX := 451
+ES-FIELD-COUNT := 6
+NOXRLX-FIELD-LENGTH(1) := 25
+NOXRLX-FIELD-LENGTH(2) := 11
+NOXRLX-FIELD-LENGTH(3) := 8
+NOXRLX-FIELD-LENGTH(4) := 3
+NOXRLX-FIELD-LENGTH(5) := 1
+NOXRLX-FIELD-LENGTH(6) := 8
+IF ES-NEXT-KEY-PARM(1) > ' '
+  #BC-REPORT  := ES-NEXT-KEY-PARM(1)
+  #BC-REPRNB  := VAL(ES-NEXT-KEY-PARM(2))
+ELSE
+  #BC-REPRNB := VAL(ES-KEY-PARM(ES-KEY-PARM-COUNT))
+  #BC-REPORT  := ES-KEY-PARM(ES-KEY-PARM-COUNT - 1)
+END-IF
+/* Suppress sending list header texts, to enable the  /* CF1 +
+/* client side using its own texts with German Umlaute.
+/* Client versions GT 3.4.3.4 support this feature.
+CALLNAT 'ESMAVC-N' 'N' P-VERSION-A10 P-ERC ES-CONTROL /*1 char->2 digit
+IF P-VERSION-A10 LE '0304030004'                      /* CF1 -
+  ES-STARTINDEX := 3
+  #I2 := 2
+  RESET SHORT-MSG LONG-MSG(*) NOXRLX-HEADER
+  NADA2000.OBJECT-KIND := 'U'
+  NADA2000.ERROR-NUMBER := #MSG-NR
+  NADA2000.OPT-INSERT-DYN := FALSE
+  NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+  NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+  CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+  NOXRLX-HEADER := LONG-MSG(1)
+  FOR #I = 2 TO ES-FIELD-COUNT
+    COMPRESS NOXRLX-HEADER C-HEADER-DELIMITER LONG-MSG(#I)
+      TO NOXRLX-HEADER LEAVING NO
+  END-FOR
+END-IF                                                /* CF1
+FNDBC. FIND BUNDLE-CONTENTS WITH BC-REPORT-RNB = #BC-REPORT-RNB
+  ADD 2 TO #I2
+  IF #I2 > #IMAX
+    ES-NEXT-KEY-PARM(1) := BC-REPNAME
+    #REPRNB-N11 := BC-REPRNB
+    ES-NEXT-KEY-PARM(2) := #REPRNB-A11
+    ES-NUMBER := #IMAX
+    RESET  ES-EOF
+    ESCAPE BOTTOM
+  END-IF
+  NOXRLX-BUNDLE(#I2)  := BC-BUNDLE
+  NOXRLX-BUNDRNB(#I2) := BC-BUNDRNB
+  NOXRLX-GROUP-ID(#I2):= BC-GROUP
+  NOXRLX-SEQNO(#I2)   := BC-SEQNO
+  NOXRLX-PRINTER(#I2) := BC-PRINTER
+  #AB-BUNDLE := BC-BUNDLE
+  #AB-BUNRNB := BC-BUNDRNB
+  FIND ACT-BUNDLES WITH AB-BUNDLE-RNB = #AB-BUNDLE-RNB
+    NOXRLX-STATUS(#I2):= AB-STATUS
+  END-FIND
+  ES-NUMBER := #I2
+END-FIND
+*
+END

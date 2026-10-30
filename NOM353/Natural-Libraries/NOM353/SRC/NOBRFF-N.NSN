@@ -1,0 +1,154 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOBRFF-N - NOM API Reports in Bundle Maintenance
+*            Functions: delete
+*            Input keys :
+*            ES-KEY-PARM(1)     bundle
+*            ES-KEY-PARM(2)     report in bundle
+* Maintenance:
+* XSETHZ  2002-07-16  created
+* XSETGGR 2002-11-14  use new parameter ES-APP-SERVER-LIBRARY
+* XSETHZ  2007-10-20 New interface for lists
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* XSETHZ  2010-04-15 P323994 Suspended bundles
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-20 NOMALL-901 do not log deletion of subobjects
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* SU1     2024-04-24 NOM36       remove unused
+** -------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RLOG-L
+LOCAL USING NOMODE-A
+LOCAL
+1 BUNDLE-REPORT VIEW OF NRM-BUNDLE-REPORT
+  2 BR-BUNDLE
+  2 BR-REPNAME
+/*SU1  2 BR-GROUP 2 BR-SEQNO
+1 BUNDLE VIEW OF NRM-BUNDLES
+/*SU1  2 B-DESC
+  2 B-FLUSH-REPORTS        (10)
+1 #BR-BUNDLE-REPORT        (A50)
+1 REDEFINE #BR-BUNDLE-REPORT
+  2 #BR-BUNDLE             (A25)
+  2 #BR-REPORT             (A25)
+1 #OUT-PARM                (A71)
+1 REDEFINE #OUT-PARM
+  2 #B-NUMBER              (N10)
+  2 #B-TYPE-ACT            (A1)
+1 #ES-CONTROL              (A253)
+1 #ES-INPUT-AREA           (A253/1:3)
+1 #ES-MSG-PREF             (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM            (A3)
+  2 #ES-MSG-NR             (N4)
+1 #USER-LIB                (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-MSG-NR ES-MSG-FIELD ES-MSG-TXT
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA (*) := ES-INPUT-AREA(*)
+NOMOD-PARMS := ES-SELECT
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+  VALUE 'DL'
+    PERFORM DELETE-BUNDLE
+  ANY VALUE
+    IF ES-RC = 0
+      PERFORM WRITE-LOG-RECORD
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-BUNDLE
+************************************************************************
+#BR-BUNDLE := ES-KEY-PARM(1)
+#BR-REPORT := ES-KEY-PARM(2)
+FND. FIND BUNDLE-REPORT WITH BR-BUNDLE-REPORT = #BR-BUNDLE-REPORT
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0449
+    ESCAPE BOTTOM (FND.)
+  END-NOREC
+  FIND BUNDLE WITH B-BUNDLE = BUNDLE-REPORT.BR-BUNDLE
+    IF B-FLUSH-REPORTS(*) = BUNDLE-REPORT.BR-REPNAME
+      #ES-MSG-NR := 0049  /* not allowed delete 'Print event' reports
+      ESCAPE BOTTOM(FND.)
+    END-IF
+  END-FIND
+  DELETE (FND.)
+  FNN. FIND NUMBER BUNDLE-REPORT WITH BR-BUNDLE = ES-KEY-PARM(1)
+  #B-NUMBER := *NUMBER(FNN.)
+  #B-TYPE-ACT := 'Y'
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+ES-SELECT := #OUT-PARM
+*
+END-SUBROUTINE /* DELETE-BUNDLE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+EXAMINE ES-MSG-TXT FOR ':2:' REPLACE ' '
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+IF NOMOD-LOG-TYPES (*) = 'B'
+  DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+    VALUE 'DL'
+      COMPRESS '2106' ES-KEY-PARM(2) ES-KEY-PARM(1) TO LG-MSG
+    ANY VALUE
+      LG-USERID      := ES-USER
+      LG-CODE        := 'BM'
+      LG-REPNAME     := ES-KEY-PARM(2)
+      LG-BUNDLE      := ES-KEY-PARM(1)
+      LG-OBJECT-NAME := ES-KEY-PARM(1)
+      CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+    NONE VALUE IGNORE
+  END-DECIDE
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+END

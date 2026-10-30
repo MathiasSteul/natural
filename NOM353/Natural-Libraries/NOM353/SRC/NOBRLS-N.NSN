@@ -1,0 +1,203 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* --------------------------------------------------------------------
+* Subprogram  NOBRLS-N
+* Version    2.2.1
+* Function   NOM API List of Reports in Bundle
+*
+* Maintenance:
+* XSETGGR 2002-05-20  created
+* XSETGGR 2002-10-05  prevent cycling of read data from file
+* XSETGGR 2002-10-28  change numberic fields in list
+* XSETGGR 2002-11-14  use new parameter ES-APP-SERVER-LIBRARY
+* XSETGGR 2002-11-20  add number of options
+* XSETGGR 2002-11-28  check grants for non-administrator users
+* XSETGGR 2002-12-27  change assigning options
+* xsetggr 2004-02-24  p(250342) implemen 'NONE'/'KEIN' separator page
+* xsetggr 2006-02-15  no changes restow
+* XSETHZ  2008-07-23  p(307577) use full name of ES-APP-SERVER-LIBRARY
+* CF1     2015-12-14  NOMALL-1794 Suppress sending header texts
+* SU1     2016-09-29  NOM3.5 use N-NONE
+* CF2     2019-02-21  NOMALL-2238 Correct list count for expand list
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOBRLS-A
+* *****
+* *****
+LOCAL USING VMBRP-L
+LOCAL USING NOBRSL-A
+LOCAL USING ESMCONSL
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+* *****
+LOCAL
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+  2 R-SEPMEM
+1 BUNDLES VIEW OF NRM-BUNDLES
+  2 B-FLUSH-REPORTS (10)
+* *****
+1 #BR-BUNDLE-GROUP-SEQNO (A35)
+1 REDEFINE #BR-BUNDLE-GROUP-SEQNO
+  2 #BR-BUNDLE    (A25)
+  2 #BR-GROUP     (A8)
+  2 #BR-SEQNO     (P3)
+1 #I2             (I4)
+1 #IMAX           (I4)
+1 #REPORT-E       (A25)
+1 #GROUP-E        (A8)
+1 #NUMB-A3        (A3)
+1 REDEFINE #NUMB-A3
+  2 #NUMB-N3      (N3)
+1 #MSG-NR         (N4) CONST <6109>
+1 #I              (I2)
+1 #ISN            (N10)
+1 #OPTIONS        (A2/1:10)
+1 #NEW-OPTIONS    (A2/1:8)
+1 #GRANTS         (A1/6)
+1 #GR-USER        (A8)
+1 P-ERC                     (N4)      /* CF1
+1 P-VERSION-A10             (A10)     /* CF1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-NUMBER ES-STARTINDEX ES-SORTKEY ES-SORTORDER
+ES-EOF := 'X'
+ES-OPTION-COUNT := 10
+IF ES-EXPAND NE ' '
+  #IMAX := 562
+  ES-FIELD-COUNT := 1
+  NOBREX-FIELD-LENGTH := 25
+ELSE
+  #IMAX := 361
+  ES-FIELD-COUNT := 6
+  NOBRLS-FIELD-LENGTH(1) := 8
+  NOBRLS-FIELD-LENGTH(2) := 903
+  NOBRLS-FIELD-LENGTH(3) := 25
+  NOBRLS-FIELD-LENGTH(4) := 903
+  NOBRLS-FIELD-LENGTH(5) := 8
+  NOBRLS-FIELD-LENGTH(6) := 903
+END-IF
+#BR-BUNDLE := ES-KEY-PARM(1)
+#NOBRSL := ES-SELECT
+EXAMINE #NOBRSL.#GROUP FOR '*' DELETE
+EXAMINE #NOBRSL.#REPORT FOR '*' DELETE
+COMPRESS #NOBRSL.#GROUP H'FF' TO #GROUP-E LEAVING NO
+COMPRESS #NOBRSL.#REPORT H'FF' TO #REPORT-E LEAVING NO
+IF ES-NEXT-KEY-PARM(1) > ' '
+  #BR-GROUP   := ES-NEXT-KEY-PARM(1)
+  #BR-SEQNO   := VAL(ES-NEXT-KEY-PARM(2))
+  #ISN        := VAL(ES-NEXT-KEY-PARM(3))
+ELSE
+  #BR-GROUP := #NOBRSL.#GROUP
+  RESET #BR-SEQNO
+/* Suppress sending list header texts, to enable the  /* CF1 +
+/* client side using its own texts with German Umlaute
+/* Client versions GT 3.4.3.4 support this feature.
+  CALLNAT 'ESMAVC-N' 'N' P-VERSION-A10 P-ERC ES-CONTROL /*1char->2 digit
+  IF P-VERSION-A10 LE '0304030004'                      /* CF1 -
+    IF ES-EXPAND NE 'E'
+      ES-STARTINDEX := 2
+      #I2 := 1
+      RESET SHORT-MSG LONG-MSG(*) NOBRLS-HEADER
+      NADA2000.OBJECT-KIND := 'U'
+      NADA2000.ERROR-NUMBER := #MSG-NR
+      NADA2000.OPT-INSERT-DYN := FALSE
+      NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+      NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+      CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+      NOBRLS-HEADER := LONG-MSG(1)
+      FOR #I = 2 TO ES-FIELD-COUNT
+        COMPRESS NOBRLS-HEADER C-HEADER-DELIMITER LONG-MSG(#I)
+          TO NOBRLS-HEADER LEAVING NO
+      END-FOR
+    END-IF
+  END-IF                                                /* CF1
+END-IF
+/* read reports in bundle
+RDBR. READ BUNDLE-REPORT BY BR-BUNDLE-GROUP-SEQNO=#BR-BUNDLE-GROUP-SEQNO
+  REJECT IF #ISN NE 0 AND #ISN NE *ISN(RDBR.)
+  IF BR-BUNDLE NE #BR-BUNDLE OR BR-GROUP > #GROUP-E
+    ESCAPE BOTTOM(RDBR.)
+  END-IF
+  ACCEPT IF BR-REPNAME = #NOBRSL.#REPORT THRU #REPORT-E
+  ADD 1 TO #I2
+  IF #I2 > #IMAX
+    ES-NEXT-KEY-PARM(1) := BR-GROUP
+    #NUMB-N3 := BR-SEQNO
+    ES-NEXT-KEY-PARM(2) := #NUMB-A3
+    #ISN := *ISN(RDBR.)
+    ES-NEXT-KEY-PARM(3) := #ISN
+    ES-NUMBER := #IMAX
+    RESET  ES-EOF
+    ESCAPE BOTTOM
+  END-IF
+  RESET #ISN #OPTIONS(*)
+  IF ES-EXPAND = 'E'
+    NOBREX-REPNAME(#I2) := BR-REPNAME
+    PERFORM OPTIONS
+    NOBREX-OPTIONS(#I2,*) := #OPTIONS(*)
+  ELSE
+    NOBRLS-GROUP-ID(#I2):= BR-GROUP
+    NOBRLS-SEQNO(#I2)   := BR-SEQNO
+    MOVE RIGHT JUSTIFIED NOBRLS-SEQNO(#I2) TO NOBRLS-SEQNO(#I2)
+    NOBRLS-REPNAME(#I2) := BR-REPNAME
+    NOBRLS-SEPNO(#I2)   := BR-SEPNO
+    MOVE RIGHT JUSTIFIED NOBRLS-SEPNO(#I2) TO NOBRLS-SEPNO(#I2)
+    FNDRP. FIND REPORTS WITH R-REPNAME = BR-REPNAME
+      IF NO RECORDS FOUND
+        RESET NOBRLS-SEPMEM(#I2)
+        ESCAPE BOTTOM(FNDRP.)
+      END-NOREC
+      NOBRLS-SEPMEM(#I2):= R-SEPMEM
+    END-FIND
+    #NUMB-A3 := NOBRLS-SEPNO(#I2)
+    IF NOBRLS-SEPMEM(#I2) = ' ' AND #NUMB-N3 > 0
+      NOBRLS-SEPMEM(#I2):= 'DEFAULT'
+    END-IF
+    CALLNAT 'N-NONE' NOBRLS-SEPMEM(#I2) /*SU1
+    NOBRLS-COPIES (#I2) := BR-REPNO
+    MOVE RIGHT JUSTIFIED NOBRLS-COPIES(#I2) TO NOBRLS-COPIES(#I2)
+    PERFORM OPTIONS
+    NOBRLS-OPTIONS(#I2,*) := #OPTIONS(*)
+*   ES-NUMBER := #I2                    /* CF2
+  END-IF
+  ES-NUMBER := #I2                      /* CF2
+END-READ
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE OPTIONS
+************************************************************************
+RESET #NEW-OPTIONS(*)
+FIND BUNDLES WITH B-BUNDLE = BUNDLE-REPORT.BR-BUNDLE
+  IF B-FLUSH-REPORTS(*) = BUNDLE-REPORT.BR-REPNAME
+    #OPTIONS (1) := 'DL'
+  END-IF
+END-FIND
+IF ES-USER-TYPE NE 'A'
+  CALLNAT 'NOGROU-N' 'B' BR-BUNDLE ES-USER #GR-USER #GRANTS(*)
+  IF NOT (#GRANTS(1:3) = 'Y')
+    #NEW-OPTIONS(1) := 'DL'
+    #NEW-OPTIONS(2) := 'NW'
+    #NEW-OPTIONS(3) := 'OP'
+  END-IF
+  CALLNAT 'NOOPT--N' #NEW-OPTIONS(*) #OPTIONS(*)
+END-IF
+*
+END-SUBROUTINE /* OPTIONS
+*
+END

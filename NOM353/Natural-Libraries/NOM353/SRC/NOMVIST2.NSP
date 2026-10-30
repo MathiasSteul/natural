@@ -1,0 +1,163 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMVIST2  created from NOMVISTA
+* Function  List records for Adabas Vista (contents of DE XG)
+* Version   3.4.4
+* Active report related object types: AB BC AC AR MA FS
+*
+* Maintenance:
+* uuu     yyyy-mm-dd itrac ....
+* SU1     2015-08-20 NOMALL-1700 created for datap.(DE XH instead SP XI)
+* SU2     2015-09-29 NOMALL-1732 cosmetic for dataport: show as P13
+* ----------------------------------------------------------------------
+DEFINE DATA LOCAL
+1 VISTA VIEW OF NRM-VISTA
+  2 OBJECT-TIME
+1 #N-HEADER
+  2 MAIN-LINE                 (A78)
+  2 DATE-FORMAT               (A1)
+  2 MAP-NAME                  (A8)
+1 #FROM                       (A13) /*SU2 7->13
+1 REDEFINE #FROM
+  2 FILLER                    6X /*SU2
+  2 #TIME1                    (T)
+1 #THRU                       (A13) /*SU2 7->13
+1 REDEFINE #THRU
+  2 FILLER                    6X /*SU2
+  2 #TIME2                    (T)
+1 #FIRST                      (A13) /*SU2 7->13
+1 REDEFINE #FIRST
+  2 FILLER                    6X /*SU2
+  2 #FIRST-TIME               (T)
+1 #LAST                       (A13) /*SU2 7->13
+1 REDEFINE #LAST
+  2 FILLER                    6X /*SU2
+  2 #LAST-TIME                (T)
+1 #DATE-FROM                  (T)
+1 #DATE-THRU                  (T)
+1 #TIT2                       (A55)
+  CONST <'* List data for descriptor XH (Adabas Vista)LFILE 91 *' >
+1 #RE
+  2 #OBJECT-TYPE-TIME         (A17)
+  2 REDEFINE #OBJECT-TYPE-TIME
+    3 #OBJECT-TYPE            (A10)
+    3 #OBJECT-TIME            (T)
+  2 #CNT                      (I4)
+  2 #NUM                      (I4)
+  2 #OLD-OBJECT-TYPE          (A10)
+  2 REDEFINE #OLD-OBJECT-TYPE
+    3 #OLD-OBJECT-TYPE_A2     (A2)
+1 #A_A79                      (A79)
+1 #TIME_A15                   (A15) INIT FULL LENGTH <'0'>
+1 REDEFINE #TIME_A15
+  2 #YEAR                     (A4)
+  2 #MONTH                    (N2)
+  2 #DAY                      (N2)
+  2 #HOUR                     (N2)
+  2 #MINUTE                   (N2)
+  2 #SECOND                   (N2)
+  2 #T-SECOND                 (N1)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY ALL
+WRITE TITLE 2T MAIN-LINE (AD=OI CD=GR DY=<TU>)
+  / 12T #TIT2 70T 'Page:' *PAGE-NUMBER (NL=3) /
+MAP-NAME := *PROGRAM
+* *****
+PERFORM SET-TIME
+* *****
+#REP. REPEAT
+  CALLNAT 'N-HEADER' #N-HEADER
+  RESET *PAGE-NUMBER #RE
+*
+  INPUT (AD=MILT'_' IP=OFF) 2T MAIN-LINE (AD=OI CD=GR DY=<TU>) /
+    12T #TIT2 (AD=O) 70T *PROGRAM (AD=DO)//
+    'Date from ...:' #DATE-FROM
+    (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS) /
+    'Date thru ...:' #DATE-THRU
+    (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS) //
+    21/1 'End with PF3'
+  IF *PF-KEY NE 'ENTR'
+    ESCAPE MODULE
+  END-IF
+  IF #DATE-FROM GE #DATE-THRU
+    REINPUT 'Date from must be less than Date thru.' MARK *#DATE-FROM
+  END-IF
+************************************************************************
+  #TIME1 := #DATE-FROM
+  #TIME2 := #DATE-THRU
+  COMPRESS 'Example with given date range:' TO #A_A79
+* *****
+  WRITE 'The output can be used as input for the Adabas utility ADAULD.'
+  WRITE #A_A79
+  WRITE 'ADAULD SELCRIT=''XH,13,P,S,XH,13,P.''' /*SU2 7->13
+  MOVE EDITED #FROM (EM=H(13)) TO #A_A79 /*SU2 7->13
+  COMPRESS 'ADAULD SELVAL=X''' #A_A79 '''' TO #A_A79 LEAVING NO
+  PRINT #A_A79  #DATE-FROM (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS) /*SU2
+  MOVE EDITED #THRU (EM=H(13)) TO #A_A79 /*SU2 7->13
+  COMPRESS 'ADAULD SELVAL=X''' #A_A79 '''' TO #A_A79 LEAVING NO
+  PRINT #A_A79 #DATE-THRU (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS) /*SU2
+  WRITE '-'(79)
+  PERFORM FIND1
+  WRITE / '*** End of Report ***'
+************************************************************************
+  IF *DEVICE = 'BATCH'
+    ESCAPE MODULE
+  END-IF
+END-REPEAT /*(#REP.)
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE FIND1
+************************************************************************
+**WRITE '=' #FROM (EM=H(17)) / '=' #THRU (EM=H(17))
+NR. FIND NUMBER VISTA WITH OBJECT-TIME = #TIME1 THRU #TIME2
+IF *NUMBER (NR.) = 0
+  ESCAPE ROUTINE
+END-IF
+FIRST. HISTOGRAM VISTA ASCENDING FOR OBJECT-TIME FROM #TIME1
+  #FIRST-TIME := OBJECT-TIME
+  ESCAPE BOTTOM
+END-HISTOGRAM
+LAST. HISTOGRAM VISTA DESCENDING FOR OBJECT-TIME FROM #TIME2
+  #LAST-TIME := OBJECT-TIME
+  ESCAPE BOTTOM
+END-HISTOGRAM
+ADD 1 TO #CNT
+PRINT 'First:' #FIRST (EM=H(13)) /*SU2 7->13
+  #FIRST-TIME (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS)
+  / 'Last :' #LAST (EM=H(13)) /*SU2 7->13
+  #LAST-TIME (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS)
+  / 'Number of records:' *NUMBER (NR.)(NL=12 AD=L)
+*
+END-SUBROUTINE /* FIND1
+*
+************************************************************************
+DEFINE SUBROUTINE SET-TIME
+************************************************************************
+MOVE ALL H'00' TO #FROM
+#THRU := #FIRST := #LAST := #FROM /*SU2
+#YEAR := *DAT4I
+#MONTH := #DAY := 01
+MOVE EDITED #TIME_A15 TO #DATE-FROM (EM=YYYYMMDDHHIISST)
+#MONTH := 12
+#DAY := 31
+#HOUR := 23
+#MINUTE := #SECOND := 59
+#T-SECOND := 9
+MOVE EDITED #TIME_A15 TO #DATE-THRU (EM=YYYYMMDDHHIISST)
+*
+END-SUBROUTINE /* SET-TIME
+*
+END

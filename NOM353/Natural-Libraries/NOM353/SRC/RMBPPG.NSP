@@ -1,0 +1,240 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMBPPG
+* Version   1.3
+* Function  Purge NATURAL Bufferpool
+*
+* Maintenance
+* uuu yy-mm-dd s(999999)  ...
+* gw  93-08-12            created
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* gw  98-10-20 p(164220) SATBP dbid, fnr always 4040
+* sju 00-03-24 p(191368) monitor multitasking
+* sju 00-11-20 p(191368) BP purged orders for subtasks not cleaned up
+* sju 03-06-26 p(242018) Correct message if purge fails
+* sju 04-11-29 nom31     restow for changed NRM-ORDER
+* sju 04-12-06 NOM31     Add date and time (tenths of second) to trace
+* fhi 07-06-18 FHI235    Add processed time (tenths of second) to trace
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* fhi     2014-03-03 NOMALL-1363 Get cat cate into trace messages
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-01-04 NOMALL-1961 Change order numbers correctly
+* fhi     2017-01-11 NOMALL-1961 Change descriptor of NRM-ORDER
+* fhi     2017-03-28 NOMALL-2009 Call RMRDCDSP additionally to
+*                                flush the RDC buffer for err analysis
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi     2017-04-07 NOMALL-1961 Set monitor status if active only
+* ---------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +CMRDC                 (A1)        /* NOMALL-2009 fhi in
+1 +NOD-LOCAL-NODE        (N5) /* NOMALL-1961 fhi in
+* *****
+LOCAL USING SATBP--P
+LOCAL USING SATFNC3E
+LOCAL USING RMODTY-E
+LOCAL USING RMOD---L
+LOCAL USING RLOG-L
+LOCAL USING RMSETSTE   /* NOMALL-1961 fhi in
+LOCAL
+1 UPDATE-ORDER VIEW OF NRM-ORDER
+  2 OD-MONITOR-ID
+  2 OD-TYPE
+  2 OD-TIME-PROCESSED
+  2 OD-STATISTICS
+  2 OD-ERROR-CODE
+  2 OD-ERROR-TEXT
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-TYPE
+  2 OD-TIME-SCHEDULED
+  2 OD-PARAMETER (1)
+  2 REDEFINE OD-PARAMETER
+    3 OD-IDENT           (A8)
+*
+1 ORDER-FOUND            (L)
+1 #OD-TYPE-TIME          (A9)
+1 REDEFINE #OD-TYPE-TIME
+  2 #OD-TYPE             (B2)
+  2 #OD-TIME             (T)
+1 #STATISTICS            (A250)
+1 #TRACING               (L)
+1 #CATDATE               (A19) /* NOMALL-1363 fhi in
+1 #RDC-DONE              (L)   /* NOMALL-2009 fhi in
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=100
+*
+IF G-TRACE GE *LEVEL
+  #TRACING := TRUE
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS 'Start' *PROGRAM 'cataloged at' #CATDATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+INCLUDE CMRDC                  /* NOMALL-2009 fhi in
+*
+MAIN. REPEAT
+  RESET G-NATRP-ERC G-NATRP-ERT G-ORDER-ID G-ORDER-ISN
+  PERFORM GET-NEXT-ORDER
+  IF NOT ORDER-FOUND
+    ESCAPE BOTTOM (MAIN.)
+  END-IF
+*
+  CALLNAT 'RMSETSTN' #EQU-PURGE-BP +NOD-LOCAL-NODE G-NATRP-DBID
+    G-NATRP-FNR G-SHUTDOWN G-TASK-NUMBER
+  END TRANSACTION
+  PERFORM PROCESS-ORDER
+  PERFORM UPDATE-ORDER
+  IF G-NATRP-ERC = 0
+    PERFORM WRITE-LOG-RECORD
+  ELSE
+    PERFORM WRITE-ERROR-LOG
+  END-IF
+*
+  IF NOT #RDC-DONE
+    FETCH RETURN 'RMRDCDSP'
+    #RDC-DONE := TRUE
+  END-IF
+*
+END-REPEAT
+*
+IF #TRACING
+  G-TRACE-MSG := 'End'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NEXT-ORDER
+************************************************************************
+RESET ORDER-FOUND
+#OD-TYPE := OD-PURGE-BUFFERPOOL
+RESET  #OD-TIME
+FNDOD. READ ORDER BY OD-TYPE-TIME STARTING FROM #OD-TYPE-TIME
+  IF OD-TYPE NE #OD-TYPE OR OD-TIME-SCHEDULED  > *TIMX
+    BACKOUT TRANSACTION
+    ESCAPE BOTTOM
+  END-IF
+*
+  IF #TRACING
+    COMPRESS 'OD-ID:' OD-ID 'OD-TYPE:' OD-TYPE
+      'Scheduled:' OD-TIME-SCHEDULED TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+*
+  GETOD. GET ORDER *ISN(FNDOD.)
+  #OD-PARAMETER := OD-PARAMETER (1)
+*
+  G-ORDER-ID  := OD-ID
+  G-ORDER-ISN := *ISN (FNDOD.)
+*
+  OD-TYPE := OD-PURGE-BUFFERPOOL-IN-PROCESS
+  UPDATE (GETOD.)
+  END OF TRANSACTION
+  ORDER-FOUND := TRUE
+  ESCAPE BOTTOM (FNDOD.)
+END-READ
+*
+END-SUBROUTINE /* GET-NEXT-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-ORDER
+************************************************************************
+UPDOD. FIND UPDATE-ORDER WITH OD-ID = G-ORDER-ID
+  IF G-NATRP-ERC = 0
+    OD-TYPE := OD-PURGE-BUFFERPOOL-OK
+  ELSE
+    OD-TYPE := OD-PURGE-BUFFERPOOL-FAILED
+    OD-ERROR-CODE := G-NATRP-ERC
+    OD-ERROR-TEXT := G-NATRP-ERT
+  END-IF
+  OD-TIME-PROCESSED := *TIMX
+  OD-STATISTICS     := #STATISTICS
+  OD-MONITOR-ID     := G-MONITOR-ID
+*
+  UPDATE (UPDOD.)
+*
+  END OF TRANSACTION
+  IF #TRACING
+    COMPRESS 'Order processed:' OD-ID 'OD-TYPE:' OD-TYPE
+      'Processed:' OD-TIME-PROCESSED TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-ORDER
+************************************************************************
+SATBP-OBJ-LIB         := #OD-PRM-OBJ-LIB
+SATBP-OBJ-NAME := #OD-PRM-OBJ-NAME
+IF #OD-PRM-OBJ-DBID-N5 > 0
+  SATBP-OBJ-DBID := #OD-PRM-OBJ-DBID-N5
+  SATBP-OBJ-FNR  := #OD-PRM-OBJ-FNR-N5
+ELSE
+  SATBP-OBJ-DBID := #OD-PRM-OBJ-DBID
+  SATBP-OBJ-FNR  := #OD-PRM-OBJ-FNR
+END-IF
+IF #TRACING
+  COMPRESS 'Lib:' SATBP-OBJ-LIB 'Name:' SATBP-OBJ-NAME
+    'DBID:' SATBP-OBJ-DBID 'FNR:' SATBP-OBJ-FNR TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+CALLNAT SAT-PURGE-NATURAL-BUFFERPOOL SATBP-SATVERS SATBP-PARMS (*)
+IF SATBP-ERROR-CODE NE 0
+  G-NATRP-ERC := SATBP-ERROR-CODE
+  G-NATRP-ERT := SATBP-ERROR-TEXT
+END-IF
+*
+END-SUBROUTINE /* PROCESS-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-ERROR-LOG
+************************************************************************
+IF G-ORDER-ID NE 0
+  LG-OBJECT-NAME := G-ORDER-ID
+END-IF
+*
+DECIDE ON FIRST G-NATRP-ERC
+  VALUE 0005
+    LG-MSG := G-NATRP-ERT
+  NONE  VALUE
+    COMPRESS 1529 G-NATRP-ERT TO LG-MSG
+END-DECIDE
+LG-USERID := G-LG-USERID
+LG-CODE   := 'MO'
+CALLNAT 'RLOG' PL-PARMS
+END OF TRANSACTION
+IF #TRACING
+  COMPRESS '    --->' G-NATRP-ERC-A LG-MSG TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* WRITE-ERROR-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+LG-MSG         := 1518            /* bufferpool purged
+LG-OBJECT-NAME := G-ORDER-ID
+LG-USERID      := G-LG-USERID
+LG-CODE        := 'MO'
+CALLNAT 'RLOG' PL-PARMS
+END OF TRANSACTION
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+END

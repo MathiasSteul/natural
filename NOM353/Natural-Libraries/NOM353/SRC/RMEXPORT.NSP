@@ -1,0 +1,275 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMEXPORT - Batch export of NOM objects to work file 4 in XML format
+* Template  RMASSDEL
+*
+* Maintenance
+* uuu     yyyy-mm-dd iTrac        Comment
+* fhi     2013-06-28 NOMALL-86    Created.
+* fhi     2014-03-03 NOMALL-1363 Get cat cate into trace messages
+* fhi     2014-03-24 NOMALL-1346 If NPR mainframe not active,don't abend
+* fhi     2014-04-01 NOMALL-1346 same
+* fhi     2014-04-04 NOMALL-1346 same
+* fhi     2014-08-29 NOMALL-1454 Restowed due to changes in XXUX---P
+* SU1     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* fhi     2016-09-15 NOMALL-1621 Use +NOD-LOCAL-NODE as monitor node
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-01-11 NOMALL-1961 Change descriptor of NRM-ORDER
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi     2018-12-14 NOM 3.5     Improve CPU measures, no tags
+*  fhi    2019-02-19 NOMALL-2215 Export not complete
+*  BLI    2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU2     2020-05-04 NOMALL-2349 NOMALL-2349 remove unused
+* SU3     2021-02-18 NOMALL-2443 restruct+MSG
+* SU4     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* SU5     2021-05-05 NOMALL-2454 use MSG 25 instead 5 (NGC log handling)
+* SU6     2021-09-13 NOMALL-2484 use MSG 40 instead 25
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+* *****
+INDEPENDENT
+1 +ID                         (A/*) DYNAMIC
+1 +ID-INDEX                   (I2)
+1 +NOD-LOCAL-NODE             (N5)
+1 +CMRDC                      (A1)
+************************************************************************
+LOCAL USING RMEXP-A
+LOCAL USING XXUX---P
+LOCAL USING RMODTY-E
+LOCAL USING RMSETSTE
+LOCAL USING XXGMSG-A
+LOCAL USING RMTASK-P
+*
+LOCAL
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-TYPE
+  2 OD-MONITOR-ID
+  2 OD-USER-ID
+  2 OD-PARAMETER              (1:1)
+  2 REDEFINE OD-PARAMETER
+    3 OD-OBJECT               (A2)
+    3 OD-OBJECT-PREFIX        (A25)
+    3 OD-OBJECT-MASK          (A25)
+    3 OD-WILDCARD             (A1)
+    3 OD-MASK-CHAR            (A1)
+    3 OD-LOG                  (A1)
+    3 OD-NODE                 (A16)
+    3 OD-FILE                 (A50)
+  2 OD-TIME-CREATED
+  2 OD-TIME-SCHEDULED
+  2 OD-TIME-PROCESSED
+  2 OD-ERROR-CODE
+  2 OD-ERROR-TEXT
+1 #OD-TYPE-TIME               (A9)
+1 REDEFINE #OD-TYPE-TIME
+  2 #OD-TYPE-START            (B2)
+  2 #TIME                     (B7)
+1 #OD-TYPE-TIME-END           (A9)
+1 REDEFINE #OD-TYPE-TIME-END
+  2 #OD-TYPE-END              (B2)
+  2 #TIME-END                 (T)
+1 #I1                         (I2)
+1 #TRACING                    (L)
+1 RMSETTIM
+  2 FUNCTION                  (A1)
+  2 ERC                       (N4)
+  2 MSG                       (A250)
+1 #CATDATE                    (A19)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF G-MONITOR-ID = ' '
+  RMTASK-P.FUNCTION       := 'L'
+  RMTASK-P.SUBTASK-NUMBER := 1
+  CALLNAT 'RMTASKID' RMTASK-P
+  G-MONITOR-ID := RMTASK-P.TASK-ID
+END-IF
+EXPAND ARRAY +ID TO (1:10)
+RESET +ID(*) +ID-INDEX
+#OD-TYPE-START := #OD-TYPE-END := OD-EXPORT-NOM-OBJECT
+MOVE ALL H'00' TO #TIME
+#TIME-END      := *TIMX
+*
+RESET G-TRACE /*????? su 2021-04-21
+IF G-TRACE GE *LEVEL AND G-TRACE-SET = SCAN ('COPY')
+  #TRACING := TRUE
+  RMSETTIM.FUNCTION := 'S'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS 'Start' *PROGRAM 'cataloged at'  #CATDATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+INCLUDE CMRDC
+*
+CALLNAT 'RMSETSTN' #EQU-EXPORT +NOD-LOCAL-NODE G-NATRP-DBID G-NATRP-FNR
+  G-SHUTDOWN G-TASK-NUMBER
+END TRANSACTION
+RD. READ ORDER BY OD-TYPE-TIME FROM #OD-TYPE-TIME TO #OD-TYPE-TIME-END
+  RESET G-NATRP-ERT
+  G-NATRP-ERC := 9999  /* no error, set order in processing
+  PERFORM UPDATE-CURRENT-ORDER
+  IF OD-OBJECT = 'BU'
+    OD-OBJECT := 'BR' /* Get bundles together with reports
+  END-IF
+  IF #TRACING
+    COMPRESS 'Got order' OD-ID '- with type' OD-OBJECT
+      '- prefix'    OD-OBJECT-PREFIX '- mask' OD-OBJECT-MASK
+      '- for node'  OD-NODE '- to file'   OD-FILE TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    COMPRESS 'Calling:' 'RMEXP' OD-OBJECT TO G-TRACE-MSG LEAVING NO
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  PERFORM #CALL-IT
+  G-NATRP-ERC := OD-ERROR-CODE
+  G-NATRP-ERT := OD-ERROR-TEXT
+  PERFORM UPDATE-CURRENT-ORDER
+END-READ
+IF #TRACING
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+  G-TRACE-MSG := 'End'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-CURRENT-ORDER
+************************************************************************
+UPD. GET ORDER *ISN(RD.)
+DECIDE ON FIRST VALUE OF G-NATRP-ERC
+  VALUE 0
+    OD-TYPE           := OD-EXPORT-NOM-OBJECT-OK
+    OD-TIME-PROCESSED := *TIMX
+    COMPRESS OD-OBJECT '/' OD-OBJECT-PREFIX TO G-NATRP-ERT LEAVING NO
+    COMPRESS '1558' G-NATRP-ERT TO G-NATRP-ERT /*Export..:1:completed
+    PERFORM XXRLOG-WRITE-LOG 'W' G-NATRP-ERT
+    RESET OD-ERROR-CODE OD-ERROR-TEXT G-NATRP-ERC G-NATRP-ERT
+  VALUES 500:999
+    G-NATRP-ERC := G-NATRP-ERC + 5000 /* NPR mainframe error
+    #XX-ERROR-TYPE := 'N'
+    PERFORM GET-MESSAGE
+    G-NATRP-ERT := #XX-SHORT-TEXT
+    PERFORM SET-OD-FAILED
+  VALUE 9999
+    OD-TYPE := OD-EXPORT-NOM-OBJECT-IN-PROCESS
+    COMPRESS OD-OBJECT '/' OD-OBJECT-PREFIX TO G-NATRP-ERT LEAVING NO
+    COMPRESS '1557' G-NATRP-ERT TO G-NATRP-ERT /*Export of..:1:started
+    PERFORM XXRLOG-WRITE-LOG 'W' G-NATRP-ERT
+    RESET OD-ERROR-CODE OD-ERROR-TEXT G-NATRP-ERC G-NATRP-ERT
+  NONE
+    PERFORM GET-MESSAGE
+    PERFORM SET-OD-FAILED
+END-DECIDE
+OD-MONITOR-ID := G-MONITOR-ID
+UPDATE (UPD.)
+END TRANSACTION
+*
+END-SUBROUTINE /* UPDATE-CURRENT-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MESSAGE
+************************************************************************
+#XX-ERROR-CODE := G-NATRP-ERC
+SEPARATE G-NATRP-ERT INTO #XX-MSG-DYNA (*) IGNORE
+INCLUDE XXGMSG-C
+G-NATRP-ERT := #XX-SHORT-TEXT
+RESET #XX-ERROR-TYPE
+*
+END-SUBROUTINE /* GET-MESSAGE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-OD-FAILED
+************************************************************************
+OD-TYPE := OD-EXPORT-NOM-OBJECT-FAILED
+IF NOT G-NATRP-ERC = 5500 THRU 5999
+  PERFORM GET-MESSAGE
+  OD-ERROR-CODE := G-NATRP-ERC
+  OD-ERROR-TEXT := G-NATRP-ERT
+END-IF
+OD-TIME-PROCESSED := *TIMX
+COMPRESS OD-OBJECT '/' OD-OBJECT-PREFIX TO G-NATRP-ERT LEAVING NO
+IF G-NATRP-ERC = 5500 THRU 5999
+  COMPRESS G-NATRP-ERT 'node' OD-NODE TO G-NATRP-ERT
+END-IF
+PERFORM XXRLOG-WRITE-LOG 'W' G-NATRP-ERT
+RESET G-NATRP-ERC G-NATRP-ERT
+*
+END-SUBROUTINE /* SET-OD-FAILED
+*
+************************************************************************
+DEFINE SUBROUTINE #CALL-IT
+************************************************************************
+RESET #EXPORT /*new order - new count
+#EXPORT.#OD-ID             := ORDER.OD-ID
+#EXPORT.#OD-TYPE           := ORDER.OD-TYPE
+#EXPORT.#OD-MONITOR-ID     := ORDER.OD-MONITOR-ID
+#EXPORT.#OD-USER-ID        := ORDER.OD-USER-ID
+#EXPORT.#OD-PARAMETER (*)  := ORDER.OD-PARAMETER (*)
+#EXPORT.#OD-TIME-CREATED   := ORDER.OD-TIME-CREATED
+#EXPORT.#OD-TIME-SCHEDULED := ORDER.OD-TIME-SCHEDULED
+#EXPORT.#OD-TIME-PROCESSED := ORDER.OD-TIME-PROCESSED
+#EXPORT.#OD-ERROR-CODE     := ORDER.OD-ERROR-CODE
+#EXPORT.#OD-ERROR-TEXT     := ORDER.OD-ERROR-TEXT
+#CNT-TYPE (1) := OD-OBJECT
+DECIDE ON FIRST OD-OBJECT
+  VALUE 'BR' CALLNAT 'RMEXPBR' XXUX---P #EXPORT #TRACING
+  VALUE 'BU' CALLNAT 'RMEXPBU' XXUX---P #EXPORT #TRACING
+  VALUE 'CA' CALLNAT 'RMEXPCA' XXUX---P #EXPORT #TRACING
+  VALUE 'DL' CALLNAT 'RMEXPDL' XXUX---P #EXPORT #TRACING
+  VALUE 'FO' CALLNAT 'RMEXPFO' XXUX---P #EXPORT #TRACING
+  VALUE 'GR' CALLNAT 'RMEXPGR' XXUX---P #EXPORT #TRACING
+  VALUE 'NO' CALLNAT 'RMEXPNO' XXUX---P #EXPORT #TRACING
+  VALUE 'PH' CALLNAT 'RMEXPPH' XXUX---P #EXPORT #TRACING
+  VALUE 'PR' CALLNAT 'RMEXPPR' XXUX---P #EXPORT #TRACING
+  VALUE 'RP' CALLNAT 'RMEXPRP' XXUX---P #EXPORT #TRACING
+  VALUE 'US' CALLNAT 'RMEXPUS' XXUX---P #EXPORT #TRACING
+  VALUE 'UX' CALLNAT 'RMEXPUX' XXUX---P #EXPORT #TRACING
+  ANY
+    G-NATRP-ERC := 40 /*:1: SU5 was 5 SU6 was 25
+    IF #OD-ERROR-CODE NE 0
+      COMPRESS G-NATRP-ERC 'Export abended:' #OD-ERROR-CODE
+        #OD-ERROR-TEXT TO G-NATRP-ERT
+      PERFORM XXRLOG-WRITE-LOG 'W' G-NATRP-ERT
+    END-IF
+    COMPRESS G-NATRP-ERC 'Object(s) exported:' TO G-NATRP-ERT
+    FOR #I1 = 1 TO *OCC(#CNT)
+      IF #I1 > 1 AND #CNT (#I1) = 0 /*show always 1. entry
+        ESCAPE TOP
+      END-IF
+      COMPRESS G-NATRP-ERT #CNT-TYPE (#I1) ':' #CNT (#I1) ';'
+        TO G-NATRP-ERT LEAVING NO
+    END-FOR
+  NONE
+    G-NATRP-ERC := 25 /*:1: SU5 was 5 SU6 was 25
+    COMPRESS G-NATRP-ERC *PROGRAM 'invalid object type:' OD-OBJECT
+      TO G-NATRP-ERT
+END-DECIDE
+PERFORM XXRLOG-WRITE-LOG 'W' G-NATRP-ERT
+*
+END-SUBROUTINE /* #CALL-IT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  G-NATRP-ERC := 0021
+  CALLNAT 'C-NATERN' G-NATRP-ERT
+  IF *ERROR-NR NE 3148
+    PERFORM UPDATE-CURRENT-ORDER
+  END-IF
+END-ERROR
+*
+END

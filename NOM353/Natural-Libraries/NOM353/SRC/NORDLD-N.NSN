@@ -1,0 +1,267 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NORDLD-N - NOM API List of Reports in Archive Dataset
+* Input Keys  ES-KEY-PARM(1) -dsname
+*
+* Maintenance:
+* XSETGGR 2005-02-20 created
+* XSETHZ  2005-05-18 #OPTIONS(2) := 'RD'
+* xsetggr 2007-03-29 new value for prof-archive, prof-revive
+* xsetggr 2007-05-22 p(294774) change date/time format in lists
+* xsetggr 2007-05-24 NOM3201   Support P11 format run numbers
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* CF1     2016-02-11 NOMALL-1833 Display revive flag in report list
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NORDLD-A
+************************************************************************
+LOCAL USING NORDSL-A
+LOCAL USING ESMCONSL
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING NOUSUP-L
+LOCAL
+1 DATASET-REPORT VIEW OF NRM-DATASET-REPORT
+  2 DR-ARCHIVE-DSNAME
+  2 DR-REPNAME
+  2 DR-REPRNB
+  2 DR-STATUS           /* report status in bundle
+  2 DR-EXPIRATION-DATE
+  2 DR-EXPIRATION-DATE-ORIG
+1 USERS VIEW OF NRM-USERS
+  2 USER-PROFILE
+1 AR VIEW OF NRM-ACTIVE-REPORTS                   /* CF1
+  2 AR-REVIVE                                     /* CF1
+    /*
+1 #I2              (I4)
+1 #IMAX            (I4)
+1 #S-DSNAME-REP-RNB(A75)
+1 REDEFINE  #S-DSNAME-REP-RNB
+  2 #S-DSNAME      (A44)
+  2 #S-REPNAME     (A25)
+  2 #S-REPRNB      (P11)
+1 #E-DSNAME-REP-RNB(A75)
+1 REDEFINE  #E-DSNAME-REP-RNB
+  2 #E-DSNAME      (A44)
+  2 #E-REPNAME     (A25)
+  2 #E-REPRNB      (P11)
+1 #REPORT-RNB      (A31)                          /* CF1 +
+1 REDEFINE #REPORT-RNB
+  2 #REPORT        (A25)
+  2 #RNB           (P11)
+1 P-VERSION-A10    (A10)
+1 REDEFINE P-VERSION-A10
+  2 #VER           (N2)     /* Version
+  2 #REL           (N2)     /* Release
+  2 #SM            (N2)     /* System maintenenace level
+  2 #PL            (N4)     /* Patch or fix level
+1 P-ERC            (N4)
+1 #AR-REVIVE       (A1)
+1 #NEWLIST         (L)                            /* CF1 -
+1 #OPTIONS         (A2/1:10)
+1 #REPRNB-A        (A11)
+1 REDEFINE #REPRNB-A
+  2 #REPRNB-N      (N11)
+1 #MSG-NR          (N4) INIT <6124>  /* header texts
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-NUMBER ES-STARTINDEX ES-SORTKEY ES-SORTORDER
+/*
+CALLNAT 'ESMAVC-N' 'N' P-VERSION-A10 P-ERC ES-CONTROL /* CF1 +
+IF P-VERSION-A10 GT '0304030004'
+  #NEWLIST := TRUE
+END-IF                                                /* CF1 -
+/*
+ES-EOF := 'X'
+ES-OPTION-COUNT := 10
+IF ES-EXPAND NE ' '
+  #IMAX := 443
+  ES-FIELD-COUNT := 1
+  NORDEX-FIELD-LENGTH := 37
+ELSE
+  IF #NEWLIST                                         /* CF1 +
+    #IMAX := 341
+    ES-FIELD-COUNT := 6
+    NORDLD2-FIELD-LENGTH(1) := 25
+    NORDLD2-FIELD-LENGTH(2) := 911
+    NORDLD2-FIELD-LENGTH(3) := 808
+    NORDLD2-FIELD-LENGTH(4) := 808
+    NORDLD2-FIELD-LENGTH(5) := 1
+    NORDLD2-FIELD-LENGTH(6) := 1
+  ELSE                                                /* CF1 -
+    #IMAX := 346
+    ES-FIELD-COUNT := 5
+    NORDLD-FIELD-LENGTH(1) := 25
+    NORDLD-FIELD-LENGTH(2) := 911
+    NORDLD-FIELD-LENGTH(3) := 808
+    NORDLD-FIELD-LENGTH(4) := 808
+    NORDLD-FIELD-LENGTH(5) := 1
+  END-IF                                              /* CF1
+END-IF
+#NORDSL := ES-SELECT
+#S-DSNAME := ES-KEY-PARM(1)
+#E-DSNAME := #S-DSNAME
+EXAMINE #NORDSL.#REPNAME FOR '*' DELETE
+#S-REPNAME := #NORDSL.#REPNAME
+COMPRESS #NORDSL.#REPNAME H'FF' TO #E-REPNAME LEAVING NO
+RESET #S-REPRNB
+#E-REPRNB := 99999999999
+IF ES-NEXT-KEY-PARM(1) > ' '
+  #S-DSNAME  := ES-NEXT-KEY-PARM(1)
+  #S-REPNAME := ES-NEXT-KEY-PARM(2)
+  #S-REPRNB  := VAL(ES-NEXT-KEY-PARM(3))
+ELSE
+  PERFORM READ-PROFILE
+  IF ES-EXPAND NE 'E'
+    ES-STARTINDEX := 2
+    #I2 := 1
+    RESET SHORT-MSG
+      LONG-MSG(*)
+    /*      NORDLD-HEADER                             /* CF1
+    VERSION := 0
+    NADA2000.OBJECT-KIND := 'U'
+    NADA2000.ERROR-NUMBER := #MSG-NR
+    NADA2000.OPT-INSERT-DYN := FALSE
+    NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+    NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+    CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+    RESET ES-RC
+    IF #NEWLIST                                       /* CF1 +
+      RESET NORDLD2-HEADER
+      COMPRESS LONG-MSG(1) C-HEADER-DELIMITER
+        LONG-MSG(2) C-HEADER-DELIMITER LONG-MSG(3) C-HEADER-DELIMITER
+        LONG-MSG(4) C-HEADER-DELIMITER LONG-MSG(5) C-HEADER-DELIMITER
+        LONG-MSG(6) TO NORDLD2-HEADER LEAVING NO
+    ELSE
+      RESET NORDLD-HEADER                             /* CF1 -
+      COMPRESS LONG-MSG(1) C-HEADER-DELIMITER
+        LONG-MSG(2) C-HEADER-DELIMITER LONG-MSG(3) C-HEADER-DELIMITER
+        LONG-MSG(4) C-HEADER-DELIMITER
+        LONG-MSG(5) TO NORDLD-HEADER LEAVING NO
+    END-IF                                            /* CF1
+  END-IF
+END-IF
+R. READ DATASET-REPORT BY DR-DSNAME-REPORT-RNB = #S-DSNAME-REP-RNB
+  IF DR-ARCHIVE-DSNAME NE #S-DSNAME OR DR-REPNAME > #E-REPNAME
+    ESCAPE BOTTOM(R.)
+  END-IF
+  ADD 1 TO #I2
+  IF #I2 > #IMAX
+    ES-NEXT-KEY-PARM(1) := DR-ARCHIVE-DSNAME
+    ES-NEXT-KEY-PARM(2) := DR-REPNAME
+    #REPRNB-N := DR-REPRNB
+    ES-NEXT-KEY-PARM(3) := #REPRNB-A
+    ES-NUMBER := #IMAX
+    RESET ES-EOF
+    ESCAPE BOTTOM
+  END-IF
+  RESET #OPTIONS(*) #REPRNB-A #AR-REVIVE /* CF1 +
+  #REPORT-RNB.#REPORT := DR-REPNAME
+  #REPORT-RNB.#RNB    := DR-REPRNB
+  FNDAR. FIND AR WITH AR-REPORT-RNB = #REPORT-RNB
+    IF NO RECORDS FOUND
+      RESET #AR-REVIVE
+      /* if no active report exists, disallow all maintenance
+      #OPTIONS(2) := 'RD'
+      #OPTIONS(3) := 'RV'
+      #OPTIONS(4) := 'MX'
+      ESCAPE BOTTOM
+    END-NOREC
+    /*
+    #AR-REVIVE := AR-REVIVE
+  END-FIND
+  /*                                                /* CF1 -
+  IF ES-EXPAND = 'E'
+    #REPRNB-A := DR-REPRNB
+    COMPRESS DR-REPNAME C-PARM-DELIMITER #REPRNB-A TO
+      NORDEX-NAME(#I2) LEAVING NO
+    PERFORM GET-OPTIONS
+    NORDEX-OPTIONS(#I2,*):= #OPTIONS(*)
+  ELSE
+    IF #NEWLIST                                     /* CF1 +
+      NORDLD2-NAME(#I2):= DR-REPNAME
+      NORDLD2-RNB(#I2) := DR-REPRNB
+      MOVE RIGHT JUSTIFIED NORDLD2-RNB(#I2) TO NORDLD2-RNB(#I2)
+      IF DR-EXPIRATION-DATE NE ' '
+        NORDLD2-EXP-DATE (#I2) := DR-EXPIRATION-DATE
+      ELSE
+        RESET NORDLD2-EXP-DATE (#I2)
+      END-IF
+      IF DR-EXPIRATION-DATE-ORIG  NE ' '
+        NORDLD2-ORIG-EXP-DATE (#I2) := DR-EXPIRATION-DATE-ORIG
+      ELSE
+        RESET  NORDLD2-ORIG-EXP-DATE (#I2)
+      END-IF
+      NORDLD2-STATUS(#I2) := DR-STATUS
+      NORDLD2-REVIVE(#I2) := #AR-REVIVE
+      /*
+      PERFORM GET-OPTIONS
+      NORDLD2-OPTIONS(#I2,*) := #OPTIONS(*)
+    ELSE                                            /* CF1 -
+      NORDLD-NAME(#I2):= DR-REPNAME
+      NORDLD-RNB(#I2) := DR-REPRNB
+      MOVE RIGHT JUSTIFIED NORDLD-RNB(#I2) TO NORDLD-RNB(#I2)
+      IF DR-EXPIRATION-DATE NE ' '
+        NORDLD-EXP-DATE (#I2) := DR-EXPIRATION-DATE
+      ELSE
+        RESET NORDLD-EXP-DATE (#I2)
+      END-IF
+      IF DR-EXPIRATION-DATE-ORIG  NE ' '
+        NORDLD-ORIG-EXP-DATE (#I2) := DR-EXPIRATION-DATE-ORIG
+      ELSE
+        RESET  NORDLD-ORIG-EXP-DATE (#I2)
+      END-IF
+      NORDLD-STATUS(#I2) := DR-STATUS
+      PERFORM GET-OPTIONS
+      NORDLD-OPTIONS(#I2,*) := #OPTIONS(*)
+    END-IF                                          /* CF1
+  END-IF
+  ES-NUMBER := #I2
+END-READ
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-PROFILE
+************************************************************************
+IF ES-USER-TYPE NE 'A'
+  FIND USERS WITH USER-ID = ES-USER
+    PROFILE-STRING := USER-PROFILE
+    ES-NEXT-KEY-PARM(5) := PROF-REVIVE
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* READ-PROFILE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-OPTIONS
+************************************************************************
+IF DR-STATUS = 'D'
+  #OPTIONS(1) := 'DL'
+END-IF
+IF DR-EXPIRATION-DATE-ORIG = ' '
+  #OPTIONS(2) := 'RD'
+END-IF
+IF (ES-USER-TYPE NE 'A' AND ES-NEXT-KEY-PARM(5) NE 'Y'
+AND ES-NEXT-KEY-PARM(5) NE 'M') OR #AR-REVIVE = '*' /* CF1            /*
+  #OPTIONS(3) := 'RV'
+END-IF
+*
+END-SUBROUTINE /* GET-OPTIONS
+*
+END

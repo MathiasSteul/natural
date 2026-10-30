@@ -1,0 +1,208 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ----------------------------------------------------------------------
+* Name      XXCPAGET
+* Version   3.4
+* Function  Test encoding with XXCPAGE
+*
+* fhi§SAG Aug 2014
+*
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) Action
+* ----------------------------------------------------------------------
+* fhi     2015-06-25 NOMALL-1573 Correct special char !
+* fhi     2016-01-29 NOMALL-1632 Check missing linefeeds. No tags.
+* fhi     2016-10-06 NOMALL-1930 Add better tracing
+* fhi     2016-10-06 NOMALL-1962 Rewritten
+*
+*
+DEFINE DATA LOCAL
+1 #U             (U117)
+1 REDEFINE #U
+  2 #I2          (I2/110)
+1 #A             (A110)
+1 REDEFINE #A
+  2 #I1          (I1/110)
+1 #I             (I2)
+1 #J             (I4)
+1 #J-1           (I4)
+1 #K             (I4)
+1 #L             (I4)
+1 #INPUT-DATA    (A75)
+1 #HEXHIGH       (A75)
+1 #HEXLOW        (A75)
+1 #RULER         (A75)
+1 #RULER-OFFSET  (I4)
+1 STRING         (A)     DYNAMIC
+1 ERC            (N4)
+1 ERT            (A250)
+1 USTRING        (U)     DYNAMIC
+1 #CHCK-MOVE-U   (U1) INIT <UH'20AC'> /* EURO char
+1 #CHCK-MOVE-A   (A4)
+1 #ENC-ERC       (I4)
+1 #TAG           (A20)
+1 ##TAG          (A20)
+1 #VALUE         (A55)
+1 ##VALUE        (A55)
+1 #TRACING       (L)    INIT <TRUE>
+END-DEFINE
+*
+RESET #J
+FOR #I = 33 TO 127
+  ADD 1 TO #J
+  #I1(#J) := #I2(#J) := #I
+END-FOR
+MOVE ENCODED #CHCK-MOVE-U TO #CHCK-MOVE-A IN CODEPAGE 'UTF-8'
+  GIVING #ENC-ERC
+IF #ENC-ERC NE 0 OR *CODEPAGE = ' '
+  MOVE
+    'Ü"@$%&/()=??°§;,:._-#+*ß'-
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZ?\?'-
+    'abcdefghijklmnopqrstuvwxyz????'-
+    '1234567890'
+    TO #A
+  PRINT NOTITLE NOHDR
+ '*******************************************************************' /
+ '***     Test HTML encoding and parsing (mode: no codepage)      ***' /
+ '*******************************************************************' /
+    'Original string:' / #A //
+  STRING := #A
+  CALLNAT 'XXCPAGE' 'E' STRING ERC ERT 2X #TRACING
+  END TRANSACTION
+  PRINT  NOTITLE NOHDR 'Encoded to HTML characters :'
+    /'=' ERC '=' ERT / STRING /
+  CALLNAT 'XXCPAGE' 'D' STRING ERC ERT 2X #TRACING
+  END TRANSACTION
+  PRINT  NOTITLE NOHDR  'Decoded to CP' *CODEPAGE
+    / '=' ERC '=' ERT / STRING //
+  STRING := #A
+  CALLNAT 'XXCPAGE' 'T' STRING ERC ERT 2X #TRACING
+  END TRANSACTION
+  PRINT NOTITLE NOHDR  'Encoded for NPR Unix:'
+    / '=' ERC '=' ERT / STRING /
+  CALLNAT 'XXCPAGE' 'U' STRING ERC ERT 2X #TRACING
+  END TRANSACTION
+  PRINT NOTITLE NOHDR  'Decoded from NPR:' /
+    '=' ERC '=' ERT / STRING
+ELSE
+  MOVE
+    UH'00C400D600DC00E400F600FC00DF00B500B000B200B300BC00BD00BE00E020AC'
+*      ?   \   ?   ?   ?   ?   ?   ?   °   2   3   1/4 1/2 3/4 ?   euro
+    TO SUBSTR(#U,95)
+  MOVE UH'0000'  TO SUBSTR(#U,111)
+*         NUL
+  MOVE U'<--NUL' TO SUBSTR(#U,112)
+  USTRING := #U
+  PRINT NOTITLE NOHDR
+ '*******************************************************************' /
+ '***       Test HTML encoding and parsing (mode: Unicode)        ***' /
+ '*******************************************************************' /
+    'Original unicode string:' / USTRING //
+  CALLNAT 'XXCPAGE' 'E' STRING ERC ERT 2X #TRACING USTRING
+  END TRANSACTION
+  PRINT NOTITLE NOHDR  'Unicode encoded to HTML characters:' /
+    '=' ERC '=' ERT / STRING /
+  CALLNAT 'XXCPAGE' 'D' STRING ERC ERT 2X #TRACING
+  END TRANSACTION
+  PRINT NOTITLE NOHDR  'Decoded to CP' *CODEPAGE
+    / '=' ERC '=' ERT / STRING //
+  USTRING := #U
+  CALLNAT 'XXCPAGE' 'E' STRING ERC ERT 2X #TRACING USTRING
+  CALLNAT 'XXCPAGE' 'D' STRING ERC ERT 1X 'ISO-8859-1' #TRACING
+  END TRANSACTION
+  PRINT NOTITLE NOHDR  'Decoded to CP ISO-8859-1'
+    / '=' ERC '=' ERT /
+  REP.
+  REPEAT
+    PERFORM XXHEXPRT #INPUT-DATA #HEXHIGH #HEXLOW #RULER
+      #RULER-OFFSET TRUE STRING 75
+    IF #RULER-OFFSET = -1
+      ESCAPE BOTTOM (REP.)
+    END-IF
+    PRINT #INPUT-DATA
+    PRINT #HEXHIGH
+    PRINT #HEXLOW
+    PRINT #RULER
+  END-REPEAT
+  NEWPAGE
+  USTRING := #U
+  CALLNAT 'XXCPAGE' 'T' STRING ERC ERT 2X #TRACING USTRING
+  END TRANSACTION
+  PRINT NOTITLE NOHDR  'Unicode encoded for NPR Unix:'
+    / '=' ERC '=' ERT / STRING /
+  CALLNAT 'XXCPAGE' 'U' STRING ERC ERT 2X #TRACING
+  END TRANSACTION
+  PRINT NOTITLE NOHDR  'Decoded to CP' *CODEPAGE
+    / '=' ERC '=' ERT / STRING
+  RESET #I2(*)
+  FOR #I = 33 TO 126
+    #J := #I - 20
+    #I2(#J) := #I
+  END-FOR
+  EXAMINE #U FOR H'00' AND DELETE
+  MOVE UH'0000'  TO SUBSTR(#U,95)
+*         NUL
+  MOVE U'<--NUL' TO SUBSTR(#U,96)
+  USTRING := #U
+  NEWPAGE
+  PRINT NOTITLE NOHDR
+ '*******************************************************************' /
+ '***       Encode 7bit ASCII and parse it:                       ***' /
+ '*******************************************************************'//
+    'Unicode string to be parsed:' / USTRING //
+  CALLNAT 'XXCPAGE' 'E' STRING ERC ERT 2X #TRACING USTRING
+  END TRANSACTION
+  COMPRESS
+    '<?xml version="1.0"  ?>'-
+    '<document>'-
+    '<filename>fn</filename>'-
+    '<filetype>ft</filetype>'-
+    '<codepage>cp</codepage> <data>'
+    STRING
+    '</data></document>'
+    TO STRING
+  #L := *LENGTH (STRING)
+  FOR #J = 1 TO #L STEP 75
+    #J-1 := #J - 1
+    IF SUBSTR(STRING,#J) NE ' '
+      IF #L - #J  > 74
+        #K := 75
+      ELSE
+        #K := #L - #J + 1
+      END-IF
+      IF #K > 0
+        #INPUT-DATA := SUBSTR(STRING,#J,#K)
+        PERFORM XXHEXPRT #INPUT-DATA #HEXHIGH #HEXLOW #RULER #J-1 TRUE
+        PRINT NOTITLE NOHDR  #INPUT-DATA
+        PRINT  NOTITLE NOHDR #HEXHIGH
+        PRINT  NOTITLE NOHDR #HEXLOW
+        PRINT  NOTITLE NOHDR #RULER
+      END-IF
+    END-IF
+  END-FOR
+  NEWPAGE
+  PARSE XML STRING INTO NAME #TAG VALUE #VALUE
+    DECIDE ON FIRST VALUE OF *PARSE-TYPE
+      VALUE 'T'
+        COMPRESS '<' #TAG '>' TO ##TAG LEAVING NO
+        DISPLAY 'Parse: XML-Tag' ##TAG 'XML-Value' ##VALUE
+      VALUE '$'
+        ##VALUE := #VALUE
+      VALUE '/'
+        EXAMINE ##VALUE FOR ' ' GIVING LENGTH IN #L
+        IF #L > 51
+          MOVE ' ...' TO SUBSTR(##VALUE,52)
+        END-IF
+        COMPRESS '</' #TAG '>' TO ##TAG LEAVING NO
+        DISPLAY ##TAG ##VALUE
+        RESET ##VALUE
+      NONE
+        IGNORE
+    END-DECIDE
+  END-PARSE
+END-IF
+END

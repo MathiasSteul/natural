@@ -1,0 +1,437 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPRCMA - Print Object to CMA
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 94-02-07 s(999999) created
+* gw  94-03-03 s(999999) use CALL routines instead of NATURAL interface
+*                        old version saved as RMPRCMAO
+* gw  94-03-04 s(999999) first line is lost when record is inserted
+* mrs 95-03-20 p(138646) set line size to 251 if exit is used
+* mrs 95-06-09 s(226652) first line is lost when record is inserted
+* sju 95-10-09 s(228453) new return code (98) to stop printing
+* sju 99-06-28 p(183721) new printer exit return code 97 (means don't
+*                        call again until next report separator)
+* uuu     yyyy-mm-dd s(999999) ...
+* fhi     2000-08-24 QA03      Use NAT23006 for error values
+* fhi     2003-07-29 P(227985) Clear unused modules
+* xsetggr 04-11-23 p(258871) recat due to changes in rmfl---p
+* sju     2004-12-14 TYPE=AL  NOM31 support TYPE=AL
+* xsetggr 2007-05-02 NOM3201 Support 5 byte node numbers
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2007-07-17 NRT2422   print binary documents
+* xsetggr 2007-11-05 NRT2768   show size of binary documents in bytes
+* xsetggr 2008-06-10 p(292935) fill po-printed only after successful end
+*                              of printing
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-12-20 NOMALL-97 Save File Handle for NPR Unix
+* xsetggr 2010-12-21 NOMALL-865 restow due to changes in RMFL---P
+* fhi     2011-04-26 NOMALL-966 Do not suppress last line with Pr-Exit
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* fhi     2012-11-14 NOMALL-1143 Add occurrence for Base64
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* fhi     2014-08-29 NOMALL-1454 Restowed due to changes in XXUX---P
+* SU2     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU3     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* SU4     2016-03-08 NOMALL-1847 PDA RMPRAPIP -> PDA P-PEXIT
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU5     2024-07-25 NOM 353     Recataloged due to changes of RMPR-C
+************************************************************************
+DEFINE DATA
+PARAMETER USING RMFL---P
+PARAMETER
+1 LINE-PARMS
+  2 LINE-CURRENT                   (P3)
+  2 LINE-TAB                       (1:100)
+    3 LINE                         (A251)
+    3 REDEFINE LINE
+      4 LINE-L                     (A1/1:251)
+    3 LINE-NUMBER                  (P10)
+PARAMETER USING XXUX---P
+PARAMETER
+1 P-ERROR-CODE                     (N4)
+1 P-ERROR-TEXT                     (A250)
+************************************************************************
+LOCAL USING P-PEXIT
+LOCAL USING RCCTYP-E
+LOCAL USING RMMCASAP
+LOCAL USING RMBAS64P   /* parameter for BASE64 conversion
+LOCAL USING RMASAC-E
+LOCAL
+1 ORDER-STATUS VIEW OF NRM-PRINTOUTS
+  2 PO-STATUS
+  2 PO-LAST-PRINTED-RECNO
+* *****
+1 #ESF-OPEN-PARMS                  (A212)
+1 REDEFINE    #ESF-OPEN-PARMS
+  2 #ESFO
+    3 #ESFO-STA                    (A2)
+    3 #ESFO-SEQ-UNUSED             (B2)
+    3 #ESFO-CBA                    (B4)
+    3 #ESFO-TYP                    (A1)
+    3 #ESFO-OWN                    (A8)
+    3 #ESFO-DES                    (A8)
+    3 #ESFO-CC                     (A1)
+    3 #ESFO-LRC                    (B2)
+    3 #ESFO-LIM                    (B4)
+    3 #ESFO-COP                    (B2)
+    3 #ESFO-CLS                    (A1)
+    3 #ESFO-FOR                    (A4)
+    3 #ESFO-FCB                    (A4)
+    3 #ESFO-PGN-UNUSED             (A16)
+    3 #ESFO-SID                    (A4)
+    3 #ESFO-PID                    (A3)
+    3 #ESFO-RET                    (B2)
+    3 #ESFO-SSN-UNUSED             (A4)
+    3 #ESFO-USR-UNUSED             (A4)
+    3 #ESFO-TID-UNUSED             (A4)
+    3 #ESFO-PNL                    (B2)
+    3 #ESFO-RV3-UNUSED             (B1)
+    3 #ESFO-PRI                    (B1)
+    3 #ESFO-FNO                    (B4)
+    3 #ESFO-WTR                    (A8)
+    3 #ESFO-UID                    (A8)
+    3 #ESFO-ACT                    (A8)
+    3 #ESFO-ROM                    (A4)
+    3 #ESFO-BRW-UNUSED             (A1)
+    3 #ESFO-DAM-UNUSED             (A1)
+    3 #ESFO-CMP-UNUSED             (A1)
+    3 #ESFO-RFC-UNUSED             (A1)
+    3 #ESFO-PRM                    (A8)
+    3 #ESFO-FDF                    (A6)
+    3 #ESFO-PDF                    (A6)
+    3 #ESFO-CHR                    (A16)
+    3 #ESFO-TRC                    (A1)
+    3 #ESFO-LCT                    (B1)
+    3 #ESFO-NDS-UNUSED             (B2)
+    3 #ESFO-BFC-UNUSED             (B4)
+    3 #ESFO-RV4-UNUSED             (B16)
+    3 #ESFO-PROGRAMMER             (A16)
+1 #ESF-CLOSE-PARMS                 (A16)
+1 REDEFINE    #ESF-CLOSE-PARMS
+  2 #ESFC
+    3 #ESFC-STA                    (A2)
+    3 #ESFC-SEQ-UNUSED             (B2)
+    3 #ESFC-CBA                    (B4)
+    3 #ESFC-TYP                    (A1)
+    3 #ESFC-RV1-UNUSED             (B3)
+    3 #ESFC-FNO                    (B4)
+1 #ESF-WRITE-PARMS                 (A136/1:2)
+1 REDEFINE    #ESF-WRITE-PARMS
+  2 #ESFW
+    3 #ESFW-STA                    (A2)
+    3 #ESFW-SEQ-UNUSED             (B2)
+    3 #ESFW-CBA                    (B4)
+    3 #ESFW-FNO                    (B4)
+    3 #ESFW-FLG-UNUSED             (B1)
+    3 #ESFW-RES-UNUSED             (B1)
+    3 #ESFW-RCL-UNUSED             (B2)
+    3 #ESFW-BUF-UNUSED             (B4)
+    3 #ESFW-D90                    (A251)
+1 #ESF-RC                          (B4)
+1 REDEFINE    #ESF-RC
+  2 #ESF-RC-I                      (I4)
+1 I                                (P3)
+1 #STATUS                          (A1)
+1 #UPD-COUNTER                     (N8) INIT <10>
+1 #SAVE-LINE                       (A251)
+1 #TEMP-LINE                       (A251)
+1 REDEFINE    #TEMP-LINE
+  2 #TEMP-CC                       (A1)
+  2 #TEMP-TEXT                     (A250)
+*
+1 LAST-BUFFER                      (L)
+*
+1 ESF-OPEN-ROUTINE                 (A8) INIT <'ESFOPEN'>
+1 ESF-CLOSE-ROUTINE                (A8) INIT <'ESFCLOS'>
+1 ESF-WRITE-ROUTINE                (A8) INIT <'ESFWRIT'>
+1 #FLUSH-LINE                      (A251)
+1 REDEFINE #FLUSH-LINE
+  2 #FLUSH-CC                      (A1)
+  2 #FLUSH-TEXT                    (A250)
+1 #IND                             (I4)
+1 #BYTES                           (P11)
+1 #BIN-ALLOWED                     (L) CONST <TRUE>
+1 #BS2-ALLOWED                     (L) CONST <FALSE>
+1 #TRACING                         (L) CONST <FALSE>
+1 #TRACE-MSG                       (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #ESFO #ESFW #ESFC
+*
+ADD 1 TO FLUSH-BUFFERS
+ADD 1 TO FLUSH-COUNTER
+*
+IF FLUSH-SEGMENT = 'L' OR = 'A' AND FLUSH-SEG-BRACKET = 'L' OR = 'A'
+  LAST-BUFFER := TRUE
+END-IF
+*
+FOR I = 1 TO LINE-CURRENT
+  IF FLUSH-BUFFERS = 1 AND I = 1
+    PERFORM OPEN-PRINTER
+    IF P-ERROR-CODE NE 0
+      ESCAPE BOTTOM
+    END-IF
+  END-IF
+  IF LAST-BUFFER AND I = LINE-CURRENT
+    FLUSH-BRACKET := 'L'
+  END-IF
+  PERFORM CALL-PRINTER-EXIT
+  IF P-ERROR-CODE NE 0
+    ESCAPE BOTTOM
+  END-IF
+  IF FLUSH-BRACKET = 'L'
+    PERFORM CLOSE-PRINTER
+  END-IF
+  FLUSH-BRACKET := 'M'
+END-FOR
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-STATUS
+************************************************************************
+IF FLUSH-POID = 0
+  ESCAPE ROUTINE
+END-IF
+*
+FNDOS. FIND ORDER-STATUS WITH PO-ID = FLUSH-POID
+  PO-STATUS := #STATUS
+  IF FLUSH-CC-TYPE = BINARY
+    PO-LAST-PRINTED-RECNO := FLUSH-LINES / 1024
+  ELSE
+    PO-LAST-PRINTED-RECNO := FLUSH-LINES
+  END-IF
+  UPDATE (FNDOS.)
+  END OF TRANSACTION
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-IT
+************************************************************************
+*** Handle carriage control for TYPE=AL. (TYPE=AL reports may contain
+*** a micture of ASA, Machine, and no carriage control).
+*** 1. If first character is a valid ASA carriage control, do nothing
+*** 2. If first character is printable (but not X'89' or X'8B' which
+***    are machine skip to channel 1), assume the record has no
+***    carriage control - shift the record right 1 position and put a
+***    space in column 1.
+*** 3. Otherwise, first character must be machine carriage control so
+***    translate it to ASA.
+*
+IF FLUSH-TYPE-AL = 'Y'
+  #FLUSH-LINE  := LINE(I)
+  EXAMINE FULL RMASAC-ASA-CODES(*) FOR #FLUSH-CC GIVING INDEX IN #IND
+  IF #IND = 0                            /* not ASA
+    IF #FLUSH-CC = MASK(P) AND #FLUSH-CC NE H'89' AND #FLUSH-CC NE H'8B'
+      RESET #FLUSH-CC
+      #FLUSH-TEXT:= LINE(I)
+      LINE(I):= #FLUSH-LINE
+      RESET FLUSH-SAVE-CC
+    ELSE
+      RMMCASA-PARMS.P-RECORD := LINE (I)
+      RMMCASA-PARMS.P-PREV-CC := FLUSH-SAVE-CC
+      CALLNAT 'RMMCASAN' RMMCASA-PARMS
+      FLUSH-SAVE-CC := RMMCASA-PARMS.P-PREV-CC
+      IF RMMCASA-PARMS.P-PRINT-NUMBER > 0
+        LINE (I) := RMMCASA-PARMS.P-RECORD
+      ELSE
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+  ELSE
+    RESET FLUSH-SAVE-CC
+  END-IF
+END-IF
+DECIDE FOR FIRST CONDITION
+  WHEN FLUSH-CC-TYPE = MACHINE-CODE
+    PERFORM MACHINE-TO-ASA
+  WHEN FLUSH-CC-TYPE = BINARY
+    PERFORM BASE64-TO-BIN
+    IF P-ERROR-CODE NE 0
+      ESCAPE ROUTINE
+    END-IF
+  WHEN FLUSH-CC-TYPE = NO-CC
+    RESET #TEMP-CC
+    #TEMP-TEXT := LINE (I)
+    LINE (I) := #TEMP-LINE
+    PERFORM PRINT-LINE
+  WHEN NONE
+    PERFORM PRINT-LINE
+END-DECIDE
+*
+END-SUBROUTINE /* PRINT-IT
+*
+************************************************************************
+DEFINE SUBROUTINE MACHINE-TO-ASA
+************************************************************************
+RMMCASA-PARMS.P-RECORD := LINE (I)
+RMMCASA-PARMS.P-PREV-CC := CMA-CC-PREVIOUS
+CALLNAT 'RMMCASAN' RMMCASA-PARMS
+CMA-CC-PREVIOUS := RMMCASA-PARMS.P-PREV-CC
+IF RMMCASA-PARMS.P-PRINT-NUMBER > 0
+  LINE (I) := RMMCASA-PARMS.P-RECORD
+  PERFORM PRINT-LINE
+END-IF
+*
+END-SUBROUTINE /* MACHINE-TO-ASA
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-LINE
+************************************************************************
+IF FLUSH-CC-TYPE NE BINARY
+  ADD 1 TO FLUSH-LINES
+ELSE
+  EXAMINE LINE (I) FOR ' ' GIVING LENGTH IN #BYTES
+  ADD #BYTES TO FLUSH-LINES
+END-IF
+IF FLUSH-COUNTER > #UPD-COUNTER OR FLUSH-BRACKET = 'L'
+  #STATUS := 'P'
+  PERFORM UPDATE-STATUS
+  RESET FLUSH-COUNTER
+END-IF
+*
+#ESFW-CBA := CMA-ESFO-CBA
+#ESFW-FNO := CMA-ESFO-FNO
+#ESFW-D90 := LINE (I)
+*
+CALL ESF-WRITE-ROUTINE #ESF-WRITE-PARMS (*)
+*
+#ESF-RC := RET (ESF-WRITE-ROUTINE)
+*
+DECIDE FOR FIRST CONDITION
+  WHEN #ESF-RC > H'0000'
+    MOVE EDITED #ESF-RC (EM=H(2)) TO P-ERROR-TEXT
+    COMPRESS P-ERROR-TEXT 'CALL' TO P-ERROR-TEXT
+    P-ERROR-CODE := 0720
+  WHEN #ESFW-STA NE '  '
+    COMPRESS #ESFW-STA 'WRITE' TO P-ERROR-TEXT
+    P-ERROR-CODE := 0720
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* PRINT-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE OPEN-PRINTER
+************************************************************************
+#ESFO-STA := '90'
+#ESFO-TYP := '0'
+#ESFO-OWN := CMA-OWN
+#ESFO-DES := CMA-DES
+#ESFO-CC := 'A'
+IF FLUSH-MEMBER NE ' '      AND FLUSH-MEMBER NE SCAN '*'
+  #ESFO-LRC := 251
+ELSE
+  #ESFO-LRC := FLUSH-RECORD-LENGTH
+END-IF
+#ESFO-LIM := CMA-LIM
+#ESFO-COP := CMA-COP
+#ESFO-CLS := CMA-CLA
+#ESFO-FOR := CMA-FOR
+#ESFO-SID := CMA-ESF
+#ESFO-RET := CMA-RET
+#ESFO-PNL := 16                          /* length of #ESFO-P90
+#ESFO-PRI := CMA-PRI
+#ESFO-WTR := CMA-WTR
+#ESFO-UID := CMA-UID
+#ESFO-ACT := CMA-ACT
+#ESFO-ROM := CMA-ROM
+#ESFO-PRM := CMA-PRM
+#ESFO-FDF := CMA-FDF
+#ESFO-PDF := CMA-PDF
+#ESFO-CHR := CMA-CHR
+#ESFO-TRC := CMA-TRC
+#ESFO-LCT := CMA-LCT
+#ESFO-PROGRAMMER := CMA-PROGRAMMER
+*
+CALL ESF-OPEN-ROUTINE #ESF-OPEN-PARMS
+*
+CMA-ESFO-CBA := #ESFO-CBA
+CMA-ESFO-FNO := #ESFO-FNO
+*
+#ESF-RC := RET (ESF-OPEN-ROUTINE)
+*
+DECIDE FOR FIRST CONDITION
+  WHEN #ESF-RC > H'0000'
+    MOVE EDITED #ESF-RC (EM=H(2)) TO P-ERROR-TEXT
+    COMPRESS P-ERROR-TEXT 'CALL' TO P-ERROR-TEXT
+    P-ERROR-CODE := 0720
+  WHEN #ESFO-STA NE '  '
+    COMPRESS #ESFO-STA 'OPEN' TO P-ERROR-TEXT
+    P-ERROR-CODE := 0720
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* OPEN-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-PRINTER
+************************************************************************
+#ESFC-CBA := CMA-ESFO-CBA
+#ESFC-FNO := CMA-ESFO-FNO
+#ESFC-TYP := '0'                         /* permanent close
+*
+CALL ESF-CLOSE-ROUTINE #ESF-CLOSE-PARMS
+*
+#ESF-RC := RET (ESF-CLOSE-ROUTINE)
+DECIDE FOR FIRST CONDITION
+  WHEN #ESF-RC > H'0000'
+    MOVE EDITED #ESF-RC (EM=H(2)) TO P-ERROR-TEXT
+    COMPRESS P-ERROR-TEXT 'CALL' TO P-ERROR-TEXT
+    P-ERROR-CODE := 0720
+  WHEN #ESFC-STA NE '  '
+    COMPRESS #ESFC-STA 'CLOSE' TO P-ERROR-TEXT
+    P-ERROR-CODE := 0720
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CLOSE-PRINTER
+*
+************************************************************************-
+DEFINE SUBROUTINE BASE64-TO-BIN
+************************************************************************
+B64-FUNCTION := 'AB' /* convert base64 to bin
+RESET B64-BRACKET B64-B
+REDUCE ARRAY B64-TEXT-ARRAY TO (1:1)
+B64-TEXT-ARRAY (1) := LINE (I)
+CALLNAT 'RMBAS64N' B64-PARMS
+P-ERROR-CODE := B64-RC
+P-ERROR-TEXT := B64-ERRTXT
+IF P-ERROR-CODE = 0
+  LINE (I) := B64-B
+END-IF
+*
+END-SUBROUTINE /* BASE64-TO-BIN
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  CALLNAT 'C-NATERN' P-ERROR-TEXT
+  P-ERROR-CODE := 21
+  FLUSH-ERROR := TRUE
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+INCLUDE RMPR-C /*V12-PRINTER-API,CALL-PRINTER-EXIT
+*
+END

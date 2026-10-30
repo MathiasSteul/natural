@@ -1,0 +1,181 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMFLCM-N - Get attributes for flush via CMASpool
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  94-03-03 s(999999) created
+* gw  94-09-06 p(131675) set default copies to 1
+* gw  95-12-12 s(231724) priority N2 to N3
+* xsiszha 2000-08-01 (CE7461) Extend Report and Bundle Names
+* fhi 02-10-30 fhi101    switch on optimizer compiler
+* xsetggr 2004-11-23 p(258871) recat due to changes in rmfl---p
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-12-21 NOMALL-865 restow due to changes in RMFL---P
+* SU1     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING RMFL---P
+PARAMETER
+1 P-ERROR-CODE                 (N4)
+1 P-ERROR-TEXT                 (A250)
+************************************************************************
+LOCAL
+1 USER VIEW OF NRM-USERS
+  2 LAST-NAME
+*
+1 PRINTOUT    VIEW  OF  NRM-PRINTOUTS
+  2 PO-PHYSICAL-NAME
+  2 PO-ID
+  2 PO-USERID
+  2 PO-REPNAME
+  2 PO-REPRNB
+  2 PO-BUNDLE
+  2 PO-BUNDRNB
+  2 PO-COPIES
+  2 PO-PRIORITY
+  2 PO-ATTRIBUTES              (1:25)
+  2 REDEFINE PO-ATTRIBUTES
+    3 PO-ATTRIB                (1:25)
+      4 PO-IDENT               (I1)
+      4 PO-LENGTH              (N2)
+      4 PO-PROMPT              (N4)
+      4 PO-VAR                 (A16)
+      4 PO-VALUE               (A72)
+  2 C*PO-ATTRIBUTES
+*
+1 F                            (I2)
+1 NOE                          (I2)
+1 I                            (I2)
+1 J                            (I2)
+1 #FILENAME                    (A8)
+1 REDEFINE #FILENAME
+  2 #FN                        (A1/1:8)
+1 #NAME                        (A25)
+1 REDEFINE #NAME
+  2 #NA                        (A1/1:25)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-ERROR-CODE P-ERROR-TEXT
+*
+PERFORM READ-PRINTOUT-RECORD
+IF P-ERROR-CODE = 0
+  PERFORM CMASPOOL-INTERFACE
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-PRINTOUT-RECORD
+************************************************************************
+FNDPR. FIND PRINTOUT WITH PO-ID = FLUSH-POID
+  IF NO RECORDS FOUND
+    P-ERROR-CODE := 0005
+    P-ERROR-TEXT := 'Printout Record not found'
+    ESCAPE BOTTOM (FNDPR.)
+  END-NOREC
+END-FIND
+*
+END-SUBROUTINE /* READ-PRINTOUT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE CMASPOOL-INTERFACE
+************************************************************************
+RESET  CMA-ATTRIBUTES
+CMA-COP := PRINTOUT.PO-COPIES
+IF PRINTOUT.PO-PRIORITY = 1 THRU 126
+  CMA-PRI := PRINTOUT.PO-PRIORITY
+END-IF
+CMA-UID := PRINTOUT.PO-USERID
+CMA-DES := PRINTOUT.PO-PHYSICAL-NAME
+*
+IF PRINTOUT.C*PO-ATTRIBUTES > 25
+  NOE := 25
+ELSE
+  NOE := PRINTOUT.C*PO-ATTRIBUTES
+END-IF
+*
+FOR F = 1 TO NOE
+  DECIDE ON FIRST PO-VAR (F)
+    VALUE 'OWN' CMA-OWN := PO-VALUE (F)
+    VALUE 'PNA' CMA-PROGRAMMER := PO-VALUE (F)
+    VALUE 'CLA' CMA-CLA := PO-VALUE (F)
+    VALUE 'FOR' CMA-FOR := PO-VALUE (F)
+    VALUE 'FCB' CMA-FCB := PO-VALUE (F)
+    VALUE 'ESF' CMA-ESF := PO-VALUE (F)
+    VALUE 'HOL' CMA-HOL := PO-VALUE (F)
+    VALUE 'CHR' CMA-CHR := PO-VALUE (F)
+    VALUE 'FDF' CMA-FDF := PO-VALUE (F)
+    VALUE 'PDF' CMA-PDF := PO-VALUE (F)
+    VALUE 'PRM' CMA-PRM := PO-VALUE (F)
+    VALUE 'ROM' CMA-ROM := PO-VALUE (F)
+    VALUE 'TRC' CMA-TRC := PO-VALUE (F)
+    VALUE 'WTR' CMA-WTR := PO-VALUE (F)
+    VALUE 'LIM'
+      IF PO-VALUE (F) IS (N8)
+        CMA-LIM := VAL (PO-VALUE (F))
+      END-IF
+    VALUE 'RET'
+      IF PO-VALUE (F) IS (N4)
+        CMA-RET := VAL (PO-VALUE (F))
+      END-IF
+    VALUE 'LCT'
+      IF PO-VALUE (F) IS (N3)
+        CMA-LCT := VAL (PO-VALUE (F))
+      END-IF
+    NONE VALUE IGNORE
+  END-DECIDE
+END-FOR
+*
+IF PO-COPIES = 0
+  CMA-COP := 1
+ELSE
+  CMA-COP := PO-COPIES
+END-IF
+*
+/*SU1 OPTIONS MCG=(INDX=ON,OVFLW=ON,DIGTCHCK=ON) /*fhi101 inserted
+DECIDE FOR EVERY CONDITION
+  WHEN CMA-OWN = ' '
+    IF PRINTOUT.PO-REPRNB NE 0
+      #NAME := PRINTOUT.PO-REPNAME
+    ELSE
+      #NAME := PRINTOUT.PO-BUNDLE
+    END-IF
+    FOR I = 1 TO 25
+      IF #NA (I) = MASK (A) OR #NA (I) = MASK (N)
+        ADD 1 TO J
+        IF J > 8
+          ESCAPE BOTTOM
+        END-IF
+        #FN (J) := #NA (I)
+      END-IF
+    END-FOR
+    CMA-OWN := #FILENAME
+  WHEN CMA-PROGRAMMER = ' '
+    PERFORM FIND-USER
+    CMA-PROGRAMMER := USER.LAST-NAME
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CMASPOOL-INTERFACE
+*
+************************************************************************
+DEFINE SUBROUTINE FIND-USER
+************************************************************************
+FIND USER WITH USER-ID = PRINTOUT.PO-USERID
+END-FIND
+*
+END-SUBROUTINE /* FIND-USER
+*
+END

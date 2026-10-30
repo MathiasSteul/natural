@@ -1,0 +1,108 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* **********************************************************************
+* XFSUSP
+* Version   : NOM 3.5
+* Function  : Get the status to suspend a node depending on error-#
+*             Write log entries
+*
+* No END TRANSACTION done. Caller is responsible for transaction
+*
+* Usage: ...M-TYPE := F#SUSP (<monitor-id,erc?,<ert>])
+*
+* **********************************************************************
+* Maintenance
+* ----------------------------------------------------------------------
+* uuuuuuu yyyy-mm-dd iTrac       Remark
+* fhi     2018-10-04 NOMALL-1621 Created.
+* SU1     2022-03-31 NOMALL-2544 show ESY msg+callingPgm(itrac for uqac)
+* **********************************************************************
+*
+************************************************************************
+DEFINE FUNCTION F#SUSP  RETURNS P-STATUS (A1)
+************************************************************************
+  DEFINE DATA PARAMETER
+  1 P-MONITOR-ID        (A20)  BY VALUE
+  1 P-INPUT-STATUS      (A1)   BY VALUE
+  1 P-ERC               (I2)   BY VALUE
+  1 P-ERT               (A250) BY VALUE OPTIONAL
+************************************************************************
+  LOCAL
+  1 #TRACING            (L)
+  1 #TRACE-MSG          (A250)
+  1 #CATDATE            (A19)
+  1 #ERT                (A250)
+  1 P-LASTPROG          (A8) /*SU1
+  1 #A10                (A10) /*SU1
+
+* ÜÜ NAT LUW requires INDEPENDENT below LOCAL ÜÜ
+  INDEPENDENT
+  1 +NOD-LOCAL-ID            (A20)
+* *****
+  END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF P-ERT SPECIFIED
+  #ERT := P-ERT /*SU1 #ERT
+END-IF
+PERFORM RMGTRACE-GET-SETTINGS #TRACING
+IF #TRACING
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS 'Start' *PROGRAM 'cataloged at'  #CATDATE TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+DECIDE FOR EVERY CONDITION /* check if any action is required
+  WHEN P-MONITOR-ID = +NOD-LOCAL-ID /* don't suspend the local node
+    IF #TRACING
+      COMPRESS 'It''s the local node:' P-MONITOR-ID '- exiting.'
+        TO #TRACE-MSG
+    END-IF
+  WHEN P-ERC = 0 /* No error occurred, exit.
+    IF #TRACING
+      #TRACE-MSG := 'No error occurred. Exiting.'
+    END-IF
+  WHEN ANY
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    P-STATUS := P-INPUT-STATUS
+    ESCAPE ROUTINE
+  WHEN NONE
+    DECIDE ON FIRST VALUE OF P-ERC
+      VALUES
+          5508,5509,5510,5530,5531,
+          508,  509, 510, 530, 531
+        IF P-ERC = 5508 OR=508 /*get calling pgm SU1
+          PERFORM XXLSLEVL-GET-LAST-LEVEL P-LASTPROG
+          COMPRESS '(' P-LASTPROG ')' TO #A10 LEAVING NO
+        END-IF
+        P-STATUS := 'E' /* error, because intervention required
+        COMPRESS '7129' SUBSTR(P-MONITOR-ID,3) P-ERC #ERT #A10
+          TO #TRACE-MSG
+      NONE
+        P-STATUS := 'S' /* May be solved without intervention,
+        IF P-ERC > 999  /* Avoid dup. msg, only range 5xxx logged
+          COMPRESS '7130' SUBSTR(P-MONITOR-ID,3) /*even if 5999 occured
+            P-ERC #ERT TO #TRACE-MSG
+        END-IF
+    END-DECIDE
+    PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+END-DECIDE
+IF #TRACING
+  IF P-INPUT-STATUS NE P-STATUS
+    COMPRESS 'will get status' P-STATUS 'due to error' P-ERC
+      TO #TRACE-MSG
+  ELSE
+    COMPRESS 'will stay at status' P-INPUT-STATUS TO #TRACE-MSG
+  END-IF
+  COMPRESS 'Monitor-ID' P-MONITOR-ID #TRACE-MSG TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+*
+END-FUNCTION /*F#SUSP
+*
+END

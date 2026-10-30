@@ -1,0 +1,140 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* N-CHKIDE - Report definition: select possible identifications
+*
+* MAINTENANCE:
+* User ID yyyy-mm-dd itrac       Comment
+* ------- ---------- ----------- ---------------------------------------
+* SU      2018-12-14             NOM 3.5 Created
+* SU1     2019-02-13             POWER=POWR
+* SU2     2024-03-07 ES-34613    NOM 3.6 Remove power
+************************************************************************
+*
+DEFINE DATA
+PARAMETER
+1 #FUNC        (A1)  /*'*'=help/otherwise check
+1 #IDENT-NAME  (A8)
+1 #NODENAME    (A16)
+1 #SPOOL-TYPE  (A8)
+1 #OK          (L)
+************************************************************************
+INDEPENDENT /*see RMGTNODE
+1 +NOD-LOCAL-NAME     (A16)
+* *****
+LOCAL
+1 #ID-MAX             (I2) CONST <7> /*only 6 entries used yet
+1 #GR
+  2 #JES              (A8) CONST <'JES'>
+/*SU2  2 #POWER            (A8) CONST <'POWER'>
+  2 #NATURAL          (A8) CONST <'NATURAL'>
+  2 #BS2000           (A8) CONST <'BS2000'>
+  2 #CA-SPOOL         (A8) CONST <'CA SPOOL'>
+  2 #UNIX             (A8) CONST <'UNIX'>
+  2 #3GL              (A8) CONST <'3GL'>
+  2 #EMPTY            (A8) CONST <' '>
+1 REDEFINE #GR
+  2 #IDENTS-ALL       (A8/1:#ID-MAX)
+1 #GR1                (1:#ID-MAX)
+  2 #IDENT            (A8)
+  2 CV-MARK           (C) INIT ALL <(AD=NP)>
+  2 L-MARK            (A1)
+1 #TIT                (A79)
+1 #I                  (I2)
+1 #J                  (I2)
+1 #MF                 (L)
+1 ERC                 (N4)
+1 ERT                 (A60)
+1 #TXT2               (A38)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #OK
+IF *LANGUAGE = 2
+  #TIT := 'Identifikationsquelle'
+ELSE
+  #TIT := 'Identification source'
+END-IF
+DEFINE WINDOW WIN SIZE 14*50 BASE 10/20 TITLE #TIT CONTROL WINDOW
+  FRAMED ON POSITION OFF
+IF *MACHINE-CLASS = 'MAINFRAME'
+  #MF := TRUE
+END-IF
+/* from NGC program NORPSB-N:
+/*   System type  Node type  Spool type   :  Valif identif.methods
+/*   -----------  ---------  ------------ :  ---------------------
+/*   Mainframe    Monitor    JES2/JES3    :  JES, NAT, 3GL, CMA
+/*SU2 Mainframe    Monitor    POWR         :  PWR, NAT, 3GL, CMA
+/*   Mainframe    Monitor    BS2-SPOOL    :  BS2, NAT, 3GL
+/*   Mainframe    (remote)   JES2/JES3    :  JES
+/*SU2 Mainframe    (remote)   POWR         :  PWR
+/*   Mainframe    (remote)   BS2-SPOOL    :  BS2
+/*   Mainframe    (remote)   (undefined)  :  ---
+/*   UNIX         Monitor    UNIX-path    :  UNX, NAT
+/*   UNIX         (remote)   UNIX-path    :  UNX
+/*NOÜMainframe    Monitor    (undefined)  :  NAT, 3GL
+/*
+FOR #I = 1 TO #ID-MAX
+  DECIDE FOR FIRST CONDITION
+    WHEN (#NODENAME = ' ' OR= +NOD-LOCAL-NAME) /*monitor
+    AND((#IDENTS-ALL(#I) =#NATURAL)                                   /*
+    OR (#IDENTS-ALL (#I) =#3GL AND #SPOOL-TYPE NE #UNIX)              /*
+    OR (#IDENTS-ALL (#I) =#CA-SPOOL AND #SPOOL-TYPE=SCAN #JES))       /*
+/*SU2 OR=SCAN 'POWR'))
+      IGNORE /*ok Ü
+    WHEN (#IDENTS-ALL (#I) =#JES    AND #SPOOL-TYPE=SCAN #JES)
+    OR   (#IDENTS-ALL (#I) =#UNIX   AND #SPOOL-TYPE=#UNIX)            /*
+    OR (#IDENTS-ALL (#I) =#BS2000 AND #SPOOL-TYPE=SCAN 'BS2' OR='SPOOL')
+/*SU2 OR   (#IDENTS-ALL (#I) =#POWER  AND #SPOOL-TYPE=#POWER OR='POWR')
+      IGNORE /*ok Ü
+    WHEN NONE
+      ESCAPE TOP /*not ok
+  END-DECIDE
+************************************************************************
+  IF #FUNC NE '*' AND #IDENTS-ALL (#I) = #IDENT-NAME /*check ok
+    #OK := TRUE
+    ESCAPE ROUTINE
+  END-IF
+  ADD 1 TO #J
+  #IDENT (#J) := #IDENTS-ALL (#I)
+  CV-MARK(#J) := (AD=I)
+END-FOR
+IF #FUNC NE '*' /*check not ok
+  ERC := 4502 /*Ident.source does not fit to node.
+  ERT := #IDENT-NAME
+  IF *LANGUAGE = 2
+    COMPRESS 'Felder fuer' #IDENT-NAME 'werden geloescht.' TO #TXT2
+  ELSE
+    COMPRESS 'Attr. for' #IDENT-NAME 'will be deletedt.' TO #TXT2
+  END-IF
+END-IF
+SET KEY ALL
+SET CONTROL 'MB'
+INPUT WINDOW='WIN' WITH TEXT *ERC,ERT USING MAP 'N-CHKID&'
+IF *PF-KEY NE 'ENTR'
+* #LEAVE := TRUE
+  ESCAPE MODULE
+END-IF
+IF SELECTION NOT UNIQUE IN L-MARK (*)
+  REINPUT *2027
+END-IF
+FOR #I = 1 TO #ID-MAX
+  IF L-MARK (#I) NE ' '
+    #IDENT-NAME := #IDENT (#I)
+    #OK := TRUE
+    ESCAPE MODULE
+  END-IF
+END-FOR
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+*
+END

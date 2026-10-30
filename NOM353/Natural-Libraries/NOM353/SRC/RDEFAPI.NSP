@@ -1,0 +1,256 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RDEFAPI
+* Version   1.3
+* Function  Define API Defaults
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  94-07-29 s(999999) created
+* gw  95-12-xx s(999999) user exits
+* jwo 97-11-13 p(167263) add active reports exit
+* gw  98-06-22 p(171828) add BS2000 count optimization exit
+* sju 99-08-09 p(185138) allow setting of nomex001-005, without 008
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* fhi 02-06-13 p(225125) add new user exit NOMEX010
+* sju 02-09-09 NOM221    add new user exit NOMEX011
+* fhi 02-11-08 p(218246) add new user exit NOMEX012
+* fhi 03-12-17 p(248647) NAT0954 (0c7) in NOMOO-P
+* xsetggr 05-06-30 p(248647) correct solution
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* fhi 07-04-27 NOM32-1   Disable user exit NOMEX012, add NOMEX013
+* fhi 09-05-26 N3876     Introduce NOMEX014, read printout parameters
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* raya 2012-12-03    nomall-1214 add #NOMEXIT7
+* SU1     2016-07-29 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* SU2  2020-04-22 NOMALL-2409 restruct
+* SU3     2020-11-10 NOMALL-2440 recat for VMONIT-L
+* SU4     2022-09-19 NOMALL-2578 check trigger DBID/FNR
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL  USING RPFK---L
+/*SU3 LOCAL  USING VMONIT-L
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR /*SU3 was VMONIT-L
+  2 M-BUNDLE-DEFAULTS       (A250)
+  2 M-LAST-ACTIVE           (T)
+  2 REDEFINE M-LAST-ACTIVE
+    3 M-LAST-ACTIVE-CK      (A7)
+  2 M-TIME-SCHEDULE         (A1) /*Process trigger queue
+  2 M-ARCHIVE-TIME          (T)
+  2 REDEFINE M-ARCHIVE-TIME
+    3 M-ARCHIVE-TIME-CK     (A7)
+  2 M-MONITOR-ID            (A20)
+  2 M-USER-DEFAULTS         (A100)
+  2 REDEFINE M-USER-DEFAULTS
+    3 M-NOMEXIT-ACTIVE      (A1/1:20)
+  2 M-NATRPT-DBID-N5        (N5)
+  2 M-NATRPT-FNR-N5         (N5)
+*
+1 #API-DEFAULTS-ID          (A8) CONST <'API-DEFS'>
+1 #FATHER-PROG              (A8) CONST <'RDFMEN'>
+1 CV-MAP                    (C)  INIT <(AD=I CD=NE)>
+1 #ISN                      (N10)
+1 L-HEADER                  (A78)
+1 #ALLOWED                  (L)
+1 #FUNC                     (A1)
+1 #LANGUAGE                 (I1)
+1 #I                        (I2)
+1 #NOMEXIT-7                (A1)
+1 #NOMEXIT-8                (A1)
+1 #NOMEXIT-9                (A1)
+1 #NOMEXIT-10               (A1)
+1 #NOMEXIT-11               (A1)
+1 #NOMEXIT-13               (A1)
+1 #NOMEXIT-14               (A1)
+1 #BUNDLE-DEFAULTS          (A250)
+1 REDEFINE #BUNDLE-DEFAULTS
+  2 #BUNDDEF
+    3 B-CHAR-FIELDS1        (A40)
+    3 B-FLUSH-TIME          (T)
+    3 REDEFINE B-FLUSH-TIME
+      4 B-FLUSH-TIME-A      (A7)
+    3 B-CHAR-FIELDS2        (A197)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET G-COMMIT G-LINECOM(*)
+*
+#FUNC := G-C-FUNC
+MAIN-LOOP. REPEAT
+  FIND-LOOP. FIND NRM-MONITOR WITH M-MONITOR-ID = #API-DEFAULTS-ID
+*
+    IF NO RECORDS FOUND /*???? SU optional ? if required, return err
+      M-MONITOR-ID := #API-DEFAULTS-ID
+      RESET M-LAST-ACTIVE M-ARCHIVE-TIME B-FLUSH-TIME
+      M-BUNDLE-DEFAULTS := #BUNDLE-DEFAULTS
+      STOR. STORE NRM-MONITOR /*API-DEFS
+      END TRANSACTION
+      ESCAPE BOTTOM
+    END-NOREC
+*
+    IF M-LAST-ACTIVE-CK = ' '
+      RESET M-LAST-ACTIVE
+    END-IF
+    IF M-ARCHIVE-TIME-CK = ' '
+      RESET M-ARCHIVE-TIME
+    END-IF
+    #BUNDLE-DEFAULTS := M-BUNDLE-DEFAULTS
+    IF B-FLUSH-TIME-A = ' '
+      RESET B-FLUSH-TIME
+      M-BUNDLE-DEFAULTS := #BUNDLE-DEFAULTS
+    END-IF
+*
+    #ISN := *ISN
+*
+    DECIDE ON FIRST VALUE OF #FUNC
+      VALUE 'M'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'MMO' #ALLOWED
+        INCLUDE C-NALLOW
+        GETREC. GET NRM-MONITOR #ISN
+      VALUE 'D'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'DMO' #ALLOWED
+        INCLUDE C-NALLOW
+        CV-MAP := (AD=IP)
+      NONE VALUE
+        IGNORE
+    END-DECIDE
+*
+    SCREEN-LOOP. REPEAT
+      FOR #I 1 20
+        IF NRM-MONITOR.M-NOMEXIT-ACTIVE (#I) NE 'Y'
+          NRM-MONITOR.M-NOMEXIT-ACTIVE (#I) := 'N'
+        END-IF
+      END-FOR
+      #NOMEXIT-7 := NRM-MONITOR.M-NOMEXIT-ACTIVE (7)
+      #NOMEXIT-8 := NRM-MONITOR.M-NOMEXIT-ACTIVE (8)
+      #NOMEXIT-9 := NRM-MONITOR.M-NOMEXIT-ACTIVE (9)
+      #NOMEXIT-10 := NRM-MONITOR.M-NOMEXIT-ACTIVE (10)
+      #NOMEXIT-11 := NRM-MONITOR.M-NOMEXIT-ACTIVE (11)
+      #NOMEXIT-13 := NRM-MONITOR.M-NOMEXIT-ACTIVE (12) /*see MIGUEX
+      #NOMEXIT-14 := NRM-MONITOR.M-NOMEXIT-ACTIVE (14) /*see MIGUEX
+      IF #LANGUAGE NE *LANGUAGE
+        PERFORM INIT-PFKEYS
+        PERFORM SET-PFKEYS
+        #LANGUAGE := *LANGUAGE
+      END-IF
+*
+      PERFORM FLIP-DISPLAY
+      CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDEFAPI&'
+      PERFORM BEFORE-INPUT
+*
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+        USING MAP 'RDEFAPI&'
+*
+      PERFORM AFTER-INPUT
+      RESET G-NATRP-ERC G-NATRP-ERT
+*
+      INCLUDE RPFKVA-C
+      INCLUDE C-DIRECT
+      INCLUDE RPFKED-C
+*
+      IF CV-MAP MODIFIED OR G-MAP-MODIFIED
+        PERFORM VALIDATE-INPUT
+        UPDATE(GETREC.)
+        G-NATRP-ERC := 0032
+        INCLUDE C-COMMIT
+      END-IF
+      INCLUDE REXDO--C
+*
+    END-REPEAT
+  END-FIND
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+IF NOT NRM-MONITOR.M-TIME-SCHEDULE = 'Y' OR = 'N'
+  REINPUT *1099 MARK *M-TIME-SCHEDULE ALARM
+END-IF
+IF NRM-MONITOR.M-TIME-SCHEDULE = 'Y' /*SU4
+AND (M-NATRPT-DBID-N5 < 1 OR M-NATRPT-FNR-N5 < 1)                     /*
+  IF M-NATRPT-DBID-N5 < 1
+    REINPUT *1532 MARK *M-NATRPT-DBID-N5 ALARM /*Please enter DBID.
+  ELSE
+    REINPUT *1533 MARK *M-NATRPT-FNR-N5 ALARM /*Please enter FNR.
+  END-IF
+END-IF
+*
+FOR #I 1 6
+  IF NRM-MONITOR.M-NOMEXIT-ACTIVE (#I) = ' '
+    NRM-MONITOR.M-NOMEXIT-ACTIVE (#I) := 'N'
+  END-IF
+  IF NOT NRM-MONITOR.M-NOMEXIT-ACTIVE (#I) = 'Y' OR = 'N'
+    ADD 3 TO #I
+    REINPUT *1099 MARK #I ALARM
+  END-IF
+END-FOR
+IF NOT #NOMEXIT-7 = 'Y' OR = 'N'
+  REINPUT *1099 MARK *#NOMEXIT-7 ALARM
+END-IF
+NRM-MONITOR.M-NOMEXIT-ACTIVE (7) := #NOMEXIT-7
+IF NOT #NOMEXIT-8 = 'Y' OR = 'N'
+  REINPUT *1099 MARK *#NOMEXIT-8 ALARM
+END-IF
+NRM-MONITOR.M-NOMEXIT-ACTIVE (8) := #NOMEXIT-8
+IF NOT #NOMEXIT-9 = 'Y' OR = 'N'
+  REINPUT *1099 MARK *#NOMEXIT-9 ALARM
+END-IF
+NRM-MONITOR.M-NOMEXIT-ACTIVE (9) := #NOMEXIT-9
+IF NOT #NOMEXIT-10 = 'Y' OR = 'N'
+  REINPUT *1099 MARK *#NOMEXIT-10 ALARM
+END-IF
+NRM-MONITOR.M-NOMEXIT-ACTIVE (10) := #NOMEXIT-10
+IF NOT #NOMEXIT-11 = 'Y' OR = 'N'
+  REINPUT *1099 MARK *#NOMEXIT-11 ALARM
+END-IF
+NRM-MONITOR.M-NOMEXIT-ACTIVE (11) := #NOMEXIT-11
+IF NOT #NOMEXIT-13 = 'Y' OR = 'N'
+  REINPUT *1099 MARK *#NOMEXIT-13 ALARM
+END-IF
+NRM-MONITOR.M-NOMEXIT-ACTIVE (12) := #NOMEXIT-13
+IF NOT #NOMEXIT-14 = 'Y' OR = 'N'
+  REINPUT *1099 MARK *#NOMEXIT-14 ALARM
+END-IF
+NRM-MONITOR.M-NOMEXIT-ACTIVE (14) := #NOMEXIT-14
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE BEFORE-INPUT
+************************************************************************
+ESCAPE ROUTINE
+*
+END-SUBROUTINE /* BEFORE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE AFTER-INPUT
+************************************************************************
+ESCAPE ROUTINE
+*
+END-SUBROUTINE /* AFTER-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+RESET G-PF
+INCLUDE RPFSTD-C
+INCLUDE RPFCOM-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+* --------------------------------------- set pfkeys -------------------
+INCLUDE RPFSET-C
+*
+END

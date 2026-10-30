@@ -1,0 +1,143 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* N-KY - select keywords for function LK
+*
+* Maintenance
+* SU1     2023-06-13 ES-33831    created: KY 1 -> 4 + AND/OR
+* SU2     2024-03-07 ES-34613    NOM 3.6 Remove power
+************************************************************************
+*
+DEFINE DATA
+PARAMETER
+1 #L-KEYWORD (A15/1:4)
+1 #S-AND     (L)
+************************************************************************
+INDEPENDENT /*changes here -> RFNDRP-N (for RP)
+1 +NOM-RFNDRP-N                (A600) /*remember search parms
+1 REDEFINE +NOM-RFNDRP-N
+  2 #S-REPNAME                 (A25)
+  2 #S-MASTER                  (A25)
+  2 #S-KEYWORDS                (A25/1:4)
+  2 #S-JES-JOB-NAME            (A25)
+  2 #S-JES-WRITER              (A25)
+  2 #S-JES-DESTINATION         (A25)
+  2 #S-JES-FORM                (A25)
+/*SU2  2 #S-PWR-JOB-NAME            (A25)
+/*SU2  2 #S-PWR-DESTINATION         (A25)
+/*SU2  2 #S-PWR-FORM                (A25)
+  2 #S-DIST                    (A25)
+  2 #S-PRINTER                 (A25)
+  2 #S-BS2-JOB-NAME            (A25)
+  2 #S-BS2-FORM                (A25)
+  2 #S-BS2-USER-ID             (A25)
+  2 #S-UNIX-NODE               (A25)
+  2 #S-UNIX-PATH               (A66)
+  2 #S-UNIX-FILE               (A50)
+  2 #S-AND2                    (L)
+  2 #S-SUBSTR                  (L)
+************************************************************************
+LOCAL
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+1 #TITLE     (A29)
+1 #I-KY      (I2)
+1 #L-15      (N3) INIT <15>
+1 #F-KY      (A25/1:4)
+1 #T-KY      (A25/1:4)
+1 #I         (I2)
+1 #A         (A50)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#TITLE := F#GETMSG (<8641>) /*Find active Reports
+DEFINE WINDOW #FIND SIZE AUTO /*8*29
+  BASE 8/25 TITLE #TITLE CONTROL SCREEN FRAMED ON
+PERFORM PF-KEYS
+IF +NOM-RFNDRP-N = ' ' /*init
+  RESET #S-SUBSTR #S-AND2 /*OR SU8
+ELSE
+  #S-AND := #S-AND2
+END-IF
+#L-KEYWORD (*) := #S-KEYWORDS (*)
+*
+#REP. REPEAT
+  INPUT WINDOW='#FIND' USING MAP 'RINPARK&'
+  IF *PF-KEY = 'PF3' /*SU1a
+    RESET #L-KEYWORD (*)
+    ESCAPE BOTTOM
+  END-IF
+  PERFORM CHECK-ACTIVE-HELP
+  IF *PF-KEY = 'ENTR'
+    PERFORM CHECK-AR
+    #S-AND2 := #S-AND
+    #S-KEYWORDS (*) := #L-KEYWORD (*)
+    ESCAPE BOTTOM
+  END-IF
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+SET KEY PF01=HELP
+SET KEY PF13=HELP
+*
+END-SUBROUTINE /* PF-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-ACTIVE-HELP
+************************************************************************
+FOR #I = 1 *OCC(#L-KEYWORD)
+  IF #L-KEYWORD (#I) = MASK('*')
+    REINPUT FULL USING HELP MARK *#L-KEYWORD (#I)
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* CHECK-ACTIVE-HELP
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-AR
+************************************************************************
+IF NOT #L-KEYWORD (*) NE ' '
+  ESCAPE ROUTINE /*=> search all
+END-IF
+FOR #I-KY=1 TO *OCC(#L-KEYWORD)
+  CALLNAT 'SELALPHA' #L-KEYWORD (#I-KY) #F-KY (#I-KY) #T-KY(#I-KY) #L-15
+  IF NOT #S-AND AND #F-KY (#I-KY) =' '
+    /*OR: search low = high ok(NULL)
+    #F-KY (#I-KY) := #T-KY(#I-KY)
+  END-IF
+END-FOR
+IF #S-AND /* AND
+  AR-K1. FIND NUMBER AR
+  WITH AR-KEYWORDS = #F-KY (1) THRU #T-KY(1)                          /*
+  AND  AR-KEYWORDS = #F-KY (2) THRU #T-KY(2)                          /*
+  AND  AR-KEYWORDS = #F-KY (3) THRU #T-KY(3)                          /*
+  AND  AR-KEYWORDS = #F-KY (4) THRU #T-KY(4)                          /*
+ELSE /* OR
+  AR-K2. FIND NUMBER AR
+  WITH AR-KEYWORDS = #F-KY (1) THRU #T-KY(1)                          /*
+  OR   AR-KEYWORDS = #F-KY (2) THRU #T-KY(2)                          /*
+  OR   AR-KEYWORDS = #F-KY (3) THRU #T-KY(3)                          /*
+  OR   AR-KEYWORDS = #F-KY (4) THRU #T-KY(4)                          /*
+END-IF
+IF *NUMBER (AR-K1.) = 0 AND *NUMBER (AR-K2.) = 0
+  COMPRESS ':' F#GETMSG (<8605>) '/' TO #A /*AR / KY
+  COMPRESS #A F#GETMSG (<5052>) TO #A /*AR / KY
+  REINPUT *1076,#A /*No records found :1: .
+END-IF
+*
+END-SUBROUTINE /* CHECK-AR
+*
+END

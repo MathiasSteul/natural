@@ -1,0 +1,206 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMUS01N
+* Function  User Mainenance API
+* Version 1.3.4
+* Version 2.1.1 xsiszha  2000-05-18
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* gw  95-10-20 s(230704) created
+* gw  96-01-11 s(229942) no error code returned in on error clause
+* jvd 98-09-10 p(164220) NOM141?NAT23
+* xsiszha  2000-05-18 s(CE4962)  READ-NEXT, READ-HOLD-NEXT added
+* fhi      2000-08-24 QA03       Use NAT23006 for error values
+* xsetggr  2007-05-18 p(289847) restore NOM lfile when error occurs
+* xsetggr  2005-03-30 nom31
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-06-17 p(300323) add steplibs
+* xsetggr 2008-12-05 p(300323) change adding of steplibs
+* xsetggr 2009-02-10 P300323   delete steplib handling, get EOM-LIBRARY
+*                              by RGETLIB
+* fhi     2009-02-27 P300323 Rename RGETSTEP to NOMGSTEP delivered in SYSTEM
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2011-07-28 FHI276    Add trace statements, old tags deleted
+* fhi     2012-01-19 NOMALL-1096 NOMUS--P (ERROR-TEXT(A250))STOW ONLY
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* xsetggr 2013-04-25 ES-104  restow due changes in NOMUS--P
+* SU2     2014-11-12 NOMALL-1527 getting rid of coding for old versions
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER USING NOMUS--P
+*
+LOCAL USING NOMUS--E
+LOCAL USING EOM----P
+LOCAL USING EOMUSM-P
+LOCAL USING EOMUSM-E
+LOCAL USING EOMMSG-P
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+*
+LOCAL
+1 #LFILE-CHANGED (L)
+1 #NOM-DBID      (N5)
+1 #NOM-FNR       (N5)
+1 #TRACING       (L)
+1 #TRACE-MSG     (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM RMGTRACE-GET-SETTINGS #TRACING
+*
+RESET NOMUS-ERROR-CODE NOMUS-ERROR-TEXT
+*
+DECIDE FOR EVERY CONDITION
+  WHEN NOMUS-NOM-FNR NE 0 AND NOMUS-NOM-DBID NE 0 AND NOMUS-ERROR-CODE=0
+    PERFORM GET-NOM-LFILE
+    PERFORM SET-NOM-LFILE
+    #LFILE-CHANGED := TRUE
+  WHEN SATLF-ERROR-CODE = 0
+    PERFORM USER-MAINTENANCE
+  WHEN #LFILE-CHANGED
+    PERFORM SET-OLD-NOM-LFILE
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NOM-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'GET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+#NOM-DBID := SATLF-DBID-N5
+#NOM-FNR  := SATLF-FNR-N5
+*
+END-SUBROUTINE /* GET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'SET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := NOMUS-NOM-DBID
+SATLF-FNR-N5  := NOMUS-NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-OLD-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := #NOM-DBID
+SATLF-FNR-N5  := #NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-OLD-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-INTERNAL-API
+************************************************************************
+RESET EOMMSG-PARMS
+CALLNAT 'EOMUSM-N' EOM-PARMS EOMUSM-PARMS EOMMSG-PARMS
+IF #TRACING
+  COMPRESS 'After-EOM: DB:' EOMUSM-I-TARGET-DBID
+    '/ FNR:'         EOMUSM-I-TARGET-FNR
+    '/ I-NAME:'      EOMUSM-I-NAME
+    '/ New-Name:'    EOMUSM-I-NEWNAME
+    '/ User:'        EOM-USER
+    '/ Version:'     EOM-VERSION
+    '/ Log-Types:'   EOM-LOG-TYPES(1)
+    '/ Msg-No:'      EOMMSG-NR
+    '/ Msg-Txt:'     EOMMSG-TEXT TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+IF EOMMSG-NR NE 0
+  NOMUS-ERROR-CODE := EOMMSG-NR
+  IF EOMMSG-TEXT = ' '
+    NOMUS-ERROR-CODE := EOMMSG-NR
+    NOMUS-ERROR-TEXT := F#GETMSG (<NOMUS-ERROR-CODE, EOMMSG-TOKEN(1:3)>)
+    IF #TRACING
+      COMPRESS 'After-SAT: Msg-No:' EOMMSG-NR
+        '/ Parm1:' EOMMSG-TOKEN(1)
+        '/ Parm2:' EOMMSG-TOKEN(2)
+        '/ Parm3:' EOMMSG-TOKEN(3)
+        '/ SAT-Error-Txt:' NOMUS-ERROR-TEXT TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END TRANSACTION
+    END-IF
+  ELSE
+    NOMUS-ERROR-TEXT := EOMMSG-TEXT
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CALL-INTERNAL-API
+*
+************************************************************************
+DEFINE SUBROUTINE USER-MAINTENANCE
+************************************************************************
+RESET EOM-LOGGING EOM-LOG-TYPES (*)
+EOMUSM-I-ATTRIBUTE-TYPE := USER-GENERAL-ATTRIBUTES
+EOMUSM-I-TARGET-DBID    := NOMUS-NOM-DBID
+EOMUSM-I-TARGET-FNR     := NOMUS-NOM-FNR
+EOMUSM-I-NAME           := NOMUS-USER-ID
+EOMUSM-I-NEWNAME        := NOMUS-USER-NEWID
+EOMUSM-ATTR (*)         := NOMUS-ATTR (*)
+EOM-USER-TYPE           := 'A'
+CALLNAT 'RGETLIB' EOM-LIBRARY
+*
+IF NOT (NOMUS-LANGUAGE = 1 OR = 2)
+  EOM-LANGUAGE := *LANGUAGE
+ELSE
+  EOM-LANGUAGE := NOMUS-LANGUAGE
+END-IF
+EOM-USER         := NOMUS-USER
+EOM-VERSION      := NOMUS-NOMVERS
+EOM-LOG-TYPES(1) := NOMUS-LOG-TYP
+EOM-FUNCTION     := NOMUS-FUNCTION
+EOMUSM-I-CHECK-FUNCTION := EOM-FUNCTION
+PERFORM CALL-INTERNAL-API
+IF EOMMSG-NR = 0 AND (NOMUS-FUNCTION = NOMUS-FCT-READ
+    OR = NOMUS-FCT-READ-NEXT OR = NOMUS-FCT-READ-HOLD
+    OR = NOMUS-FCT-READ-HOLD-NEXT)
+  NOMUS-ATTR (*) := EOMUSM-ATTR (*)
+  NOMUS-USER-ID  := EOMUSM-I-NAME
+  NOMUS-EOF := EOMUSM-EOF
+END-IF
+*
+END-SUBROUTINE /* USER-MAINTENANCE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF #LFILE-CHANGED
+    PERFORM SET-OLD-NOM-LFILE
+  END-IF
+  IF *ERROR-NR = 82
+    WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Missing NOM steplibs' //
+      'Please call NOM steplib routine NOMGSTEP before call of NOM API.'
+  END-IF
+  NOMUS-ERROR-CODE := 21 /*Error<:1:>occurred.
+  NOMUS-ERROR-TEXT := 21 /*????
+  CALLNAT 'C-NATERN' NOMUS-ERROR-TEXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

@@ -1,0 +1,183 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMCLEAN - Daily Cleanup
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* gw  95-02-02 p(136716) created
+* gw  95-02-06 s(999999) remove order cleanup, done synchronously
+*                        by the monitor
+* SJU 97-04-25 P(162128) TELL MONITOR WE RAN BY PUTTING A CALENDAR INTO
+*                        THE CLEANUP MONITOR RECORD
+* gw  98-02-17 s(275206) synchronize report creation with source cleanup
+*                        -> RMONITOR, RMARCSCH, RMSRCK, NOMCLNSP
+*                        Source cleanup RMSRCK and RMSRDL also done here
+* gw  98-06-22 s(999999) allow batch cleanup to run in lib other than
+*                        SYSNOM
+* sju 00-03-14 p(192484) no printing during cleanup - correct monitor/
+* NOMCLEAN synchronization by only using M-ARCHIVE-PREFIX in the SYSNOM
+* archive task record. Previously there was a mixture of M-ARCHIVE-CALEN
+* DAR and M-ARCHIVE-PREFIX for SYSNOM and or CLEANUP, hence the
+* confusion as some routines were checking one and some the other.
+* Additionally, RMSRCK was checking the CALENDAR for the CLEANUP record
+* where they may in fact be a calendar name and if the name is 8 letters
+* and the lowest bit of the last letter is set (eg A, L, T) the monitor
+* would hang forever because RMSRCK went into its "wait for monitor"
+* 5 second sleep loop.
+*
+* sju 02-02-25 NOM221    New lfile for active data
+* sju 02-12-17 p(230197) Monitor hangs while system defaults are being
+*                        modified (8.1.1/8.1.2/8.1.3/8.1.4). Use a new
+*                        control record SYNCHCLN.
+* sju 03-06-09 p(241253) archive dataset cleanup
+* sju 04-03-03 p(250348) RMSRCK should honour cleanup flags when called
+*                        by NOMCLEAN, even if no time schedule
+* sju 04-12-06 NOM31     Add date and time (tenths of second) to trace
+* SU1 2014-02-10 NOMALL-1344 unix - daily cleanup does not delete orders
+*                            - just remove deactivated coding
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* BLI1    2023-04-18 NOMALL-2628 switch to handle remote MF sources
+************************************************************************
+*
+DEFINE DATA GLOBAL USING MONIT-GL
+*
+INDEPENDENT                          /* BLI1
+1 +NOD-CURRENT-NODE          (N5)
+1 +NOD-LOCAL-NODE            (N5)
+************************************************************************
+LOCAL USING RACTLF-A
+LOCAL
+1 CLEANUP-TASK VIEW OF NRM-ARCHIVE-TASK
+  2 M-ARCHIVE-PREFIX
+  2 REDEFINE M-ARCHIVE-PREFIX
+    3 CLEANUP-IDENTIFIER    (A5)
+    3 CLEANUP-RESCHEDULE    (L)
+    3 CLEANUP-ACTIVE-NOW    (L)
+    3 REPORT-PROCESSING-NOW (L)
+1 #INPUT                    (A5)
+1 #OUT                      (A120)
+1 #TRACING                  (L)    /* BLI1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *DATA = 1
+  INPUT #INPUT
+  IF #INPUT = 'TRACE'
+    G-TRACE  := 100
+    #TRACING := TRUE   /* BLI1
+  END-IF
+END-IF
+IF G-TRACE > 0
+  WRITE NOTITLE NOHDR
+    *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+    'Start Batch Clean up' #INPUT
+END-IF
+G-MONITOR-ID := F#MONITOR-TASK-USER-ID-LOG1 (<>)
+IF G-TASK-NUMBER LE 1     /* BLI1
+  G-TASK-NUMBER := 1
+END-IF
+G-FATHER-PROG:= *PROGRAM
+RESET RACTLF-LOGGING
+RACTLF-ERROR-LOGGING:= TRUE
+RACTLF-LOG-USERID := G-LG-USERID := F#MONITOR-TASK-USER-ID-LOG1 (<>)
+RACTLF-LOG-CODE   := 'MO'
+RACTLF-LFILE-1    := 91
+RACTLF-LFILE-2    := 206
+CALLNAT 'RACTLF-N' RACTLF-PARMS
+IF RACTLF-ERROR-CODE NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    RACTLF-ERROR-CODE RACTLF-ERROR-TEXT
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Dbid1:' RACTLF-DBID-1 'Fnr1:' RACTLF-FNR-1
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Dbid2:' RACTLF-DBID-2 'Fnr2:' RACTLF-FNR-2
+  TERMINATE 50
+END-IF
+* Perform Clean ups:
+#OUT := 'Report'           PERFORM #TRC FETCH RETURN 'RMPRGRP'
+#OUT := 'Bundle'           PERFORM #TRC FETCH RETURN 'RMPRGBU'
+#OUT := 'Log'              PERFORM #TRC FETCH RETURN 'RMPRGLOG'
+#OUT := 'Revived Report'   PERFORM #TRC FETCH RETURN 'RMPRGREV'
+#OUT := 'Printout'         PERFORM #TRC FETCH RETURN 'RMPRGPO'
+#OUT := 'Archived Report'  PERFORM #TRC FETCH RETURN 'RMPRGARC'
+#OUT := 'Archive Dataset'  PERFORM #TRC FETCH RETURN 'RMCLNARC'
+* *****
+CLEANTSK. FIND (1) CLEANUP-TASK WITH M-MONITOR-ID = 'SYNCHCLN'
+  IF NO RECORDS FOUND
+    WRITE *PROGRAM *TIMX(EM=YYYY-MM-DD' 'HH:II:SS)
+      'Cleanup synchronization control record missing'
+      / 'Batch Source cleanup not possible'
+    TERMINATE 4
+  END-NOREC
+  CLEANUP-IDENTIFIER := 'CLEAN'
+  CLEANUP-ACTIVE-NOW := TRUE
+  CLEANUP-RESCHEDULE := FALSE
+  UPDATE
+  END TRANSACTION
+END-FIND
+IF G-TRACE > 0
+  WRITE NOTITLE NOHDR
+    *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+    'Update Monitor Defaults: Clean up active now'
+END-IF
+* *****
+G-NATRP-DBID := RACTLF-DBID-2 G-NATRP-FNR := RACTLF-FNR-2  /* BLI1 start
+CALLNAT 'RMSWNODE' 'L'    /* local node
+  G-TASK-NUMBER G-NATRP-DBID G-NATRP-FNR #TRACING
+*
+REPEAT
+  IF G-TRACE > 0
+    WRITE NOTITLE NOHDR
+      *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Check Sources for' +NOD-CURRENT-NODE
+  END-IF
+  FETCH RETURN 'RMSRCK'
+* *****
+  IF G-TRACE > 0
+    WRITE NOTITLE NOHDR
+      *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Process Delete Orders for' +NOD-CURRENT-NODE
+  END-IF
+  FETCH RETURN 'RMSRDL'
+*
+  CALLNAT 'RMSWNODE' 'N'  /* switch to next MF node
+    G-TASK-NUMBER G-NATRP-DBID G-NATRP-FNR #TRACING
+  IF +NOD-CURRENT-NODE = +NOD-LOCAL-NODE
+    ESCAPE BOTTOM
+  END-IF
+END-REPEAT                                                /* BLI1 end
+* *****
+FIND (1) CLEANUP-TASK WITH M-MONITOR-ID = 'SYNCHCLN'
+  CLEANUP-RESCHEDULE := TRUE
+  CLEANUP-ACTIVE-NOW := FALSE
+  UPDATE
+  END TRANSACTION
+END-FIND
+IF G-TRACE > 0
+  WRITE NOTITLE NOHDR
+    *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+    'Update Monitor Defaults: Clean up finished now'
+  WRITE NOTITLE NOHDR
+    *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+    'End Batch Clean up'
+END-IF
+*
+************************************************************************
+DEFINE SUBROUTINE #TRC
+************************************************************************
+IF G-TRACE > 0
+  COMPRESS 'Perform' #OUT 'Clean up' TO #OUT
+  PRINT NOTITLE NOHDR
+    *PROGRAM 10T *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T) #OUT
+END-IF
+*
+END-SUBROUTINE /*#TRC
+*
+END

@@ -1,0 +1,110 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMPUTIN
+* Version   1.3
+* Function  Unique Source Text ID Module
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-11-29 s(999999) created
+* SU1     2016-07-29 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* SU2     2020-01-08 NOMALL-2370 recat (NOMPUT-P)
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER USING NOMPUT-P
+************************************************************************
+LOCAL
+1 SOURCE-TEXT VIEW OF NRM-SOURCE-TEXT
+  2 ST-ID
+  2 ST-LINE-START
+  2 ST-LINE-END
+1 #ST-ID-LINE              (A10)
+1 REDEFINE #ST-ID-LINE
+  2 #ST-ID                 (P10)
+  2 #ST-LINE               (B4)
+1 CMUB-CODE                (B1)
+1 CMUB-INFO                (A32)
+1 REDEFINE CMUB-INFO
+  2 CMUB-B                 (A1/1:32)
+1 CMUB-RETCODE             (N4)
+1 #SAVE                    (A1/1:20)
+1 DYNPARM-MODIFIED         (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM GET-DYNAMIC-PARAMETERS
+PERFORM SET-DYNAMIC-PARAMETERS
+*
+#ST-ID   := 9999999999
+#ST-LINE := H'FFFFFFFF'
+FNDST. FIND SOURCE-TEXT WITH ST-ID-LINE = #ST-ID-LINE
+  IF NO RECORDS FOUND
+    ST-ID       := 9999999999
+    ST-LINE-END := H'FFFFFFFF'
+    RESET  ST-LINE-START
+  END-NOREC
+  #SOURCE-TEXT-ID := ST-LINE-START
+  ADD 1 TO #SOURCE-TEXT-ID
+  ST-LINE-START := #SOURCE-TEXT-ID
+  IF *NUMBER (FNDST.) = 0
+    STORE SOURCE-TEXT
+  ELSE
+    UPDATE
+  END-IF
+END-FIND
+*
+PERFORM REFRESH-DYNAMIC-PARAMETERS
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-DYNAMIC-PARAMETERS
+************************************************************************
+CMUB-CODE  := 45
+CMUB-B (1) := 'G'
+CALLNAT 'NAT00040' CMUB-CODE CMUB-INFO CMUB-RETCODE
+#SAVE (1:20) := CMUB-B (1:20)
+*
+END-SUBROUTINE /* GET-DYNAMIC-PARAMETERS
+*
+************************************************************************
+DEFINE SUBROUTINE SET-DYNAMIC-PARAMETERS
+************************************************************************
+CMUB-CODE  := 45
+CMUB-B (1) := 'S'
+CMUB-B (6) := 'S' /* WH = ON
+CALLNAT 'NAT00040' CMUB-CODE CMUB-INFO CMUB-RETCODE
+DYNPARM-MODIFIED := TRUE
+*
+END-SUBROUTINE /* SET-DYNAMIC-PARAMETERS
+*
+************************************************************************
+DEFINE SUBROUTINE REFRESH-DYNAMIC-PARAMETERS
+************************************************************************
+IF NOT DYNPARM-MODIFIED
+  ESCAPE ROUTINE
+END-IF
+CMUB-CODE  := 45
+CMUB-B (1) := 'S'
+CMUB-B (6) := #SAVE (6)
+CALLNAT 'NAT00040' CMUB-CODE CMUB-INFO CMUB-RETCODE
+*
+END-SUBROUTINE /* REFRESH-DYNAMIC-PARAMETERS
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  PERFORM REFRESH-DYNAMIC-PARAMETERS
+  NOMPUT-ERROR-CODE := *ERROR-NR
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

@@ -1,0 +1,337 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMISDEFN - Is Data Set defined
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* mrs 93-03-22 s(999999) clean up
+* mrs 93-11-11 s(999999) seq. File MVS added
+* mrs 94-03-02 s(999999) seq. File BS2 added
+* mrs 94-05-04 s(999999) error if full qualified dsname
+* gw  94-11-17 s(214318) list-id SAP added
+* gw  94-12-09 s(214320) file-id User-spool Interface added
+* gw  95-11-28 s(237024) handle User-spool type 100 correctly
+* xsetggr 04-01-12 p(249035) prevent NAT1313
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2017-07-18 NOMALL-1823 NOM 3.5: remove SAP
+* fhi     2019-01-23 NOM 3.5   Avoid NAT1314 if R-FILES* field wrong
+* SU2     2020-02-03 NOMALL-2379 Unix files A26 -> A50
+* SU3     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 RMISDEF-PARMS
+  2 P-DEFINED                 (L)             /*
+  2 P-TYPE                    (I2)            /* JES,POWER,FMVS,FVSE
+  2 P-IDENT-FILE              (A54)           /* spool file
+  2 REDEFINE P-IDENT-FILE
+    3 P-JES-PROCNAME          (A8)
+    3 P-JES-STEPNAME          (A8)
+    3 P-JES-DDNAME            (A8)
+    3 P-JES-DSTYPE            (A2)
+    3 P-JES-DSNO              (N5)
+  2 P-DEFINED-NUMBER          (P2)
+1 P-DEFINED-FILES             (A/1:10) DYNAMIC BY VALUE RESULT /*SU2 A26
+1 P-ERROR-CODE                (N4)
+1 P-ERROR-TEXT                (A250)
+************************************************************************
+LOCAL USING RMSR---E         /* type equates
+LOCAL
+1 #P-DEFINED-FILES            (A50) /*SU2
+1 REDEFINE #P-DEFINED-FILES
+  2 P-DF                      (A1/1:50)
+1 I                           (P2)
+1 J                           (P2)
+1 K                           (P2)
+1 L                           (P2)
+1 IN-TEXT                     (L)
+1 #MASK-LENGTH                (I2) CONST <90>
+1 #MASK                       (A90)
+1 REDEFINE #MASK
+  2 #M                        (A1/1:#MASK-LENGTH)
+1 #NOE                        (I2) CONST <10>
+1 #DS-SELECTION
+  2 #TDSTYPE                  (A30)
+  2 REDEFINE #TDSTYPE
+    3 #TDSTYPE-V              (A1/30)
+  2 #FROM-DSNO                (A5)
+  2 #TO-DSNO                  (A5)
+  2 #NOS                      (N3)
+  2 #DDNAME-NO                (N3)
+  2 #FROM-PROC                (A8)
+  2 REDEFINE #FROM-PROC
+    3 #FROM-PROC-V            (A1/8)
+  2 #TO-PROC                  (A8)
+  2 REDEFINE #TO-PROC
+    3 #TO-PROC-V              (A1/8)
+  2 #FROM-STEP                (A8)
+  2 REDEFINE #FROM-STEP
+    3 #FROM-STEP-V            (A1/8)
+  2 #TO-STEP                  (A8)
+  2 REDEFINE #TO-STEP
+    3 #TO-STEP-V              (A1/8)
+  2 #FROM-DDNAME              (A8)
+  2 REDEFINE #FROM-DDNAME
+    3 #FROM-DDNAME-V          (A1/8)
+  2 #TO-DDNAME                (A8)
+  2 REDEFINE #TO-DDNAME
+    3 #TO-DDNAME-V            (A1/8)
+  2 #NOT                      (N3)
+  2 #POS                      (N3)
+  2 #IDENT-TAB                (1:#NOE)
+    3 #F-DSNO                 (N3)
+    3 #T-DSNO                 (N3)
+    3 #DSTYPES                (A2)
+    3 #F-PROC                 (A8)
+    3 #T-PROC                 (A8)
+    3 #F-STEP                 (A8)
+    3 #T-STEP                 (A8)
+    3 #F-DDNAME               (A8)
+    3 #T-DDNAME               (A8)
+1 #TN                         (P3)
+1 #FROM-PROC-A80              (A80)
+1 #FROM-STEP-A80              (A80)
+1 #FROM-DDNAME-A80            (A80)
+1 #4                          (I1) CONST <4> /*length of prefix SU2
+1 #PREFIX                     (A4) /*SU2
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-DEFINED
+*
+DECIDE ON FIRST P-TYPE
+  VALUE JES2, JES3
+    PERFORM JES-DATA-SET
+/*SU3  VALUE POWER PERFORM POWER-DATA-SET
+  VALUE SEQUENTIAL-FILE-MVS
+    #PREFIX := 'DSN='
+    PERFORM HANDLE-PREFIX
+  VALUE SEQUENTIAL-FILE-BS2 /*SU3 SEQUENTIAL-FILE-VSE
+    PERFORM SEQUENTIAL-FILE-VSE
+  NONE
+    IF P-TYPE = 100 THRU 199
+      #PREFIX := 'NOM='
+      PERFORM HANDLE-PREFIX
+    ELSE
+      P-ERROR-CODE := 0005
+      P-ERROR-TEXT := 'Invalid Data Set Type'
+    END-IF
+*
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE JES-DATA-SET
+************************************************************************
+RESET #DS-SELECTION P-DEFINED
+FOR I = 1 TO P-DEFINED-NUMBER
+  IF P-DEFINED-FILES (I) = ' '
+    ESCAPE BOTTOM
+  END-IF
+  IF SUBSTR(P-DEFINED-FILES(I),1,#4) ='DSN=' OR='NOM='
+    ESCAPE TOP
+  END-IF
+  SEPARATE P-DEFINED-FILES (I) LEFT INTO #TDSTYPE #FROM-DSNO #TO-DSNO
+    WITH DELIMITER ' :' GIVING NUMBER #NOT
+  IF NOT (#TDSTYPE = 'SM' OR = 'SO' OR = 'JL' OR = 'CC' OR = 'SI')
+    PERFORM PREPARE-PROCNAME-STEPNAME-DDNAME
+  ELSE
+    PERFORM PREPARE-TYPE-NUMBER
+  END-IF
+END-FOR
+IF #NOS = 0 AND #DDNAME-NO = 0
+  #DSTYPES (1) := 'SM'
+  #DSTYPES (2) := 'SO'
+  #NOS := 2
+  #F-DSNO (1:2) := 1
+  #T-DSNO (1:2) := 99
+END-IF
+P-DEFINED := FALSE
+FOR I = 1 TO #NOE
+  IF #DSTYPES (I) = ' '
+    ESCAPE BOTTOM
+  END-IF
+  IF P-JES-DSTYPE = #DSTYPES (I)
+  AND P-JES-DSNO   = #F-DSNO (I) THRU #T-DSNO (I)                     /*
+    P-DEFINED := TRUE
+    ESCAPE ROUTINE
+  END-IF
+END-FOR
+FOR I = 1 TO #NOE
+  IF #T-DDNAME (I) = ' '
+    ESCAPE BOTTOM
+  END-IF
+  IF P-JES-DDNAME = #F-DDNAME (I) THRU #T-DDNAME (I)
+  AND P-JES-PROCNAME = #F-PROC (I) THRU #T-PROC (I)                   /*
+  AND P-JES-STEPNAME = #F-STEP(I) THRU #T-STEP(I)                     /*
+    P-DEFINED := TRUE
+    ESCAPE ROUTINE
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* JES-DATA-SET
+*
+************************************************************************
+DEFINE SUBROUTINE PREPARE-TYPE-NUMBER
+************************************************************************
+ADD 1 TO #NOS
+#F-DSNO (#NOS) := 1
+#T-DSNO (#NOS) := 99
+IF #NOT = 2 AND #FROM-DSNO IS (N2)
+  #F-DSNO (#NOS) := VAL (#FROM-DSNO)
+  #T-DSNO (#NOS) := #F-DSNO (#NOS)
+END-IF
+IF #NOT = 3 AND #FROM-DSNO IS (N2) AND #TO-DSNO IS (N2)
+  #F-DSNO (#NOS) := VAL (#FROM-DSNO)
+  #T-DSNO (#NOS) := VAL (#TO-DSNO)
+END-IF
+#DSTYPES (#NOS) := #TDSTYPE
+*
+END-SUBROUTINE /* PREPARE-TYPE-NUMBER
+*
+************************************************************************
+DEFINE SUBROUTINE PREPARE-PROCNAME-STEPNAME-DDNAME
+************************************************************************
+#FROM-DDNAME := #TDSTYPE
+SEPARATE P-DEFINED-FILES(I) LEFT INTO #FROM-PROC-A80 #FROM-STEP-A80
+  #FROM-DDNAME-A80 IGNORE WITH DELIMITER '.' GIVING NUMBER #TN
+#FROM-PROC   := #FROM-PROC-A80  /* truncate if more than 80 chars
+#FROM-STEP   := #FROM-STEP-A80
+#FROM-DDNAME := #FROM-DDNAME-A80
+DECIDE ON FIRST VALUE OF #TN
+  VALUE 1
+    #FROM-DDNAME := #FROM-PROC
+    #FROM-PROC := '*'
+    #FROM-STEP := '*'
+  VALUE 2
+    #FROM-DDNAME := #FROM-STEP
+    #FROM-STEP := #FROM-PROC
+    #FROM-PROC := '*'
+  NONE IGNORE
+END-DECIDE
+*
+EXAMINE #FROM-PROC FOR '*' GIVING POSITION #POS
+IF #POS > 0
+  #FROM-PROC-V(#POS : 8) := ' '
+  #TO-PROC := #FROM-PROC
+  #TO-PROC-V(#POS : 8) := H'FF'
+ELSE
+  #TO-PROC := #FROM-PROC
+END-IF
+*
+EXAMINE #FROM-STEP FOR '*' GIVING POSITION #POS
+IF #POS > 0
+  #FROM-STEP-V(#POS : 8) := ' '
+  #TO-STEP := #FROM-STEP
+  #TO-STEP-V(#POS : 8) := H'FF'
+ELSE
+  #TO-STEP := #FROM-STEP
+END-IF
+*
+EXAMINE #FROM-DDNAME FOR '*' GIVING POSITION #POS
+IF #POS > 0
+  #FROM-DDNAME-V (#POS : 8) := ' '
+  #TO-DDNAME := #FROM-DDNAME
+  #TO-DDNAME-V (#POS : 8) := H'FF'
+ELSE
+  #TO-DDNAME := #FROM-DDNAME
+END-IF
+ADD 1 TO #DDNAME-NO
+#F-PROC   (#DDNAME-NO) := #FROM-PROC
+#T-PROC   (#DDNAME-NO) := #TO-PROC
+#F-STEP   (#DDNAME-NO) := #FROM-STEP
+#T-STEP   (#DDNAME-NO) := #TO-STEP
+#F-DDNAME (#DDNAME-NO) := #FROM-DDNAME
+#T-DDNAME (#DDNAME-NO) := #TO-DDNAME
+*
+END-SUBROUTINE /* PREPARE-PROCNAME-STEPNAME-DDNAME
+/*SU3 DEFINE SUBROUTINE POWER-DATA-SET
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-PREFIX /*SEQUENTIAL-FILE-MVS/NOMUSR-SPOOL
+************************************************************************
+IF NOT (P-DEFINED-FILES (*) NE ' ')
+  COMPRESS #PREFIX '*' TO P-DEFINED-FILES (1) LEAVING NO
+  P-DEFINED-NUMBER := 1
+END-IF
+FOR I = 1 TO P-DEFINED-NUMBER
+  IF SUBSTR(P-DEFINED-FILES(I),1,#4) NE #PREFIX /*SU2
+    ESCAPE TOP
+  END-IF
+  EXAMINE P-DEFINED-FILES (I) FOR #PREFIX DELETE
+  PERFORM BUILD-MASK
+  IF P-IDENT-FILE = MASK #MASK
+    P-DEFINED := TRUE
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* HANDLE-PREFIX
+*
+************************************************************************
+DEFINE SUBROUTINE SEQUENTIAL-FILE-VSE
+************************************************************************
+IF NOT (P-DEFINED-FILES (*) NE ' ') /* read: if all entries are blank
+  P-DEFINED-FILES (1) := '*'
+  P-DEFINED-NUMBER := 1
+END-IF
+FOR I = 1 TO P-DEFINED-NUMBER
+  IF SUBSTR(P-DEFINED-FILES(I),1,#4) ='NOM='
+    ESCAPE TOP
+  END-IF
+  PERFORM BUILD-MASK
+  IF P-IDENT-FILE = MASK #MASK
+    P-DEFINED := TRUE
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* SEQUENTIAL-FILE-VSE
+*
+************************************************************************
+DEFINE SUBROUTINE BUILD-MASK
+************************************************************************
+RESET K #MASK IN-TEXT
+EXAMINE P-DEFINED-FILES (I) FOR 'X' GIVING LENGTH L
+#P-DEFINED-FILES := P-DEFINED-FILES (I)
+FOR J = 1 TO 26
+  ADD 1 TO K
+  IF K > #MASK-LENGTH OR J > L
+    ESCAPE BOTTOM
+  END-IF
+  DECIDE FOR EVERY CONDITION
+    WHEN IN-TEXT AND P-DF (J) = '_' OR = '?' OR = '*'
+      #M (K) := ''''
+      ADD 1 TO K
+      #M (K) := P-DF (J)
+      IN-TEXT := FALSE
+    WHEN NOT IN-TEXT AND NOT (P-DF (J)='_' OR='?' OR='*')
+      #M (K) := ''''
+      ADD 1 TO K
+      #M (K) := P-DF (J)
+      IN-TEXT := TRUE
+    WHEN IN-TEXT AND J = L
+      #M (K) := P-DF (J)
+      ADD 1 TO K
+      #M (K) := ''''
+    WHEN NONE
+      #M (K) := P-DF (J)
+  END-DECIDE
+END-FOR
+IF K > 1 AND #M (K - 1) = ''''
+  #M (K - 1) := ' '
+  #M (K) := ''''
+END-IF
+*
+END-SUBROUTINE /* BUILD-MASK
+*
+END

@@ -1,0 +1,400 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NORPLS-N - NOM API Report List
+*   Function codes handled here in are
+*     LS  :  Read list of report definitions for
+*            - Tree view (ES-EXPAND = E)
+*            - List view (ES-EXPAND ne E)
+*            called by ESMNODEN, ESMLISTD
+*     LS1 :  Read list of report definitions for
+*            listing in a selection dialog,
+*            called by NORPCV-N, NORPCB9N
+*     LS2 :  - unknown usage -
+*
+* Maintenance:
+* XSETHZ  2001-06-12 created
+* XSETGGR 2001-06-28 developed
+* XSETHZ  2001-07-19 developed
+* XSETHZ  2001-10-03 developed
+* XSETGGR 2002-02-26 reading header texts from SYSERR
+* XSETGGR 2002-06-07 change compressing the headers texts
+* XSETHZ  2002-07-13 short list for help
+* XSETGGR 2002-11-14 use new parameter ES-APP-SERVER-LIBRARY
+* XSETGGR 2002-11-20 add number of options
+* XSETGGR 2002-11-22 check grants for non administrator users
+* XSETGGR 2002-12-18 check mailed reports to list active reports
+* xsetggr 2007-07-04 NOM3201  Support P11 format run numbers
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* XSETHZ  2009-02-02 P(311768) add new filter fields
+* xsetggr 2012-04-23 NOMALL-1136 corrections using grants
+* xsetggr 2012-09-28 NOMALL-89 implement copycode to check grants
+*         ----------------------------------------------------------
+* CF      2017-01-17 (NOMALL-1985) Routine refurbished
+* CF1     2017-10-05 NOMALL-2077 Multi-node filter criteria
+* SU1     2018-03-26             NOM 3.5: remove 'INTERNAL-NODE-ID'
+* CF2     2018-11-27 NOMALL-2178 Correct authorisation filter results
+* CF3     2019-10-21 NOMALL-2282 Search criteria UNIX attributes
+* SU2     2020-02-03 NOMALL-2379 Unix files A26 -> A50
+* SU3     2020-04-21 NOMALL-2403 use different DDM for NOMALL-2379
+* SU4     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* ------------------------------------------------------------------
+/*
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NORPLS-A
+LOCAL     USING NORPSL-A
+/*SU1 LOCAL     USING ESMCONSL
+/*SU1 LOCAL     USING NADA2000
+/*SU1 LOCAL     USING NAD-MSG
+/*SU1 LOCAL     USING NAD-FLD
+LOCAL
+1 REPORTS VIEW OF NRM-REPORTS-NEW /*SU3
+  2 R-REPNAME
+  2 R-TYPE
+  2 R-DESC
+  2 R-INTERNAL-NODE-ID                 /* CF1 +
+  2 R-IDENT (A82/1:14) /* MU-FIELD
+  2 REDEFINE R-IDENT /* BEGIN REDEFINE: R-IDENT
+    3 R-IDENT-TAB (1:14)
+      4 R-IDENT-TYPE (I2)
+      4 R-IDENT-VALUE (A80)
+  2 C*R-IDENT                          /* CF1 -
+  2 R-IDENT-FILES (A50/1:10) /* MU-FIELD /* CF3 /*SU2 was A26
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+1 MA VIEW OF NRM-MAIL
+  2 MA-USERID
+1 NODES VIEW OF NRM-MF-NODES /* CF1 + SU4:was NRM-MONITOR
+  2 MF-MONITOR-NODE
+/*SU1  2 M-INTERNAL-NODE-ID
+  2 MF-MONITOR-ID
+  2 REDEFINE MF-MONITOR-ID
+    3 #MONITOR-PFX   (A2)
+    3 #MONITOR-NAME  (A16)             /* CF1 -
+/*
+1 #I2             (I4)
+1 #IMAX           (I4)
+1 #AR-REPNAME-RNB (A31)
+1 REDEFINE #AR-REPNAME-RNB
+  2 #AR-REPNAME   (A25)
+  2 #AR-REPRNB    (P11)
+1 #AR-REPNAME-R-E (A31)
+1 #OPTIONS        (A2/10)
+/*SU1 1 #MSG-NR         (N4)  CONST <6100>
+1 #NEW-OPTIONS    (A2/8)
+1 #I              (I2)
+1 #GRANTS         (A1/6)
+1 #LS-USERID      (A8)
+1 #RETAIN-SET     (A16)
+1 #NUMBER-IN-SET  (N4)
+1 #START-ISN      (N10)
+1 REDEFINE #START-ISN
+  2 #START-ISN-A  (A10)
+1 #CURR-ISN       (N10)
+1 I               (I2)
+1 #NNL            (I2)                 /* CF1 +
+1 #M-NODE-NAME    (A16)
+1 #M-NODE-NUMBER  (A5)                 /* CF1 -
+1 #IS-UNIX-NODE   (L)                  /* CF3 ->
+1 #FILTER-UNIX-ONLY (L)
+1 #UFL            (I2)
+1 #UNIX-FILE-FILTER (A26)
+*
+1 #OLD-VERSION-PART (A183)
+1 REDEFINE #OLD-VERSION-PART
+  /* Version 1 structure (old: remove later on)
+  2 #OVKEYWORDS (A15/1:6)
+  2 #OVDISTRIBUTE-TO (A8)
+  2 #OVPRINTER (A8)
+  2 #OVIDENT-JOBNAME (A8)
+  2 #OVIDENT-WRITER (A8)
+  2 #OVIDENT-DESTINATION (A8)
+  2 #OVIDENT-FORM (A6)
+  2 #OVIDENT-USER-ID (A8)
+  2 #OVNODE-NAME (A16)
+  2 #OVNODE-NUMBER (A5)                /* CF3 <-
+*
+END-DEFINE
+/*
+/* ******************************************************************
+/*
+RESET ES-RC ES-NUMBER ES-SORTKEY ES-SORTORDER ES-STARTINDEX
+/*
+/* Set structure for type of list
+ES-OPTION-COUNT := 10
+IF ES-FUNCTION = 'LS1' OR = 'LS2'
+  #IMAX := 1011
+  ES-FIELD-COUNT := 1
+  NORPLI-FIELD-LENGTH(1) := 25
+ELSE
+  /* List type 'LS'
+  IF ES-EXPAND NE ' '     /* Tree view
+    #IMAX := 562
+    ES-FIELD-COUNT := 1
+    NORPEX-FIELD-LENGTH(1) := 25
+  ELSE                    /* List view
+    #IMAX := 210   /* old:243                    /* CF1
+    ES-FIELD-COUNT := 5 /* old:4                 /* CF1
+    NORPLS-FIELD-LENGTH(1) := 25
+    NORPLS-FIELD-LENGTH(2) := 16                 /* CF1
+    NORPLS-FIELD-LENGTH(3) := 1
+    NORPLS-FIELD-LENGTH(4) := 50
+    NORPLS-FIELD-LENGTH(5) := 8                  /* CF1
+  END-IF
+END-IF
+#NORPSL := ES-SELECT
+PERFORM VERIFY-SEARCH-STRUCTURE                  /* CF3
+EXAMINE #NORPSL.#AUTH FOR '*' DELETE
+EXAMINE #NORPSL.#TYPE FOR '*' DELETE
+/*
+ES-EOF := 'X'
+RESET ES-NUMBER
+IF ES-NEXT-KEY-PARM(1) NE ' ' AND ES-NEXT-KEY-PARM(1) IS (N10)
+  /* Start over for next buffer retrieval
+  #START-ISN := VAL(ES-NEXT-KEY-PARM(1))
+ELSE
+  /* Set parameter for first buffer retrieval
+  #START-ISN := 0
+  IF ES-EXPAND NE 'E' AND ES-FUNCTION = 'LS'
+    /* Ignore this coding: Get list header from client site   /* CF1 +
+    IGNORE
+    /* Activate this coding: Get list header from server site
+*     ES-STARTINDEX := 2
+*     #I2 := 1
+*     RESET SHORT-MSG LONG-MSG(*) NORPLS-HEADER(1)
+*     VERSION := 0
+*     NADA2000.OBJECT-KIND := 'U'
+*     NADA2000.ERROR-NUMBER := #MSG-NR
+*     NADA2000.OPT-INSERT-DYN := FALSE
+*     NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+*     NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+*     CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+*     NORPLS-HEADER(1) := LONG-MSG(1)
+*     FOR #I = 2 TO ES-FIELD-COUNT
+*       COMPRESS NORPLS-HEADER(1) C-HEADER-DELIMITER LONG-MSG(#I)
+*         TO NORPLS-HEADER(1) LEAVING NO
+*     END-FOR                                                 /* CF1 -
+  END-IF
+END-IF
+/*
+/* Set parameters for post selection
+IF ES-USER-TYPE NE 'A' AND ES-FUNCTION NE 'LS2'
+  #NORPSL.#AUTH := ES-USER
+END-IF
+IF ES-FUNCTION = 'LS1' OR = 'LS2'
+  RESET #NORPSL.#NAME #NORPSL.#TYPE
+  MOVE ' ' TO SUBSTRING(#NORPSL,43,211)
+END-IF
+IF ES-FUNCTION = 'LS2'
+  RESET #NORPSL.#AUTH
+END-IF
+EXAMINE #NORPSL.#NODE-NAME FOR '*' DELETE                  /* CF1
+EXAMINE #NORPSL.#NODE-NAME FOR ' ' LENGTH #NNL             /* CF1
+/*
+IF #NORPSL.#SPOOL-TYPE = 'UNX' AND                         /* CF3 ->
+    #NORPSL.#IDENT-UNIX-FILE NE ' '
+  #FILTER-UNIX-ONLY := TRUE
+  EXAMINE #NORPSL.#IDENT-UNIX-FILE FOR ' ' LENGTH #UFL
+  IF #UFL GT 0 AND SUBSTR(#NORPSL.#IDENT-UNIX-FILE,#UFL,1) = '*'
+    MOVE ' ' TO SUBSTR(#NORPSL.#IDENT-UNIX-FILE,#UFL,1)
+    SUBTRACT 1 FROM #UFL
+  END-IF
+  #UNIX-FILE-FILTER := #NORPSL.#IDENT-UNIX-FILE
+  IF #UFL GT 26
+    /* Note: Field length of UNIX File is currently limited to 26,
+    /*       though it should be 50 later on.
+    #UFL := 26
+  END-IF
+END-IF                                                     /* CF3 <-
+/*
+/* Get the ISN list of the reports according to the selection criteria
+COMPRESS ES-USER *PROGRAM TO #RETAIN-SET
+RESET #NUMBER-IN-SET
+IF #START-ISN = 0
+  CALLNAT 'NORPFN-N' #NORPSL #RETAIN-SET #NUMBER-IN-SET
+END-IF
+/*
+/* Fill buffer with the gathered report data
+IF #NUMBER-IN-SET > 0 OR #START-ISN > 0
+  F. FIND REPORTS WITH #RETAIN-SET STARTING WITH ISN = #START-ISN
+    IF R-REPNAME NE 'NOM-CONTROL-REC' AND
+        (#NORPSL.#TYPE = ' ' OR R-TYPE = #NORPSL.#TYPE)
+      /* Multi-node filter criteria                        /* CF1 +
+      RESET #M-NODE-NAME #M-NODE-NUMBER
+        #IS-UNIX-NODE                                  /* CF3
+      IF R-INTERNAL-NODE-ID GT 0
+        /*
+        REJECT IF #FILTER-UNIX-ONLY                        /* CF3
+        /*
+        NODE. FIND NODES WITH MF-INTERNAL-NODE-ID = R-INTERNAL-NODE-ID
+/*SU1                           AND M-MONITOR-ID NE 'INTERNAL-NODE-ID'
+          IF #MONITOR-PFX = 'R-'
+            #M-NODE-NAME := #MONITOR-NAME
+          END-IF
+          #M-NODE-NUMBER := MF-MONITOR-NODE
+        END-FIND
+      ELSE
+        /* Check if a UNIX node name is given
+        FOR #I = 1 TO C*R-IDENT
+          IF R-IDENT-TYPE (#I) = 0023
+            #M-NODE-NAME := R-IDENT-VALUE (#I)
+            #IS-UNIX-NODE := TRUE                          /* CF3
+            ESCAPE BOTTOM
+          END-IF
+        END-FOR
+        /*
+        REJECT IF #FILTER-UNIX-ONLY AND NOT #IS-UNIX-NODE  /* CF3
+        /*
+      END-IF
+      IF #IS-UNIX-NODE AND #NORPSL.#SPOOL-TYPE = 'UNX' AND /* CF3 ->
+          #NORPSL.#IDENT-UNIX-FILE NE ' '
+        /*
+        DECIDE FOR FIRST CONDITION
+          WHEN #NORPSL.#USE-PFX-SCAN = 'F' AND #UFL LT 26
+            REJECT IF NOT R-IDENT-FILES(*)
+              = SCAN (#UNIX-FILE-FILTER)
+          WHEN #NORPSL.#USE-PFX-SCAN = 'F' AND #UFL GE 26
+            REJECT IF NOT R-IDENT-FILES(*)
+              = #UNIX-FILE-FILTER
+          WHEN NONE
+            REJECT IF NOT SUBSTR(R-IDENT-FILES(*),1,#UFL)
+              = #UNIX-FILE-FILTER
+        END-DECIDE
+        /*
+      END-IF                                               /* CF3 <-
+      /*
+      IF (#NORPSL.#NODE-NAME = ' ' OR
+          SUBSTR(#M-NODE-NAME,1,#NNL) = #NORPSL.#NODE-NAME) AND
+          (#NORPSL.#SPOOL-TYPE = 'UNX' OR                  /* CF3
+          #NORPSL.#NODE-NUMBER = ' ' OR
+          #M-NODE-NUMBER = #NORPSL.#NODE-NUMBER)
+        /*                                                 /* CF1 -
+        IF (#NORPSL.#AUTH = ' ' OR = '*' OR = 'ADMIN')
+          #LS-USERID := 'ADMIN'
+          PERFORM DATA-TO-PDA
+        ELSE
+          CALLNAT 'NOGROU-N'
+            'R' R-REPNAME #NORPSL.#AUTH #LS-USERID #GRANTS(*)
+*           IF #LS-USERID > ' '                                /* CF2 ->
+          /* Note:
+          /* For a Non-Admin user show all reports with
+          /* any authorisation
+          /* (no selection for different authorisations available)
+          /*
+          /* For an Admin user show only the reports with
+          /* the selected authorisation.
+          /*
+          IF #LS-USERID NE ' ' AND ES-USER-TYPE NE 'A' OR
+             #LS-USERID = #NORPSL.#AUTH AND ES-USER-TYPE = 'A' /* CF2 <-
+            IF ES-USER-TYPE = 'A'
+              #LS-USERID := 'ADMIN'
+            END-IF
+            PERFORM DATA-TO-PDA
+          END-IF
+        END-IF
+      END-IF                                               /* CF1
+    END-IF
+  END-FIND
+END-IF
+/*
+/* ******************************************************************
+/*
+DEFINE SUBROUTINE DATA-TO-PDA
+RESET #OPTIONS(*)
+  #NEW-OPTIONS(*) I     /* used in NOOPT--C (NOMALL-89)
+/*
+/* Check if buffer full - get restart parameter
+ADD 1 TO #I2
+IF #I2 > #IMAX
+  #START-ISN := #CURR-ISN
+  ES-NEXT-KEY-PARM(1) := #START-ISN-A
+  ES-NUMBER := #IMAX
+  RESET ES-EOF
+  ESCAPE BOTTOM
+END-IF
+#CURR-ISN := *ISN(F.)
+ES-NEXT-KEY-PARM(1) := REPORTS.R-REPNAME
+/*
+IF ES-FUNCTION = 'LS1' OR = 'LS2'
+  NORPLI-NAME(#I2) := REPORTS.R-REPNAME
+ELSE
+  /* Check for functional restrictions for 'LS' type
+  #AR-REPNAME := R-REPNAME
+  #AR-REPRNB := 99999999999
+  #AR-REPNAME-R-E := #AR-REPNAME-RNB
+  #AR-REPRNB := 0
+  /*
+  FAR. FIND NUMBER ACTIVE-REPORT
+    WITH AR-REPORT-RNB = #AR-REPNAME-RNB THRU #AR-REPNAME-R-E
+  IF *NUMBER(FAR.) = 0
+    #OPTIONS(1) := 'LA'
+    #OPTIONS(2) := 'SS'
+  END-IF
+  IF ES-USER-TYPE NE 'A'
+    FNDMA. FIND MA WITH MA-REP-RNB = #AR-REPNAME-RNB
+        THRU #AR-REPNAME-R-E WHERE MA-USERID = ES-USER
+      IF NO RECORDS FOUND
+        #OPTIONS(1) := 'LA'
+        #OPTIONS(2) := 'SS'
+        ESCAPE BOTTOM(FNDMA.)
+      END-NOREC
+    END-FIND
+    INCLUDE NOOPT--C   /* (NOMALL-89)
+  END-IF
+  /* Put current report data to buffer
+  IF ES-EXPAND NE ' '    /* for Tree view
+    NORPEX-NAME(#I2) := REPORTS.R-REPNAME
+    NORPEX-OPTIONS(#I2,*) := #OPTIONS(*)
+  ELSE                   /* for List view
+    NORPLS-NAME(#I2) := REPORTS.R-REPNAME
+    NORPLS-AUTH(#I2) := #LS-USERID
+    NORPLS-TYPE(#I2) := REPORTS.R-TYPE
+    NORPLS-DESC(#I2) := REPORTS.R-DESC
+    NORPLS-OPTIONS(#I2,*) := #OPTIONS(*)
+    NORPLS-NODE(#I2) := #M-NODE-NAME             /* CF1
+  END-IF
+END-IF
+ES-NUMBER := #I2
+/*
+END-SUBROUTINE
+/*
+/* ******************************************************************
+/*
+DEFINE SUBROUTINE VERIFY-SEARCH-STRUCTURE        /* CF3 ->
+/*
+IF #NORPSL NE ' ' AND #VERSION = ' '
+  /*
+  /* Convert old search structure
+  /*
+  #OLD-VERSION-PART := #VERSION-PART
+  RESET #VERSION-PART
+  MOVE ' ' TO SUBSTRING(#SPOOL-TYPE,4)
+  #KEYWORDS(1:2)     := #OVKEYWORDS(1:2)
+  #DISTRIBUTE-TO     := #OVDISTRIBUTE-TO
+  #PRINTER           := #OVPRINTER
+  #NODE-NAME         := #OVNODE-NAME
+  #NODE-NUMBER       := #OVNODE-NUMBER
+  #IDENT-JOBNAME     := #OVIDENT-JOBNAME
+  #IDENT-WRITER      := #OVIDENT-WRITER
+  #IDENT-DESTINATION := #OVIDENT-DESTINATION
+  #IDENT-FORM        := #OVIDENT-FORM
+  #IDENT-USER-ID     := #OVIDENT-USER-ID
+END-IF
+/*
+END-SUBROUTINE                                   /* CF3 <-
+/*
+/* ******************************************************************
+/*
+ON ERROR
+  ES-RC := 1
+  ES-MSG-NR := *ERROR-NR
+  COMPRESS *PROGRAM 'ERROR' *ERROR-LINE #RETAIN-SET
+    #NUMBER-IN-SET #START-ISN  TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+/*
+END

@@ -1,0 +1,216 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMDELX-N
+* Version   3.5
+* Function  Delete Unix file
+*
+*
+* Maintenance
+* BLI     2024-03-14 NOMALL-2664 created, Unix file deleted too early
+* ---------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 P-SPOOL-ATTRIBUTES         (A250)
+1 P-ERROR-CODE               (N4)
+1 P-ERROR-TEXT               (A250)
+1 P-TRACE                    (I2)
+************************************************************************
+INDEPENDENT
+1 +TRACE-ORDER               (A1)
+* *****
+LOCAL USING RMSPL--L /* unix access
+LOCAL USING XXUX---P /* unix access
+LOCAL USING VUXDEF-L /* defined unix nodes
+LOCAL USING XXHASH-P
+LOCAL
+1 #UX-FUNCTION               (A8)
+1 #TRACING                   (L)
+1 #TRACE-MSG                 (A250)
+1 #UX-ISN                    (P10)
+1 #SUSP-REMEMBER             (A1)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF P-TRACE GE *LEVEL
+  #TRACING := TRUE
+END-IF
+*
+IF +TRACE-ORDER = ' ' /* not yet determined from jobcards
+  PERFORM RMGTRACE-GET-SETTINGS
+END-IF
+*
+* Reset output fields
+RESET P-ERROR-CODE P-ERROR-TEXT
+*
+#SPOOL-ATTRIBUTES  := P-SPOOL-ATTRIBUTES
+CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE /*conv.Jobnr+node nr
+*
+P-NODE-NAME         := #SPOOL-UNIX-NODE-NAME
+P-USERID            := #SPOOL-UNIX-USERID
+P-CIPHER-PASSWORD   := #SPOOL-UNIX-CIPHER-PASSWORD
+P-GROUP             := #SPOOL-UNIX-GROUP
+IF P-NODE-SUSPEND = ' '
+  RESET #UX-ISN
+  FDUX. FIND (1) UX-NODES WITH UX-NODE-NAME = #SPOOL-UNIX-NODE-NAME
+    ACCEPT IF NOT(UX-NODE-SUSPEND ='D' OR='E' OR ='S')
+    P-NODE-SUSPEND    := UX-NODE-SUSPEND
+    P-NODE-NAME       := UX-NODE-NAME
+    P-USERID          := UX-NODE-USERID
+    P-CIPHER-PASSWORD := UX-NODE-PASSWORD
+    P-GROUP           := UX-NODE-GROUP
+    #UX-ISN           := *ISN(FDUX.)
+  END-FIND
+  IF #UX-ISN EQ 0
+    P-ERROR-CODE := 0005
+    COMPRESS *PROGRAM 'Node not active' #SPOOL-UNIX-NODE-NAME
+      TO P-ERROR-TEXT
+    COMPRESS '2038' UX-NODE-NAME TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+    END TRANSACTION
+*
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+#SUSP-REMEMBER := P-NODE-SUSPEND
+*
+DECIDE ON EVERY VALUE OF P-ERROR-CODE
+  VALUE 0
+    #UX-FUNCTION := 'DELETE'
+    XXHASH-PARMS.P-SHORT-NAME := #SPOOL-UNIX-FILE-NAME
+    PERFORM GET-LONG-NAME
+    COMPRESS #SPOOL-UNIX-PATH P-FILE-NAME TO P-FILE-NAME LEAVING NO
+    PERFORM UNIX-FUNCTION
+  VALUE 0
+    #UX-FUNCTION := 'DELXML'
+    PERFORM UNIX-FUNCTION
+  ANY
+    IF P-ERROR-TEXT =SCAN('NPR3339') OR P-ERROR-CODE =2036
+      RESET P-ERROR-CODE P-ERROR-TEXT P-ERC P-ERT /*file not found
+    END-IF
+    IF P-ERROR-CODE NE 0
+* deactivate node, P-ERROR-CODE needed
+      PERFORM SET-SUSPEND
+      COMPRESS 'File not deleted:' P-FILE-NAME  TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+      END TRANSACTION
+      RESET P-ERROR-CODE P-ERROR-TEXT P-ERC P-ERT
+    END-IF
+  NONE
+    IGNORE
+END-DECIDE
+*
+************************************************************************
+DEFINE SUBROUTINE UNIX-FUNCTION
+************************************************************************
+XXUX---P.P-FUNCTION := #UX-FUNCTION
+IF #UX-FUNCTION = 'DELXML'
+  COMPRESS P-FILE-NAME '.nomxml' TO P-FILE-NAME LEAVING NO
+  XXUX---P.P-FUNCTION := #UX-FUNCTION := 'DELETE'
+END-IF
+IF +TRACE-ORDER = 'Y' /* TRACE-ORDER found in jobcards
+  IF #UX-FUNCTION = 'DELETE'
+    COMPRESS *PROGRAM 'Going to delete' P-FILE-NAME TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+END-IF
+IF #TRACING
+  COMPRESS 'Executing Unix fct' #UX-FUNCTION 'with user' P-USERID
+    '- node' P-NODE-NAME '- file' P-FILE-NAME TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+CALLNAT 'XXUX---N' XXUX---P P-TRACE
+IF +TRACE-ORDER = 'Y' /* TRACE-ORDER found in jobcards
+  IF #UX-FUNCTION = 'DELETE'
+    COMPRESS *PROGRAM 'DELETE returns:' P-ERC P-ERT TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+END-IF
+IF #TRACING
+  COMPRESS ' Unix fct' #UX-FUNCTION 'returned rc' P-ERC
+    'with text' P-ERT TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+P-ERROR-CODE := P-ERC
+P-ERROR-TEXT := P-ERT
+*
+END-SUBROUTINE /* UNIX-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE SET-SUSPEND
+************************************************************************
+IF #UX-ISN EQ 0
+  FDUX2. FIND (1) UX-NODES WITH UX-NODE-NAME = #SPOOL-UNIX-NODE-NAME
+    ACCEPT IF NOT(UX-NODE-SUSPEND ='D' OR='E' OR ='S')
+    #SUSP-REMEMBER := UX-NODE-SUSPEND
+    #UX-ISN         := *ISN(FDUX2.)
+  END-FIND
+END-IF
+IF #SUSP-REMEMBER ='M' OR='L'
+  ESCAPE ROUTINE
+END-IF
+IF #UX-ISN NE 0
+  GETUX1. GET UX-NODES #UX-ISN
+* user or pwd invalid
+  RESET #TRACE-MSG
+  IF P-ERROR-TEXT = SCAN('NPR3416')  OR=SCAN('NPR0009')
+      OR P-ERROR-CODE = 1581
+* pwd invalid / wrong NPR version
+    UX-NODE-SUSPEND := 'E'
+    IF UX-NODE-TIME-STORED NE 'E'
+      UX-NODE-TIME-STORED := 'E'
+      UX-NODE-SUSPENDED := *TIMX        /* set time
+      RESET UX-NODE-SUSP-MAX-MSG
+      COMPRESS '2069' UX-NODE-NAME TO #TRACE-MSG
+    END-IF
+  ELSE
+    UX-NODE-SUSPEND := 'S'
+    IF UX-NODE-TIME-STORED NE 'S'
+      UX-NODE-TIME-STORED := 'S'
+      UX-NODE-SUSPENDED := *TIMX        /* set time
+      RESET UX-NODE-SUSP-MAX-MSG
+      COMPRESS '2026' UX-NODE-NAME TO #TRACE-MSG
+    ELSE
+      IF UX-NODE-SUSP-MAX-MSG = ' ' AND
+          UX-NODE-SUSP-TIME-INT > 0 AND
+          *TIMX - UX-NODE-SUSPENDED > UX-NODE-SUSP-TIME-INT * 600 /*BLI6
+        UX-NODE-SUSP-MAX-MSG := 'X'
+        COMPRESS '2071' UX-NODE-NAME TO #TRACE-MSG
+      END-IF
+    END-IF
+  END-IF
+  UPDATE (GETUX1.)
+  P-NODE-SUSPEND    := UX-NODE-SUSPEND
+  IF #TRACE-MSG NE ' '
+    PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+  END-IF
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* SET-SUSPEND
+*
+************************************************************************
+DEFINE SUBROUTINE GET-LONG-NAME
+************************************************************************
+XXHASH-PARMS.P-FUNCTION := 'L' /*short -> long
+PERFORM XXHASH XXHASH-PARMS
+P-FILE-NAME := XXHASH-PARMS.P-LONG-NAME
+*
+END-SUBROUTINE /* GET-LONG-NAME
+************************************************************************
+ON ERROR
+************************************************************************
+  PRINT (AD=L) *PROGRAM *DAT4I *TIME(AL=8) 'error:' *ERROR
+  PRINT (AD=L) 'file:' P-FILE-NAME
+  BACKOUT TRANSACTION
+  P-ERROR-CODE := 21
+  CALLNAT 'C-NATERN' P-ERROR-TEXT 'W'
+END-ERROR
+*
+END

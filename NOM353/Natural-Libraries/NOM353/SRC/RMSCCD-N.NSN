@@ -1,0 +1,204 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMSCCD-N - Get data set attributes and rename data set
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-11-11 s(999999) created
+* gw  98-05-12 p(168326) 9999999 to 99999999
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+*                        p(168326) is now in p(164220) so I have removed
+*                        all refferance to P(168326) to make easier
+*                        reading
+* fhi 00-10-04 QA05      Improve error message
+* sju 03-10-10 p(245410) VSE seq.file triggers via NOMTP01N
+* sju 04-09-23 p(257277) VSE seq.file triggers can't be printed
+* xsetggr 2007-05-02 NOM3201 Support 5 bytes node numbers
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2022-10-21 NOMALL-2582 restruct
+* SU2     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ---------------------------------------------------------------------
+DEFINE DATA PARAMETER USING RMSCCD-P
+* ---------------------------------------------------------------------
+LOCAL     USING RCCTYP-E
+LOCAL     USING RMSR---E
+LOCAL     USING RMSR---L
+*
+LOCAL
+/*SU2 1 VTOC VIEW OF VTOC 2 ERROR-CODE 2 ERROR-TEXT
+1 VTOC-UPDATE VIEW OF VTOC-UPDATE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+1 CATALOG VIEW OF CATALOG
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 VOLSER
+/*SU2  2 DSNAME
+1 FILE-ATTRIBUTES VIEW OF FILE-ATTRIBUTES
+  2 LRECL
+  2 RECFM
+  2 BLKSIZE
+  2 VOLSER
+  2 ERROR-CODE
+  2 ERROR-TEXT
+*
+1 #I                           (P2)
+1 #OLD-DSNAME                  (A44)
+1 #NEW-DSNAME                  (A44)
+1 #DATE                        (A6)
+1 #TIME                        (A6)
+1 #RMSCCD-SOURCE-TYPE          (P3)
+1 #SOURCE-TYPE-BIN             (B2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET RMSCCD-ERROR-CODE RMSCCD-ERROR-TEXT
+*
+#SOURCE-ATTRIBUTES := RMSCCD-ATTRIBUTES
+#SOURCE-TYPE-BIN := RMSCCD-SOURCE-TYPE
+CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES #SOURCE-TYPE-BIN
+*
+#RMSCCD-SOURCE-TYPE := RMSCCD-SOURCE-TYPE
+DECIDE ON FIRST RMSCCD-SOURCE-TYPE
+  VALUE SEQUENTIAL-FILE-MVS
+    PERFORM VALIDATE-PARAMETER-FMVS
+/*SU2  VALUE SEQUENTIAL-FILE-VSE PERFORM VALIDATE-PARAMETER-FVSE
+  NONE VALUE
+    RMSCCD-ERROR-CODE := 0005
+    COMPRESS *PROGRAM 'Invalid Source Type'
+      #RMSCCD-SOURCE-TYPE TO RMSCCD-ERROR-TEXT
+END-DECIDE
+*
+FORMAT LS=200
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-PARAMETER-FMVS
+************************************************************************
+EXAMINE FULL VALUE OF RMSCCD-DSN 'x' GIVING LENGTH IN #I
+IF #I = 0 OR #I > 26
+  RMSCCD-ERROR-CODE := 4200
+  ESCAPE ROUTINE
+END-IF
+*
+RESET  #SOURCE-ATTRIBUTES
+#FMVS-NODE   := RMSCCD-NODE
+#FMVS-DSNAME := RMSCCD-DSN
+*
+FNDCAT. FIND CATALOG WITH NODE = #FMVS-NODE AND DSNAME = #FMVS-DSNAME
+AND PREFIX = 'NO'                                                     /*
+  IF NO RECORDS FOUND
+    RMSCCD-ERROR-CODE := 4207
+    COMPRESS #FMVS-NODE #FMVS-DSNAME TO RMSCCD-ERROR-TEXT
+    ESCAPE ROUTINE
+  END-NOREC
+  IF ERROR-CODE NE 0
+    RMSCCD-ERROR-CODE := 0005
+    RMSCCD-ERROR-TEXT := ERROR-TEXT
+    ESCAPE ROUTINE
+  END-IF
+  IF *COUNTER > 1
+    RMSCCD-ERROR-CODE := 4206
+    ESCAPE ROUTINE
+  END-IF
+  #FMVS-VOLSER := VOLSER
+END-FIND
+*
+FATT. FIND FILE-ATTRIBUTES WITH NODE =#FMVS-NODE AND DSNAME=#FMVS-DSNAME
+  IF NO RECORDS FOUND
+    RMSCCD-ERROR-CODE := 4207
+    COMPRESS #FMVS-NODE #FMVS-DSNAME TO RMSCCD-ERROR-TEXT
+    ESCAPE ROUTINE
+  END-NOREC
+  IF ERROR-CODE NE 0
+    RMSCCD-ERROR-CODE := 0005
+    RMSCCD-ERROR-TEXT := ERROR-TEXT
+    ESCAPE ROUTINE
+  END-IF
+  #FMVS-LRECL   := LRECL (FATT.)
+  #FMVS-RECFM   := RECFM (FATT.)
+  #FMVS-BLKSIZE := BLKSIZE (FATT.)
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN RECFM (FATT.) = SCAN 'M'
+      RMSCCD-CC-TYPE := MACHINE-CODE
+    WHEN RECFM (FATT.) = SCAN 'A'
+      RMSCCD-CC-TYPE := ASA-CODE
+    WHEN NONE
+      RMSCCD-CC-TYPE := NO-CC
+  END-DECIDE
+*
+  RMSCCD-NUMBER-OF-LINES := 99999999
+  RMSCCD-RECORD-LENGTH   := LRECL
+END-FIND
+*
+IF RMSCCD-ERROR-CODE = 0
+  #OLD-DSNAME := #FMVS-DSNAME
+  PERFORM RENAME-FILE
+END-IF
+IF RMSCCD-ERROR-CODE = 0
+  RMSCCD-IDENT-FILE := #OLD-DSNAME
+  #FMVS-DSNAME      := #NEW-DSNAME
+END-IF
+*
+RMSCCD-ATTRIBUTES := #SOURCE-ATTRIBUTES
+*
+END-SUBROUTINE /* VALIDATE-PARAMETER-FMVS
+*
+************************************************************************
+DEFINE SUBROUTINE RENAME-FILE
+************************************************************************
+MOVE EDITED *TIMX (EM=YYMMDD) TO #DATE
+MOVE EDITED *TIMX (EM=HHIISS) TO #TIME
+COMPRESS #OLD-DSNAME '.N' #DATE '.T' #TIME TO #NEW-DSNAME LEAVING NO
+*
+DECIDE ON FIRST RMSCCD-SOURCE-TYPE
+/*SU2  VALUE SEQUENTIAL-FILE-VSE PERFORM RENAME-FVSE
+  VALUE SEQUENTIAL-FILE-MVS
+    PERFORM RENAME-FMVS
+  NONE VALUE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* RENAME-FILE
+*
+************************************************************************
+DEFINE SUBROUTINE RENAME-FMVS
+************************************************************************
+FNDVM. FIND VTOC-UPDATE WITH NODE = #FMVS-NODE AND VOLSER = #FMVS-VOLSER
+AND DSNAME = #OLD-DSNAME AND NEWNAME = #NEW-DSNAME                    /*
+AND FUNCTION = 'RENAME' AND CATALOG-UPDATE = 'YES'                    /*
+  IF ERROR-CODE NE 0
+    RMSCCD-ERROR-CODE := 0005
+    RMSCCD-ERROR-TEXT := ERROR-TEXT
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* RENAME-FMVS
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  DECIDE ON FIRST *ERROR-NR
+    VALUE 1105, 1106
+      RMSCCD-ERROR-CODE := 4204
+    NONE
+      RMSCCD-ERROR-CODE := 0021
+      COMPRESS  *ERROR-NR '/' *PROGRAM '/' *ERROR-LINE
+        TO RMSCCD-ERROR-TEXT LEAVING NO
+  END-DECIDE
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

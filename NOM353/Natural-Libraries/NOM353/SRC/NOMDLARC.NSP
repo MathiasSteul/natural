@@ -1,0 +1,200 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* -------------------------------------------------------------------- *
+* NOMDLARC
+* Show all active reports with all dependencies and
+* delete active reports to be archived but without source
+* fhi/SAG, 09/2010, 06/2012
+* raya 2012-10-03 NOMALL-1143 work with lob fields
+* raya 2012-11-27 NOMALL-1214 CHECK CAT DATE
+* fhi  2013-02-15 NOMALL-1143 backout: for future use
+* SU1     2017-03-07 NOM 3.5: remove unused code
+* -------------------------------------------------------------------- *
+*
+DEFINE DATA
+GLOBAL USING MONIT-GL
+LOCAL  USING SUPER-L
+LOCAL  USING EOM----E
+LOCAL  USING EOM----P
+LOCAL  USING EOMARM-P
+LOCAL  USING EOMMSG-P
+LOCAL
+1 SOURCE VIEW OF NRM-SOURCE
+1 REPORT-TEXT VIEW OF NRM-FILED-SYSOUTS
+  2 F-REPNAME
+  2 F-REPRNB
+  2 F-SEQ
+  2 F-TEXT (1)
+* 2 F-TEXT-LOB          /*raya nomall-1143 in, fhi out:for future use
+*
+1 #MA-NR                          (A31)
+1 REDEFINE #MA-NR
+  2 #MA-REPNAME                   (A25)
+  2 #MA-REPRNB                    (P11)
+1  MAIL-REPORTS VIEW OF NRM-MAIL
+  2 MA-REPNAME
+  2 MA-REPRNB
+  2 MA-USERID
+1 PRINTOUTS VIEW OF NRM-PRINTOUTS
+  2 PO-ID
+  2 PO-USERID
+1 #PO-REP-RNB                     (A31)
+1 REDEFINE #PO-REP-RNB
+  2 #PO-RPNAME                    (A25)
+  2 #PO-RPRNB                     (P11)
+1 XXNATDIR
+  2 P-LIBRARY                     (A8)
+  2 P-MODULE                      (A8)
+  2 P-LEVEL                       (N2)
+  2 P-DIRECTORY
+    3 M-SA-DATE                   (A10)
+    3 M-SA-TIME                   (A8)
+    3 M-SA-TIMESTAMP              (T)     /* NOMALL-1214 in
+    3 M-SA-SIZE                   (A6)
+    3 M-CA-DATE                   (A10)
+    3 M-CA-TIME                   (A8)
+    3 M-CA-TIMESTAMP              (T)     /* NOMALL-1214 in
+    3 M-CA-BP-SIZE                (A6)
+  2 P-ERC                         (N4)   /* NOMALL-1214 in
+1 #FUNCTION                       (A1)
+1 #FLAG                           (A1)
+1 #SUPER                          (A35)
+1 REDEFINE #SUPER
+  2 #REPNAME                      (A25)
+  2 #REPRNB                       (P11)
+  2 #SEQ                          (B4)
+1 #CHILD-FOUND                    (L)
+1 #MSG                            (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY ALL
+FORMAT LS=133
+INPUT (AD=MILT'_')
+  '*****************************************************************' /
+  '***           Entire Output Management Utility                ***' /
+  '***      Delete Active Reports without attached sources       ***' /
+  '*** Please run the delete function in batch only and send the ***' /
+  '*** resulting output to Software AG support.                  ***' /
+  '*****************************************************************' //
+  'D)elete, S)how reports, E)nd:     '
+  #FUNCTION / '(PF3 - Quit)' //
+  'Archive-Flag (''A'',''I'', or ''B)oth'')' #FLAG
+IF *PF-KEY NE 'ENTR'
+  ESCAPE ROUTINE
+END-IF
+PERFORM XXNATDIR-GETDIR XXNATDIR /* #P-ERC NOMALL-1214 out
+COMPRESS *PROGRAM 'running in mode' #FUNCTION
+  'searching archive flag(s)' #FLAG TO #MSG
+WRITE #MSG (AL=132)
+COMPRESS 'Catalogued on' M-CA-DATE M-CA-TIME TO #MSG
+WRITE #MSG (AL=132) / '-' (132)
+DECIDE ON EVERY VALUE OF #FUNCTION
+  VALUE 'D'
+    IF *DEVICE NE 'BATCH'
+      REINPUT 'Please run in batch mode only.'
+    END-IF
+  VALUES 'D','S'
+    IF #FLAG NE 'A' AND #FLAG NE 'I' AND #FLAG NE 'B'
+      REINPUT 'Please enter correct Archive-Flag.' MARK *#FLAG
+    END-IF
+    FNDAR. FIND ACTIVE-REPORTS WITH AR-ARCHIVE = 'A' OR = 'I'
+      IF #FLAG NE 'B' AND AR-ARCHIVE NE #FLAG
+        ESCAPE TOP
+      END-IF
+      SRC. FIND NUMBER SOURCE WITH SR-ID = ACTIVE-REPORTS.AR-SOURCE-ID
+      IF *NUMBER(SRC.) > 0
+        ESCAPE TOP
+      END-IF
+      WRITE (IS=ON) 'Report' AR-REPNAME 'Run Number' AR-REPRNB
+        'Arc' AR-ARCHIVE 'Src-ID' AR-SOURCE-ID 'Arc-Type' AR-ARCHIVE-TYPE
+*
+      #AC-REPNAME := AR-REPNAME
+      #AC-REPRNB := AR-REPRNB
+      RESET #AC-SEQ #CHILD-FOUND
+      REARC. READ REPORT-CONTENTS BY AC-REP-RNB-SEQ = #AC-REP-RNB-SEQ
+        IF AC-REPNAME NE #AC-REPNAME OR AC-REPRNB  NE #AC-REPRNB
+          ESCAPE BOTTOM (REARC.)
+        END-IF
+        #CHILD-FOUND := TRUE
+        WRITE (IS=ON) 8T 'Contents:' C*AC-CONTENTS 'Seq' AC-SEQNO
+      END-READ
+      IF NOT #CHILD-FOUND
+        WRITE 8T 'No contents pointers found.'
+      END-IF
+*
+      #REPNAME := AR-REPNAME
+      #REPRNB := AR-REPRNB
+      RESET #SEQ #CHILD-FOUND
+*
+      REART. READ (10) REPORT-TEXT  BY F-REPNAME-RNB-SEQ = #SUPER
+        IF F-REPNAME NE #REPNAME OR F-REPRNB NE #REPRNB
+          ESCAPE BOTTOM
+        END-IF
+        #CHILD-FOUND := TRUE
+        WRITE (IS=ON) 8T 'Text:' F-SEQ ' --> ' F-TEXT (1) (AL=100)
+      END-READ
+      IF NOT #CHILD-FOUND
+        WRITE 8T 'No text found.'
+      END-IF
+*
+      #MA-REPNAME := AR-REPNAME
+      #MA-REPRNB := AR-REPRNB
+      RESET #CHILD-FOUND
+      REAMA. READ MAIL-REPORTS BY MA-REP-RNB = #MA-NR
+        IF MA-REPNAME NE #MA-REPNAME OR MA-REPRNB  NE #MA-REPRNB
+          ESCAPE BOTTOM
+        END-IF
+        #CHILD-FOUND := TRUE
+        WRITE (IS=ON) 8T 'Destination User:' MA-USERID
+      END-READ
+      IF NOT #CHILD-FOUND
+        WRITE 8T 'No destination users found.'
+      END-IF
+*
+      #PO-RPNAME := AR-REPNAME
+      #PO-RPRNB := AR-REPRNB
+      RESET #CHILD-FOUND
+*
+      FNDPO. FIND PRINTOUTS WITH PO-REPORT-RNB = #PO-REP-RNB
+        #CHILD-FOUND := TRUE
+        WRITE (IS=ON) 8T 'PO-ID:' PO-ID 'PO-User:' PO-USERID
+      END-FIND
+      IF NOT #CHILD-FOUND
+        WRITE 8T 'No printouts found.'
+      END-IF
+*
+      IF #FUNCTION = 'D'
+        EOM-FUNCTION  := EOM-DELETE
+        EOM-USER      := *INIT-USER
+        EOMARM-I-NAME := AR-REPNAME
+        EOMARM-I-RNB  := AR-REPRNB
+        CALLNAT 'EOMARMVN' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+        IF EOMMSG-NR = 0
+          COMPRESS *PROGRAM 'deleted active report'
+            AR-REPNAME '/' AR-REPRNB TO #MSG
+        ELSE
+          COMPRESS *PROGRAM 'got error' EOMMSG-NR 'during deletion of'
+            AR-REPNAME '/' AR-REPRNB TO #MSG
+        END-IF
+        WRITE #MSG (AL=132)
+        END TRANSACTION
+      END-IF
+*
+      WRITE '-' (132)
+*
+    END-FIND
+  VALUE 'E'
+    ESCAPE ROUTINE
+  NONE
+    REINPUT 'Please enter correct function.'
+END-DECIDE
+*
+END

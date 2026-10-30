@@ -1,0 +1,979 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RLISAD -  List archive datasets
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-11-25 s(999999) old version saved, cleanup, mark for condense
+* mrs 93-12-14 s(999999) protect UNCATALOG field under VSE
+* gw  96-10-15 s(231722) TOP doesn't go top
+* mwi 96-10-22 s(240399) for BS2 UNCATALOG option realized
+* gw  97-01-06 s(259755) NAT1305
+* SJU 97-04-28 P(162164) HANDLE DATASETS WHICH AREN'T CATALOGUED
+* jvd 97-10-09 p(163166) Replace Callnat 'OUTDATE' with 'IODATE-N'
+*                        Y2C and use only one date routine for NOM
+* gw  98-03-13 s(278970) save search values in independent variables
+* jvd 98-09-02 p(173627) Delete Archire Dataset in NOM database
+*                        Regardless if Catalog is not found.
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* gw  98-09-15 s(174298) always use volsers from catalog if op-sys = mvs
+*                        and back out correction jvd 98-09-02 p(173627)
+* SJU 20000117 P(191115) ignore error-code 658 (dataset not catalogued)
+*                        on UNCATLG - SMS uncatalogs datasets
+* ws  00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* ws  00-05-25 CE 7588   Add third panel to display more information
+* sju     2002-04-23 NOM221    User defined archive types
+* sju     2002-08-09 NOM221    User defined archive types
+* fhi     2002-10-30 fhi101    switch on optimizer compiler
+* fhi     2003-07-21 P(242577) NAT1108 if active help is requested
+* xsetggr 2003-11-27 p(246658) correct existance check of steplib
+* HH      2004-07-29 CHANGE PROCESS-STATEMENT IN FIND(1)-STATEMENT
+* fhi     2005-06-23 p(266530) Make Monitor NPR Mainframe independent
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* xsetggr 2007-05-07 NOM3201   Support 5 byte node numbers
+* xsetggr 2007-08-30 NOm3201   Change run number format to P11
+* xsetggr 2007-11-19 NRT2766   Correct adding of steplib for userarc
+* sju     2007-12-11 NRT2488   Rename and Modify volser line commands
+* fhi     2008-07-15 P298171   Add deletion for Unix archive datasets
+* xsetggr 2009-02-24 P300323   make steplib handling unix compliant
+* XSETHZ  2009-10-13 P316054   GET-VOLSERS-FROM-CATALOG fails
+* XSETHZ  2009-11-19 P316054   No catalog message for list
+* xsetggr 2010-01-29 P322358   correct cursor position in 1.screen
+* fhi     2010-03-05 P307403   Don't use text and binary reports mixed
+* xsetggr 2010-03-16 P307403   restow - RPFKEX-C is changed
+* fhi     2010-11-20 NOMALL-915 Add END TRANSACTION for update reports
+* xsetggr 2011-05-11 NOMALL-930 do not update report volser info to
+*                    prevent loosing volsers for multivolume archives
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2013-07-17 remove empty copy code CSTARTLS
+* SU3     2014-07-11 NOMALL-1279 fill fields for Adabas Vista
+* fhi     2014-08-21 NOMALL-1454 Restow, XXUX---P changed.
+* BLI     2014-08-25 NOMALL-1422 Multivolume handling
+* SU4     2014-11-05 NOMALL-1450 fill fields for Adabas Vista
+* SU5     2016-01-19 NOMALL-1802 do not update Adabas Vista fields
+* SU6     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* SU7     2016-08-05 NOM 3.5: remove unused code
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU8     2019-07-04 NOMALL-2292 check if archive is running(no UPDATE)
+* BLI     2020-03-13 NOMALL-2285 AD-ORIGINAL-REPORT-COUNT wrong/in use
+* SU9     2020-06-04 NOMALL-2349 use N-ESYLG
+* SU10    2020-12-01 NOMALL-2440 del. UX-EMAIL-RECIPIENTS
+* SU11    2022-10-21 NOMALL-2582 NOM0457 0 Reactivation job started
+* BLI1    2023-01-24 NOMALL-2612 Error handling 'File not found'
+* BLI2    2023-08-01 NOMALL-2645 Error when condense for deletable
+* SU12    2024-03-07 ES-34613    NOM 3.6 Remove BS2
+************************************************************************
+*
+DEFINE DATA GLOBAL USING  NRM-GL
+INDEPENDENT
+1 +G-RLISAD-SEL-DSN          (A44)
+* *****
+LOCAL USING RLC----L
+LOCAL USING RPFK---L
+LOCAL USING ROT----L
+LOCAL USING RTXT---L
+LOCAL USING VARDSN-L
+LOCAL USING VARCIV-L
+LOCAL USING VUXDEF-L /* defined unix nodes
+LOCAL USING XXUX---P /* parameters for unix access
+LOCAL USING VUSARC-L
+LOCAL USING NOMUDA-P
+LOCAL USING SAT00009
+* -----------------------------Views------------------------------------
+LOCAL
+1 DATASET-REPORT VIEW OF NRM-DATASET-REPORT
+1 VTOC-UPDATE VIEW OF VTOC-UPDATE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+1 CATALOG VIEW OF CATALOG
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 CLASS
+  2 VOLSER
+  2 DSNAME
+1 CATALOG-UPDATE VIEW OF CATALOG-UPDATE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+* -----------------------------local Variables--------------------------
+1 #DSNAME                  (A44)
+1 #UNCAT-DSN               (A1) INIT <'Y'>
+1 #CONFDEL                 (A6)
+1 #NOFLINES                (P2) INIT <015 >
+1 #NOFPAGES                (P2) INIT <010 >
+1 #END-OF-DATA             (L)
+1 #CP                      (P3)
+1 #MAXP                    (P3)
+1 #MAXAP                   (P3)
+1 #NEWVAL                  (L)
+1 #BACKWARD                (L)
+1 #FORWARD                 (L)
+1 #TOP                     (L)
+1 #BOT                     (L)
+1 DISPLAY-IT               (L)
+1 GET-SCREEN               (L)
+1 #RSTART                  (T)
+1 #LAST-KEY                (T)
+1 #TOPKEY                  (T)
+1 #PAGES                   (T/10)
+1 CV-UNCAT                 (C)
+1 #POS                     (P3)
+1 #S-DSN                   (A44)
+1 #S-DSN-T                 (A44)
+1 #S-DSN-F                 (A44)
+1 REDEFINE  #S-DSN-F
+  2 #S-DSN-V               (A1/44)
+1 L-SCREEN                 (1:15)
+  2 L-IDENT                (I2)
+  2 L-DSN                  (A44)
+  2 L-DATE                 (A8)
+  2 L-TIME                 (A5)
+  2 L-VOL                  (N3)
+  2 L-NUMREP               (N6)
+  2 L-MSG                  (A15)
+  2 L-EXPIRATION-DATE      (A8)
+  2 L-EXPIRATION-DATE-PHYS (A8)
+  2 L-ISN                  (P10)
+  2 L-EXPIRED-REPORTS-A    (A6)
+  2 REDEFINE L-EXPIRED-REPORTS-A
+    3 L-EXPIRED-REPORTS    (N6)
+  2 L-CONDENSE-OUTPUT      (A1)
+  2 L-USERARC-NAME         (A8)
+  2 L-USERARC-NUMBER       (N1)
+*
+1 L-LCMD                   (1:15)
+  2 L-MARK                 (A2)
+  2 CV-MARK                (C)
+  2 CV-LINE                (C)
+*
+1 L-HEADER                 (A78)
+1 I                        (N5)
+1 #ALLOWED                 (L)
+1 #UPDATE                  (L)
+1 #FATHER-PROG             (A8) INIT <'RMENU'>
+1 CV-SELECTION             (C/1)
+1 REDEFINE  CV-SELECTION
+  2 CV-SDSN                (C)
+1 #DSN                     (A44)
+1 #PF-KEY-VOL              (A4)
+1 #I-VOL                   (N7)
+1 #I-VOL-RESET             (N7)                  /* BLI NOMALL-1422
+1 CV-LINES                 (C)
+1 #TEMP-STRING             (A60)
+1 #SCROLL-AMOUNT           (N3)
+1 #ADD-PROGRAM             (A8)
+1 #ACT-MAST                (A8)
+1 F                        (P2)
+1 #LANGUAGE                (I1)
+1 #PANEL                   (P1) INIT <1>
+1 #LAN-TAB (1:2)
+  2 #LAN-IDENT             (I2)
+  2 #LAN-TEXT              (A70)
+1 #DATE                    (A8)
+1 #FORMATED-DATE           (A10)
+1 REDEFINE #FORMATED-DATE
+  2 #S-FORMATED-DATE       (A8)
+1 #ERROR-CODE              (N4)
+1 #ERROR-TEXT              (A250)
+1 #EXPIRED-REPORT-TEXT     (A6)
+1 REDEFINE #EXPIRED-REPORT-TEXT
+  2 #EXPIRED-REPORT-TEXT-CHAR (A1/6)
+1 L                        (P1)
+1 #USERARC-DETAILS         (1:9)
+  2 #USERARC-NAME          (A8)
+  2 #USERARC-NUMBER        (N1)
+  2 #USERARC-EXIT          (L)
+  2 #USERARC-EXITLIB       (A8)
+  2 #USERARC-EXITMEM       (A8)
+1 STEPLIB-ADDED            (L)
+1 #I                       (I2)
+1 #MAX-PANELS              (I2) CONST <4>
+1 #MARK                    (N4)
+1 #KORR                    (N1)
+1 #STACK-FUNCTION          (A10) /*Stack for Unix parameters
+1 #STACK-RC                (N1)  /* Return code for stack
+1 #UX-FUNCTION             (A8)
+1 #STEPLIB-EXIST           (L)
+1 #UPDATED                 (L)
+1 #FOR-LIST                (L)
+1 #RC                      (N4) /*SU8
+1 #CALLER                  (A8) INIT <*PROGRAM>
+1 SATSL-USER               (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+CALLNAT 'NARPSEC' G-USER-PROFILE 'AAD' #ALLOWED
+INCLUDE C-NALLOW
+*
+INCLUDE CVIDEO
+*
+RESET G-COMMIT
+G-C-OBJTYPE:='ARCHIVE'
+READ NRM-USER-DEFINED-ARCHIVE BY M-MONITOR-ID = 'USERARC'
+  IF M-MONITOR-ID NE MASK('USERARC')
+    ESCAPE BOTTOM
+  END-IF
+  #USERARC-NAME(M-USERARC-NUMBER)  := M-USERARC-NAME
+  #USERARC-NUMBER(M-USERARC-NUMBER):= M-USERARC-NUMBER
+  IF M-USERARC-EXITLIB NE ' ' AND M-USERARC-EXITMEM NE ' '
+    #USERARC-EXIT(M-USERARC-NUMBER):= TRUE
+    #USERARC-EXITLIB(M-USERARC-NUMBER):= M-USERARC-EXITLIB
+    #USERARC-EXITMEM(M-USERARC-NUMBER):= M-USERARC-EXITMEM
+  END-IF
+END-READ
+RESET #I
+*
+#S-DSN := +G-RLISAD-SEL-DSN
+#NEWVAL := TRUE
+MAIN-LOOP. REPEAT
+*
+  IF #LANGUAGE NE *LANGUAGE
+    #LANGUAGE := *LANGUAGE
+    CALLNAT 'ROTINI-N' ##EQO-ARCHIVE-DATASET G-OBJ-TYPE G-OTB
+    PERFORM INIT-PFKEYS
+    PERFORM INIT-LINECOM
+    PERFORM INIT-TEXT
+    GET-SCREEN := TRUE
+  END-IF
+*
+  PERFORM SET-PFKEYS
+  INCLUDE RMVHLP-C
+  CALLNAT 'RFLIPG-N' G-LC G-LINECOM (*)
+*
+  PERFORM GET-SCREEN
+  RESET GET-SCREEN
+*
+  INCLUDE C-TOPBOT
+*
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RLISADM&'
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'WB'
+*
+  DECIDE ON FIRST VALUE OF #PANEL
+    VALUE 1
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK #MARK
+        USING MAP 'RLISADM&'
+    VALUE 2
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+        USING MAP 'RLISAD2&'
+    VALUE 3
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+        USING MAP 'RLISAD3&'
+    VALUE 4
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+        USING MAP 'RLISAD4&'
+    NONE VALUE IGNORE
+  END-DECIDE
+*
+  RESET G-NATRP-ERC G-NATRP-ERT
+*
+  INCLUDE RPFKVA-C
+  INCLUDE C-DIRECT
+*
+  RESET #FORWARD #BACKWARD #NEWVAL G-NATRP-ERT G-NATRP-ERC #TOP #BOT
+  RESET #SCROLL-AMOUNT
+*
+  INCLUDE C-LOCCMD
+  INCLUDE RPFKEX-C
+*
+  DECIDE ON FIRST VALUE OF G-PF-FUNC
+    VALUE ##PFK-RIGHT
+      IF #PANEL LT #MAX-PANELS
+        ADD 1 TO #PANEL
+      END-IF
+    VALUE ##PFK-LEFT
+      IF #PANEL GT 1
+        SUBTRACT 1 FROM #PANEL
+      END-IF
+    NONE  VALUE
+      IGNORE
+  END-DECIDE
+*
+  PERFORM LINE-COMMANDS
+*
+  IF CV-SELECTION(*) MODIFIED
+    +G-RLISAD-SEL-DSN := #S-DSN
+    #NEWVAL := TRUE
+  END-IF
+*
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SCREEN
+************************************************************************
+IF G-DIRECT-COMMAND = 'TOP'
+  #TOP := TRUE
+END-IF
+RESET L-MARK(*)
+*
+DECIDE FOR EVERY  CONDITION
+  WHEN #NEWVAL OR #TOP
+    RESET #PAGES (*) #MAXP #MAXAP
+    PERFORM INIT-SELECTION-KEYS
+    #PAGES (1) := 0
+    #CP := #MAXAP := 1
+  WHEN #BOT
+    #CP := #MAXAP
+  WHEN #FORWARD
+    IF #END-OF-DATA
+      ESCAPE ROUTINE
+    END-IF
+    IF #CP = #NOFPAGES
+      #PAGES (1:#NOFPAGES - 1) := #PAGES (2:#NOFPAGES)
+      RESET #PAGES (#CP)
+      #PAGES (#CP) := #LAST-KEY
+    ELSE
+      IF #SCROLL-AMOUNT < 1
+        #SCROLL-AMOUNT := 1
+      END-IF
+      IF #CP + #SCROLL-AMOUNT <= #MAXAP
+        ADD #SCROLL-AMOUNT TO #CP
+      ELSE
+        IF #SCROLL-AMOUNT > 1
+          #CP := #MAXAP
+        ELSE
+          ADD 1 TO #CP
+        END-IF
+      END-IF
+      IF #CP > #MAXAP
+        #PAGES(#CP) := #LAST-KEY
+      END-IF
+    END-IF
+  WHEN #BACKWARD
+    IF #CP GE 2
+      IF #SCROLL-AMOUNT < 1
+        #SCROLL-AMOUNT := 1
+      END-IF
+      SUBTRACT #SCROLL-AMOUNT FROM #CP
+      IF #CP < 1
+        #CP := 1
+      END-IF
+    END-IF
+  WHEN GET-SCREEN
+    IGNORE
+  WHEN NONE
+    ESCAPE ROUTINE
+END-DECIDE
+*
+IF #CP >= #MAXAP
+  #MAXAP := #CP
+END-IF
+*
+#RSTART := #PAGES (#CP)
+*
+RESET I L-SCREEN (*) #END-OF-DATA CV-LINE (*)
+*
+CV-MARK (*) := (AD=P)
+*
+READ-LOOP. READ ARCHIVE-DATASET BY AD-CREATED-INV = #RSTART
+*
+  AT START OF DATA
+    #PAGES (#CP) := #TOPKEY := AD-CREATED-INV
+  END-START
+*
+  DISPLAY-IT := TRUE
+  RESET #KORR
+  IF NOT (AD-ARCHIVE-DSNAME = #S-DSN-F THRU #S-DSN-T)
+    DISPLAY-IT := FALSE
+  END-IF
+*
+  REJECT IF NOT DISPLAY-IT
+*
+  ADD 1 TO I
+  IF I > #NOFLINES
+    #LAST-KEY := AD-CREATED-INV
+    #MARK := I + 1
+    ESCAPE ROUTINE
+  END-IF
+*
+  IF I = 1
+    #PAGES(#CP) := AD-CREATED-INV
+  END-IF
+*
+  RESET CV-MARK(I)
+  #LAST-KEY := AD-CREATED-INV
+  L-DSN(I) := #DSN := AD-ARCHIVE-DSNAME
+*
+  MOVE EDITED AD-CREATED (EM=YYYYMMDD) TO L-DATE (I)
+  #DATE := L-DATE (I)
+  PERFORM MASK-DATE-S
+  IF #ERROR-CODE = 0
+    L-DATE (I) := #S-FORMATED-DATE
+  END-IF
+  MOVE EDITED AD-CREATED (EM=HH':'II) TO L-TIME (I)
+  #DATE := AD-EXPIRATION-DATE
+  PERFORM MASK-DATE-S
+  IF #ERROR-CODE = 0
+    L-EXPIRATION-DATE (I) := #S-FORMATED-DATE
+  END-IF
+  IF AD-EXPIRATION-DATE-PHYS = MASK (YYYYMMDD)
+    #DATE := AD-EXPIRATION-DATE-PHYS
+    PERFORM MASK-DATE-S
+    IF #ERROR-CODE = 0
+      L-EXPIRATION-DATE-PHYS (I) := #S-FORMATED-DATE
+    END-IF
+    IF AD-EXPIRATION-DATE-PHYS < AD-EXPIRATION-DATE
+      CV-LINE (I) := (AD=I)
+    END-IF
+  ELSE
+    L-EXPIRATION-DATE-PHYS (I) := AD-EXPIRATION-DATE-PHYS
+  END-IF
+*
+  RESET L-NUMREP(I)
+  NUMREP. FIND NUMBER DATASET-REPORT WITH DR-ARCHIVE-DSNAME = #DSN
+  L-NUMREP (I) := *NUMBER (NUMREP.)
+  IF L-NUMREP(I) = 0
+    L-MSG (I) := #LAN-TEXT (1)
+  END-IF
+*
+  L-ISN(I) := *ISN (READ-LOOP.)
+  RESET CV-MARK (I)
+*
+  IF AD-MARK-FOR-CONDENSE = 'X'
+    L-MSG (I) := #LAN-TEXT (2)
+  END-IF
+  L-CONDENSE-OUTPUT (I) := AD-CONDENSE-OUTPUT
+* BLI NOMALL-2285 start
+* zero/negative/errornous (too lowÜ)  AD-ORIGINAL-REPORT-COUNT, e.g.
+* especially after condense (n to 1) or 'limited' archive/condense
+  L-EXPIRED-REPORTS (I) := AD-ORIGINAL-REPORT-COUNT - L-NUMREP(I)
+  IF L-EXPIRED-REPORTS (I) LE 0
+    RESET L-EXPIRED-REPORTS-A (I)
+  ELSE
+* BLI NOMALL-2285 end
+    #EXPIRED-REPORT-TEXT := L-EXPIRED-REPORTS-A (I)
+    FOR L  1 6
+      IF #EXPIRED-REPORT-TEXT-CHAR (L) = '0'
+        RESET #EXPIRED-REPORT-TEXT-CHAR (L)
+      ELSE
+        ESCAPE BOTTOM
+      END-IF
+      L-EXPIRED-REPORTS-A (I) := #EXPIRED-REPORT-TEXT
+    END-FOR
+  END-IF
+  IF AD-ARCHIVE-TYPE GT 0
+    L-USERARC-NAME(I)  := #USERARC-NAME(AD-ARCHIVE-TYPE)
+    L-USERARC-NUMBER(I):= #USERARC-NUMBER(AD-ARCHIVE-TYPE)
+  ELSE
+    L-USERARC-NAME(I)  := 'Standard'
+    RESET L-USERARC-NUMBER(I)
+  END-IF
+  #FOR-LIST := TRUE
+  PERFORM GET-VOLSERS-FROM-CATALOG
+  #FOR-LIST := FALSE
+  L-VOL (I) := C*AD-VOLSERS
+*
+END-READ
+*
+#MARK := I + 2
+#END-OF-DATA := TRUE
+#MAXP := #CP
+*
+END-SUBROUTINE /* GET-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE LINE-COMMANDS
+************************************************************************
+IF L-MARK(*) = '.'
+  INCLUDE C-ESCAPE
+END-IF
+*
+RESET L-IDENT (*)
+INCLUDE RLCMTI-C
+*
+FOR I 1 TO #NOFLINES
+  DECIDE ON FIRST VALUE OF L-IDENT (I)
+    VALUE ##EQU-DELETE
+      IF NOT L-NUMREP (I) = 0
+        G-NATRP-ERC := 0424
+        RESET G-NATRP-ERT
+        #MARK := I + 1 /* 1st occurrence of l-mark is second field.
+        ESCAPE ROUTINE
+      END-IF
+    VALUE ##EQU-LIST-REPORTS
+      IGNORE
+    VALUE ##EQU-LIST-VOLSERS
+      PERFORM GET-VOLSERS-FROM-CATALOG
+      IF G-NATRP-ERC NE 0
+        REINPUT *5,G-NATRP-ERT MARK *L-MARK (I) ALARM
+      END-IF
+**    GET ARCHIVE-DATASET L-ISN (I)            /* BLI NOMALL-1422 start
+**    IF ARCHIVE-DATASET.AD-VOLSERS(1) NE VOLSER
+**      G-NATRP-ERC := 0959
+**      RESET G-NATRP-ERT
+**      #MARK := I + 1 /* 1st occurrence of l-mark is second field.
+**    END-IF                                   /* BLI NOMALL-1422 end
+    VALUE ##EQU-CONDENSE
+      IF L-NUMREP (I) = 0                      /* BLI2 start
+        G-NATRP-ERC := 1124
+        RESET G-NATRP-ERT
+        #MARK := I + 1 /* 1st occurrence of l-mark is second field.
+        ESCAPE ROUTINE
+      END-IF                                   /* BLI2 end
+      PERFORM GET-VOLSERS-FROM-CATALOG
+      IF G-NATRP-ERC NE 0
+        REINPUT *5,G-NATRP-ERT MARK *L-MARK (I) ALARM
+      END-IF
+    VALUE ##EQU-MODIFY-VOLSER
+      PERFORM GET-VOLSERS-FROM-CATALOG
+      GET ARCHIVE-DATASET L-ISN (I)
+      IF ARCHIVE-DATASET.C*AD-VOLSERS >  1
+        G-NATRP-ERC := 0482
+        RESET G-NATRP-ERT
+        #MARK := I + 1 /* 1st occurrence of l-mark is second field.
+        ESCAPE ROUTINE
+      END-IF
+    NONE VALUE
+      IGNORE
+  END-DECIDE
+END-FOR
+*
+FOR I 1 TO #NOFLINES
+  IF L-IDENT (I) = ##EQU-DELETE
+    PERFORM GET-VOLSERS-FROM-CATALOG
+    PERFORM DELETE-ARCHIVE-DATASET
+    SET CONTROL 'WB'
+  END-IF
+END-FOR
+*
+FOR I 1 TO #NOFLINES
+  DECIDE ON EVERY VALUE OF L-IDENT (I)
+    VALUE ##EQU-LIST-REPORTS
+      FETCH RETURN 'RLISDR' L-DSN (I) L-ISN (I)
+      GET-SCREEN := TRUE
+    VALUE ##EQU-LIST-VOLSERS
+      PERFORM GET-VOLSERS-FROM-CATALOG
+      IF G-NATRP-ERC = 0  /** OR = 959             /* BLI NOMALL-1422
+        PERFORM DISPLAY-VOLSERS
+      END-IF
+      GET-SCREEN := TRUE
+    VALUE ##EQU-CONDENSE
+      PERFORM GET-VOLSERS-FROM-CATALOG
+      IF G-NATRP-ERC = 0
+        PERFORM MARK-FOR-CONDENSE
+      END-IF
+      GET-SCREEN := TRUE
+    VALUE ##EQU-RENAME
+      FETCH RETURN 'RARCDSN' L-DSN (I) L-ISN (I)
+      GET-SCREEN := TRUE
+    VALUE ##EQU-MODIFY-VOLSER
+      FETCH RETURN 'RARCVOL' L-DSN (I) L-ISN (I)
+      GET-SCREEN := TRUE
+    NONE VALUE
+      IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* LINE-COMMANDS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-SELECTION-KEYS
+************************************************************************
+#S-DSN-F := #S-DSN
+IF #S-DSN-F = ' '
+  #S-DSN-F := '*'
+END-IF
+EXAMINE #S-DSN-F '*' GIVING POSITION IN #POS
+IF #POS > 0
+  RESET #S-DSN-V (#POS:44)
+  #S-DSN-T := #S-DSN-F
+  EXAMINE FULL #S-DSN-T ' ' REPLACE H'FF'
+ELSE
+  #S-DSN-F := #S-DSN-T := #S-DSN
+END-IF
+*
+END-SUBROUTINE /* INIT-SELECTION-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-VOLSERS-FROM-CATALOG
+************************************************************************
+IF *MACHINE-CLASS NE 'MAINFRAME'
+  ESCAPE ROUTINE
+END-IF
+IF L-USERARC-NUMBER(I) GT 0
+  #I:= L-USERARC-NUMBER(I)
+  IF #USERARC-EXIT(#I)
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+IF NOT (G-SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP')
+  ESCAPE ROUTINE
+END-IF
+#UPDATED := FALSE
+IF NOT #FOR-LIST                             /* BLI NOMALL-1422 start
+* for line commands we need the Archive dataset for compare below
+  GET ARCHIVE-DATASET L-ISN(I)
+END-IF
+#I-VOL-RESET := C*AD-VOLSERS                 /* BLI NOMALL-1422 end
+CAT. FIND CATALOG WITH DSNAME = L-DSN (I) AND NODE = G-MONITOR-NODE
+AND PREFIX = 'NO' /*SU11                                              /*
+  IF ERROR-CODE NE 0
+    IF #FOR-LIST
+      ESCAPE BOTTOM
+    END-IF
+    G-NATRP-ERC := 5
+    G-NATRP-ERT := ERROR-TEXT
+    ESCAPE ROUTINE
+  END-IF
+  #UPDATED := TRUE
+  #I-VOL := *COUNTER
+* get rid of * in ARCHIVE-DATASET VOLSER         NOMALL-1422 BLI start
+  IF VOLSER EQ '*' AND #I-VOL-RESET LT #I-VOL /* already reset
+    RESET #I-VOL-RESET
+    ESCAPE BOTTOM
+  END-IF
+  IF ARCHIVE-DATASET.AD-VOLSERS(#I-VOL) NE VOLSER OR VOLSER EQ '*'
+    CALLNAT 'GETHOLD' G-NATRP-DBID G-NATRP-FNR L-ISN(I) 'BS' #RC
+    IF #RC = 145 /*record in hold - maybe Archive running
+      BACKOUT TRANSACTION
+      ESCAPE BOTTOM (CAT.)
+    END-IF
+    UPDARCDS. GET ARCHIVE-DATASET L-ISN(I)
+    IF VOLSER EQ '*'
+      RESET  ARCHIVE-DATASET.AD-VOLSERS(#I-VOL:#I-VOL-RESET)
+      RESET #I-VOL-RESET
+    ELSE
+      ARCHIVE-DATASET.AD-VOLSERS(#I-VOL) := VOLSER
+    END-IF
+    UPDATE (UPDARCDS.)
+    END TRANSACTION
+    IF #I-VOL-RESET EQ 0
+      ESCAPE BOTTOM
+    END-IF                                   /* NOMALL-1422 BLI end
+  END-IF
+END-FIND /*(CAT.)
+** IF NOT #UPDATED AND C*AD-VOLSERS > 0 /* SU11,BLI out, below in
+IF #I-VOL-RESET GT #I-VOL /* more volsers (NE *) in AD than in CATALOG
+  CALLNAT 'GETHOLD' G-NATRP-DBID G-NATRP-FNR L-ISN(I) 'BS' #RC
+  IF #RC = 145 /*record in hold - maybe Archive running
+    BACKOUT TRANSACTION
+  ELSE
+    RESARCDS. GET ARCHIVE-DATASET L-ISN(I)
+**  RESET VOLSER ARCHIVE-DATASET.AD-VOLSERS(*) /* SU11,BLI out, below in
+    RESET ARCHIVE-DATASET.AD-VOLSERS(#I-VOL + 1:#I-VOL-RESET)
+    UPDATE (RESARCDS.)
+    END TRANSACTION
+  END-IF
+END-IF
+GET ARCHIVE-DATASET L-ISN(I)
+*
+END-SUBROUTINE /* GET-VOLSERS-FROM-CATALOG
+*
+************************************************************************
+DEFINE SUBROUTINE DISPLAY-VOLSERS
+************************************************************************
+ARCDS. GET ARCHIVE-DATASET L-ISN(I)
+*
+#I-VOL := 1
+REPEAT
+  SET CONTROL 'WC12L33B5/30F'
+  INPUT USING MAP 'RLISVLM&'
+  #PF-KEY-VOL := *PF-KEY
+  DECIDE ON FIRST VALUE OF #PF-KEY-VOL
+    VALUE 'PF3'
+      ESCAPE ROUTINE
+    VALUE 'PF7'
+      IF #I-VOL NE 1
+        SUBTRACT 5 FROM #I-VOL
+      END-IF
+    VALUE 'PF8'
+      IF #I-VOL + 4 < ARCHIVE-DATASET.C*AD-VOLSERS
+        ADD 5 TO #I-VOL
+      END-IF
+    NONE VALUE
+      IGNORE
+  END-DECIDE
+END-REPEAT
+*
+END-SUBROUTINE /* DISPLAY-VOLSERS
+*
+************************************************************************
+DEFINE SUBROUTINE MARK-FOR-CONDENSE
+************************************************************************
+#TEMP-STRING := L-DSN(I)
+EXAMINE #TEMP-STRING FOR ARCHIVE-TASK.M-ARCHIVE-PREFIX DELETE
+IF #TEMP-STRING = MASK ('.G'NNNN'V'NN)
+  IF ARCHIVE-TASK.M-ARCHIVE-PREFIX = ' '
+    FIND (1) ARCHIVE-TASK WITH M-MONITOR-ID = 'ARCHIVE'
+    END-FIND
+  END-IF
+*
+  IF *MACHINE-CLASS = 'MAINFRAME'
+    FIND CATALOG WITH NODE = G-MONITOR-NODE
+    AND DSNAME = ARCHIVE-TASK.M-ARCHIVE-PREFIX AND PREFIX = 'YES' /*SU11
+      IF DSNAME = L-DSN(I) /*find all DS with prefix
+        REINPUT *953 MARK *L-MARK(I) ALARM /*Not allowed to condense old
+      END-IF
+      ESCAPE BOTTOM
+    END-FIND
+  END-IF
+END-IF
+*
+CND. GET ARCHIVE-DATASET L-ISN (I)
+IF ARCHIVE-DATASET.AD-MARK-FOR-CONDENSE = 'X'
+  RESET ARCHIVE-DATASET.AD-MARK-FOR-CONDENSE
+ELSE
+  ARCHIVE-DATASET.AD-MARK-FOR-CONDENSE := 'X'
+END-IF
+UPDATE (CND.)
+END TRANSACTION
+GET-SCREEN := TRUE
+*
+END-SUBROUTINE /* MARK-FOR-CONDENSE
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-LINECOM
+************************************************************************
+G-LC-IDENT (01) := ##EQU-DELETE
+G-LC-IDENT (02) := ##EQU-LIST-REPORTS
+G-LC-IDENT (03) := ##EQU-LIST-VOLSERS
+G-LC-IDENT (04) := ##EQU-CONDENSE
+G-LC-IDENT (05) := ##EQU-RENAME
+G-LC-IDENT (06) := ##EQU-MODIFY-VOLSER
+G-LC-NUM        := 6
+CALLNAT 'RLCINI-N' G-OBJ-TYPE G-LC G-LCB
+CALLNAT 'RFLIPG-N' G-LC G-LINECOM (*)
+*
+END-SUBROUTINE /* INIT-LINECOM
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFBRW-C
+INCLUDE RPFLR--C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-TEXT
+************************************************************************
+#LAN-IDENT (1) := ##TXT-CAN-BE-DELETED
+#LAN-IDENT (2) := ##TXT-CONDENSE
+*
+FOR I = 1 TO 2
+  CALLNAT 'RLTINI-N' #LAN-IDENT (I) #LAN-TEXT  (I) G-TXB
+END-FOR
+*
+END-SUBROUTINE /* INIT-TEXT
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-ARCHIVE-DATASET
+************************************************************************
+RESET CV-UNCAT
+IF G-SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP'
+/*SU12 OR ( G-SYSTEM-TYPE = SCAN 'BS2' AND L-DSN (I) = MASK ('$') )
+  #UNCAT-DSN := 'Y'
+ELSE
+  #UNCAT-DSN := 'N'
+  CV-UNCAT := (AD=DP)
+END-IF
+#I:= L-USERARC-NUMBER(I)
+IF #I GT 0 AND #USERARC-EXIT(#I)
+  #UNCAT-DSN := 'N'
+  CV-UNCAT := (AD=DP)
+  PERFORM ADD-STEPLIB
+END-IF
+*
+SET CONTROL 'WC13L60B6/20F'
+#DSNAME := L-DSN (I)
+SET CONTROL 'MT'
+INPUT USING MAP 'RCFDADM&'
+IF *PF-KEY = 'PF3'
+  ESCAPE ROUTINE
+END-IF
+*
+IF #I GT 0 AND #USERARC-EXIT(#I)
+  NOMUDA-API-VERSION     := 2
+  NOMUDA-FUNCTION        := 'D'
+  NOMUDA-DATA-SET-NAME-1 := L-DSN(I)
+  NOMUDA-ARCHIVE-NAME    := #USERARC-NAME(#I)
+  NOMUDA-ARCHIVE-NUMBER  := #USERARC-NUMBER(#I)
+  NOMUDA-ESY-USERID      := G-USERID
+  NOMUDA-ESY-NODE        := G-MONITOR-NODE
+  CALLNAT #USERARC-EXITMEM(#I) NOMUDA-API-VERSION NOMUDA-PARMS(*)
+  PERFORM REMOVE-STEPLIB
+ELSE                             /* archive-type not based on userexit
+  IF *MACHINE-CLASS NE 'MAINFRAME'
+    #STACK-FUNCTION := 'PUSH' /* stack parameter for XXUX---N
+    CALLNAT 'XXUXST-N' #STACK-FUNCTION #STACK-RC XXUX---P
+    IF #STACK-RC NE 0
+      G-NATRP-ERC := 5
+      COMPRESS *PROGRAM *LINE 'Internal error: Stack overflow'
+        TO G-NATRP-ERT
+      ESCAPE ROUTINE
+    END-IF
+    READ UX-NODES BY UX-NODE-NAME
+      REJECT IF UX-NODES.UX-NODE-SUSPEND NE 'M'
+        AND UX-NODES.UX-NODE-SUSPEND NE 'L'
+      ESCAPE BOTTOM /* take the first matching one
+    END-READ
+    COMPRESS '$EOM_ARC/' L-DSN (I) TO P-FILE-NAME LEAVING NO
+    #UX-FUNCTION := 'DELETE'
+    PERFORM UNIX-FUNCTION
+    IF G-NATRP-ERC = 2036    /* BLI1
+        OR G-NATRP-ERT = SCAN('NPR3339')
+      RESET G-NATRP-ERC G-NATRP-ERT /* already deleted. No error.
+    END-IF
+    #STACK-FUNCTION := 'POP' /* restore parameter for XXUX---N
+    CALLNAT 'XXUXST-N' #STACK-FUNCTION #STACK-RC XXUX---P
+    IF #STACK-RC NE 0
+      G-NATRP-ERC := 5
+      COMPRESS *PROGRAM  *LINE 'Internal error: Stack overflow'
+        TO G-NATRP-ERT
+    END-IF
+    IF G-NATRP-ERC NE 0
+      ESCAPE ROUTINE
+    END-IF
+  ELSE /* it is on mainframe:
+/*SU12 ->  IF G-SYSTEM-TYPE = SCAN 'BS2' AND #UNCAT-DSN ='Y'
+/*    SEPARATE SUBSTRING (L-DSN (I), 2) INTO SATSL-USER IGNORE
+/*    PERFORM LOGON-TO-ESY  /* using satsl-user
+/*    FIND(1) VTOC-UPDATE WITH NODE = G-MONITOR-NODE
+/*        AND DSNAME   = L-DSN (I) AND FUNCTION = 'SCRATCH'
+/*      /*error handling  below
+/*    END-FIND
+/*    SATSL-USER := G-USERID
+/*    PERFORM LOGON-TO-ESY
+/*    IF VTOC-UPDATE.ERROR-CODE > 0
+/*      G-NATRP-ERC := 5
+/*      G-NATRP-ERT := VTOC-UPDATE.ERROR-TEXT
+/*      ESCAPE ROUTINE
+/*    END-IF
+/*SU12 <- ELSE /* ................... when not BS2
+    FIND CATALOG WITH NODE = G-MONITOR-NODE AND DSNAME = L-DSN (I)
+      AND PREFIX = 'NO'                                               /*
+      IF ERROR-CODE GT 0
+        IF #UNCAT-DSN = 'Y'
+          REINPUT *5,ERROR-TEXT
+        END-IF
+      ELSE  /* ..............when error-code = 0
+        IF CLASS = 'DASD' AND #UNCAT-DSN = 'Y'
+          FIND VTOC-UPDATE WITH NODE    = G-MONITOR-NODE
+          AND DSNAME   = L-DSN (I) AND VOLSER   = VOLSER              /*
+          AND FUNCTION = 'PURGE'                                      /*
+            /*error handling ??
+          END-FIND
+        END-IF
+      END-IF
+    END-FIND /* ..... end of Find Catalog
+*
+    IF #UNCAT-DSN = 'Y'
+      UNCAT. FIND CATALOG-UPDATE WITH NODE     = G-MONITOR-NODE
+        AND DSNAME   = L-DSN (I) AND FUNCTION = 'UNCATLG'             /*
+        IF ERROR-CODE > 0 AND ERROR-CODE NE 658
+          G-NATRP-ERC := 5
+          G-NATRP-ERT := ERROR-TEXT
+          ESCAPE ROUTINE
+        END-IF
+      END-FIND
+    END-IF /* ....... If #uncat-dsn = 'Y'
+/*SU12  END-IF /* bs2 or not
+  END-IF /* mainframe or not
+END-IF
+*
+DEL. GET ARCHIVE-DATASET L-ISN(I)
+DELETE RECORD
+END TRANSACTION
+GET-SCREEN := TRUE
+G-NATRP-ERC  := 18 /* for mess: "object deleted"
+*
+END-SUBROUTINE /* DELETE-ARCHIVE-DATASET
+*
+************************************************************************
+DEFINE SUBROUTINE LOGON-TO-ESY
+************************************************************************
+* param (in): SATSL-USER
+CALLNAT 'N-ESYLG' 1X G-MONITOR-NODE SATSL-USER #CALLER
+  G-NATRP-ERC G-NATRP-ERT 1X
+IF G-NATRP-ERC NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Error logging on to ESY ' SATSL-USER G-NATRP-ERC
+  G-NATRP-ERC := 1534 /*SAT error :1: occured.
+END-IF
+*
+END-SUBROUTINE /* LOGON-TO-ESY
+*
+************************************************************************
+DEFINE SUBROUTINE MASK-DATE-S
+************************************************************************
+RESET #ERROR-CODE
+CALLNAT 'IODATE-N' 'M' 'S' #DATE #FORMATED-DATE
+  G-DATE-FORMAT #ERROR-CODE #ERROR-TEXT
+*
+END-SUBROUTINE /* MASK-DATE-S
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-STEPLIB
+************************************************************************
+** check existence of po-exitlib in steplib table
+CALLNAT 'RLIBACT' #USERARC-EXITLIB(#I) #STEPLIB-EXIST
+IF NOT #STEPLIB-EXIST
+  NAT00009-LIBRARY         := #USERARC-EXITLIB(#I)
+  RESET  NAT00009-FNR NAT00009-DBID
+  CALLNAT 'RGETLIB' NAT00009-APPLIC
+  NAT00009-FUNCTION := 08
+  CALLNAT 'NAT00009' NAT00009-PARMS
+  STEPLIB-ADDED := TRUE
+END-IF
+*
+END-SUBROUTINE /* ADD-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE REMOVE-STEPLIB
+************************************************************************
+IF NOT STEPLIB-ADDED
+  ESCAPE ROUTINE
+END-IF
+*
+CALLNAT 'RLIBACT' #USERARC-EXITLIB(#I) #STEPLIB-EXIST
+IF #STEPLIB-EXIST
+  NAT00009-LIBRARY := #USERARC-EXITLIB(#I)
+  RESET  NAT00009-FNR NAT00009-DBID
+  CALLNAT 'RGETLIB' NAT00009-APPLIC
+  NAT00009-FUNCTION := 16
+  CALLNAT 'NAT00009' NAT00009-PARMS
+END-IF
+*
+STEPLIB-ADDED := FALSE
+*
+END-SUBROUTINE /* REMOVE-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE UNIX-FUNCTION
+************************************************************************
+P-NODE-NAME       := UX-NODE-NAME
+P-NODE-SUSPEND    := UX-NODE-SUSPEND
+P-FUNCTION        := #UX-FUNCTION
+P-USERID          := UX-NODE-USERID
+P-CIPHER-PASSWORD := UX-NODE-PASSWORD
+P-GROUP           := UX-NODE-GROUP
+*
+CALLNAT 'XXUX---N' XXUX---P
+*
+IF P-ERC NE 0
+  COMPRESS 'Error=' P-ERC ':' P-ERT TO G-NATRP-ERT LEAVING NO
+  IF P-ERC EQ 2036  /* File not found  BLI1 start
+    G-NATRP-ERC := 2036
+  ELSE
+    G-NATRP-ERC := 5
+  END-IF            /* BLI1 end
+END-IF
+*
+END-SUBROUTINE /* UNIX-FUNCTION
+*
+INCLUDE RPFSET-C /* set pfkeys
+*
+END

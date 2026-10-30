@@ -1,0 +1,539 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMCLNARC - Automatic archive dataset management
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* sju     2003-06-09 p(241253) Created
+* xsetggr 2003-11-27 p(246658) correct existance check of steplib
+* HH      2004-07-29 CHANGE PROCESS-STATEMENT IN FIND(1)-STATEMENT
+* sju     04-12-06 NOM31  Add date and time (tenths of second) to trace
+* fhi     2005-06-23 p(266530) Make Monitor NPR Mainframe independent
+* xsetggr 2007-05-07 NOM3201   Support 5 byte node numbers
+* fhi     2007-06-05 FHI234    correction to 266530
+* xsetggr 2007-11-19 NRT2766  correct adding of steplib for userarc
+* fhi     2008-07-23 P307206  deletion of archive dataset under Unix
+* xsetggr 2009-02-24 P300323   make steplib handling unix compliant
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* raya    2011-12-27 NOMALL-98 check member to avoid err 82
+* raya    2012-02-15 NOMALL-98 remove error 1079 to avoid double
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* fhi     2014-03-03 NOMALL-1363 Get cat cate into trace messages
+* fhi     2014-08-21 NOMALL-1454 Restow, XXUX---P changed.
+* BLI     2014-08-26 NOMALL-1422 Multivolume handling (Comp. RLISAD)
+* SU2     2014-11-05 NOMALL-1450 fill fields for Adabas Vista
+* SU3     2015-11-23 NOMALL-1784 avoid NAT1301 (P10->B4/I4 - big ISNs)
+* SU4     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-12-02 NOMALL-1621 +NOD-LOCAL-NODE instead of G-MONITOR-NODE STEM
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi     2018-03-08 NOMALL-1918 Get it on Unix / Correct NPR Logons
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU5     2020-04-27 NOMALL-2349 use N-ESYLG
+* SU6     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* BLI1    2023-01-27 NOMALL-2612 Error handling 'File not found'
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  MONIT-GL
+INDEPENDENT
+1 +NOD-LOCAL-NODE (N5)
+1 +NOD-LOCAL-ID   (A20)
+1 +NOD-LOCAL-USER (A8)
+1 +CMRDC          (A1)
+* *****
+LOCAL USING VARCIV-L
+LOCAL USING RLOG-L
+LOCAL USING VUSARC-L
+LOCAL USING NOMUDA-P
+LOCAL USING SAT00009
+LOCAL USING VUXDEF-L /* defined unix nodes
+LOCAL USING XXUX---P /* parameters for unix access
+/*SU6 LOCAL USING VMONITUL /* NOMALL-1961 fhi in
+* ----------------------------------------------------------------------
+LOCAL
+1 ARCHIVE-DATASET  VIEW  OF  NRM-ARCHIVE-DATASET
+  2 AD-ARCHIVE-DSNAME
+  2 AD-MARK-FOR-CONDENSE
+  2 AD-CREATED
+  2 AD-ARCHIVE-TYPE
+  2 AD-VOLSERS (1:20)
+  2 C*AD-VOLSERS
+1 VTOC-UPDATE VIEW OF VTOC-UPDATE
+  2 ERROR-CODE
+1 CATALOG VIEW OF CATALOG
+  2 ERROR-CODE
+  2 CLASS
+  2 VOLSER
+  2 DSNAME
+1 CATALOG-UPDATE  VIEW  OF  CATALOG-UPDATE
+  2 ERROR-CODE
+1 DATASET-REPORT VIEW OF NRM-DATASET-REPORT
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU6
+  2 MF-SYSTEM-TYPE   (A8)
+*
+1 #DSNAME             (A44)
+1 #YESTERDAY          (T)
+1 #DATE               (D)
+1 #USERARC-DETAILS    (1:9)
+  2 #USERARC-NAME     (A8)
+  2 #USERARC-NUMBER   (N1)
+  2 #USERARC-EXIT     (L)
+  2 #USERARC-EXITLIB  (A8)
+  2 #USERARC-EXITMEM  (A8)
+1 STEPLIB-ADDED       (L)
+1 #I                  (I2)
+1 #I-VOL              (I2)
+1 #CONDENSE-COUNT     (I2)
+1 #CURRENT-ISN        (P10) /*SU3 was I4
+1 #STACK-FUNCTION     (A10) /* Stack for Unix parameters
+1 #STACK-RC           (N1)  /* Return code for stack
+1 #UX-FUNCTION        (A8)
+1 #STEPLIB-EXIST      (L)
+1 #TRACING            (L)
+1 #CATDATE            (A19)
+1 #UPDATED            (L)   /* NOMALL-1422 BLI in
+1 #I-VOL-RESET        (N7)  /* NOMALL-1422 BLI in
+1 #CALLER             (A8) INIT <*PROGRAM>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=132
+*
+IF G-TRACE GE *LEVEL
+  #TRACING := TRUE
+END-IF
+PERFORM INIT-FUNCTION
+*
+PERFORM PROCESS-ARCHIVES
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-FUNCTION
+************************************************************************
+FIND ARCHIVE-TASK WITH M-MONITOR-ID = 'ARCHIVE'
+END-FIND
+IF ARCHIVE-TASK.M-CONDENSE-THRESHOLD LE 0
+AND ARCHIVE-TASK.M-ARCHIVE-DELETE NE 'Y'                              /*
+  ESCAPE ROUTINE
+END-IF
+#DATE:= *DATX - 1
+#YESTERDAY:= #DATE
+FIND MF-NODE WITH MF-MONITOR-ID = +NOD-LOCAL-ID
+  /*error handling ??
+END-FIND
+IF #TRACING
+  COMPRESS 'Start archive cleanup older than' #DATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS *PROGRAM 'cataloged at'  #CATDATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+INCLUDE CMRDC
+READ NRM-USER-DEFINED-ARCHIVE BY M-MONITOR-ID = 'USERARC'
+  IF M-MONITOR-ID NE MASK('USERARC')
+    ESCAPE BOTTOM
+  END-IF
+  #USERARC-NAME(M-USERARC-NUMBER)  := M-USERARC-NAME
+  #USERARC-NUMBER(M-USERARC-NUMBER):= M-USERARC-NUMBER
+  IF M-USERARC-EXITLIB NE ' ' AND M-USERARC-EXITMEM NE ' '
+    #USERARC-EXIT(M-USERARC-NUMBER):= TRUE
+    #USERARC-EXITLIB(M-USERARC-NUMBER):= M-USERARC-EXITLIB
+    #USERARC-EXITMEM(M-USERARC-NUMBER):= M-USERARC-EXITMEM
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* INIT-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-ARCHIVES
+************************************************************************
+IF ARCHIVE-TASK.M-CONDENSE-THRESHOLD LE 0
+AND ARCHIVE-TASK.M-ARCHIVE-DELETE NE 'Y'                              /*
+  ESCAPE ROUTINE
+END-IF
+READARC. READ ARCHIVE-DATASET BY AD-CREATED
+  IF AD-CREATED GE #YESTERDAY
+    ESCAPE BOTTOM
+  END-IF
+  #CURRENT-ISN := *ISN(READARC.)
+  ARCREPS. FIND NUMBER DATASET-REPORT WITH DR-ARCHIVE-DSNAME =
+    AD-ARCHIVE-DSNAME(READARC.)
+  /*error handling ??
+  IF *NUMBER(ARCREPS.) = 0
+    IF ARCHIVE-TASK.M-ARCHIVE-DELETE = 'Y'
+      IF #TRACING
+        COMPRESS 'delete' AD-ARCHIVE-DSNAME(READARC.) TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+      PERFORM DELETE-ARCHIVE
+    END-IF
+  ELSE
+    IF *NUMBER(ARCREPS.) LT ARCHIVE-TASK.M-CONDENSE-THRESHOLD
+    AND #CONDENSE-COUNT LT 20 AND AD-MARK-FOR-CONDENSE = ' '          /*
+      IF #TRACING
+        COMPRESS 'mark for condense' AD-ARCHIVE-DSNAME(READARC.)
+          'reports:' *NUMBER(ARCREPS.)
+          'limit:' ARCHIVE-TASK.M-CONDENSE-THRESHOLD TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+      ADD 1 TO #CONDENSE-COUNT
+      PERFORM CONDENSE-ARCHIVE
+    END-IF
+  END-IF
+END-READ
+IF #CONDENSE-COUNT GT 0
+  CALLNAT 'RINIAR-N' 'CDN' G-LG-USERID G-NATRP-ERC G-NATRP-ERT
+END-IF
+IF #TRACING
+  G-TRACE-MSG := 'End archive cleanup'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* PROCESS-ARCHIVES
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-ARCHIVE
+************************************************************************
+PERFORM GET-VOLSERS-FROM-CATALOG
+IF G-NATRP-ERC = 0
+  PERFORM DELETE-ARCHIVE-DATASET
+END-IF
+*
+END-SUBROUTINE /* DELETE-ARCHIVE
+*
+************************************************************************
+DEFINE SUBROUTINE CONDENSE-ARCHIVE
+************************************************************************
+PERFORM GET-VOLSERS-FROM-CATALOG
+IF G-NATRP-ERC = 0
+  PERFORM MARK-FOR-CONDENSE
+END-IF
+*
+END-SUBROUTINE /* CONDENSE-ARCHIVE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-VOLSERS-FROM-CATALOG
+************************************************************************
+IF ARCHIVE-DATASET.AD-ARCHIVE-TYPE GT 0
+  #I:= ARCHIVE-DATASET.AD-ARCHIVE-TYPE
+  IF #USERARC-EXIT(#I)
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+IF MF-SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP'
+  #UPDATED := FALSE                                 /* NOMALL-1422 BLI
+  #I-VOL-RESET := C*AD-VOLSERS                      /* NOMALL-1422 BLI
+  CAT. FIND CATALOG WITH DSNAME = ARCHIVE-DATASET.AD-ARCHIVE-DSNAME
+      AND NODE   = +NOD-LOCAL-NODE                                        /*                               STEM
+    IF CATALOG.ERROR-CODE NE 0
+      IF #TRACING
+        COMPRESS 'GET-VOLSERS' 'error'
+          CATALOG.ERROR-CODE 'reading CATALOG'
+          ARCHIVE-DATASET.AD-ARCHIVE-DSNAME TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+      ESCAPE ROUTINE
+    END-IF
+    #I-VOL := *COUNTER
+    #UPDATED := TRUE                           /* BLI NOMALL-1422 start
+* get rid of * in ARCHIVE-DATASET VOLSER
+    IF VOLSER EQ '*' AND #I-VOL-RESET LT #I-VOL /* already reset
+      RESET #I-VOL-RESET
+      ESCAPE BOTTOM
+    END-IF
+    IF ARCHIVE-DATASET.AD-VOLSERS(#I-VOL) NE VOLSER OR VOLSER EQ '*'
+      UPDARCDS. GET ARCHIVE-DATASET *ISN(READARC.)
+      IF VOLSER EQ '*'
+        RESET  ARCHIVE-DATASET.AD-VOLSERS(#I-VOL:#I-VOL-RESET)
+        RESET #I-VOL-RESET
+      ELSE
+        ARCHIVE-DATASET.AD-VOLSERS(#I-VOL) := VOLSER
+      END-IF
+      UPDATE (UPDARCDS.)
+      END TRANSACTION
+      IF #I-VOL-RESET EQ 0
+        ESCAPE BOTTOM
+      END-IF
+    END-IF
+  END-FIND
+  IF NOT #UPDATED AND C*AD-VOLSERS > 0
+    RESARCDS. GET ARCHIVE-DATASET *ISN(READARC.)
+    RESET VOLSER ARCHIVE-DATASET.AD-VOLSERS(*)
+    UPDATE (RESARCDS.)
+    END TRANSACTION
+  END-IF                                         /* NOMALL-1422 BLI end
+END-IF
+*
+END-SUBROUTINE /* GET-VOLSERS-FROM-CATALOG
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-ARCHIVE-DATASET
+************************************************************************
+#I:= ARCHIVE-DATASET.AD-ARCHIVE-TYPE
+IF #I GT 0 AND #USERARC-EXIT(#I)
+  PERFORM ADD-STEPLIB
+  NOMUDA-API-VERSION     := 2
+  NOMUDA-FUNCTION        := 'D'
+  NOMUDA-DATA-SET-NAME-1 := ARCHIVE-DATASET.AD-ARCHIVE-DSNAME
+  NOMUDA-ARCHIVE-NAME    :=  #USERARC-NAME(#I)
+  NOMUDA-ARCHIVE-NUMBER  := #USERARC-NUMBER(#I)
+  NOMUDA-ESY-USERID      := G-NPR-USERID
+  NOMUDA-ESY-NODE        := +NOD-LOCAL-NODE
+  IF G-NATRP-ERC EQ 0             /*steplib ok
+    PERFORM NOMCHCKP-CHECK-PROG #USERARC-EXITMEM(#I)
+      G-NATRP-ERC G-NATRP-ERT #USERARC-EXITLIB(#I)
+  END-IF
+  IF G-NATRP-ERC EQ 0
+    CALLNAT #USERARC-EXITMEM(#I) NOMUDA-API-VERSION NOMUDA-PARMS(*)
+  ELSE
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Member ' #USERARC-EXITMEM(#I)
+      ' not defined in lib' #USERARC-EXITLIB(#I)
+  END-IF
+  IF STEPLIB-ADDED
+    PERFORM REMOVE-STEPLIB
+  END-IF
+ELSE                             /* archive-type not based on userexit
+  IF MF-SYSTEM-TYPE = SCAN 'BS2'
+    PERFORM LOGON-TO-ESY
+    FIND (1) VTOC-UPDATE WITH NODE = +NOD-LOCAL-NODE
+    AND DSNAME =ARCHIVE-DATASET.AD-ARCHIVE-DSNAME AND FUNCTION='SCRATCH'
+      /*error handling below
+    END-FIND
+    PERFORM LOGON-TO-ESY
+    IF VTOC-UPDATE.ERROR-CODE > 0
+      IF #TRACING
+        COMPRESS 'DELETE-ARCHIVE' 'error' VTOC-UPDATE.ERROR-CODE
+          'scratching dataset' ARCHIVE-DATASET.AD-ARCHIVE-DSNAME
+          TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+    END-IF
+  ELSE /* not BS2
+    IF +NOD-LOCAL-NODE NE 0
+      FIND CATALOG WITH NODE = +NOD-LOCAL-NODE
+      AND DSNAME = ARCHIVE-DATASET.AD-ARCHIVE-DSNAME AND PREFIX='NO'  /*
+        IF CATALOG.ERROR-CODE GT 0 /* BLI1
+          COMPRESS '7138' CATALOG.ERROR-CODE 'FIND CATALOG'
+            ARCHIVE-DATASET.AD-ARCHIVE-DSNAME TO LG-MSG
+          LG-USERID:= G-LG-USERID
+          CALLNAT 'RLOG' PL-PARMS
+          END TRANSACTION
+        ELSE  /* ..............when error-code = 0
+          IF CLASS = 'DASD'
+            FIND VTOC-UPDATE WITH NODE = +NOD-LOCAL-NODE
+            AND DSNAME   = ARCHIVE-DATASET.AD-ARCHIVE-DSNAME          /*
+            AND VOLSER   = VOLSER AND FUNCTION = 'PURGE'              /*
+              IF VTOC-UPDATE.ERROR-CODE GT 0 /* BLI1
+                COMPRESS '7138' VTOC-UPDATE.ERROR-CODE 'purging dataset'
+                  ARCHIVE-DATASET.AD-ARCHIVE-DSNAME TO LG-MSG
+                LG-USERID:= G-LG-USERID
+                CALLNAT 'RLOG' PL-PARMS
+                END TRANSACTION
+              END-IF
+            END-FIND
+          END-IF
+        END-IF
+      END-FIND /* ..... end of Find Catalog
+*
+      UNCAT. FIND CATALOG-UPDATE WITH NODE     = +NOD-LOCAL-NODE
+      AND DSNAME   = ARCHIVE-DATASET.AD-ARCHIVE-DSNAME                /*
+      AND FUNCTION = 'UNCATLG'                                        /*
+        IF CATALOG-UPDATE.ERROR-CODE > 0
+        AND CATALOG-UPDATE.ERROR-CODE NE 658                          /*
+          IF #TRACING
+            COMPRESS 'DELETE-ARCHIVE error'
+              CATALOG-UPDATE.ERROR-CODE 'uncataloging dataset'
+              ARCHIVE-DATASET.AD-ARCHIVE-DSNAME TO G-TRACE-MSG
+            PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+          END-IF
+        END-IF
+      END-FIND
+    ELSE /* monitor node = 0 --> Runs under Unix
+      READ UX-NODES BY UX-NODE-NAME
+        REJECT IF UX-NODES.UX-NODE-SUSPEND NE 'M'
+          AND UX-NODES.UX-NODE-SUSPEND NE 'L'
+        ESCAPE BOTTOM /* take the first matching one
+      END-READ
+      #STACK-FUNCTION := 'PUSH' /* stack parameter for XXUX---N
+      CALLNAT 'XXUXST-N' #STACK-FUNCTION #STACK-RC XXUX---P
+      IF #STACK-RC NE 0
+        G-NATRP-ERC := 5
+        COMPRESS *PROGRAM  *LINE 'Internal error: Stack overflow' TO    G-NATRP-ERT
+        ESCAPE ROUTINE
+      END-IF
+      COMPRESS '$EOM_ARC/' ARCHIVE-DATASET.AD-ARCHIVE-DSNAME
+        TO P-FILE-NAME LEAVING NO
+      #UX-FUNCTION := 'DELETE'
+      PERFORM UNIX-FUNCTION
+      IF G-NATRP-ERC = 2036 /* BLI1
+          OR G-NATRP-ERT = SCAN('NPR3339')
+        RESET G-NATRP-ERC G-NATRP-ERT /* already deleted. No error.
+      END-IF
+      #STACK-FUNCTION := 'POP' /* restore parameter for XXUX---N
+      CALLNAT 'XXUXST-N' #STACK-FUNCTION #STACK-RC XXUX---P
+      IF #STACK-RC NE 0
+        G-NATRP-ERC := 5
+        COMPRESS *PROGRAM  *LINE 'Internal error: Stack overflow' TO    G-NATRP-ERT
+        ESCAPE ROUTINE
+      END-IF
+      IF G-NATRP-ERC NE 0  /* BLI1
+        COMPRESS '7138' G-NATRP-ERC G-NATRP-ERT 'deleting'
+          ARCHIVE-DATASET.AD-ARCHIVE-DSNAME TO LG-MSG
+        LG-USERID:= G-LG-USERID
+        CALLNAT 'RLOG' PL-PARMS
+        END TRANSACTION
+        ESCAPE ROUTINE
+      END-IF
+*
+    END-IF /* monitor node = 0  --> Unix
+  END-IF /* bs2 or not
+END-IF
+*
+DEL. GET ARCHIVE-DATASET #CURRENT-ISN
+DELETE RECORD
+COMPRESS '7123' ARCHIVE-DATASET.AD-ARCHIVE-DSNAME INTO LG-MSG
+LG-USERID:= G-LG-USERID
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+IF #TRACING
+  COMPRESS ARCHIVE-DATASET.AD-ARCHIVE-DSNAME 'deleted' TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* DELETE-ARCHIVE-DATASET
+*
+************************************************************************
+DEFINE SUBROUTINE MARK-FOR-CONDENSE
+************************************************************************
+#DSNAME := ARCHIVE-DATASET.AD-ARCHIVE-DSNAME
+EXAMINE #DSNAME FOR ARCHIVE-TASK.M-ARCHIVE-PREFIX DELETE
+IF #DSNAME = MASK ('.G'NNNN'V'NN)
+  IF ARCHIVE-TASK.M-ARCHIVE-PREFIX = ' '
+    FIND (1) ARCHIVE-TASK WITH M-MONITOR-ID = 'ARCHIVE'
+    END-FIND
+  END-IF
+*
+  FIND CATALOG WITH NODE = +NOD-LOCAL-NODE
+  AND DSNAME = ARCHIVE-TASK.M-ARCHIVE-PREFIX                          /*
+    IF DSNAME = ARCHIVE-DATASET.AD-ARCHIVE-DSNAME
+      SUBTRACT 1 FROM #CONDENSE-COUNT
+      ESCAPE ROUTINE
+    END-IF
+    ESCAPE BOTTOM
+  END-FIND
+END-IF
+*
+CND. GET ARCHIVE-DATASET #CURRENT-ISN
+ARCHIVE-DATASET.AD-MARK-FOR-CONDENSE := 'X'
+UPDATE (CND.)
+COMPRESS '7124' ARCHIVE-DATASET.AD-ARCHIVE-DSNAME INTO LG-MSG
+LG-USERID:= G-LG-USERID
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+IF #TRACING
+  COMPRESS ARCHIVE-DATASET.AD-ARCHIVE-DSNAME 'marked for condense'
+    TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* MARK-FOR-CONDENSE
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-STEPLIB
+************************************************************************
+** check existence of po-exitlib in steplib table
+CALLNAT 'RLIBACT' #USERARC-EXITLIB(#I) #STEPLIB-EXIST
+IF NOT #STEPLIB-EXIST
+  RESET NAT00009-FNR NAT00009-DBID
+  NAT00009-LIBRARY := #USERARC-EXITLIB(#I)
+  CALLNAT 'RGETLIB' NAT00009-APPLIC
+  NAT00009-FUNCTION := 08
+  CALLNAT 'NAT00009' NAT00009-PARMS
+  IF NAT00009-RESPONSE EQ 0
+    STEPLIB-ADDED := TRUE
+    RESET G-NATRP-ERC
+  ELSE
+    RESET  STEPLIB-ADDED
+    G-NATRP-ERC := 1078
+    LG-USERID   := G-LG-USERID
+    LG-CODE     := 'MO'
+    COMPRESS  '1078' #USERARC-EXITLIB(#I)  TO LG-MSG
+    CALLNAT 'RLOG' PL-PARMS
+    END TRANSACTION
+    WRITE NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Unable to add steplib' #USERARC-EXITLIB(#I)
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* ADD-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE REMOVE-STEPLIB
+************************************************************************
+IF NOT STEPLIB-ADDED
+  ESCAPE ROUTINE
+END-IF
+*
+CALLNAT 'RLIBACT' #USERARC-EXITLIB(#I) #STEPLIB-EXIST
+IF #STEPLIB-EXIST
+  NAT00009-LIBRARY  := #USERARC-EXITLIB(#I)
+  CALLNAT 'RGETLIB' NAT00009-APPLIC
+  NAT00009-FUNCTION := 16
+  CALLNAT 'NAT00009' NAT00009-PARMS
+END-IF
+*
+STEPLIB-ADDED := FALSE
+*
+END-SUBROUTINE /* REMOVE-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE LOGON-TO-ESY
+************************************************************************
+CALLNAT 'N-ESYLG' 1X +NOD-LOCAL-NODE +NOD-LOCAL-USER #CALLER
+  G-NATRP-ERC G-NATRP-ERT 1X
+IF G-NATRP-ERC NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Error logging on to ESY ' +NOD-LOCAL-USER G-NATRP-ERC
+END-IF
+*
+END-SUBROUTINE /* LOGON-TO-ESY
+*
+************************************************************************
+DEFINE SUBROUTINE UNIX-FUNCTION
+************************************************************************
+P-NODE-NAME       := UX-NODE-NAME
+P-NODE-SUSPEND    := UX-NODE-SUSPEND
+P-FUNCTION        := #UX-FUNCTION
+P-USERID          := UX-NODE-USERID
+P-CIPHER-PASSWORD := UX-NODE-PASSWORD
+P-GROUP           := UX-NODE-GROUP
+IF #TRACING
+  COMPRESS 'Executing Unix command:' 'Function:' P-FUNCTION
+    'File:' P-FILE-NAME TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+CALLNAT 'XXUX---N' XXUX---P G-TRACE
+*
+IF #TRACING
+  COMPRESS 'Return code of function' P-FUNCTION 'is' P-ERC P-ERT
+    TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+G-NATRP-ERC := P-ERC
+G-NATRP-ERT := P-ERT
+*
+END-SUBROUTINE /* UNIX-FUNCTION
+*
+END

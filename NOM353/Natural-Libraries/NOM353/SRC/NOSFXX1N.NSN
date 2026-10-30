@@ -1,0 +1,166 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOSFXX1N   check steplibs for member type 'PRTEXIT' and set lfile 219
+*            to read NATURAL members
+*            Input keys:
+*            ES-KEY-PARM(1)  library name
+*            ES-KEY-PARM(2)  member name
+*            ES-KEY-PARM(3)  member type
+*
+* Maintenance:
+* XSETGGR 2002-06-17  created (made from N-CHKSRC)
+* XSETGGR 2003-01-03  new version after N-LISMEM
+* XSETGGR 2006-03-10  add printer exit library as a steplib
+* xsetggr 2009-02-24 P300323   make steplib handling unix compliant
+* SU1     2016-09-15  NOM3.5  restruct
+* SU2     2023-08-25 NOMALL-2647 more than 8 steplibs
+************************************************************************-
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+* *****
+LOCAL
+1 NAT00009-PARMS
+  2 NAT00009-FUNCTION        (B1)
+  2 NAT00009-RESPONSE        (N4)
+  2 NAT00009-NUMBER-ACTIVE   (I2)
+  2 NAT00009-CURRENT-INDEX   (I2)
+  2 NAT00009-APPLIC          (A8)
+  2 NAT00009-LIBRARY         (A8)
+  2 NAT00009-DBID            (B2)
+  2 NAT00009-FNR             (B2)
+  2 NAT00009-PASSWORD        (A8)
+  2 NAT00009-CIPHER          (N8)
+  2 NAT00009-DIS-EN          (A1)
+  2 NAT00009-SYSIND          (A1)
+  2 NAT00009-POSITION        (I2)
+  2 NAT00009-NUMBER-MODULES  (I2)
+  2 NAT00009-RESERVE         (B32)
+  2 REDEFINE NAT00009-RESERVE
+    3 NAT00009-LDBID         (B2)
+    3 NAT00009-LFNR          (B2)
+  2 NAT00009-MODULES         (A80)
+  2 REDEFINE NAT00009-MODULES
+    3 NAT00009-MODULE        (A8/1:10)
+1 NAT23008-PARAMETER
+  2 NAT23008-LFILE-NR        (B1)
+  2 NAT23008-FUNCTION        (A1)
+  2 NAT23008-DBID            (B2)
+  2 NAT23008-FNR             (B2)
+  2 NAT23008-PASSWORD        (A8)
+  2 NAT23008-CIPHER          (A8)
+  2 NAT23008-VSAM-NAME       (A8)
+  2 NAT23008-DB-TYPE         (A1)
+  2 NAT23008-LFILE-IS-SET    (L)
+  2 NAT23008-RET_CODE        (I4)
+1 CMSLFT-PARA                (A52)
+1 REDEFINE CMSLFT-PARA
+  2 CMSLFT-FUNCTION          (I4)
+  2 FILLER                   12X
+  2 CMSLFT-LFILE             (I4)      /* Lfile number
+  2 CMSLFT-DBID              (I4)
+  2 CMSLFT-FNR               (I4)
+  2 CMSLFT-PASSWORD          (A8)
+  2 CMSLFT-CIPHER            (A8)
+  2 FILLER                   4X
+  2 CMSLFT-DB-TYPE           (I1)
+1 #STEPLIB-DBID              (B2)
+1 #STEPLIB-FNR               (B2)
+1 #STEPLIB-PASSWORD          (A8)
+1 #STEPLIB-CIPHER            (N8)
+1 #I                         (I2)
+1 #MEMBER-TYPE               (A8)
+1 #STEPLIB                   (L)
+1 #STEPLIB-EXIST             (L)
+1 #ADD-LIB                   (A8)
+*                                                                       -
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC
+#MEMBER-TYPE  := ES-KEY-PARM(3)
+IF #MEMBER-TYPE = 'PRTEXIT'                      /* check steplibs
+/*SU2 ->  FOR #I = 1 TO 8
+  RESET #I
+  #REP. REPEAT
+    ADD 1 TO #I /*SU2 <-
+    NAT00009-FUNCTION := 12
+    NAT00009-CURRENT-INDEX := #I
+    CALLNAT 'NAT00009' NAT00009-PARMS
+    IF #I > NAT00009-NUMBER-ACTIVE
+      ESCAPE BOTTOM
+    END-IF
+    IF NAT00009-LIBRARY = ES-KEY-PARM(1)
+      #STEPLIB-DBID     := NAT00009-DBID
+      #STEPLIB-FNR      := NAT00009-FNR
+      #STEPLIB-PASSWORD := NAT00009-PASSWORD
+      #STEPLIB-CIPHER   := NAT00009-CIPHER
+      #STEPLIB          := TRUE
+      ESCAPE BOTTOM
+    END-IF
+  END-REPEAT
+  IF NOT #STEPLIB
+    PERFORM ADD-STEPLIB
+    IF ES-RC NE 0
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+END-IF
+IF #STEPLIB-DBID NE 0 AND #STEPLIB-FNR NE 0
+  NAT23008-DBID     := #STEPLIB-DBID
+  NAT23008-FNR      := #STEPLIB-FNR
+  NAT23008-PASSWORD := #STEPLIB-PASSWORD
+  NAT23008-CIPHER   := #STEPLIB-CIPHER
+ELSE
+  CMSLFT-FUNCTION := 5  /* get information for LFILE
+  IF (ES-KEY-PARM(1) = MASK ('SYS')) AND ES-KEY-PARM(1) NE 'SYSTEM'
+    CMSLFT-LFILE := 255 /* FNAT Lfile number
+  ELSE
+    CMSLFT-LFILE := 0   /* FUSER Lfile number
+  END-IF
+  CALL 'CMSLFT' CMSLFT-PARA
+  NAT23008-DBID     := CMSLFT-DBID
+  NAT23008-FNR      := CMSLFT-FNR
+  NAT23008-PASSWORD := CMSLFT-PASSWORD
+  NAT23008-CIPHER   := CMSLFT-CIPHER
+END-IF
+NAT23008-LFILE-NR := 219
+NAT23008-FUNCTION := 'S' /* Set LFILE
+CALLNAT 'NAT23008' NAT23008-PARAMETER
+IF NAT23008-RET_CODE NE 0
+  ES-RC := 3
+  ESCAPE ROUTINE
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-STEPLIB
+************************************************************************
+IF *MACHINE-CLASS = 'MAINFRAME' /*SU2 why only MF ??
+** check existence of po-exitlib in steplib table
+  #ADD-LIB := ES-KEY-PARM(1)
+  CALLNAT 'RLIBACT' #ADD-LIB #STEPLIB-EXIST
+  IF NOT #STEPLIB-EXIST
+    NAT00009-LIBRARY  := ES-KEY-PARM(1)
+    RESET  NAT00009-FNR NAT00009-DBID
+    NAT00009-APPLIC   := ES-APP-SERVER-LIBRARY
+    NAT00009-FUNCTION := 08
+    CALLNAT 'NAT00009' NAT00009-PARMS
+  ELSE
+    ES-RC := 2
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* ADD-STEPLIB
+*
+END

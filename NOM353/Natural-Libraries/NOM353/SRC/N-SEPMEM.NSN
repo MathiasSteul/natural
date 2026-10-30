@@ -1,0 +1,117 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    N-SEPMEM
+* Function  Handle Separator Pages/Members: check/select reports/bundles
+*
+* Version   3.4
+*
+* Maintenance:
+* uuu     yyyy-mm-dd itrac ....
+* SU      2016-08-16 NOMALL-1906 created
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER
+1 #MEM-IN           (A8)
+1 #MEM-OLD          (A8) OPTIONAL
+1 #START            (A1) /*S=start / ELSE=end
+1 #REPORT           (A1) /*R=report / ELSE=bundle
+1 #ANY-WILDCARD     (L) OPTIONAL
+1 #ACTIVE-HELP      (L) OPTIONAL
+1 G-NATRP-ERC       (N4)
+1 G-NATRP-ERT       (A250)
+* *****
+LOCAL
+1 #MEMBER-TYPE      (A8)
+1 #EDIT-LIB2        (A8)
+1 #MEM-PREFIX       (A2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET G-NATRP-ERC G-NATRP-ERT
+IF #MEM-IN = ' ' OR (#MEM-OLD SPECIFIED AND #MEM-OLD = #MEM-IN)
+  ESCAPE MODULE /*default Separator Page/not changed -> nothing to check
+END-IF
+* *****
+IF #MEM-IN = 'NONE' OR = 'KEIN'
+  IF #MEM-OLD SPECIFIED
+    #MEM-OLD := #MEM-IN
+  END-IF
+  ESCAPE MODULE /*nothing to check
+END-IF
+* *****
+CALLNAT 'RGETLIB' #EDIT-LIB2
+COMPRESS #EDIT-LIB2 'U' TO #EDIT-LIB2 LEAVING NO
+IF #REPORT = 'R'
+  #MEM-PREFIX := 'RS'
+ELSE /*bundle
+  #MEM-PREFIX := 'BS'
+END-IF
+IF #MEM-IN = SCAN '*' OR = SCAN '?' OR = SCAN '<' OR = SCAN '>'
+  IF #ANY-WILDCARD SPECIFIED
+    #ANY-WILDCARD := TRUE
+  END-IF
+  IF SUBSTR(#MEM-IN,1,2) NE #MEM-PREFIX
+    COMPRESS #MEM-PREFIX '*' TO #MEM-IN LEAVING NO
+  END-IF
+ELSE
+  PERFORM CHECK-PREFIX
+END-IF
+IF #REPORT = 'R'
+  IF #START = 'S' OR='s'
+    #MEMBER-TYPE:= 'REPSEPST'
+  ELSE
+    #MEMBER-TYPE:= 'REPSEPEN'
+  END-IF
+ELSE
+  IF #START = 'S' OR='s'
+    #MEMBER-TYPE:= 'BUNSEPST'
+  ELSE
+    #MEMBER-TYPE:= 'BUNSEPEN'
+  END-IF
+END-IF
+CALLNAT 'N-LISMEM' #EDIT-LIB2 #MEM-IN
+  #MEMBER-TYPE G-NATRP-ERC G-NATRP-ERT
+IF #MEM-OLD SPECIFIED
+  #MEM-OLD := #MEM-IN
+END-IF
+IF G-NATRP-ERC = 1052 /*not found
+  G-NATRP-ERC := 1079 /*Library or member not found :1:.
+  G-NATRP-ERT := #MEM-IN /* NOMALL-936 in
+  ESCAPE MODULE
+END-IF
+IF G-NATRP-ERC = 1070 /*nothing selected
+  RESET G-NATRP-ERC G-NATRP-ERT
+END-IF
+PERFORM CHECK-PREFIX
+IF #ACTIVE-HELP SPECIFIED
+  #ACTIVE-HELP := TRUE
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-PREFIX
+************************************************************************
+IF (SUBSTR(#MEM-IN,1,2) =' ' OR=#MEM-PREFIX)
+  ESCAPE ROUTINE
+END-IF
+IF #REPORT = 'R'
+  G-NATRP-ERC := 423 /*Separator member should start with 'RS'
+ELSE
+  G-NATRP-ERC := 416 /*Member name must start with 'BS'
+END-IF
+ESCAPE MODULE
+*
+END-SUBROUTINE /*CHECK-PREFIX
+*
+END

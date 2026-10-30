@@ -1,0 +1,157 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RDELAR
+* Version   1.3
+* Function  Delete Active Report
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-08-09 s(999999) created
+* mrs 93-08-09 s(999999) allow lower case in N-CNFRM
+* mrs 97-05-27 p(162705) recompiled (changes in eomarm-p)
+* mrs 97-05-27 p(162737) recompiled (changes in eomarm-p)
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* xsetggr 2003-08-14 p(204583) log deleting of Active Report
+* xsetggr 2006-01-02 p(266299) prevent fetch wrong #father-prog
+* xsetggr 2006-06-26 NOM3201   Support P11 format run numbers
+* xsetggr 2008-05-05 p(304350) restow due changes in EOMARM-P
+* fhi     2009-05-20 N3463     restow due changes in EOMARM-P
+* xsetggr 2012-01-02 NOMALL-1092 correct deletion
+* xsetggr 2013-06-19 NOMALL-89 correct deletion of mail records
+* BLI     2016-06-09 NOMALL-1791 linked folder, comments, no solutionÜ
+* SU1     2022-03-03 NOMALL-2536 restruct
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+* -----------------------------LDA's------------------------------------
+LOCAL USING EOM----E
+LOCAL USING EOM----P
+LOCAL USING EOMARM-P
+LOCAL USING EOMMSG-P
+*
+LOCAL
+1 #OBJECT-NAME         (A32)
+1 #CONFIRMED           (L)
+1 LOWER-CASE           (L) CONST <FALSE>
+1 #FOLDER              (A13)
+1 REDEFINE #FOLDER
+  2 #FO-USER           (A8)
+  2 #FO-ID-N           (N5)
+1 MAIL VIEW OF NRM-MAIL
+  2 MA-USERID
+  2 MA-REPNAME
+  2 MA-REPRNB
+1 #REPORT-RNB          (A31)
+1 REDEFINE #REPORT-RNB
+  2 #REPORT            (A25)
+  2 #RNB               (P11)
+1 #OBJ                 (A50)
+1 #APPL                (A8)
+1 #USER                (A8)
+1 #RNB-USER            (A14)
+1 REDEFINE #RNB-USER
+  2 #REP-RNB           (P11)
+  2 #MA-USER           (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+G-NATRP-ERC := 17
+RESET G-NATRP-ERT
+*
+EOMARM-I-NAME := G-C-REPORT
+EOMARM-I-RNB  := G-C-REPRNB
+#FOLDER       := G-C-FOLDER
+RESET G-C-FOLDER
+*
+EOM-USER-PROFILE := G-USER-PROFILE
+EOM-USER         := G-USERID
+EOM-USER-TYPE    := G-USER-TYPE
+RESET EOM-LOGGING
+IF G-LOG-REP
+  EOM-LOG-TYPES (1) := 'R'
+END-IF
+*
+EOM-FUNCTION := EOM-READ
+CALLNAT 'EOMARM-N' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+IF EOMMSG-NR NE 0
+  G-NATRP-ERC := EOMMSG-NR
+  G-NATRP-ERT := EOMMSG-TOKEN (1)
+  ESCAPE ROUTINE
+END-IF
+*
+EOM-FUNCTION := EOM-SECURITY-CHECK
+EOMARM-I-CHECK-FUNCTION := EOM-DELETE
+CALLNAT 'EOMARM-N' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+IF EOMMSG-NR NE 0
+  G-NATRP-ERC := EOMMSG-NR
+  G-NATRP-ERT := EOMMSG-TOKEN (1)
+  ESCAPE ROUTINE
+END-IF
+*
+IF G-CONFIRM
+  #OBJECT-NAME := G-C-REPORT
+  CALLNAT 'N-CNFRM' #OBJECT-NAME 'R' G-DISPLAY-LONG-NAMES #CONFIRMED
+    G-NATRP-ERT LOWER-CASE
+END-IF
+*
+IF #CONFIRMED OR NOT G-CONFIRM
+  IF #FOLDER = ' '  /* start to delete all records, not only mail
+    EOM-USER-TYPE := 'A'
+  END-IF
+*
+  EOM-FUNCTION := EOM-DELETE
+  CALLNAT 'EOMARM-N' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+  IF EOMMSG-NR NE 0
+* BLI 2016-05-30 NOMALL-1791 comments on NOMALL-89:
+* the acting user has no own mail record (msg 2119) but granted owner or
+* deletion permission. However, the deletion of the owners mail record
+* is not enough (compare EOMARMVN), on the other hand 'DELETE-ALL' might
+* be wrong, because the acting user is not informed/warned that he
+* deletes the whole active reports with related objects.
+* Note: link folder means NO mail record
+    IF EOMMSG-NR = 2119 AND #FOLDER > ' '
+      /* not mailed to G-USERID but accessed and allowed to delete
+      PERFORM DELETE-MAIL-RECORD
+    ELSE
+      G-NATRP-ERC := EOMMSG-NR
+      G-NATRP-ERT := EOMMSG-TOKEN (1)
+      BACKOUT TRANSACTION
+    END-IF
+  ELSE
+    END OF TRANSACTION
+    G-NATRP-ERC := 18
+  END-IF
+END-IF
+* BLI 2016-06-09 NOMALL-1791 see comments above, below might be wrong
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-MAIL-RECORD
+************************************************************************
+#REPORT  := G-C-REPORT
+#RNB     := G-C-REPRNB
+#MA-USER := #FO-USER
+#REP-RNB := G-C-REPRNB
+FIND MAIL WITH MA-REP-RNB = #REPORT-RNB AND MA-RNB-USER = #RNB-USER
+  COMPRESS MA-REPNAME '/' MA-REPRNB '/' MA-USERID TO #OBJ LEAVING NO
+  #USER := G-USERID
+  CALLNAT 'RGETLIB' #APPL
+  PERFORM RMLOGDEL #OBJ 'MAIL' #USER #APPL
+*
+  DELETE
+  END TRANSACTION
+  G-NATRP-ERC := 18
+END-FIND
+*
+END-SUBROUTINE /* DELETE-MAIL-RECORD
+*
+END

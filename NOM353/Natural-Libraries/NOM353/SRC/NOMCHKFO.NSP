@@ -1,0 +1,187 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMCHKFO - check consistency of Folders (avoid NAT1326 in RLISGR)
+*
+* Maintenance
+* uuuuuuu yyyy-mm-dd Issue
+* SU      2023-03-30 NOMALL-2630 Created
+************************************************************************
+DEFINE DATA
+LOCAL
+1 FO VIEW OF NRM-FOLDER
+  2 FO-USER-ID          (A8)
+  2 FO-NAME             (A16)
+  2 FO-ID               (B2)
+  2 FO-LINKED-FO-ID     (A10)
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER-ID (A8)
+    3 FO-LINKED-ID      (B2)
+    3 REDEFINE FO-LINKED-ID
+      4 FO-LINKED-ID_A2 (A2)
+1 FO1 VIEW OF NRM-FOLDER
+  2 FO-NAME             (A16)
+1 US VIEW OF NRM-USERS
+1 ##FO-USER-FO-ID       (A10)
+1 REDEFINE ##FO-USER-FO-ID
+  2 ##FO-USER-ID        (A8)
+  2 ##FO-ID             (B2)
+1 #INV      (I2)
+1 #UPD-CNT  (I2)
+1 #CNT      (I2)
+1 #UPD      (A1) INIT <'N'>
+1 #UPDATE   (L)
+1 #UPDATED  (L)
+1 #MSG      (A72)
+1 #ACTION   (A72)
+1 #A        (A4)
+1 #TITLE    (A40)
+1 #ESC      (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT SG=OFF AD=L
+SET KEY ALL
+WRITE TITLE LEFT *TIME(AL=8) #TITLE (AD=I)
+  72T *DATI / 72T 'Page:' *PAGE-NUMBER(NL=2 AD=R)
+COMPRESS *PROGRAM ': check consistency of Folders' TO #TITLE
+*
+IF *DEVICE NE 'BATCH'
+  INPUT (AD=O IP=OFF) *TIME(AL=8) 10T #TITLE (AD=I) 72T *DATI
+    /// 'With update ..' #UPD (AD=MILT) '(Y/N)' // 'End with PF3'
+  IF *PF-KEY NE 'ENTR'
+    ESCAPE MODULE
+  END-IF
+ELSE
+  IF *DATA > 0
+    INPUT #UPD
+  END-IF
+END-IF
+IF #UPD NE 'N'
+  #UPDATE := TRUE
+END-IF
+* *****
+#FO. READ FO BY FO-USER-NAME /*read all folders
+  ADD 1 TO #CNT
+  IF FO-LINKED-ID_A2 = ' '
+    RESET #A
+  ELSE
+    MOVE EDITED FO-LINKED-ID (EM=HH) TO #A
+  END-IF
+  DISPLAY 'Cnt' #CNT (NL=4) 'User' FO-USER-ID 'Folder' FO-NAME
+    'ID' FO-ID 'linked/user' FO-LINKED-USER-ID 'linked/ID' #A
+* *****
+* Inbasket and #Listeneingang - delete one (see RMIMPFO)
+* *****
+  IF FO.FO-ID = 1
+    RESET #ESC
+    ##FO-USER-ID := FO.FO-USER-ID
+    ##FO-ID      := 1
+    #FO1. FIND FO1 WITH FO-USER-FO-ID = ##FO-USER-FO-ID
+      IF *NUMBER (#FO1.) = 2 /*del. one
+        #FO2. FIND FO1 WITH FO-USER-FO-ID = ##FO-USER-FO-ID
+          IF (*LANGUAGE = 1 AND FO1.FO-NAME NE '#Inbasket')
+          OR (*LANGUAGE = 2 AND FO1.FO-NAME NE '#Listeneingang')      /*
+            DELETE (#FO2.)
+            END TRANSACTION
+            COMPRESS 'Duplicate inbasket folder deleted. Name:'
+              FO1.FO-NAME TO #MSG
+            PERFORM ERR
+            IF *ISN (#FO.) = *ISN (#FO2.)
+              #ESC := TRUE
+            END-IF
+            ESCAPE BOTTOM (#FO2.)
+          END-IF
+        END-FIND
+        IF #ESC  /*(#FO.)
+          ESCAPE TOP
+        END-IF
+      END-IF
+    END-FIND
+  END-IF
+* *****
+* Does user exist
+* *****
+  #US. FIND NUMBER US WITH USER-ID = FO-USER-ID
+  IF *NUMBER (#US.) = 0
+    #MSG := F#GETMSG (<2, FO-USER-ID>) /*User Id not defined
+    #ACTION := 'Create user or delete folder - manually'
+    PERFORM ERR
+  END-IF
+* *****
+* Linked FO: Inbasket: no linked FO / invalid linked fo
+* *****
+  IF (FO-ID = 1 AND FO-LINKED-FO-ID NE ' ')
+  OR (FO-ID NE 1 AND FO-LINKED-USER-ID = ' ' AND FO-LINKED-ID_A2 NE ' ')
+    #MSG := 'Invalid linked folder: ' /*H'4040'..
+    IF FO-ID = 1
+      COMPRESS #MSG 'Inbasket' TO #MSG
+    ELSE
+      COMPRESS #MSG 'no user' TO #MSG
+    END-IF
+    IF #UPDATE
+      UPD1. GET FO *ISN (#FO.)
+      RESET FO-LINKED-FO-ID
+      UPDATE (UPD1.)
+      END TRANSACTION
+      #UPDATED := TRUE
+      ADD 1 TO #UPD-CNT
+    END-IF
+    #ACTION := 'Reset linked folder.'
+    PERFORM ERR
+    ESCAPE TOP
+  END-IF
+* *****
+* Does linked user and folder exist
+* *****
+  IF FO-LINKED-USER-ID NE ' '
+    #US1. FIND NUMBER US WITH USER-ID = FO-LINKED-USER-ID
+    IF *NUMBER (#US1.) = 0
+      COMPRESS 'linked User Id' FO-LINKED-USER-ID 'not defined.' TO #MSG
+      #ACTION := 'Create user or delete folder - manually'
+      PERFORM ERR
+    ELSE
+      #US-L. FIND NUMBER FO WITH FO-USER-FO-ID = FO-LINKED-FO-ID
+      IF *NUMBER (#US-L.) = 0 /*linked folder does not exist
+        COMPRESS 'Linked Folder not found:'
+          'User ID:' FO-USER-ID 'Folder:' FO-NAME TO #MSG
+        #ACTION := 'Reset linked folder - manually'
+        PERFORM ERR
+        PRINT 12X 'Linked Folder: User ID:' FO-LINKED-USER-ID
+          'Folder ID:' FO-LINKED-ID
+      END-IF
+    END-IF
+  END-IF
+END-READ
+*
+PRINT / 'Summary: folders checked:'(I) #CNT 'invalid:' #INV
+  'updated:' #UPD-CNT
+  / '*** End of Report ***'
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE ERR
+************************************************************************
+ADD 1 TO #INV
+PRINT '>>>' #MSG
+IF #ACTION NE ' '
+  PRINT 4X #ACTION
+  RESET #ACTION
+END-IF
+IF #UPDATED
+  PRINT 4X 'updated'
+  RESET #UPDATED
+END-IF
+*
+END-SUBROUTINE /* ERR
+*
+END

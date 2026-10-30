@@ -1,0 +1,149 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMCTSRC
+* Version   3.5
+* Function  Read source from order to Natural source area
+*
+* Template  RMCTNAT
+*
+* ---------------------------------------------------------------------
+* Maintenance
+* uuuuuuuu yyyy-mm-dd iTrac       Description
+* ---------------------------------------------------------------------
+* fhi      2018-07-13 NOMALL-2008 Created.
+* ---------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+*
+INDEPENDENT
+1 +CMRDC (A1)        /* NOMALL-2009 fhi in
+*
+LOCAL USING NAD-MSG   /* Data for message exchange
+*
+LOCAL
+1 #MAXSRC                          (I1) CONST <50>
+*
+*
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-TYPE
+  2 OD-TIME-SCHEDULED
+  2 OD-PARAMETER                   (1)
+  2 OD-ERROR-CODE
+  2 OD-ERROR-TEXT
+*
+1 ORDER-SOURCE VIEW OF NRM-ORDER-SOURCE
+  2 OS-OD-ID
+  2 OS-RUNNUMBER
+  2 OS-SOURCE-TEXT                 (#MAXSRC)
+*
+1 #OS-ID           (B12)
+1 REDEFINE #OS-ID
+  2 #OS-OD-ID        (P10)
+  2 #OS-RUNNUMBER    (P11)
+*
+1 NAD00013
+  2 INPUTS
+    3 FUNCTION       (A01)     INIT <'S'>
+  2 INPUT-OUTPUTS
+    3 EDIT-NAME      (A32)
+    3 EDIT-TYPE      (A01)
+    3 EDIT-MODE      (A01)
+  2 OUTPUTS
+    3 EDIT-EMPTY     (L)
+/*
+1 NAT00013
+  2 VERSION          (I01)     INIT <0>
+1 REDEFINE NAT00013
+  2 EXTENDED-PARMS
+    3 EXTENDED-DATA  (A01/1:1)
+*
+1 NAT00001-PARMS
+  2 KEYWORD          (A11)
+  2 INT-OBJ-TYPE     (A01)
+  2 EXT-OBJ-TYPE     (A01)
+  2 TYPE-TEXT        (A11)
+*
+1 #OD-PARAMETER                    (A250)
+1 REDEFINE #OD-PARAMETER
+  2 #OD-COMMAND                    (A50)
+  2 #OD-LIBRARY                    (A8)
+  2 #OD-PROGRAM                    (A8)
+  2 #OD-PRODLIB                    (A8)
+  2 #OD-PROGRAM-TYPE               (A1)
+  2 #OD-SOURCE-LINES               (I4)
+  2 #OD-SHORTMSG                   (L)
+*
+1 #TRACING                         (L)
+1 #OD-ID                           (P10)
+1 #OD-TYPE-A                       (A4)
+1 #I                               (I4)
+1 #J                               (I4)
+END-DEFINE
+* --------------------------------------- main -------------------------
+*
+IF *DATA < 1
+  *ERROR-NR := 999 /* Internal error: #OD-ID and trace must be specified
+END-IF
+DEFINE PRINTER (1) OUTPUT 'SOURCE'
+FORMAT (1) LS=250
+EJECT OFF (1)
+CALLNAT 'NOMGSTEP' '*' G-NATRP-ERC
+INPUT #OD-ID #TRACING
+INCLUDE CMRDC
+FNDOD.
+FIND (1) ORDER WITH OD-ID = #OD-ID
+*
+  #OD-PARAMETER := OD-PARAMETER (1)
+  IF #OD-SOURCE-LINES = 0
+    *ERROR-NR := 999 /* Internal error: Flag indicates no editor session
+  END-IF
+  IF #TRACING
+    #OD-TYPE-A := OD-TYPE
+    COMPRESS
+      'Filling source area with OD-ID:' OD-ID 'OD-TYPE:' #OD-TYPE-A
+      'Scheduled:' OD-TIME-SCHEDULED
+      'No source lines:' #OD-SOURCE-LINES
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  END-IF
+*
+/* Write source lines to source area
+  SET CONTROL 'Z' /* delete source area
+  #OS-OD-ID     := ORDER.OD-ID
+  #OS-RUNNUMBER := 1
+  #I            := 0
+  READSRC.
+  READ ORDER-SOURCE BY OS-ID STARTING FROM #OS-ID
+    IF OS-OD-ID NE #OS-OD-ID
+      ESCAPE BOTTOM (READSRC.)
+    END-IF
+    FOR #J = 1 TO #MAXSRC
+      WRITE (1) NOTITLE NOHDR OS-SOURCE-TEXT (#J) (AL=249)
+      IF #TRACING
+        MOVE OS-SOURCE-TEXT (#J) TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+      #I := #I + 1
+      IF #I GE #OD-SOURCE-LINES
+        ESCAPE BOTTOM (READSRC.)
+      END-IF
+    END-FOR
+  END-READ
+/* Now set name and type of the module in the source area
+  EDIT-NAME     := #OD-PROGRAM
+  IF #OD-PROGRAM-TYPE = ' '
+    #OD-PROGRAM-TYPE := 'P' /* assume a program
+  END-IF
+  EXT-OBJ-TYPE  := #OD-PROGRAM-TYPE
+  CALLNAT 'NAT00001' NAT00001-PARMS
+  EDIT-TYPE     := INT-OBJ-TYPE
+  EDIT-MODE     := 'S'
+  CALLNAT 'NAT00013' NAD00013  NAT00013.EXTENDED-PARMS NAD-MSG
+*
+END-FIND
+* -------------------------------------- End main ----------------------
+END

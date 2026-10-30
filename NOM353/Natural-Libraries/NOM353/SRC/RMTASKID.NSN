@@ -1,0 +1,144 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMTASKID - Get (sub)task Id from parameters and vice versa
+* Function:                 S = Set TASK-ID for NRM-SUBTASK-INFO
+*                           C = Set TASK-ID for COMMON-DATA
+*                           E = Set event-name for EVENTING
+*                           L = Set userID for monitor log
+*                           T = Set TASK-ID for NATURAL-SUB-TASK
+*                           G = Get parameters TASK-ID of format S or E
+* TASK-ID                   fct S, C, E, L, T: 'out'; fct G: 'in'
+* NOM-DBID                  fct G: get it from TASK-ID, all other fcts:
+* NOM-FNR                     DBID/FNR of Lfile 206. Always 'out'
+* SUBTASK-NUMBER            fct S, C, E, L, T: 'in'; fct G: 'out'
+*
+* MAINTENANCE:
+* fhi      2016-11-15 NOMALL-1961 Created.
+* fhi      2017802-27 NOMALL-1918 Regard Unix, add trace, no tags.
+* SU1     2019-10-30 NOMALL-2324 avoid to much trace
+* SU2     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING RMTASK-P
+PARAMETER
+1 TRACING       (L)    OPTIONAL
+1 LINE          (I4)   OPTIONAL
+************************************************************************
+INDEPENDENT
+1 +RMTASK-DBID  (N5)
+1 +RMTASK-FNR   (N5)
+************************************************************************
+LOCAL USING SATLF02P
+LOCAL
+1 #TRACING      (L)
+1 #TRACE-MSG    (A250)
+1 #LASTPROG     (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG
+IF TRACING SPECIFIED
+  #TRACING := TRACING
+  IF #TRACING
+    COMPRESS 'Called from:' #LASTPROG TO #TRACE-MSG
+    IF LINE SPECIFIED
+      COMPRESS #TRACE-MSG 'Line' LINE TO #TRACE-MSG
+    END-IF
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+END-IF
+*
+IF +RMTASK-DBID = 0
+  CALLNAT 'NOMGSTEP' '*' ERC
+  IF ERC NE 0
+    ESCAPE ROUTINE
+  END-IF
+  SATLF-FUNCTION := 'GET'
+  SATLF-LFILE    := 206
+  CALLNAT 'SATLF02N' SATLF-SATVERS SATLF-PARMS (*)
+  IF SATLF-ERROR-CODE NE 0
+    ERC := SATLF-ERROR-CODE
+    ERT := SATLF-ERROR-TEXT
+    ESCAPE ROUTINE
+  END-IF
+  NOM-DBID  := +RMTASK-DBID := SATLF-DBID-N5
+  NOM-FNR   := +RMTASK-FNR  := SATLF-FNR-N5
+ELSE
+  NOM-DBID := +RMTASK-DBID
+  NOM-FNR  := +RMTASK-FNR
+END-IF
+IF #TRACING
+  COMPRESS 'Executing function' FUNCTION TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+DECIDE ON EVERY VALUE OF FUNCTION
+  VALUES 'S', 'E', 'L', 'T'
+    RESET TASK-ID
+  VALUE 'S' /* Create TASK-ID for NRM-SUBTASK-INFO
+    TASK-ID := 'NOM'
+    MOVE NOM-DBID         TO SUBSTR(TASK-ID,4)
+    MOVE NOM-FNR          TO SUBSTR(TASK-ID,9)
+    MOVE '-'              TO SUBSTR(TASK-ID,14)
+    MOVE SUBTASK-NUMBER-A TO SUBSTR(TASK-ID,15)
+  VALUE 'C' /* Create TASK-ID for COMMON-DATA view
+    #COMMON-PRODNAME := 'NOM'
+    #COMMON-DBID     := NOM-DBID
+    #COMMON-FNR      := NOM-FNR
+    IF SUBTASK-NUMBER > 1
+      #COMMON-SUBTASK-NUMBER := SUBTASK-NUMBER
+    ELSE
+      #COMMON-SUFFIX := 'STA'
+    END-IF
+  VALUE 'E' /* Create TASK-ID for event-names
+    #RMTASK-PRODNAME := 'NOM'
+    #RMTASK-SUBTASK-NUMBER := SUBTASK-NUMBER
+    #RMTASK-DBID := NOM-DBID
+    #RMTASK-FNR := NOM-FNR
+  VALUE 'L' /* Create TASK-ID for user id of log entries
+    IF SUBTASK-NUMBER > 1
+      TASK-ID := 'TASK'
+      MOVE SUBTASK-NUMBER-A TO SUBSTR(TASK-ID,5)
+    ELSE
+      TASK-ID := 'MAIN'
+    END-IF
+  VALUE 'T' /* Create TASK-ID for NATURAL-SUB-TASK taskname
+    TASK-ID := 'NOMXTS0000000000'
+    IF SUBTASK-NUMBER > 1
+      MOVE SUBTASK-NUMBER-A TO SUBSTR(TASK-ID,4,2)
+    END-IF
+    MOVE NOM-DBID TO SUBSTR(TASK-ID,7,5)
+    MOVE NOM-FNR  TO SUBSTR(TASK-ID,12,5)
+  VALUE 'G' /* MOVE TASK-ID of format 'S' or 'E' into parameters
+    IF SUBSTR(TASK-ID,14,1) NE '-' /* is format 'E', not 'S'
+      SUBTASK-NUMBER := #RMTASK-SUBTASK-NUMBER
+      NOM-DBID := #RMTASK-DBID
+      NOM-FNR  := #RMTASK-FNR
+    ELSE
+      SUBTASK-NUMBER-A := SUBSTR(TASK-ID,15,2)
+      NOM-DBID-A       := SUBSTR(TASK-ID,4,5)
+      NOM-FNR-A        := SUBSTR(TASK-ID,9,5)
+    END-IF
+    IF #TRACING
+      COMPRESS 'Extracted: DB =' NOM-DBID-A '- FNR =' NOM-FNR-A
+        '- Subtask-no =' SUBTASK-NUMBER TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+  NONE
+    COMPRESS 'Called from:' #LASTPROG 'with function' FUNCTION
+      TO #TRACE-MSG
+    IF LINE SPECIFIED
+      COMPRESS #TRACE-MSG 'Line' LINE TO #TRACE-MSG
+    END-IF
+    PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+    END TRANSACTION
+    *ERROR-NR := 999 /* internal error
+END-DECIDE
+*
+END

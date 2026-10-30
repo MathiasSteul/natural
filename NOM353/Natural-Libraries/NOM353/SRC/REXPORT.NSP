@@ -1,0 +1,490 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    REXPORT
+* Version   3.4
+* Function  Export definition of NOM objects
+* Template  RMASSDEL
+*
+* Maintenance
+* uuu     yyyy-mm-dd iTrac        Comment
+* fhi     2013-06-21 NOMALL-86    Created.
+* fhi     2013-08-13 NOMALL-86    Support for active objects deleted.
+*                                 No tags for it
+* fhi     2013-12-11 NOMALL-1318  Enable it to run in batch
+* fhi     2014-04-03 NOMALL-1346  Fill #FATHER-PROG for PF12
+* fhi     2014-07-10 NOMALL-1442  Limit usage to administrators only
+* bli     2014-07-23 NOMALL-1442  check admin ne batch only
+* SU1     2014-12-23 NOMALL-1548 removed unused definitions
+* fhi     2016-04-15 NOMALL-1837 Introduce +DEVICE for testing
+* SU2     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-01-05 NOMALL-1961 Improve err handling (return to ERROR)
+* fhi     2017-01-11 NOMALL-1961 Change descriptor of NRM-ORDER
+* fhi     2018-08-06 NOMALL-2135 Use internal node id in orders
+* fhi     2019-02-19 NOMALL-2215 Export not complete
+* SU3     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* GGS01   2021-07-05 NOMALL-2474 Object name instead of object prefix
+* SU4     2021-08-27 NOMALL-2486 exp NO/UX:allow lower case name
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  NRM-GL
+* -----------------------------LDAs-------------------------------------
+LOCAL USING RPFK---L
+/*SU1 LOCAL USING RLOG-L
+LOCAL USING RMODTY-E
+LOCAL USING XXGMSG-A
+LOCAL USING RMTASK-P            /* NOMALL-1961 fhi in
+* ---------------------------- local views -----------------------------
+INDEPENDENT
+1 +NOD-CURRENT-INTERNAL-ID (P11)  /* NOMALL-2135 fhi in
+************************************************************************
+LOCAL
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-TYPE
+  2 OD-MONITOR-ID
+  2 OD-USER-ID
+  2 OD-PARAMETER                      (1:1)
+  2 REDEFINE  OD-PARAMETER
+    3 OD-OBJECT                       (A2)
+    3 OD-OBJECT-PREFIX                (A25)
+    3 OD-OBJECT-MASK                  (A25)
+    3 OD-WILDCARD                     (A1)
+    3 OD-MASK-CHAR                    (A1)
+    3 OD-LOG                          (A1)
+    3 OD-NODE                         (A16)
+    3 OD-FILE                         (A50)
+  2 OD-INTERNAL-NODE-ID               (P15)  /* NOMALL-2135 fhi in
+  2 OD-TIME-CREATED
+  2 OD-TIME-SCHEDULED
+1 TASKS VIEW OF NRM-ORDER
+  2 OD-MONITOR-ID
+  2 OD-TYPE
+  2 OD-PARAMETER                      (1:1)
+  2 REDEFINE  OD-PARAMETER
+    3 OD-OBJECT                       (A2)
+    3 OD-OBJECT-PREFIX                (A25)
+    3 OD-FILLER1                      (A27)
+    3 OD-LOG                          (A1)
+  2 OD-TIME-SCHEDULED
+1 UX-NODES  VIEW OF NRM-UX-NODES
+/*SU1 2 UX-NODE-NAME
+* ---------------------------- local Variables -------------------------
+1 CV-MAP                              (C) INIT <(AD=I CD=NE)>
+1 CV-MAPINIT                          (C) INIT <(AD=PN)>
+1 MAP-FIELDS
+  2 L-HEADER                          (A78)
+  2 L-OBJECT-TYPE                     (A2)
+  2 L-OBJECT-PREFIX                   (A25)
+  2 L-OBJECT-MASK                     (A25)
+  2 L-WILDCARD                        (A1) INIT <'*'>
+  2 L-MASK-CHAR                       (A1) INIT <'?'>
+  2 L-LOG                             (A1) INIT <'N'>
+  2 L-DATE-SCHEDULED                  (D)
+  2 L-TIME-SCHEDULED                  (T)
+  2 L-NODE                            (A16)
+  2 L-FILE                            (A50)
+  2 L-TASKS                           (A27/15)
+*
+1 #I                                  (I4)
+1 #FATHER-PROG                        (A8) INIT <'RMENU'>
+1 #LANGUAGE                           (I1)
+1 #ISN                                (P10)
+1 #DATE                               (A10)
+1 #TIME                               (A8)
+1 #OD-TYPE-TIME                       (A9)
+1 REDEFINE #OD-TYPE-TIME
+  2 #OD-TYPE                          (B2)
+  2 #FILLER                           (B7)
+1 #OD-TYPE-TIME-END                   (A9)
+1 REDEFINE #OD-TYPE-TIME-END
+  2 #OD-TYPE-END                      (B2)
+  2 #FILLER-END                       (B7)
+1 #RC                                 (I1)
+1 #DEVICE                             (A32)
+1 #USER-PROFILE                       (A250)
+1 REDEFINE #USER-PROFILE
+  2 #PROF-TYPE                        (A1)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET GLOBALS CC=ON          /* NOMALL-1318 fhi in
+* bli 2014-07-23 NOMALL-1442, moved user-profile check to 'ne 'batch''
+#DEVICE := *DEVICE /*NOMALL-1837 +DEVICE, NOMALL-2215 changed to *DEVICE
+RESET G-COMMIT
+MOVE ALL H'00' TO #FILLER
+MOVE ALL H'FF' TO #FILLER-END
+*
+IF  #DEVICE NE 'BATCH'     /* NOMALL-1318 fhi in
+* bli 2014-07-23 NOMALL-1442  start insertion
+  #USER-PROFILE  := G-USER-PROFILE
+  IF #PROF-TYPE NE 'A'
+    G-NATRP-ERC := 6 /* invalid command
+    ESCAPE ROUTINE
+  END-IF
+* bli 2014-07-23 NOMALL-1442  end   insertion
+  READ-LOOP. REPEAT
+    RESET #ISN
+    RESET INITIAL CV-MAPINIT
+    SCREEN-LOOP. REPEAT
+      IF #LANGUAGE NE *LANGUAGE
+        #LANGUAGE := *LANGUAGE
+        PERFORM INIT-PFKEYS
+        PERFORM SET-PFKEYS
+      END-IF
+      PERFORM FLIP-DISPLAY
+      SET CONTROL 'L'
+      SET CONTROL 'WB'
+      RESET G-MAP-MODIFIED
+      IF #ISN = 0
+        RESET MAP-FIELDS L-DATE-SCHEDULED L-TIME-SCHEDULED
+      END-IF
+*
+      PERFORM FILL-TASKS
+      CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'REXPRTM&'
+      INPUT WITH TEXT G-NATRP-ERT MARK *L-OBJECT-TYPE
+        USING MAP 'REXPRTM&'
+      RESET G-NATRP-ERC G-NATRP-ERT
+      PERFORM HANDLE-PFKEYS
+      DECIDE ON FIRST VALUE OF #RC
+        VALUE 1
+          ESCAPE BOTTOM(READ-LOOP.)
+        VALUE 2
+          ESCAPE BOTTOM(SCREEN-LOOP.)
+        NONE IGNORE
+      END-DECIDE
+      IF #ISN = 0
+        PERFORM VALIDATE-FIND
+        PERFORM FIND-ORDER-RECORD
+        CV-MAPINIT := CV-MAP
+        ESCAPE TOP
+      END-IF
+      PERFORM VALIDATE-INPUT
+    END-REPEAT
+  END-REPEAT
+  RESET G-NATRP-ERC G-NATRP-ERT
+  IF G-PF-FUNC = 'MENU'
+    FETCH #FATHER-PROG
+  END-IF
+ELSE
+  SET CONTROL 'L'
+  PRINT                                         /* GGS01
+    'Object-Type / Name / Log(Y/N) / Schedule Date (YYYY-MM-DD) /'
+    'Time (HH:MM) / Export Node / Filename'
+  REPBATCH. REPEAT
+    INPUT (IP=OFF AD=ALT) L-OBJECT-TYPE L-OBJECT-PREFIX (AD=W)
+      L-LOG #DATE #TIME L-NODE (AD=ALW) L-FILE (AD=ALW)
+    IF L-OBJECT-TYPE = 'EN' OR = '.' OR = ' '
+      ESCAPE BOTTOM
+    END-IF
+    RESET G-NATRP-ERC G-NATRP-ERT
+    MOVE EDITED #DATE TO L-DATE-SCHEDULED (EM=YYYY'-'MM'-'DD)
+    MOVE EDITED #TIME TO L-TIME-SCHEDULED (EM=HH':'II)
+    PERFORM VALIDATE-INPUT-BATCH
+    IF G-NATRP-ERC NE 0
+      BACKOUT TRANSACTION
+      PERFORM GET-MESSAGE
+      WRITE NOTITLE NOHDR (AL=79) G-NATRP-ERT
+      *ERROR-NR := 9978    /* abend this program
+    END-IF
+    PERFORM FIND-ORDER-RECORD
+    PERFORM WRITE-ORDER-RECORD
+  END-REPEAT
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT-BATCH
+************************************************************************
+PERFORM VALIDATE
+DECIDE FOR EVERY CONDITION
+  WHEN NOT (L-OBJECT-TYPE ='BU' OR='RP' OR='CA' OR ='PR' OR='PH' OR='DL'
+  OR='US' OR='UX' OR='NO')                                            /*
+    WRITE NOTITLE NOHDR 'Wrong Object Type entered. Exiting.'
+  WHEN L-OBJECT-PREFIX = ' '         /* must not be empty
+    WRITE NOTITLE NOHDR 'Object name must be entered. Exiting.' /* GGS01
+  WHEN L-NODE = ' '
+    WRITE NOTITLE NOHDR 'Export node must be entered. Exiting.'
+  WHEN L-FILE = ' '
+    WRITE NOTITLE NOHDR 'Export filename must be entered. Exiting.'
+  WHEN ANY
+    G-NATRP-ERC := 4204 /* wrong parameter
+    ESCAPE ROUTINE
+  WHEN NONE
+    IGNORE
+END-DECIDE
+IF NOT (L-NODE IS (N5))
+  FIND UX-NODES WITH UX-NODE-NAME = L-NODE
+    IF NO RECORDS FOUND
+      WRITE NOTITLE NOHDR 'Unix node' L-NODE ' not found. Exiting.'
+      G-NATRP-ERC := 4204 /* wrong parameter
+      ESCAPE ROUTINE
+    END-NOREC
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-INPUT-BATCH
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-FIND /* only fields for find
+************************************************************************
+DECIDE FOR EVERY CONDITION
+  WHEN NOT (L-OBJECT-TYPE='BU' OR='RP' OR='CA' OR ='PR' OR='PH' OR='DL'
+  OR='US' OR='UX' OR='NO')                                            /*
+    REINPUT FULL *6004 MARK *L-OBJECT-TYPE /*SU4
+  WHEN L-OBJECT-PREFIX = ' '         /* must not be empty
+    REINPUT FULL *0070 MARK *L-OBJECT-PREFIX /*SU4
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATE-FIND
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE
+************************************************************************
+IF NOT (L-OBJECT-TYPE= 'UX' OR='NO')
+  EXAMINE L-OBJECT-PREFIX AND TRANSLATE INTO UPPER
+END-IF
+L-WILDCARD  := '*'
+L-MASK-CHAR := '?'
+DECIDE FOR EVERY CONDITION
+  WHEN L-LOG = ' '
+    L-LOG := 'N'
+  WHEN L-DATE-SCHEDULED = 0
+    L-DATE-SCHEDULED := *DATX + 1
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATE
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+PERFORM VALIDATE-FIND
+PERFORM VALIDATE
+DECIDE FOR EVERY CONDITION
+  WHEN L-LOG NE 'Y' AND L-LOG NE 'N'
+    REINPUT FULL *1099 MARK *L-LOG /*SU4
+  WHEN L-NODE = ' '
+    REINPUT FULL *2020 MARK *L-NODE /*SU4
+  WHEN NOT (L-NODE IS (N5))
+    FIND UX-NODES WITH UX-NODE-NAME = L-NODE
+      IF NO RECORDS FOUND
+        REINPUT FULL *2024 MARK *L-NODE /*SU4
+      END-NOREC
+    END-FIND
+  WHEN L-FILE = ' '
+    REINPUT FULL *2020 MARK *L-FILE /*SU4
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE FIND-ORDER-RECORD
+************************************************************************
+#OD-TYPE := #OD-TYPE-END := OD-EXPORT-NOM-OBJECT
+FND.
+FIND (1) ORDER WITH OD-TYPE-TIME = #OD-TYPE-TIME THRU #OD-TYPE-TIME-END
+WHERE ORDER.OD-OBJECT = L-OBJECT-TYPE                                 /*
+AND ORDER.OD-OBJECT-PREFIX = L-OBJECT-PREFIX                          /*
+  IF NO RECORDS FOUND
+    CALLNAT 'RMODID-N' OD-ID G-NATRP-ERC G-NATRP-ERT
+    RMTASK-P.FUNCTION       := 'L'
+    RMTASK-P.SUBTASK-NUMBER := 1
+    CALLNAT 'RMTASKID' RMTASK-P
+    ORDER.OD-MONITOR-ID := RMTASK-P.TASK-ID
+    ORDER.OD-TYPE       := OD-EXPORT-NOM-OBJECT
+    IF L-DATE-SCHEDULED = 0
+      L-DATE-SCHEDULED := *DATX + 1
+    END-IF
+    ORDER.OD-TIME-SCHEDULED := L-DATE-SCHEDULED + L-TIME-SCHEDULED
+    ORDER.OD-OBJECT         := L-OBJECT-TYPE
+    ORDER.OD-OBJECT-PREFIX  := L-OBJECT-PREFIX
+    ORDER.OD-INTERNAL-NODE-ID  := +NOD-CURRENT-INTERNAL-ID
+    STO. STORE ORDER
+    END TRANSACTION
+    #ISN := *ISN (STO.)
+    ESCAPE BOTTOM (FND.)
+  END-NOREC
+  #ISN := *ISN (FND.)
+  IF #DEVICE = 'BATCH'
+    ESCAPE BOTTOM (FND.)
+  END-IF
+  L-DATE-SCHEDULED := ORDER.OD-TIME-SCHEDULED
+  L-TIME-SCHEDULED := ORDER.OD-TIME-SCHEDULED - L-DATE-SCHEDULED
+  L-OBJECT-MASK    := ORDER.OD-OBJECT-MASK
+  L-WILDCARD       := ORDER.OD-WILDCARD
+  L-MASK-CHAR      := ORDER.OD-MASK-CHAR
+  L-LOG            := ORDER.OD-LOG
+  L-NODE           := ORDER.OD-NODE
+  L-FILE           := ORDER.OD-FILE
+END-FIND
+*
+END-SUBROUTINE /* FIND-ORDER-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-ORDER-RECORD
+************************************************************************
+IF #ISN NE 0
+  WRITEOD. GET ORDER #ISN
+  RMTASK-P.FUNCTION       := 'L'
+  RMTASK-P.SUBTASK-NUMBER := 1
+  CALLNAT 'RMTASKID' RMTASK-P
+  ORDER.OD-MONITOR-ID := RMTASK-P.TASK-ID
+  ORDER.OD-TYPE       := OD-EXPORT-NOM-OBJECT
+  IF L-DATE-SCHEDULED = 0
+    L-DATE-SCHEDULED := *DATX + 1
+  END-IF
+  ORDER.OD-OBJECT-PREFIX  := L-OBJECT-PREFIX
+  ORDER.OD-TIME-SCHEDULED := L-DATE-SCHEDULED + L-TIME-SCHEDULED
+  ORDER.OD-TIME-CREATED   := *TIMX
+  ORDER.OD-OBJECT         := L-OBJECT-TYPE
+  ORDER.OD-WILDCARD       := L-WILDCARD
+  ORDER.OD-MASK-CHAR      := L-MASK-CHAR
+  ORDER.OD-LOG            := L-LOG
+  ORDER.OD-NODE           := L-NODE
+  ORDER.OD-FILE           := L-FILE
+  MOVE LEFT L-OBJECT-PREFIX TO ORDER.OD-OBJECT-PREFIX
+  MOVE LEFT L-OBJECT-MASK TO ORDER.OD-OBJECT-MASK
+  UPDATE (WRITEOD.)
+  END TRANSACTION
+  IF #DEVICE = 'BATCH'
+    WRITE NOTITLE NOHDR 'Entered export task for the monitor:' /
+      'Name:    ' ORDER.OD-OBJECT-PREFIX         /      /* GGS01
+      'Scheduled' ORDER.OD-TIME-SCHEDULED        /
+      'Object:  ' ORDER.OD-OBJECT                /
+      'Log:     ' ORDER.OD-LOG                   /
+      'Node:    ' ORDER.OD-NODE                  /
+      'File:    ' ORDER.OD-FILE                  /
+  END-IF
+  G-NATRP-ERC := 79
+  PERFORM GET-MESSAGE
+  RESET #ISN
+END-IF
+*
+END-SUBROUTINE /* WRITE-ORDER-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-PFKEYS
+************************************************************************
+INCLUDE RPFKVA-C
+INCLUDE C-DIRECT
+*
+RESET #RC
+DECIDE ON FIRST VALUE OF G-PF-FUNC
+  VALUE 'HELP'
+    REINPUT USING HELP
+  VALUE 'EXIT'
+    IF #ISN = 0
+      #RC := 1 /* escape read-loop
+    ELSE
+      IF CV-MAP MODIFIED
+        PERFORM VALIDATE-INPUT
+        PERFORM WRITE-ORDER-RECORD
+      ELSE
+        IF OD-LOG           = ' ' /* not yet filled: escape
+          PERFORM DELETE-TASK
+        END-IF
+      END-IF
+      #RC := 2 /* escape read-loop
+    END-IF
+  VALUE 'FLIP'
+    PERFORM FLIP-HANDLE
+  VALUE 'DO'
+    IF #ISN NE 0
+      PERFORM VALIDATE-INPUT
+      PERFORM WRITE-ORDER-RECORD
+      #RC := 2 /* escape screen-loop
+    END-IF
+  VALUE 'UNDO'
+    PERFORM DELETE-TASK
+    #RC := 2 /* escape screen-loop
+  VALUE 'MENU'
+    #RC := 1 /* escape read-loop
+  ANY
+    RESET G-DIRECT-COMMAND
+  NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* HANDLE-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE FILL-TASKS
+************************************************************************
+#OD-TYPE := #OD-TYPE-END := OD-EXPORT-NOM-OBJECT
+RD. READ (15) TASKS BY OD-TYPE-TIME = #OD-TYPE-TIME TO #OD-TYPE-TIME-END
+  ACCEPT IF TASKS.OD-LOG NE ' ' /* not yet confirmed by user.
+  #I := *COUNTER (RD.)
+  COMPRESS TASKS.OD-OBJECT '/' TASKS.OD-OBJECT-PREFIX
+    TO L-TASKS (#I) LEAVING NO
+END-READ
+*
+END-SUBROUTINE /* FILL-TASKS
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-TASK
+************************************************************************
+IF #ISN NE 0
+  DEL. GET ORDER #ISN
+  DELETE (DEL.)
+  END TRANSACTION
+  RESET #ISN
+  G-NATRP-ERC := 80
+  PERFORM GET-MESSAGE
+END-IF
+*
+END-SUBROUTINE /* DELETE-TASK
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+G-PF-IDENT (05) := ##PFN-COMMIT
+G-PF-CODE  (05) := ##PFK-COMMIT
+G-PF-IDENT (17) := ##PFN-COMMIT
+G-PF-CODE  (17) := ##PFK-COMMIT
+G-PF-IDENT (06) := ##PFN-BACKOUT
+G-PF-CODE  (06) := ##PFK-BACKOUT
+G-PF-IDENT (18) := ##PFN-BACKOUT
+G-PF-CODE  (18) := ##PFK-BACKOUT
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MESSAGE
+************************************************************************
+#XX-ERROR-CODE := G-NATRP-ERC
+SEPARATE G-NATRP-ERT INTO #XX-MSG-DYNA (*) IGNORE
+INCLUDE XXGMSG-C
+G-NATRP-ERT := #XX-SHORT-TEXT
+*
+END-SUBROUTINE /* GET-MESSAGE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  IF *ERROR-NR = 9978
+    ESCAPE ROUTINE
+  END-IF
+  CALLNAT 'C-NATERN' G-NATRP-ERT 'W'
+*
+END-ERROR
+*
+INCLUDE RPFSET-C
+*
+END

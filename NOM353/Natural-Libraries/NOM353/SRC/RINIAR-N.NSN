@@ -1,0 +1,156 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RINIAR-N  Initiate start of archive or revive job
+*
+*           Scheduled-next time will be set and the actual
+*           job submission is done by the monitor
+*
+* Maintenance:
+* gw  93-11-30 s(999999) condense job
+* gw  95-01-23 s(136350) log message 'scheduled by'
+* jwo 1997-10-07 p(163166) Change date to y2k format
+* sju 03-06-09 p(241253) suppress maps in batch mode
+* splildav 2010-04-21 F(123) If invalid date is entered, show err msg
+* fhi      2010-09-02 NOMALL-97 Extend message line
+* fhi      2010-11-18 NOMALL-97 Correct window position
+* fhi      2016-04-15 NOMALL-1837 Introduce +DEVICE for testing
+* SU1      2019-09-25 NOMALL-2314 restruct
+* ----------------------------------------------------------------------
+DEFINE DATA
+*
+PARAMETER
+1 P-FUNC               (A3)
+1 P-USER               (A8)
+1 P-NATRP-ERC          (N4)
+1 P-NATRP-ERT          (A250)
+************************************************************************
+INDEPENDENT
+1 +DEVICE              (A8)
+* *****
+LOCAL USING VARCIV-L
+LOCAL USING RLOG-L
+LOCAL
+1 #ISN                 (P13)
+1 #PLAN-ARC-TIME       (T)
+1 #PLAN-ARC-DATE       (A10)
+1 #PLAN-ARC-TIME-A5    (A5)
+1 #ESC                 (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE WINDOW DAVE SIZE  8 * 46 BASE 8/26 CONTROL SCREEN FRAMED ON
+RESET P-NATRP-ERC
+*
+DECIDE ON EVERY VALUE OF #ESC
+  VALUE FALSE
+    PERFORM GET-SCHEDULED-NEXT
+  VALUE FALSE
+    PERFORM RESCHEDULE
+  VALUE FALSE
+    PERFORM UPDATE-SCHEDULED-NEXT
+  NONE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SCHEDULED-NEXT
+************************************************************************
+DECIDE ON FIRST VALUE P-FUNC
+  VALUE 'ARC'
+    ARCHIVE-TASK.M-MONITOR-ID := 'ARCHIVE'
+  VALUE 'REV'
+    ARCHIVE-TASK.M-MONITOR-ID := 'REVIVE'
+  VALUE 'CDN'
+    ARCHIVE-TASK.M-MONITOR-ID := 'CONDENSE'
+  NONE  IGNORE
+END-DECIDE
+*
+FIND ARCHIVE-TASK WITH M-MONITOR-ID = ARCHIVE-TASK.M-MONITOR-ID
+  IF NO
+    IF P-FUNC = 'CDN'
+      M-MONITOR-ID := 'CONDENSE'
+      CD. STORE ARCHIVE-TASK
+      #ISN := *ISN (CD.)
+      #PLAN-ARC-TIME := *TIMX
+      ESCAPE BOTTOM
+    END-IF
+    P-NATRP-ERC := 1234
+    #ESC := TRUE
+    ESCAPE ROUTINE
+  END-NOREC
+*
+  #ISN := *ISN
+  #PLAN-ARC-TIME := *TIMX
+END-FIND
+*
+END-SUBROUTINE /* GET-SCHEDULED-NEXT
+*
+************************************************************************
+DEFINE SUBROUTINE RESCHEDULE
+************************************************************************
+IF +DEVICE = 'BATCH' /* NOMALL-1837 +DEVICE
+  ESCAPE ROUTINE
+END-IF
+DECIDE ON FIRST VALUE P-FUNC
+  VALUE 'ARC'
+    INPUT WINDOW='DAVE' USING MAP 'RINIAR-&'
+  VALUE 'REV'
+    INPUT WINDOW='DAVE' USING MAP 'RINIRV-&'
+  VALUE 'CDN'
+    INPUT WINDOW='DAVE' USING MAP 'RINICD-&'
+  NONE  IGNORE
+END-DECIDE
+IF *PF-KEY = 'PF3'
+  #ESC := TRUE
+END-IF
+*
+END-SUBROUTINE /* RESCHEDULE
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-SCHEDULED-NEXT
+************************************************************************
+IF #PLAN-ARC-TIME = ARCHIVE-TASK.M-PLAN-ARC-TIME
+  #ESC := TRUE
+  ESCAPE ROUTINE
+END-IF
+*
+UPD. GET ARCHIVE-TASK #ISN
+ARCHIVE-TASK.M-PLAN-ARC-TIME := #PLAN-ARC-TIME
+*
+P-NATRP-ERC := 0464 /*NOM0464 :1: task initiated.
+DECIDE ON FIRST VALUE P-FUNC
+  VALUE 'ARC'
+    P-NATRP-ERT := 'ARCHIVE'
+    LG-MSG  := 'ARCHIVE'
+    LG-CODE := 'A1'
+  VALUE 'REV'
+    P-NATRP-ERT := 'REVIVE'
+    LG-MSG  := 'REVIVE'
+    LG-CODE := 'R1'
+  VALUE 'CDN'
+    P-NATRP-ERT := 'CONDENSE'
+    LG-MSG  := 'CONDENSE'
+    LG-CODE := 'A1'
+  NONE  IGNORE
+END-DECIDE
+LG-USERID := P-USER
+MOVE EDITED #PLAN-ARC-TIME (EM=YYYY-MM-DD) TO #PLAN-ARC-DATE
+MOVE EDITED #PLAN-ARC-TIME (EM=HH:II) TO #PLAN-ARC-TIME-A5
+COMPRESS '0472' LG-MSG #PLAN-ARC-DATE #PLAN-ARC-TIME-A5 TO LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+UPDATE (UPD.)
+END TRANSACTION
+*
+END-SUBROUTINE /* UPDATE-SCHEDULED-NEXT
+*
+END

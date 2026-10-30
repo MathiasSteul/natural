@@ -1,0 +1,227 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* **********************************************************************
+* MEMBER       NOM_MPAR
+* Version      1.3
+*
+* Function  :  Check values of parameters.
+*
+* Parameters: INPUT - LENGTH 200 BYTES
+*         1  = Wild Card Character supplied by User
+*         2  = Masking Character supplied by User
+*              Default : '*' for Wild Card '?' for Masking
+*       3-4  = Accepted Values are RP, BU, AR, AB
+* xsethz  2000-07-31 (CE7461) new parameter string
+*      5-29  = RP,BU,AR,AB name
+*              The Wildcard char. is enter here after the name.
+*              * = Wildcard char. must be followed by blanks
+*                  example: UN-ab*
+*     30-54    Masking string.
+*                  example ? = Masking char.
+*                  example : Bundle name = 'UN-1234567'
+*                  example : Masking       '   ??'
+*                  Program will start reading from UN-1234567
+*                  When any Bundle name that has '12'
+*                  in position 4 and 5 will be deleted.
+*     55       Logical field to indicate delete AR.
+*     56       Logical field to indicate delete AB.
+*     57       Logical field to indicate delete BU.
+*     58       Logical field to indicate delete RP.
+*     59       Logical field to indicate Masking is used for deletion.
+*     60-61    Error code
+*     62-86    Start key for read
+*     87-111   End key
+*     112-136  The key that is use to compare the positonal value.
+*     137-200  Not in use.
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* JVD 98-01-15 p(111111) Created
+* xsethz  2000-07-31 (CE7461) Extend Report and Bundle Names
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2019-11-14 NOMALL-2349 show full message
+* --------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+*
+PARAMETER
+1 #INPARAM            (A200)
+1 REDEFINE #INPARAM
+  2 #PARAM-WILD-C     (A1)  /* User supplied Wild Card Charc.
+  2 #PARAM-MASK-C     (A1)  /* User supplied Masking Charc.
+  2 #PARAM-TYPE       (A2)  /* What is to be deleted AR,AB or BU
+  2 #PARAM-NAME       (A25) /* The Name of Report or Bundle
+  2 REDEFINE #PARAM-NAME
+    3 #PARAM-NAMEI    (A1/1:25)
+  2 #PARAM-MASK       (A25) /* The Mask to be used for Mask Delete
+  2 REDEFINE #PARAM-MASK
+    3 #PARAM-MASK-VAL (A1/1:25)
+* xsethz  2000-07-31 (CE7461) end
+  2 #DEL-AR           (L) /* The following logical values will be
+  2 #DEL-AB           (L) /* returned.
+  2 #DEL-BU           (L)
+  2 #DEL-RP           (L)
+  2 #DEL-MASKING      (L)
+  2 #PARAM-RC         (I2) /* Error code
+  2 #PARAM-KEY-START  (A25) /* Start key for read
+  2 #PARAM-KEY-TO     (A25) /* End key
+  2 #PARAM-KEY-MASK   (A25) /* The mask key that is use to compare
+*                           /* the positonal value.
+************************************************************************
+LOCAL
+1 #KEY-PARM           (A105)
+1 REDEFINE #KEY-PARM
+  2 #DEL-MASK         (L) /* Logical to indicate use of masking
+  2 #KEY-MASK-C       (A1) /* mask char.
+  2 #KEY-WILD-C       (A1) /* wild char.
+  2 #KEY-PARM-RC      (I2) /* return code
+  2 #KEY-PARM-IN      (A25) /* user supplied mask position
+  2 #KEY-START        (A25) /* start key
+  2 #KEY-TO           (A25) /* end key
+  2 #KEY-MASK         (A25) /* mask key to compare value.
+*
+1 #DEL-WILD           (L)
+1 #REP                (A2) CONST <'RP'>
+1 #BUN                (A2) CONST <'BU'>
+1 #ACT-BUN            (A2) CONST <'AB'>
+1 #ACT-REP            (A2) CONST <'AR'>
+1 #MASK-C             (A1)
+1 #WILD-C             (A1)
+1 #MASK-C-DEF         (A1) CONST <'?'>
+1 #WILD-C-DEF         (A1) CONST <'*'>
+1 #IND                (N2)
+1 #NAME-LENGTH        (N2) CONST <25>
+1 #ERROR-NO           (A7)
+1 #ERROR-TEXT         (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #KEY-PARM #WILD-C #MASK-C #KEY-PARM-RC #PARAM-RC
+  #PARAM-KEY-START #PARAM-KEY-TO #PARAM-KEY-MASK
+  #DEL-AR #DEL-AB #DEL-BU #DEL-RP #DEL-WILD
+  #DEL-WILD #DEL-MASK #DEL-MASKING
+* Check for Wild Char. or Mask Char.
+DECIDE FOR EVERY CONDITION
+  WHEN #PARAM-WILD-C = ' ' AND #PARAM-MASK-C = ' '
+      AND #PARAM-TYPE = ' ' AND #PARAM-NAME = ' '
+    #KEY-PARM-RC := 9521
+    ESCAPE ROUTINE
+  WHEN #PARAM-MASK NE ' ' AND #PARAM-NAME = ' '
+    #KEY-PARM-RC := 9521
+    ESCAPE ROUTINE
+  WHEN #PARAM-WILD-C = #PARAM-MASK-C
+    #KEY-PARM-RC := 9515
+    ESCAPE ROUTINE
+  WHEN #PARAM-WILD-C NE ' '
+    #WILD-C := #PARAM-WILD-C
+  WHEN #PARAM-WILD-C = ' '
+    #WILD-C := #WILD-C-DEF
+  WHEN #PARAM-MASK-C NE ' '
+    #MASK-C := #PARAM-MASK-C
+  WHEN #PARAM-MASK-C =  ' '
+    #MASK-C := #MASK-C-DEF
+  WHEN NONE
+    #WILD-C := #WILD-C-DEF
+    #MASK-C := #MASK-C-DEF
+    #PARAM-WILD-C := #WILD-C-DEF
+    #PARAM-MASK-C := #MASK-C-DEF
+END-DECIDE
+* Check for what to delete
+DECIDE ON FIRST VALUE OF #PARAM-TYPE
+  VALUE #REP      #DEL-RP := TRUE
+  VALUE #BUN      #DEL-BU := TRUE
+  VALUE #ACT-BUN  #DEL-AB := TRUE
+  VALUE #ACT-REP  #DEL-AR := TRUE
+  NONE            #KEY-PARM-RC := 9510
+END-DECIDE
+*  Check Only Masking or Wild Card delete, cannot have both
+FOR #IND 1 #NAME-LENGTH
+  IF #PARAM-NAMEI(#IND)= #WILD-C
+    #DEL-WILD := TRUE
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+FOR #IND 1 #NAME-LENGTH
+  IF #PARAM-MASK-VAL (#IND)= #MASK-C
+    #DEL-MASK := #DEL-MASKING := TRUE
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+FOR #IND 1 #NAME-LENGTH /* Mask char instead of wild char.
+  IF #PARAM-NAMEI(#IND)= #MASK-C
+    #KEY-PARM-RC := 9523
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+FOR #IND 1 #NAME-LENGTH /* Wild char instead of Mask char.
+  IF #PARAM-MASK-VAL (#IND)= #WILD-C
+    #KEY-PARM-RC := 9523
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+* Check build of input and build key
+DECIDE FOR FIRST CONDITION
+  WHEN #KEY-PARM-RC > 0
+    IGNORE
+  WHEN #DEL-WILD AND #DEL-MASK
+    #DEL-WILD := #DEL-MASK := #DEL-MASKING := FALSE
+    #KEY-PARM-RC := 9523
+  WHEN #DEL-MASK /* Check/Build key for Masking delete
+    #IND := #NAME-LENGTH
+    REP1. REPEAT UNTIL #IND < 1
+      IF #PARAM-MASK-VAL(#IND) = #MASK-C
+        #KEY-MASK-C  := #MASK-C
+        #KEY-PARM-IN := #PARAM-NAME
+        #KEY-MASK    := #PARAM-MASK
+        CALLNAT 'NOM_MKEY' #KEY-PARM
+        ESCAPE BOTTOM (REP1.)
+      END-IF
+      SUBTRACT 1 FROM #IND
+    END-REPEAT
+  WHEN #DEL-WILD /* Check/Build key for Wild Card delete
+    #IND := #NAME-LENGTH
+    REP2. REPEAT UNTIL #IND < 1
+      IF #PARAM-NAMEI(#IND)= #WILD-C
+        #KEY-WILD-C  := #WILD-C
+        #KEY-PARM-IN := #PARAM-NAME
+        CALLNAT 'NOM_MKEY' #KEY-PARM
+        ESCAPE BOTTOM (REP2.)
+      END-IF
+      SUBTRACT 1 FROM #IND
+    END-REPEAT
+  WHEN NONE
+    #KEY-PARM-RC := 9515
+END-DECIDE
+*
+IF #KEY-PARM-RC > 0
+  #PARAM-RC := #KEY-PARM-RC
+  *ERROR := #KEY-PARM-RC
+ELSE
+  #PARAM-KEY-START := #KEY-START
+  #PARAM-KEY-TO    := #KEY-TO
+  #PARAM-KEY-MASK  := #KEY-MASK
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+* *****
+ON ERROR
+* *****
+  CALLNAT 'RLTINI-N' #KEY-PARM-RC #ERROR-TEXT G-TXB
+  COMPRESS 'NOM' #KEY-PARM-RC INTO #ERROR-NO LEAVING NO
+  WRITE 'PROG:' *PROGRAM '     LINE:' *ERROR-LINE
+  WRITE 'ERROR NO:' #ERROR-NO
+  PRINT 'TEXT:' #ERROR-TEXT /*SU2 (AL=70)
+*
+END-ERROR
+*
+END

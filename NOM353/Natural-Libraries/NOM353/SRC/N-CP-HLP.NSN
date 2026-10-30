@@ -1,0 +1,191 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Program  N-CP-HLP
+* Function codepage support: help for std+default cp
+* Version   3.4
+*
+* MAINTENANCE:
+* User ID yyyy-mm-dd itrac       Comment
+* ------- ---------- ----------- ---------------------------------------
+* SU      2017-08-22             NOM 3.5 Created
+* SU3     2021-09-01 NOMALL-2488 avoid error:more than one page
+************************************************************************
+*
+DEFINE DATA
+PARAMETER
+1 FUNCTION        (A1) BY VALUE
+  /* '?' help for std/fix list
+  /* 'D' help for 'Default Codepages' list (8.1 11)
+1 CP-NAME         (A) DYNAMIC BY VALUE RESULT
+1 CP-DESC         (A) DYNAMIC BY VALUE RESULT OPTIONAL
+************************************************************************
+LOCAL
+1 #FUNC           (A1)
+1 #CP-TAB         (*)
+  2 #CP-NAME      (A) DYNAMIC
+  2 #CP-DESC      (A) DYNAMIC
+* *****
+1 #I              (I2)
+1 #J              (I2)
+1 #L              (I2)
+1 #POS            (I2)
+1 END-OF-DATA     (L)
+1 #PAGE           (I2)  INIT <1>
+1 #ERC            (N4)
+1 #MAP            (1:15)
+  2 CV-MARK       (C) INIT ALL <(AD=DNP)>
+  2 CV-LINE       (C)
+  2 L-MARK        (A1)
+  2 L-NAME        (A25) /*only 20 chars used
+  2 L-DESC        (A78)
+1 #TIT            (A50/1:2) CONST <
+  '- Code Page Selection List -',
+  '- Codepage Auswahlliste -' >
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *LANGUAGE = 2
+  #L := 2
+ELSE
+  #L := 1
+END-IF
+DEFINE WINDOW SELCP SIZE 21*80 BASE 3/1 TITLE #TIT (#L) CONTROL WINDOW
+  FRAMED ON POSITION OFF
+SET CONTROL 'M-1'
+*
+DECIDE ON FIRST VALUE OF FUNCTION
+  VALUE 'D' /* help - select from 'Default Codepages' list
+    #FUNC := 'D'
+    PERFORM #HELP
+  VALUE '?' /*help - select from fix list-only used in RDEFCP
+    #FUNC := 'F'
+    PERFORM #HELP
+  NONE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE #HELP
+************************************************************************
+CALLNAT 'N-CP-TAB' #FUNC #CP-TAB (*)
+PERFORM PF-KEYS
+PERFORM SCREEN-IO
+*
+END-SUBROUTINE /* #HELP
+*
+************************************************************************
+DEFINE SUBROUTINE FILL-DATA
+************************************************************************
+RESET INITIAL #MAP (*) #J
+#POS := (#PAGE - 1) * *OCC(CV-MARK)
+#R. REPEAT
+  ADD 1 TO #POS
+  IF #POS > *OCC(#CP-NAME)
+    ESCAPE BOTTOM
+  END-IF
+  IF #POS = *OCC(#CP-NAME)
+    END-OF-DATA := TRUE
+  END-IF
+  IF #CP-NAME (#POS) = ' '
+    ESCAPE TOP
+  END-IF
+  ADD 1 TO #J
+  IF #J > *OCC(CV-MARK)
+    ESCAPE BOTTOM
+  END-IF
+  L-NAME  (#J) := #CP-NAME (#POS)
+  L-DESC  (#J) := #CP-DESC (#POS)
+  CV-MARK (#J) := (AD=I)
+END-REPEAT
+*
+END-SUBROUTINE /* FILL-DATA
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+#REP. REPEAT
+  PERFORM FILL-DATA
+  DECIDE FOR FIRST CONDITION
+    WHEN #ERC NE 0                    IGNORE
+    WHEN END-OF-DATA AND #PAGE > 1    #ERC := 12 /* bottom of data
+    WHEN END-OF-DATA AND #PAGE =1     #ERC := 14 /* all
+    WHEN NOT END-OF-DATA AND #PAGE=1  #ERC := 11 /* top of data
+    WHEN NONE                         #ERC := 13 /* more
+  END-DECIDE
+* PERFORM FLIP-DISPLAY
+  INPUT WINDOW='SELCP' WITH TEXT *#ERC USING MAP 'HSELCP&'
+  RESET #ERC
+  PERFORM COMMAND-PF-KEY
+END-REPEAT /*(#REP.)
+RESET INITIAL #I #MAP (*) L-MARK (*)
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+DECIDE ON FIRST *PF-KEY
+  VALUE 'PF3' /* return to father-prog
+    ESCAPE MODULE IMMEDIATE /*XXCHCKCP
+  VALUE 'PF7' /*up
+    IF #PAGE > 1
+      SUBTRACT 1 FROM #PAGE
+      END-OF-DATA := FALSE
+    END-IF
+    ESCAPE TOP /*(#REP.)
+  VALUE 'PF8' /*down
+    IF NOT END-OF-DATA
+      ADD 1 TO #PAGE
+    END-IF
+    ESCAPE TOP /*(#REP.)
+  NONE  IGNORE
+END-DECIDE
+IF NOT (L-MARK (*) NE ' ')
+  ESCAPE ROUTINE
+END-IF
+/*at least one marked:
+RESET CP-NAME
+IF CP-DESC SPECIFIED
+  RESET CP-DESC
+END-IF
+FOR #J=1 TO *OCC(L-MARK)
+  IF L-MARK (#J) = ' '
+    ESCAPE TOP
+  END-IF
+  COMPRESS CP-NAME H'01' L-NAME (#J) TO CP-NAME LEAVING NO
+  IF CP-DESC SPECIFIED
+    COMPRESS CP-DESC H'01' L-DESC (#J) TO CP-DESC LEAVING NO
+  END-IF
+  IF FUNCTION NE '?'
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+EXAMINE CP-NAME FOR H'01' DELETE FIRST
+IF CP-DESC SPECIFIED
+  EXAMINE CP-DESC FOR H'01' DELETE FIRST
+END-IF
+ESCAPE MODULE IMMEDIATE /*N-CP-HLP
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+**SET KEY PF01=HELP NAMED G-PF-TEXT (1) /*???? SU
+**SET KEY PF13=HELP NAMED G-PF-TEXT (1) /*???? SU
+*
+END-SUBROUTINE /* PF-KEYS
+*
+END

@@ -1,0 +1,1684 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 5
+* <Natural Source Header
+* XXUX---N  Perform functions on a Unix / Windows node
+************************************************************************
+* => Buffer length for WRITE: SU5
+*   #MR-P-BUFFER     (A0)     PDA XXUX---P - temp buffer: each line/call
+*     will increase it until buffer flash
+*   XS-FIRWC-BUFFER  (A99000) LDA XS-FIL-A - used for CALL to SAT
+* Determine length with statements:
+* 1. XS-FIRWC-BUFFER := 'X'
+*    EXAMINE XS-FI-ABC FOR 'X' GIVING POSITION #I
+*    SUBTRACT 1 FROM #I => 1000 ÜÜ 1000=250+10+1+5+10+10+714
+*    RESET XS-FIRWC-BUFFER
+* 2. length of XS-FI-COMMON (A300):
+*    EXAMINE FULL XS-FI-COMMON FOR FULL ' ' GIVING NUMBER #I => 300 ÜÜ
+************************************************************************
+* Supported NPR Unix Functions:
+* INFO, LOGIN, LOGOUT, APPEND, CLOSE, COPY, DELDIR, DELETE, DIR,
+* GETATTR, GETENV, GETEXIT, MOVE, READ, SCAN, SCRE, SETATTR, WRITE,
+* COMMAND, SUBMIT, STATUS, OPEN, CL-TL, CANCEL, PAUSE, CONTINUE, PUTENV
+*
+* MODIFICATIONS
+* User Id yyyy-mm-dd Mark      Comment
+* fhi     2000-09-12 s(196560) Created,EOR321 Subpgs XS* as template
+* fhi     2007-03-23 P264366   Routine rewritten. No update comments
+*                              Old routines saved in NOM31O library
+* fhi     2007-04-25 FHI224 'MOVE' works but creates error message
+* fhi     2007-05-07 FHI227    Performance low when reading files
+* fhi     2007-07-24 FHI238    Remember return code of recursive call
+* fhi     2007-12-04 NRT2422   Read binary files
+* fhi     2008-02-26 P300605   Binary files not read
+* fhi     2008-03-06 P302823   Wrong EOF Handling
+* fhi     2008-06-09 P305856   Number of parameters wrong for SAT module
+* fhi     2008-07-01 P306560   React. DISKUNIX printer type.Add fct OPEN
+* fhi     2008-07-14 P305856   Use SATSV3-A instead of SATSV...
+* fhi     2008-08-06 P306560   Wrong data passed for DISKUNIX printer
+* fhi     2008-08-22 P307993   lpstat does not work correctly
+* xsetggr 2008-10-25 P309645   get correct error text
+* fhi     2008-11-25 P310774   node name missing in error message
+* fhi     2009-07-02 N3463     Extend metadata for OPO
+* fhi     2009-07-29 P319282   Binary files on Linux corrupted
+* fhi     2009-10-02 P320820   NPR3339 if directory empty
+* fhi     2010-01-05 N3460     Use buffers of 9700 bytes for performnce
+* fhi     2010-01-22 N3460     Correct 2010-01-05 N3460
+* fhi     2010-02-01 P320584   Buffers corrupted
+* fhi     2010-02-23 P307403   New return code 23 from NPR:Var not found
+* fhi     2010-08-24 NOMALL-853 Correct Job Status handling
+* fhi     2010-08-25 NOMALL-853 Add GETENV function
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-17 NOMALL-800 On error close file
+* fhi     2010-09-27 NOMALL-853 Get rid of side effects
+* fhi     2010-09-27 NOMALL-853 Add GETEXIT
+* fhi     2010-09-30 NOMALL-853 Add CL-TL (set command log / NPR trace)
+*                               add tracing with RLOG, no tags
+* fhi     2010-10-06 NOMALL-97  Improve error messages
+* fhi     2011-03-11 NOMALL-853 Wrong status in Solaris returned
+* fhi     2011-03-14 NOMALL-882 Remember file handle in +FILE-HANDLE
+* fhi     2011-03-30 NOMALL-947 Reset P-ERC at start of program
+* fhi     2011-06-06 NOMALL-1002 Add trace statement for status
+* fhi     2011-07-25 NOMALL-1035 Add function DTA: Dir sorted by
+*                                time ascending (FIFO)
+* fhi     2011-11-04 NOMALL-1057 Handle double quotes in parameters
+* fhi     2012-03-13 NOMALL-1107 Reset +P-RC if EOF occurred.
+* fhi     2012-04-03 NOMALL-1119 Add field MIME-TYPE
+* fhi     2012-06-05 NOMALL-1148 Avoid 1305 error in CLOSE function
+* fhi     2012-06-13 NOMALL-1004 Backout NOMALL-1057
+* fhi     2012-08-15 NOMALL-1004 add wait parameter for COMMAND
+* splildav 2012-09-09 NOMALL-94  Re-stowed due to changes in structures
+* bli      2012-09-21 NOMALL-94 remove old version checks
+* fhi      2012-10-11 NOMALL-1004 add job/cancel function
+* fhi      2012-11-05 NOMALL-1206 Correct group ID --> NPROS-68
+* fhi      2012-11-08 NOMALL-1004 add PUTENV function
+* raya     2013-05-19 NOMALL-1209 avoid duplicate message
+* fhi      2013-06-12 OPO-38      Changing SAT access for SAT 3.4
+* fhi      2013-08-21 NOMALL-86   Correct buffer handling
+* fhi      2013-12-04 NOMALL-1004 Change to asynchronous COMMAND call
+*                                 using new LDA XS-JOB-A
+* fhi      2014-02-03 NOMALL-1338 Add filename on error
+* fhi      2014-02-04 NOMALL-1004 Correct process ID
+* fhi      2014-02-06 NOMALL-1004 Set better NPR tracing
+* fhi      2014-02-20 NOMALL-1338 Use long command fields
+* fhi      2014-02-24 NOMALL-1337 Correct buff. handling of NPR 2.1.4.20
+* fhi      2014-04-03 NOMALL-1209 avoid duplicate message
+* fhi      2014-07-10 NOMALL-1430 Use trigraphs in text write
+* fhi      2014-07-10 NOMALL-1430 check NPR version and deny if too old
+* fhi      2014-08-21 NOMALL-1454 Adapt to NPR 2.1.5.1 (codepages)
+* fhi      2014-09-02 NOMALL-1454 same
+* fhi      2014-09-04 NOMALL-1454 same
+* fhi      2014-09-11 NOMALL-1454 same
+* fhi      2014-09-11 NOMALL-1454 Adapt to NPR 2.1.5.1 (codepages)
+* fhi      2014-09-30 NOMALL-1475 Correct exit code message
+* fhi      2014-10-02 NOMALL-1328 Improve performance of text writes
+* fhi      2014-10-10 NOMALL-1505 Lines missing in output
+* fhi      2014-11-12 NOMALL-1523 Improve error msgs, main control
+* fhi      2014-12-02 NOMALL-1523 same
+* fhi      2014-12-09 NOMALL-1531 same
+* fhi      2015-03-12 NOMALL-1561 Better handling of form feeds
+*                                 Tags before 2014 deleted
+* fhi      2015-03-17 NOMALL-1580 Backported this version to NOM 3.3
+*                                 Consider to backport future changes
+*                                 also into NOM331(XXUX*34*)
+* fhi      2015-03-25 NOMALL-1561 Handle empty lines,correct NOMALL-1328
+* fhi      2015-04-29 NOMALL-1585 Save file handle for last buffer flush
+* fhi      2015-05-07 NOMALL-1585 Delete file name at close
+* fhi      2015-05-20 NOMALL-1573 Omit NPR's msg 'unexpected file name'
+* SU1      2015-07-29 NOMALL-1680 show correct text for SAT msg 1114
+* fhi      2015-08-12 NOMALL-1663 Avoid NPR's 'output file not found'
+* fhi      2015-08-26 NOMALL-1663 Correct trace output
+* fhi      2015-09-15 NOMALL-1696 Continuation flag P-ERC=19 not set.
+* fhi      2015-09-18 NOMALL-1696 same
+* fhi      2015-09-23 NOMALL-1663 Return a non-zero RC in GETEXIT
+* fhi      2015-09-29 NOMALL-1719 Use newer SAT module due to NAT0998,
+*                                 Add function DTD
+* fhi      2016-01-21 NOMALL-1719 Convert CP numbers to CP names
+* fhi      2016-03-30 NOMALL-1632 Handle html decode correctly
+* fhi      2016-04-15 NOMALL-1837 Introduce +DEVICE for testing
+* fhi      2016-08-11 NOMALL-1534 Adaption to new XXUXMR-N from EOR543
+* fhi      2016-09-22 NOMALL-1534 Use dynamic buffer lengths with WRITE
+* fhi      2016-10-12 NOMALL-1934 WRITE does not work anymore
+* fhi      2016-11-23 NOMALL-1962 Add better codepage support
+* fhi      2017-03-24 NOMALL-1962 Handle empty lines, corr. NOMALL-1561
+* SU2      2017-03-28 NOMALL-1976 avoid log entry for DELETE (XXCHCKUX)
+* fhi      2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi      2017-10-09 NOMALL-1620 Use new NPR version field
+* fhi      2017-10-18 NOMALL-2033 Buffer too long for NPR
+* fhi      2018-02-27 NOMALL-1918 Adaption to XXUXLC-N with 100k buffer
+*                                 No tags.
+* fhi      2018-04-13 NOMALL-1918 same. For NPROS-272
+* fhi      2018-05-02 NOMALL-1918B Partly backout of NPROS-272, this is
+*                                  temporary, tagged with NOMALL-1918B.
+*                                  The backout of these lines goes back
+*                                  to 2018-02-27. To be newly developed
+*                                  when 60k buffers will be used as
+*                                  buffer type 'D'
+* bli      2018-07-17 NOMALL-2088 error handling
+* fhi      2018-09-25 NOPALL-3147 Disable XS-C-USE-UID-GID,
+*                                 XS-C-UID-N10, XS-C-GID-N10
+* SU3     2018-10-30 NOMALL-2164 remove RLOG STACK
+* fhi     2018-11-15 NOMALL-2171 After NPR restart file gets lost
+* fhi     2019-01-17 NOMALL-2207 Force INIT-SERVICE if Broker was lost
+* fhi     2019-02-06 NOMALL-2220 Use subset of NPR Ux for html chars
+* bli     2019-05-03 NOMALL-2261 NPR 2.1.12 buffer, lda, pda
+* BLI     2019-06-24 NOMALL-2274 Wrong NPR error handling 1581
+* BLI     2019-07-04 NOMALL-2288 NPR3845 Bad buffer content
+* fhi     2019-07-26 NOMALL-2294 Implement loop protection
+* fhi     2019-09-16 NOMALL-2294 Add program stack in case of errors
+* BLI     2019-10-08 NOMALL-2294 performance, multiread, NPR/SAT errors
+* fhi     2019-10-21 NOMALL-2333 Avoid HTML if CP=OFF
+* BLI     2020-01-14 NOMALL-2342 reduce write to output
+* SU4     2020-02-04 NOMALL-2360 use trigraph/HTML as in RMPRDSK
+* BLI     2021-09-13 NOMALL-2470 check +NOD-GONE
+* SU5     2022-12-30 NOMALL-2597 WRITE more than 1 buffer-avoid error
+* SU6     2023-01-13 NOMALL-2607 return error 4605 (above/print bundle)
+* SU7     2023-03-22 NOMALL-2629 PWD: SY-TST-N -> SATTS01N
+* BLI1    2023-06-22 NOMALL-2635 Print fails when file contains '1114'
+* SU8     2023-03-29 NOMALL-2591 READ:avoid NPR+NOM HTML encoding (exit)
+* SU9     2023-08-31 NOMALL-2646 avoid NPRux html (exit)
+************************************************************************
+DEFINE DATA
+PARAMETER USING XXUX---P
+PARAMETER
+1 NPR-TRACE                (I2)    OPTIONAL
+1 FATHER-PGM               (A8)    OPTIONAL
+************************************************************************
+INDEPENDENT
+1 +XS-C-OBJECT             (A16)
+1 +P-RC                    (N4)
+1 +P-SESSION-ID            (N10)
+1 REDEFINE +P-SESSION-ID
+  2 #P-SESSION-ID-A        (A10)
+1 +P-NODE-ID               (A16)
+1 +BUFFER-FLUSH            (L)
+1 +SATSV                   (A550)
+1 REDEFINE +SATSV
+  2 #SATSV
+    3 ERROR-CODE           (N4)
+    3 ERROR-TEXT           (A250)
+    3 SATSRV-BLOCK-NAME    (A32)
+    3 PARTNER-TYPE         (I4)
+    3 CONV-MAX             (I4)
+    3 CONV-CURRENT         (I4)
+    3 BROKER-ID-64         (A64)
+    3 SERVER-CLASS         (A32)
+    3 SERVER-NAME          (A32)
+    3 SERVICE              (A32)
+    3 USER-ID              (A32)
+    3 WAIT-TIME            (A8)
+    3 LOCALE-STRING        (A40)
+1 +SATSQ-REQUEST-LENGTH    (I4)
+1 +NPR-TRACE               (L)
+1 +FILE-HANDLE             (N10)
+1 +DIRTY-BUFFER            (L)
+1 +DEVICE                  (A8)
+1 +CMRDC                   (A1)
+1 +NOD-GONE                (L)
+1 +LOOP-COUNT              (I4)
+1 +NOM-USE-TRIGRAPH-HTML   (L) /*see RMPRDSK SU4
+1 +NOM-TRIGRAPH-HTML_READ  (I1) /*-1=subpgm not avail./old handl. SU8
+  /*0=initial / >0=avoid conversion
+1 +NOM-TRIGRAPH-HTML_WRITE (I1) /*SU9 see above
+* --- SAT HEADERS ---
+LOCAL USING SATSV5-A      /* SERVICE PARAMETERS
+LOCAL USING SATSQ--P      /* SEND REQUEST
+LOCAL USING XXGMSG-A      /* READ SYSERR
+* --- UNIX OPSYS Server PARMLISTS ---
+LOCAL USING XS-COM-L      /* NPR COMMON AREA
+LOCAL USING XS-SER-A      /* NPR 'SERVER'  FIELDS
+LOCAL USING XS-JOB-A      /* NPR PARM AREA FOR 'JOB' FUNCTIONS
+LOCAL USING XS-USL-A      /* ADDITIONAL 'USER' FIELDS
+LOCAL USING XS-FIL-A      /* NPR PARM FOR 'FILE WRITE READ APPEND'
+LOCAL USING XSFILATL      /* NPR PARM FOR 'FILE ATTRIBUTES'
+LOCAL USING XXUXMR-P      /* FOR MULTI RECORD READ (XXUXMR-N)
+LOCAL USING XXUXLC-P      /* FOR LOCAL CALL TO NPR UNIX
+LOCAL
+1 #P-FUNCTION            (A8)
+1 #DYNA-STRING           (A250) /* work area for SEPARATE statement
+1 #DYNA-FILE-NAME        (A250) /* for subroutine SET-DYNA-2
+1 #STACK-FUNCTION        (A10)
+1 #STACK-RC              (N1)
+1 #SATVERS               (N2)   INIT <23> /* Interface version
+1 #I                     (P3)
+1 #P-FILE-HANDLE         (N10)
+1 #P-SESSION-INT         (N10)   /* remember session id
+1 #LASTPROG              (A8)
+1 #LEN                   (P5)
+1 #LEN-A                 (A3)
+1 #LEN2                  (P5)
+1 #FROM3                 (I4)
+1 #LEN3                  (I4)
+1 #BLANKS                (A250)
+1 #LEN-MR-BUF            (I4)
+1 #LENPLUS1              (I4)
+1 #HEX01                 (A253) CONST FULL LENGTH <H'01'>
+1 #DIFF                  (I4)
+1 #POS                   (P5)
+1 #POS2                  (P5)
+1 #LEN-CHECK             (P5)
+1 #LEN-REMAINDER         (P5)
+1 #P-PROD-NUM            (A7)    /* BLI NOMALL-2088
+1 REDEFINE #P-PROD-NUM
+  2 #P-PROD-A3           (A3)
+  2 #P-PROD-N4           (N4)
+1 #P-ERC-A               (A4)
+1 #P-ERC-SAVE            (N4)
+1 #P-ERT-SAVE            (A250)
+1 #BUFFER-SIZE           (P5)
+1 #TRACING               (L)
+1 #TRACE-MSG             (A250)
+1 #PID                   (N16)
+1 #EQUALS     (A3) INIT <'==='>
+1 #P-MIME-TYPE           (A81)
+1 #A10                   (A10) /*SU1
+1 #LINE                  (I4)
+1 XXCHCKCP-PARMS
+  2 CP-FUNCTION          (A1)  /*'#'=ame->number / 'N'=number->name
+  2 CP-NUMBER            (A5)
+  2 CP-NAME              (A30)
+  2 CP-DESCRIPTION       (A1) /* dummy, not yet needed
+  2 CP-ERC               (N4)
+1 #4605                  (L) /*SU6
+1 NOMCHCKP-PARMS /*SU8 ->
+  2 #OBJ     (A8)
+  2 ERC      (N4)
+  2 ERT      (A250)
+  2 #LIB     (A8)
+1 #AVOID-TRIGRAPH-HTML_READ (I1) /*SU8 <-
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG
+IF #LASTPROG = *PROGRAM AND P-ERC = 0 /* recursive call worked
+  RESET +LOOP-COUNT
+END-IF
+IF NPR-TRACE SPECIFIED AND NPR-TRACE GE *LEVEL
+  #TRACING := TRUE
+  COMPRESS 'Tracing NPR Unix at level'
+    *LEVEL 'due to trace level' NPR-TRACE TO #TRACE-MSG
+  COMPRESS #TRACE-MSG 'called from' #LASTPROG TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  FETCH RETURN 'RMLEVEL' 'T'
+END-IF
+*
+IF P-ERC EQ 19 /*NPR 19: not all objects were passed
+  #P-ERC-SAVE := P-ERC
+END-IF
+*
+RESET P-ERC P-ERT #XX-GMSG-PARMS #P-FUNCTION
+*
+* BLI 2019-07-04 NOMALL-2288 start
+IF P-NODE-SUSPEND NE 'L' OR *MACHINE-CLASS =  'MAINFRAME'
+  #BUFFER-SIZE := 99000      /* remote via SAT
+ELSE
+  #BUFFER-SIZE := 59000      /* local NPR
+END-IF
+* BLI 2019-07-04 NOMALL-2288 end
+*
+DECIDE ON EVERY VALUE OF P-ERC
+  VALUE 0
+    IF #TRACING
+      PERFORM SET-TRACE
+    END-IF
+    PERFORM CHECK-LOGIN
+  VALUE 0
+    PERFORM COMMON-1 /* Set parameters before call
+  VALUE 0
+    IF P-NODE-SUSPEND NE 'L' OR *MACHINE-CLASS =  'MAINFRAME'
+      PERFORM INIT-SERVICE
+    END-IF
+  VALUE 0
+    DECIDE ON FIRST VALUE OF +XS-C-OBJECT /* evaluated in step 1
+      VALUE 'SERVER' PERFORM CALL-SERVER-FUNCTION
+      VALUE 'JOB'    PERFORM CALL-JOB-FUNCTION
+      VALUE 'USER'   PERFORM CALL-USER-FUNCTION
+      VALUE 'FILE'   PERFORM CALL-FILE-FUNCTION
+      VALUE 'NONE'   IGNORE
+      NONE           P-ERC :=2033 /*Inv. function for Unix node called.
+    END-DECIDE
+  VALUES 0,13,19
+    PERFORM COMMON-2 /* Set results after call
+  NONE
+    IGNORE
+END-DECIDE
+IF #4605 /*SU6
+  ESCAPE ROUTINE /*handle it in RMPRBU
+END-IF
+/* NPR 19: not all objects were passed /* NPR 13: eof after current data
+IF NOT(P-ERC =0 OR=19 OR=13) AND NOT(P-FUNCTION ='GETEXIT' OR='CL-TL')
+AND (P-ERT NE SCAN ('NPR3355') OR  P-FUNCTION NE 'COMMAND')           /*
+AND (P-ERT NE SCAN ('NPR3354') OR  P-WAIT-TERM NE 'Z')                /*
+  PERFORM SET-ERROR-TEXT
+  IF +XS-C-OBJECT = 'FILE'
+  AND +P-SESSION-ID NE 0 AND NOT +NOD-GONE /* NOMALL-2294 BLI         /*
+    #P-ERC-SAVE := P-ERC
+    #P-ERT-SAVE := P-ERT
+    PERFORM HANDLE-EOF /* close file if necessary
+    P-ERC := #P-ERC-SAVE
+    P-ERT := #P-ERT-SAVE
+    RESET #EOF         /* not really an eof.
+  END-IF
+  ESCAPE ROUTINE
+END-IF
+IF P-ERC NE 19
+  RESET P-ERC P-ERT
+END-IF
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-SERVICE
+************************************************************************
+RESET P-ERC P-ERT
+MOVE BY NAME #SATSV TO SATSV
+IF SATSV.SERVICE = P-NODE-NAME AND NOT +NOD-GONE
+  ESCAPE ROUTINE
+END-IF
++NOD-GONE := FALSE
+RESET SATSV SATSV.PARTNER-TYPE SATSV.CONV-MAX SATSV.CONV-CURRENT
+SATSV.SERVICE            := P-NODE-NAME
+SATSV.SATSRV-BLOCK-NAME  := P-NODE-NAME
+CALLNAT 'SATSRP5N' SATSV
+*
+** P-ERC := SATSV.ERROR-CODE /* BLI NOMALL-2088 comment next in
+IF SATSV.ERROR-CODE NE 0
+  #P-PROD-A3 := 'SAT'
+  #P-PROD-N4 := SATSV.ERROR-CODE
+  COMPRESS #P-PROD-NUM SATSV.ERROR-TEXT TO P-ERT
+  P-ERC := 5
+END-IF
+IF #TRACING
+  COMPRESS 'Init-Service' P-NODE-NAME ' RC ' P-ERC *LINE TO #TRACE-MSG
+  COMPRESS #TRACE-MSG '/' P-ERT TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+INCLUDE CMRDC
+IF P-ERC = 0
+  MOVE BY NAME SATSV TO #SATSV
+ELSE
+  RESET #SATSV +SATSV.PARTNER-TYPE +SATSV.CONV-MAX +SATSV.CONV-CURRENT
+  PERFORM NODE-SESSION   /* BLI NOMALL-2294
+END-IF
+*
+END-SUBROUTINE /* INIT-SERVICE
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-SERVER-FUNCTION
+************************************************************************
+XS-SI-COMMON            := XS-COMMON
+SATSQ-SATVERS           := #SATVERS
+SATSQ-CONV-HANDLE       := -1
+SATSQ-REQUEST-LENGTH    := XS-PARM-LEN-C
+SATSQ-REPLY-LENGTH      := SATSQ-REQUEST-LENGTH
+*
+IF P-NODE-SUSPEND NE 'L' OR *MACHINE-CLASS =  'MAINFRAME'
+  CALLNAT 'SATSQA6N'
+    #SATVERS SATSQ-PARMS (1) XS-SERVER-INFO-C XS-SERVER-INFO-C SATSV
+* BLI NOMALL-2088 start, compare EOR XS-INI-N, XS-ENV-N, XS-TL--N
+  #A10 := 'remotely'
+  IF SATSQ-ERROR-CODE NE 0
+    #P-PROD-A3 := 'SAT'
+    #P-PROD-N4 := SATSQ-ERROR-CODE
+    COMPRESS #P-PROD-NUM SATSQ-ERROR-TEXT TO P-ERT
+    P-ERC := 5
+  ELSE
+    XS-COMMON := XS-SI-COMMON
+    /*13=eof after current data /*19= not all objects were passed
+    IF NOT(XS-C-RETURNCODE =0 OR=13 OR=19)
+      #P-PROD-A3 := 'NPR'
+      #P-PROD-N4 := XS-C-RETURNCODE
+      COMPRESS #P-PROD-NUM XS-C-RETURNTEXT TO P-ERT
+      P-ERC := 5
+    ELSE
+      P-ERC := XS-C-RETURNCODE
+    END-IF
+  END-IF
+ELSE
+  RESET P-RC
+  P-COMMON         := XS-SI-COMMON
+  REDUCE DYNAMIC P-BUFFER TO 0
+  P-BUFFER         := XS-SI-A
+  CALLNAT 'XXUXLC-N' P-NPR-VERSION P-COMMON P-BUFFER P-RC
+  XS-SI-COMMON     := P-COMMON
+  XS-COMMON        := XS-SI-COMMON   /* NOMALL-2088 bli in
+  XS-SI-A          := P-BUFFER
+  P-ERC            := P-RC           /* see #NPRCMD-RC in EOR
+  #A10 := 'locally'
+  IF P-ERC = 0 AND XS-C-RETURNCODE NE 0
+    P-ERC          := XS-C-RETURNCODE
+  END-IF
+  P-ERT            := XS-C-RETURNTEXT
+  /*13=eof after current data /*19= not all objects were passed
+  IF NOT(XS-C-RETURNCODE =0 OR=13 OR=19)
+    #P-PROD-A3 := 'NPR'
+    #P-PROD-N4 := P-ERC
+    COMPRESS #P-PROD-NUM P-ERT TO P-ERT
+    P-ERC := 5
+  END-IF
+END-IF
+*
+PERFORM NODE-SESSION   /* BLI NOMALL-2294 start
+IF +NOD-GONE
+  ESCAPE ROUTINE
+END-IF                 /* BLI NOMALL-2294 end
+*
+#LINE := *LINE
+PERFORM TRACE-AFTER-CALL
+* adapt former COMMON-2 error handling
+IF P-FUNCTION = 'INFO'                       /* BLI NOMALL-2274
+  P-OPSYS := XS-SI-OPSYS
+  IF SUBSTR(XS-SI-NPR-VERSION-A8,1,6) NE ' '
+    COMPRESS SUBSTR(XS-SI-NPR-VERSION-A8,1,6) '0001'
+      TO P-NPR-VERSION LEAVING NO
+* BLI NOMALL-2261 expect NPR 2.1.12
+    IF P-NPR-VERSION < '020112'
+      P-ERC := 1581            /* wrong NPR version
+      #XX-MSG-DYNA (1) := P-NODE-NAME
+      #XX-MSG-DYNA (2) := P-NPR-VERSION
+      RESET P-ERT
+    END-IF
+  END-IF
+END-IF
+*
+IF P-FUNCTION = 'GETENV'
+  P-FILE-NAME    := XS-SI-ENV-VARIABLE
+  P-RECORD       := XS-SI-ENV-VALUE
+* check NPR return codes
+  IF P-ERC = 5 AND #P-PROD-A3 EQ 'NPR'
+    DECIDE ON FIRST VALUE OF #P-PROD-N4
+      VALUE 23
+        P-ERC := 2052   /* Environment variable not found.
+        SEPARATE XS-C-RETURNTEXT
+          INTO #XX-MSG-DYNA (1) #XX-MSG-DYNA (1) IGNORE
+        RESET P-ERT P-RECORD
+      VALUE 4
+        RESET P-ERC P-ERT
+      NONE
+        IGNORE
+    END-DECIDE
+  END-IF
+END-IF
+* BLI NOMALL-2088 end
+*
+END-SUBROUTINE /* CALL-SERVER-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-JOB-FUNCTION
+************************************************************************
+XS-JOB-COMMON           := XS-COMMON
+SATSQ-SATVERS           := #SATVERS
+SATSQ-CONV-HANDLE       := -1
+SATSQ-REQUEST-LENGTH    := XS-PARM-LEN-C
+SATSQ-REPLY-LENGTH      := SATSQ-REQUEST-LENGTH
+*
+IF P-NODE-SUSPEND NE 'L' OR *MACHINE-CLASS =  'MAINFRAME'
+  CALLNAT 'SATSQA6N'
+    #SATVERS SATSQ-PARMS (1) XS-JOB-PARM-C XS-JOB-PARM-C SATSV
+* BLI NOMALL-2088 start, compare EOR XS-JCA-N,XS-JST-N,XS-JSU-N
+  IF SATSQ-ERROR-CODE NE 0
+    #P-PROD-A3 := 'SAT'
+    #P-PROD-N4 := SATSQ-ERROR-CODE
+    COMPRESS #P-PROD-NUM SATSQ-ERROR-TEXT TO P-ERT
+    P-ERC := 5
+  ELSE
+    XS-COMMON := XS-JOB-COMMON
+    /*13=eof after current data /*19= not all objects were passed
+    IF NOT(XS-C-RETURNCODE =0 OR=13 OR=19)
+      #P-PROD-A3 := 'NPR'
+      #P-PROD-N4 := XS-C-RETURNCODE
+      COMPRESS #P-PROD-NUM XS-C-RETURNTEXT TO P-ERT
+      P-ERC := 5
+    ELSE
+      P-ERC := XS-C-RETURNCODE
+    END-IF
+  END-IF
+  #A10 := 'remotely'
+ELSE
+  RESET P-RC
+  P-COMMON         := XS-JOB-COMMON
+  REDUCE DYNAMIC P-BUFFER TO 0
+  P-BUFFER         := XS-JOB-A
+  CALLNAT 'XXUXLC-N' P-NPR-VERSION P-COMMON P-BUFFER P-RC
+  XS-JOB-COMMON    := P-COMMON
+  XS-COMMON        := XS-JOB-COMMON
+  XS-JOB-A         := P-BUFFER
+  P-ERC            := P-RC      /* see #NPRCMD-RC in EOR
+  IF P-ERC = 0 AND XS-C-RETURNCODE NE 0
+    P-ERC := XS-C-RETURNCODE
+  END-IF
+  P-ERT := XS-C-RETURNTEXT
+  /*13=eof after current data /*19= not all objects were passed
+  IF NOT(P-ERC =0 OR=13 OR=19)
+    #P-PROD-A3 := 'NPR'
+    #P-PROD-N4 := P-ERC
+    COMPRESS #P-PROD-NUM P-ERT TO P-ERT
+    P-ERC := 5
+  END-IF
+  #A10 := 'locally'
+END-IF
+*
+PERFORM NODE-SESSION   /* BLI NOMALL-2294
+*
+#LINE := *LINE
+PERFORM TRACE-AFTER-CALL
+* adapt former COMMON-2 error handling
+IF P-FUNCTION = 'GETEXIT' AND P-ERC NE 0
+  P-EXIT-CODE := -1
+END-IF
+* BLI NOMALL-2088 end
+*
+END-SUBROUTINE /* CALL-JOB-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-USER-FUNCTION
+************************************************************************
+IF P-FUNCTION = 'LOGIN' AND +P-SESSION-ID NE 0 /* already done
+AND +P-NODE-ID = P-NODE-NAME /* correct node                          /*
+  ESCAPE ROUTINE
+END-IF
+IF P-FUNCTION = 'LOGOUT' AND +P-SESSION-ID = 0
+  +NOD-GONE := TRUE /* NOMALL-2294
+  ESCAPE ROUTINE /* already dead due to error SAT1114
+END-IF
+XS-USL-COMMON           := XS-COMMON
+SATSQ-SATVERS           := #SATVERS
+SATSQ-CONV-HANDLE       := -1
+SATSQ-REQUEST-LENGTH    := XS-PARM-LEN-C
+SATSQ-REPLY-LENGTH      := SATSQ-REQUEST-LENGTH
+*
+IF P-NODE-SUSPEND NE 'L' OR *MACHINE-CLASS =  'MAINFRAME'
+  CALLNAT 'SATSQA6N'
+    #SATVERS SATSQ-PARMS (1) XS-USL-PARM-C XS-USL-PARM-C SATSV
+* BLI NOMALL-2088 start, compare EOR XS-UGT-N,XS-USS-N,XSUSER-N
+  IF SATSQ-ERROR-CODE NE 0
+    #P-PROD-A3 := 'SAT'
+    #P-PROD-N4 := SATSQ-ERROR-CODE
+    COMPRESS #P-PROD-NUM SATSQ-ERROR-TEXT TO P-ERT
+    P-ERC := 5
+  ELSE
+    XS-COMMON := XS-USL-COMMON
+    /*13=eof after current data /*19= not all objects were passed
+    IF NOT(XS-C-RETURNCODE =0 OR=13 OR=19)
+      #P-PROD-A3 := 'NPR'
+      #P-PROD-N4 := XS-C-RETURNCODE
+      COMPRESS #P-PROD-NUM XS-C-RETURNTEXT INTO P-ERT
+      P-ERC := 5
+    ELSE
+      P-ERC := XS-C-RETURNCODE
+    END-IF
+  END-IF
+  #A10 := 'remotely'
+ELSE
+  RESET P-RC
+  P-COMMON         := XS-USL-COMMON
+  REDUCE DYNAMIC P-BUFFER TO 0
+  P-BUFFER         := XS-USL-BUFFER  /* NOMALL-2261 BLI
+  CALLNAT 'XXUXLC-N' P-NPR-VERSION P-COMMON P-BUFFER P-RC
+  XS-USL-COMMON    := P-COMMON
+  XS-COMMON        := XS-USL-COMMON
+  XS-USL-BUFFER    := P-BUFFER       /* NOMALL-2261 BLI
+  P-ERC            := P-RC      /* see #NPRCMD-RC in EOR
+  IF P-ERC = 0 AND XS-C-RETURNCODE NE 0
+    P-ERC := XS-C-RETURNCODE
+  END-IF
+  P-ERT            := XS-C-RETURNTEXT
+  IF P-ERC NE 0 AND
+      P-ERC NE 13 AND                /* eof after current data
+      P-ERC NE 19                    /* not all objects were passed
+    #P-PROD-A3 := 'NPR'
+    #P-PROD-N4 := P-ERC
+    COMPRESS #P-PROD-NUM P-ERT TO P-ERT
+    P-ERC := 5
+  END-IF
+  #A10 := 'locally'
+END-IF
+*
+PERFORM NODE-SESSION   /* BLI NOMALL-2294
+*
+#LINE := *LINE
+PERFORM TRACE-AFTER-CALL
+* BLI NOMALL-2088 end
+*
+END-SUBROUTINE /* CALL-USER-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-FILE-FUNCTION
+************************************************************************
+DECIDE ON FIRST VALUE OF  P-FUNCTION
+  VALUE 'READ'
+    PERFORM READ-MULTIRECORD-BUFFER
+    IF MR-P-RC NE 1
+      ESCAPE ROUTINE
+    END-IF
+    RESET XS-FIRWC-BUFFER
+    IF +P-RC = 13 /* last READ was last record
+      PERFORM HANDLE-EOF
+      ESCAPE ROUTINE
+    END-IF
+  VALUE 'CLOSE'
+    IF P-FILE-HANDLE = 0
+      ESCAPE ROUTINE
+    END-IF
+  NONE
+    IGNORE
+END-DECIDE
+*
+#FOR. FOR #I = 1 TO 2
+/*SU5 XS-FI-COMMON         := XS-COMMON
+  SATSQ-SATVERS        := #SATVERS
+  SATSQ-CONV-HANDLE    := -1 /* none
+  IF P-FUNCTION NE 'WRITE'
+    SATSQ-REQUEST-LENGTH := XS-PARM-LEN-C
+  END-IF
+  SATSQ-REPLY-LENGTH   := SATSQ-REQUEST-LENGTH
+  XS-C-FUNCTION        := P-FUNCTION
+  XS-C-SID-N10         := +P-SESSION-ID
+  XS-FI-COMMON         := XS-COMMON /*ÜÜ DO NOT MOVE ÜÜ SU5
+*
+  IF P-NODE-SUSPEND NE 'L' OR *MACHINE-CLASS =  'MAINFRAME'
+    CALLNAT 'SATSQA6N'
+      #SATVERS SATSQ-PARMS (1) XS-FILE-C XS-FILE-C SATSV
+* BLI NOMALL-2088 start, compare EOR XS-FIL-N,XSFISC-N
+    IF SATSQ-ERROR-CODE NE 0
+      #P-PROD-A3 := 'SAT'
+      #P-PROD-N4 := SATSQ-ERROR-CODE
+      COMPRESS #P-PROD-NUM SATSQ-ERROR-TEXT TO P-ERT
+      P-ERC := 5
+    ELSE
+      XS-COMMON := XS-FI-COMMON
+      /*13=eof after current data /*19= not all objects were passed
+      IF NOT(XS-C-RETURNCODE =0 OR=13 OR=19)
+        #P-PROD-A3 := 'NPR'
+        #P-PROD-N4 := XS-C-RETURNCODE
+        COMPRESS #P-PROD-NUM XS-C-RETURNTEXT TO P-ERT
+        P-ERC := 5
+      ELSE
+        P-ERC := XS-C-RETURNCODE
+      END-IF
+    END-IF
+    #A10 := 'remotely'
+    IF #TRACING
+      COMPRESS 'Function FILE/' P-FUNCTION
+        ' executed remotely with RC ' XS-C-RETURNCODE ' in ' *LINE
+        TO #TRACE-MSG LEAVING NO
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+*
+  ELSE
+    RESET P-RC
+    P-COMMON     := XS-FI-COMMON
+    REDUCE DYNAMIC P-BUFFER TO 0
+    P-BUFFER     := XS-FI-ABC
+    CALLNAT 'XXUXLC-N' P-NPR-VERSION P-COMMON P-BUFFER P-RC
+    XS-FI-COMMON := P-COMMON
+    XS-COMMON    := XS-FI-COMMON
+    XS-FI-ABC    := P-BUFFER
+    P-ERC        := P-RC /* see #NPRCMD-RC in EOR
+    P-ERT        := XS-C-RETURNTEXT
+/*13=eof after current data /*19= not all objects were passed
+    IF NOT(P-ERC =0 OR=13 OR=19)
+      #P-PROD-A3 := 'NPR'
+      #P-PROD-N4 := P-ERC
+      COMPRESS #P-PROD-NUM P-ERT TO P-ERT
+      P-ERC := 5
+    END-IF
+    #A10 := 'locally'
+    IF #TRACING
+      COMPRESS 'Function FILE/' P-FUNCTION
+        ' executed locally with RC ' P-RC P-ERT ' in ' *LINE
+        TO #TRACE-MSG LEAVING NO
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+  END-IF
+  #XS-FIRW-CONTROL-CHAR := XS-FIRWC-CONTROL-CHAR
+* BLI NOMALL-2088 end
+  PERFORM NODE-SESSION   /* BLI NOMALL-2294 start
+  IF +NOD-GONE
+    ESCAPE ROUTINE
+  END-IF                 /* BLI NOMALL-2294 end
+  +P-RC := P-ERC
+  IF P-ERC =0 OR=13 OR=19
+    RESET #EOF
+    DECIDE FOR EVERY CONDITION
+      WHEN P-FUNCTION = 'READ' OR = 'DIR' OR = 'DTA' OR = 'DTD'
+        REDUCE DYNAMIC #MR-P-BUFFER TO 0
+        RESET +SATSQ-REQUEST-LENGTH
+        #MR-P-BUFFER := XS-FIRWC-BUFFER
+      WHEN P-FUNCTION = 'READ'
+        PERFORM READ-MULTIRECORD-BUFFER /* into P-RECORD
+        IF MR-P-RC = 1 AND XS-FIRWC-CONTROL-CHAR NE 'F'
+          PERFORM HANDLE-EOF
+          P-ERC := 0 /* EOF is no error.
+        END-IF
+      WHEN NONE
+        P-RECORD := XS-FIRWC-BUFFER
+    END-DECIDE
+    ESCAPE BOTTOM (#FOR.)
+  END-IF
+*
+* check NPR return codes
+  IF P-ERC = 5 AND #P-PROD-A3 EQ 'NPR'
+    DECIDE ON FIRST VALUE OF #P-PROD-N4
+      VALUE 2,30   /* Erroneous information, invalid file handle
+        IF P-FUNCTION = 'CLOSE'
+          RESET P-ERC P-ERT /* Means already closed.
+        END-IF
+        ESCAPE BOTTOM (#FOR.)
+      VALUE 4 /* No more data, EOF
+        PERFORM HANDLE-EOF
+        ESCAPE BOTTOM (#FOR.)
+      VALUE 8 /* not logged in
+        IF #I = 2
+          ESCAPE BOTTOM (#FOR.)
+        END-IF
+        RESET +P-SESSION-ID +P-NODE-ID
+        PERFORM CHECK-LOGIN
+        IF +NOD-GONE           /* BLI NOMALL-2294 start
+          ESCAPE ROUTINE
+        END-IF                 /* BLI NOMALL-2294 end
+* NOMALL-2088 BLI adapt former COMMON-2 error handling - start
+      VALUE 3 /* System error
+        RESET +P-SESSION-ID +P-NODE-ID
+        +NOD-GONE := TRUE
+        IF P-FUNCTION='WRITE' /*SU6 ->
+          COMPRESS '2035' *PROGRAM P-FUNCTION P-FILE-NAME TO #TRACE-MSG
+          /*:1: Unix function :2: aborted,handle :3:
+          PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+          COMPRESS '4605' P-ERT TO #TRACE-MSG /*:1: :2:
+          PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+          P-ERC := 4605 /*:1: :2: (P-ERT already filled) / see RMPRBU
+          #4605 := TRUE
+          ESCAPE BOTTOM (#FOR.)
+        END-IF /*SU6 <-
+        IF P-FUNCTION='COPY' AND P-ERT = SCAN 'Exit code 1'
+          P-ERC := 2036         /* file not found
+          #XX-MSG-DYNA (1) := P-NODE-NAME
+          PERFORM SET-DYNA-2 /* move file name without paths
+          RESET P-ERT
+          ESCAPE BOTTOM (#FOR.)
+        END-IF
+      VALUE 6 /* access denied for user
+        RESET +P-SESSION-ID +P-NODE-ID
+        +NOD-GONE := TRUE
+        IF P-ERT = MASK('NPR3361')  /* cannot write
+          P-ERC := 2037         /* no write access
+          #XX-MSG-DYNA (1) := P-NODE-NAME
+          PERFORM SET-DYNA-2 /* move file name without paths
+          RESET P-ERT
+          ESCAPE BOTTOM (#FOR.)
+        END-IF
+      VALUE 12       /* object not found
+        P-ERC := 2036   /* file not found
+        #XX-MSG-DYNA (1) := P-NODE-NAME
+        PERFORM SET-DYNA-2 /* move file name without paths
+        RESET P-ERT
+        ESCAPE BOTTOM (#FOR.)
+      VALUE 999,3148 /* node not active
+        P-ERC := 2038   /* node not active
+        #XX-MSG-DYNA (1) := P-NODE-NAME
+        RESET P-ERT
+        RESET +P-SESSION-ID +P-NODE-ID  /* NOMALL-2294 BLI
+        +NOD-GONE := TRUE               /* NOMALL-2294 BLI
+        ESCAPE BOTTOM (#FOR.)
+      VALUE 21       /* attempted to read non-text file
+        P-ERC := 2046   /* file is no text file
+        #XX-MSG-DYNA (1) := P-NODE-NAME
+        PERFORM SET-DYNA-2 /* move file name without paths
+        RESET P-ERT
+        ESCAPE BOTTOM (#FOR.)
+      VALUE 23       /* variable not found
+        P-ERC := 2052   /* Environment variable not found.
+        SEPARATE P-ERT INTO #XX-MSG-DYNA (1) #XX-MSG-DYNA (1) IGNORE
+        RESET P-ERT
+        ESCAPE BOTTOM (#FOR.)
+      VALUE 510      /* not logged in
+        P-ERC := 2039   /* Unix-Node :1: not logged in,User::2:
+        #XX-MSG-DYNA (1) := P-NODE-NAME
+        #XX-MSG-DYNA (2) := P-USERID
+        RESET P-ERT
+        RESET +P-SESSION-ID +P-NODE-ID  /* NOMALL-2294 BLI
+        +NOD-GONE := TRUE               /* NOMALL-2294 BLI
+        ESCAPE BOTTOM (#FOR.)
+* NOMALL-2088 BLI adapt former COMMON-2 error handling - end
+      NONE
+        ESCAPE BOTTOM (#FOR.)
+    END-DECIDE
+  END-IF
+END-FOR /*(#FOR.)
+*
+END-SUBROUTINE /* CALL-FILE-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE COMMON-1 /* Set parameters before call
+************************************************************************
+XS-C-AREA-TYPE := 'A'   /* NPR COMMON AREA: 300 BYTES  2075 980811
+IF +DEVICE = 'BATCH'
+  XS-C-USAGE-MODE := 'B'    /* BACKGROUND
+ELSE
+  XS-C-USAGE-MODE := 'D'    /* DIALOG
+END-IF
+XS-C-FUNCTION        := P-FUNCTION
+XS-C-SID-N10         := +P-SESSION-ID
+XS-C-RW-BUFFER-TYPE  := 'C'
+XS-C-FUNCDATA-TYPE   := 'C'
+XS-C-CIPHER-PASSWORD-A32 := P-CIPHER-PASSWORD    /* NOMALL-2261 BLI
+IF XS-C-CIPHER-PASSWORD-A32 = ' '
+  CALLNAT 'SATTS01N' 'S' P-PASSWORD XS-C-CIPHER-PASSWORD-A32 /*SU7
+END-IF
+DECIDE ON FIRST VALUE OF XS-C-FUNCTION
+  VALUE 'LOGON'
+    XS-C-FUNCTION := 'LOGIN'
+  VALUE 'LOGOFF'
+    XS-C-FUNCTION := 'LOGOUT'
+  NONE
+    IGNORE
+END-DECIDE
+P-FUNCTION           := XS-C-FUNCTION
+DECIDE ON EVERY VALUE OF XS-C-FUNCTION
+  VALUES 'INFO','GETENV','PUTENV'
+    XS-C-OBJECT := 'SERVER'
+  VALUE 'GETENV'
+    XS-SI-ENV-VARIABLE := P-FILE-NAME
+    RESET XS-SI-ENV-VALUE
+  VALUE 'PUTENV'
+    XS-SI-ENV-VARIABLE := P-FILE-NAME
+    XS-SI-ENV-VALUE    := P-RECORD
+  VALUE 'CL-TL'
+    XS-C-OBJECT := 'SERVER'
+    IF +NPR-TRACE
+      XS-SI-TRACE-CL := 0  /* toggle trace off
+      XS-SI-TRACE-TL := 0
+      RESET +NPR-TRACE
+      COMPRESS 'NPR Tracing switched off.' TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    ELSE
+      XS-SI-TRACE-CL := 4  /* toggle trace on
+      IF NPR-TRACE SPECIFIED AND NPR-TRACE > 99
+        XS-SI-TRACE-TL := 120
+      ELSE
+        XS-SI-TRACE-TL := 100
+      END-IF
+      +NPR-TRACE := TRUE
+      COMPRESS 'NPR Tracing switched on.' TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+*   INCLUDE #SU-C-DE
+*   XS-SI-TRACE-CL := XS-SI-TRACE-TL := 0  /* toggle trace off Ü DEV Ü
+  VALUE 'COMMAND'
+    XS-C-OBJECT               := 'JOB'
+    XS-JCM-OUTPUT-FILE        := P-FILE-NAME
+    XS-JCM-REMOVE-OUTPUT-FILE := '2' /* no delete of output file
+    XS-JCM-WAIT-FOR-TERM      := 'Y' /* Default, NOMALL-1004 in
+    DECIDE ON FIRST VALUE OF P-WAIT-TERM
+      VALUE 'N' /* don't wait
+        XS-JCM-WAIT-FOR-TERM := 'N'
+      VALUE 'Z' /* wait but generate no exit code line
+        XS-JCM-WAIT-FOR-TERM        := 'Y'
+        XS-JCM-EXIT-CODE-MSG-APPEND := 'N'
+      NONE
+        XS-JCM-WAIT-FOR-TERM        := 'Y'
+        XS-JCM-EXIT-CODE-MSG-APPEND := 'Y'
+    END-DECIDE
+    XS-JCM-OUTPUT-MODE    := P-OUTPUT-MODE
+    XS-JCM-COMMAND-PART-1 := P-RECORD
+* NOMALL-2261 (compare EOR XS-JSU-N) BLI start
+    IF P-COMMAND-PART-2-3 SPECIFIED
+      XS-C-RW-BUFFER-TYPE   := 'B'
+      XS-JCM-COMMAND-PART-2 := SUBSTR(P-COMMAND-PART-2-3,1,250)
+      XS-JCM-COMMAND-PART-3 := SUBSTR(P-COMMAND-PART-2-3,251,500)
+    ELSE
+      XS-C-RW-BUFFER-TYPE   := 'A'
+      RESET XS-JCM-COMMAND-PART-2 XS-JCM-COMMAND-PART-3
+    END-IF
+* NOMALL-2261 (compare EOR XS-JSU-N) BLI end
+  VALUE 'CANCEL','PAUSE','CONTINUE'
+    XS-C-OBJECT          := 'JOB'
+    XS-JSU-PROCESS-ID-10 := P-PROCESS-ID
+    XS-JCA-KILL-MODE     := ' '
+    XS-JSU-EXIT-CODE     := 0 /* only set on Windows
+  VALUE 'SUBMIT'
+    XS-C-OBJECT          := 'JOB'
+    XS-JSU-SYSOUT-FILE   := P-FILE-NAME
+    XS-JSU-SUBMIT-FILE   := P-RECORD
+    XS-JSU-PROCESS-ID-10 := P-PROCESS-ID
+  VALUES 'STATUS','GETEXIT'
+    XS-C-OBJECT          := 'JOB'
+    XS-JSU-SYSOUT-FILE   := P-FILE-NAME
+    XS-JST-PROCESS-ID-10 := P-PROCESS-ID
+  VALUE 'STATUS'
+    IF *PID IS (N16)
+      #PID := VAL (*PID)
+      IF P-PROCESS-ID = #PID
+        RESET P-ERC P-ERT
+        P-STATUS := 2 /* process is running (myself)
+        XS-C-OBJECT := 'NONE'
+      END-IF
+    END-IF
+  VALUE 'LOGIN','LOGOUT'
+    XS-C-OBJECT      := 'USER'
+    XS-USAA-USER-20  := P-USERID   /* NOMALL-2261 BLI
+    XS-USAA-GROUP-20 := P-GROUP    /* NOMALL-2261 BLI
+  VALUE 'APPEND','CLOSE','COPY','DELDIR','DELETE','DIR','DTA',
+      'GETATTR','MOVE','READ','SCAN','SCRE','SETATTR','WRITE','DTD'
+    XS-C-OBJECT               := 'FILE'
+    XS-FI-COMMON              := XS-COMMON
+    XS-C-TRIGRAPH             := 'N' /* NO TRIGRAPH TRANSLATION
+    XS-FIRW-BUFFER-FORMAT     := 'T' /* TEXT FILE
+    XS-FIRW-NAME              := P-FILE-NAME
+    XS-FIRW-HANDLE            := P-FILE-HANDLE
+    XS-FIRW-NUMBER-OF-RECORDS := 0
+    XS-FIRW-RECSIZE           := #BUFFER-SIZE
+    RESET XS-FIRWC-BUFFER XS-C-TRIGRAPH XS-C-HTML-CODE-HANDLING
+    RESET P-CC
+  VALUE 'COMMAND'
+    XS-C-TRIGRAPH := 'Y'
+  VALUE 'READ'
+    IF P-BINARY NE 'Y'
+      PERFORM CHECK-HTML-TRIGRAPH /*SU8
+      IF +NOM-TRIGRAPH-HTML_READ = -1 /*old SU8
+        XS-C-TRIGRAPH := 'Y'
+        DECIDE FOR FIRST CONDITION
+          WHEN *CODEPAGE = ' '
+            RESET XS-C-HTML-CODE-HANDLING
+            XS-C-TRIGRAPH := 'N' /* NO TRIGRAPH TRANSLATION
+          WHEN P-CODEPAGE = 'UTF-8' OR P-MIME-TYPE = SCAN('UTF-8')
+            P-CODEPAGE := 'UTF-8'
+            XS-C-HTML-CODE-HANDLING := '8'
+          WHEN NONE
+            XS-C-HTML-CODE-HANDLING := 'Y'
+            SEPARATE P-MIME-TYPE INTO P-CODEPAGE P-CODEPAGE IGNORE
+              WITH DELIMITER ';'
+            IF P-CODEPAGE = SCAN('unknown') OR = SCAN('UNKNOWN')
+              P-CODEPAGE := 'ASCII'
+            END-IF
+        END-DECIDE
+      END-IF /*SU8
+      RESET XS-C-FILE-CODEPAGE-ID
+    END-IF
+************************************************************************
+  VALUE 'WRITE'
+    IF P-BINARY NE 'Y'
+      RESET XS-C-FILE-CODEPAGE-ID   /* NOMALL-2261 BLI
+      DECIDE FOR FIRST CONDITION
+        WHEN *CODEPAGE = ' ' AND NOT +NOM-USE-TRIGRAPH-HTML /*SU4
+          RESET XS-C-HTML-CODE-HANDLING
+          XS-C-TRIGRAPH := 'N' /* NO TRIGRAPH TRANSLATION
+        WHEN P-CODEPAGE = 'UTF-8' OR P-MIME-TYPE = SCAN('UTF-8')
+          P-CODEPAGE              := 'UTF-8'
+          XS-C-HTML-CODE-HANDLING := '8'
+          XS-C-TRIGRAPH           := 'Y'
+        WHEN NONE
+          XS-C-HTML-CODE-HANDLING := 'Y'
+          SEPARATE P-MIME-TYPE INTO P-CODEPAGE P-CODEPAGE IGNORE
+            WITH DELIMITER ';'
+          IF P-CODEPAGE = SCAN('unknown') OR = SCAN('UNKNOWN')
+            P-CODEPAGE    := 'ASCII'
+            XS-C-TRIGRAPH := 'Y'
+          END-IF
+          IF +NOM-USE-TRIGRAPH-HTML /* SU4
+            XS-C-TRIGRAPH := 'Y'
+          END-IF
+      END-DECIDE
+      IF +NOM-TRIGRAPH-HTML_WRITE = 1 /*UEX-HTML - RMPRDSK
+        RESET XS-C-HTML-CODE-HANDLING /*no HTML decoding in NPR OS
+      END-IF
+*     INCLUDE #SU-C-DE
+*     PRINT (AD=L) '==>' *PROGRAM *LINE 'tri:' XS-C-TRIGRAPH
+*       'html:' XS-C-HTML-CODE-HANDLING '+html:' +NOM-TRIGRAPH-HTML_WRITE
+      IF XS-C-HTML-CODE-HANDLING = 'Y'
+        CP-FUNCTION := '#'
+        CP-NAME     := P-CODEPAGE
+        CALLNAT 'XXCHCKCP' XXCHCKCP-PARMS
+        IF CP-ERC = 0 /*Use only CPs that NPR can convert:
+        AND (CP-NUMBER = '65001'  /* UTF-8                            /*
+        OR = MASK('437')          /* US-ASCII                         /*
+        OR = MASK('850')          /* Latin-1 multilingual             /*
+        OR = MASK('1252')         /* ANSI Central European (Windows)  /*
+        OR = '28591'              /* ISO-8859-1                       /*
+        OR = '28605')             /* ISO-8859-15 (with euro)          /*
+          XS-C-FILE-CODEPAGE-ID-A := CP-NUMBER /* NOMALL-2261 BLI
+        ELSE
+          IF P-OPSYS = MASK ('WIN') OR = MASK ('Win') OR = MASK ('win')
+            XS-C-FILE-CODEPAGE-ID := 1252 /* Default NOMALL-2261 BLI
+          ELSE
+            XS-C-FILE-CODEPAGE-ID := 65001 /* Default NOMALL-2261 BLI
+          END-IF
+        END-IF
+      END-IF
+    END-IF
+  VALUE 'OPEN'
+    RESET #MR-P-POSITION +P-RC +SATSQ-REQUEST-LENGTH
+    REDUCE DYNAMIC #MR-P-BUFFER TO 0
+    RESET +DIRTY-BUFFER
+    IF P-CODEPAGE = ' '
+      RESET #P-MIME-TYPE
+      #P-FUNCTION := 'GETATTR'
+      PERFORM UNIX-FUNCTION
+      IF +NOD-GONE           /* BLI NOMALL-2294 start
+        ESCAPE ROUTINE
+      END-IF                 /* BLI NOMALL-2294 end
+      RESET P-ERC P-ERT /* ignore errors here
+      IF #P-MIME-TYPE = SCAN('UTF-8')
+        P-CODEPAGE := 'UTF-8'
+      ELSE
+        SEPARATE P-MIME-TYPE INTO P-CODEPAGE P-CODEPAGE IGNORE
+          WITH DELIMITER ';'
+        IF P-CODEPAGE = SCAN('unknown') OR = SCAN('UNKNOWN')
+          P-CODEPAGE := 'ASCII'
+        END-IF
+      END-IF
+    END-IF
+    XS-C-OBJECT := 'NONE'
+  VALUE 'CLOSE'
+    PERFORM WRITE-FLUSH
+    IF P-ERC NE 0
+      ESCAPE ROUTINE
+    END-IF
+    XS-FIRW-HANDLE := P-FILE-HANDLE
+  VALUE 'WRITE','APPEND'
+    IF P-BINARY = 'Y'
+      XS-FIRW-BUFFER-FORMAT := 'A'
+    ELSE
+      XS-FIRW-BUFFER-FORMAT := '3'
+    END-IF
+    IF +BUFFER-FLUSH
+      XS-FIRWC-BUFFER := #MR-P-BUFFER
+      SATSQ-REQUEST-LENGTH := +SATSQ-REQUEST-LENGTH
+      IF #TRACING
+        COMPRESS 'Set SATSQ-REQUEST-LENGTH to'
+          SATSQ-REQUEST-LENGTH TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      RESET +BUFFER-FLUSH #MR-P-POSITION +SATSQ-REQUEST-LENGTH
+      REDUCE DYNAMIC #MR-P-BUFFER TO 0
+    ELSE
+      PERFORM WRITE-TO-BUFFER
+      XS-C-OBJECT := 'NONE'
+    END-IF
+  VALUE 'DIR', 'DTA', 'DTD'
+    XS-FIRW-BUFFER-FORMAT     := 'F'
+    XS-FIRW-NUMBER-OF-RECORDS := 0
+    IF #P-ERC-SAVE NE 19           /* first DIR call
+      XS-FIRW-LINE-NUMBER := 1
+      RESET #XS-FIRW-LINE-NUMBER
+    ELSE
+      ADD 1 TO #XS-FIRW-LINE-NUMBER /* new index
+      XS-FIRW-LINE-NUMBER := #XS-FIRW-LINE-NUMBER
+    END-IF
+  VALUE 'READ'
+    RESET XS-FIRWC-BUFFER
+    IF P-BINARY = 'Y'
+      XS-FIRW-BUFFER-FORMAT := 'A'
+    ELSE
+      XS-FIRW-BUFFER-FORMAT := 'L' /* MULTI-RECORD
+    END-IF
+    RESET XS-FIRW-LINE-NUMBER
+  VALUE 'WRITE'
+    RESET XS-FIRW-LINE-NUMBER
+  VALUES 'GETATTR','SETATTR'
+    XS-FIRWC-BUFFER := P-RECORD
+    XS-FIRW-RECSIZE := XS-FILAT-SIZE    /* NOMALL-2261 BLI
+  VALUE 'COPY','MOVE','DELETE','DELDIR'
+    XS-FIM-SOURCE-FILE := P-FILE-NAME
+    XS-FIM-TARGET-FILE := P-TARGET-FILE
+  NONE
+    P-ERC := 2033
+    ESCAPE ROUTINE
+END-DECIDE
+IF P-ERC = 19 /* was set by previous call of xxux---n
+  RESET P-ERC
+END-IF
++XS-C-OBJECT := XS-C-OBJECT /* for global use
+*
+END-SUBROUTINE /* COMMON-1
+*
+************************************************************************
+DEFINE SUBROUTINE COMMON-2 /* Set results after call
+************************************************************************
++P-SESSION-ID := XS-C-SID-N10
++P-NODE-ID   := P-NODE-NAME
+IF +XS-C-OBJECT = 'NONE'
+  ESCAPE ROUTINE
+END-IF
+IF (#MR-P-POSITION NE 0 AND P-FUNCTION = 'READ') OR P-FUNCTION = 'WRITE'
+  +FILE-HANDLE := P-FILE-HANDLE   := XS-FIRW-HANDLE
+  ESCAPE ROUTINE /* we still use NPR's multi record buffer
+END-IF
+*
+DECIDE ON EVERY VALUE OF XS-C-OBJECT
+************************************************************************
+  VALUES 'FILE','SERVER'
+    DECIDE ON FIRST VALUE OF P-FUNCTION
+      VALUES 'READ','INFO'
+        IF P-BINARY NE 'Y'
+          P-CODEPAGE := XS-SI-CODEPAGE-ID-A
+          CP-FUNCTION := 'N'
+          CP-NUMBER   := P-CODEPAGE
+          CALLNAT 'XXCHCKCP' XXCHCKCP-PARMS
+          IF CP-ERC = 0
+            P-CODEPAGE := CP-NAME
+          ELSE
+            IF P-MIME-TYPE NE ' '
+              SEPARATE P-MIME-TYPE INTO P-CODEPAGE P-CODEPAGE IGNORE
+                WITH DELIMITER ';'
+              IF P-CODEPAGE = SCAN('unknown') OR = SCAN('UNKNOWN')
+                P-CODEPAGE := 'ASCII'
+              END-IF
+            ELSE
+              P-CODEPAGE := 'ASCII'
+            END-IF
+          END-IF
+        END-IF
+      NONE
+        IGNORE
+    END-DECIDE
+************************************************************************
+  VALUE 'JOB'
+    DECIDE ON FIRST VALUE OF XS-C-FUNCTION
+      VALUE 'COMMAND','SUBMIT','CANCEL','PAUSE','CONTINUE'
+        +P-SESSION-ID:= XS-C-SID-N10
+        +P-NODE-ID   := P-NODE-NAME
+        P-PROCESS-ID := XS-JSU-PROCESS-ID-10
+        IF XS-JCM-PROCESS-ID-10-A IS (N10)
+        AND XS-JCM-PROCESS-ID-10 NE 0                                 /*
+        AND XS-JSU-PROCESS-ID-10 =  0 OR = 20000000                   /*
+          P-PROCESS-ID := XS-JCM-PROCESS-ID-10
+        END-IF
+        IF P-PROCESS-ID = 20000000 /* some initial value
+          RESET P-PROCESS-ID
+        END-IF
+      VALUE 'STATUS'
+        +P-SESSION-ID:= XS-C-SID-N10
+        +P-NODE-ID   := P-NODE-NAME
+        P-STATUS     := XS-JST-STATUS
+        IF #TRACING
+          COMPRESS 'Status' P-STATUS 'evaluated for session ID:'
+            +P-SESSION-ID '/ node:' +P-NODE-ID TO #TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+      VALUE 'GETEXIT'
+        P-EXIT-CODE  := XS-JSU-EXIT-CODE
+      NONE VALUE
+        IGNORE
+    END-DECIDE
+************************************************************************
+  VALUE 'USER'
+    DECIDE ON FIRST VALUE OF XS-C-FUNCTION
+      VALUE 'LOGIN'
+        +P-SESSION-ID := XS-C-SID-N10
+        +P-NODE-ID    := P-NODE-NAME
+      VALUE 'LOGOUT'
+        RESET  #TRACING
+        PERFORM SET-TRACE /*switch off npr trace
+        RESET +P-SESSION-ID +P-NODE-ID
+      NONE VALUE
+        IGNORE
+    END-DECIDE
+************************************************************************
+  VALUE 'FILE'
+    IF P-FUNCTION NE 'CLOSE'
+      DECIDE FOR EVERY CONDITION
+        WHEN XS-FIRW-HANDLE-A = ' '
+          XS-FIRW-HANDLE := 0
+        WHEN XS-FIRW-HANDLE-A IS (N10)
+          +FILE-HANDLE := P-FILE-HANDLE := XS-FIRW-HANDLE
+        WHEN NONE
+          IGNORE
+      END-DECIDE
+    ELSE
+      RESET +FILE-HANDLE XS-FIRW-HANDLE P-FILE-HANDLE P-FILE-NAME
+    END-IF
+    IF P-FUNCTION = 'GETATTR'
+      XS-FILAT := P-RECORD
+      COMPRESS XS-FILAT-MIME-TYPE-A40 ';' XS-FILAT-MIME-ENCODING
+        TO P-MIME-TYPE LEAVING NO
+      EXAMINE P-MIME-TYPE TRANSLATE INTO UPPER
+      SEPARATE P-MIME-TYPE INTO P-CODEPAGE P-CODEPAGE IGNORE
+        WITH DELIMITER ';'
+      IF P-CODEPAGE = SCAN('unknown') OR = SCAN('UNKNOWN')
+        P-CODEPAGE := 'ASCII'
+      END-IF
+    END-IF
+    IF P-FUNCTION = 'DTA' OR = 'DIR' OR = 'DTD'
+      #XS-FIRW-LINE-NUMBER := XS-FIRW-LINE-NUMBER
+    END-IF
+*
+/*13=EOF after last record in buffer /*19=more files in DIR function
+    IF (P-ERC = 0 OR = 13 OR = 19)
+    AND P-FUNCTION = 'GETATTR' OR = 'DIR' OR = 'DTA' OR = 'DTD'       /*
+      P-RECORD             := XS-FIRWC-BUFFER
+    END-IF
+  NONE VALUE
+    IGNORE
+END-DECIDE
+IF XS-C-OBJECT NE 'READ' AND P-FUNCTION NE 'GETATTR'
+  RESET P-CODEPAGE
+END-IF
+*
+END-SUBROUTINE /* COMMON-2
+*
+************************************************************************
+DEFINE SUBROUTINE NODE-SESSION  /* NOMALL-2294 BLI
+************************************************************************
+IF P-ERT = SCAN('SAT1114')        /* If node has been lost ... BLI1
+  RESET +P-SESSION-ID +P-NODE-ID  /* ... do an explicit logon next time
+  +NOD-GONE := TRUE
+  IF #TRACING                     /* BLI NOMALL-2342
+    IF NOT (P-NODE-SUSPEND = 'D' OR = 'E' OR = 'S')
+      COMPRESS
+        'Call of '#LASTPROG 'returned' P-ERT
+        'with program stack' TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      FETCH RETURN 'RMLEVEL' 'T'
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* NODE-SESSION
+*
+************************************************************************
+DEFINE SUBROUTINE SET-ERROR-TEXT
+************************************************************************
+/*no text, but NOM msg set: 1581=wrong NPR version/2020 - 2052:Unix msg
+IF P-ERT = ' ' AND (P-ERC > 2019 AND P-ERC < 2053 OR P-ERC = 1581)
+  #XX-ERROR-CODE := P-ERC
+  CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+  P-ERT := #XX-SHORT-TEXT
+  RESET #XX-GMSG-PARMS
+ELSE
+  IF NOT(P-ERC =0 OR=5)
+    #P-ERC-A := P-ERC
+    EXAMINE P-ERT FOR #P-ERC-A GIVING POSITION IN #POS2
+    IF #POS2 = 0
+      COMPRESS P-ERC P-ERT TO P-ERT
+    END-IF
+    P-ERC := 5
+  END-IF
+END-IF
+IF P-ERT = SCAN('unexpected file name')
+  RESET P-ERC P-ERT
+  ESCAPE ROUTINE
+END-IF
+*
+EXAMINE P-ERT FOR P-NODE-NAME GIVING POSITION IN #POS2
+IF #POS2 = 0
+  COMPRESS P-NODE-NAME '/' P-USERID '/' P-FUNCTION ':' P-ERT TO P-ERT
+    LEAVING NO
+END-IF
+IF XS-C-FUNCTION ='COPY' OR='MOVE' OR='DELETE' OR='DELDIR'
+  COMPRESS P-ERT '-->' P-FILE-NAME TO P-ERT
+END-IF
+*
+IF P-ERC NE 0 AND +DEVICE ='BATCH' AND P-ERC NE 2036 /* object not found
+AND P-ERT NE SCAN('NPR3373') /* not logged in                         /*
+  IF (FATHER-PGM SPECIFIED AND FATHER-PGM='XXCHCKUX'
+  AND P-FUNCTION ='DELETE' AND P-ERT = SCAN('NPR3339 Object not found'))
+    ESCAPE ROUTINE
+  END-IF
+  PERFORM XXUNIQUE-DEL-DOUBLE P-ERT
+  IF #TRACING                            /* BLI NOMALL-2342
+    PERFORM XXRLOG-WRITE-LOG 'T' P-ERT
+    IF +NOD-GONE
+      FETCH RETURN 'RMLEVEL' 'T'
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SET-ERROR-TEXT
+*
+************************************************************************
+DEFINE SUBROUTINE READ-MULTIRECORD-BUFFER
+************************************************************************
+RESET MR-P-RC
+IF #MR-P-FILE-NAME NE ' ' /* if file changed, ignore buffer
+AND #MR-P-FILE-NAME NE P-FILE-NAME                                    /*
+  MR-P-RC := 1
+  IF #TRACING
+    COMPRESS 'Reading new buffer from ' P-FILE-NAME *LINE TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+ELSE
+  MR-P-BUFFER   := #MR-P-BUFFER
+  MR-P-POSITION := #MR-P-POSITION
+  MR-P-FUNCTION := 'G'
+  IF P-BINARY = 'Y'
+    MR-P-BUFFER-FORMAT := 'A'
+  ELSE
+    MR-P-BUFFER-FORMAT := 'L' /* USE MULTI-RECORD FOR READ
+  END-IF
+  IF MR-P-POSITION = 0
+    MR-P-POSITION := 1
+  END-IF
+* 2019-07-17 NOMALL-2294 start
+  IF P-NODE-SUSPEND NE 'L' OR *MACHINE-CLASS =  'MAINFRAME'
+    MR-P-BUFFER-TYPE := 'C' /* remote 100k buffer
+  ELSE
+    MR-P-BUFFER-TYPE := 'D' /* local   60k buffer
+  END-IF
+* 2019-07-17 NOMALL-2294 end
+  CALLNAT 'XXUXMR-N' XXUXMR-P
+  #MR-P-BUFFER   := MR-P-BUFFER
+  #MR-P-POSITION := MR-P-POSITION
+END-IF
+DECIDE ON FIRST VALUE OF MR-P-RC
+  VALUE 0
+    RESET  P-ERC P-ERT
+    IF P-BINARY NE 'Y'
+      RESET P-CC
+      IF #XS-FIRW-CONTROL-CHAR = 'F'
+        EXAMINE #MR-P-BUFFER FOR 'X' GIVING LENGTH IN #LEN-MR-BUF
+        IF #MR-P-POSITION > #LEN-MR-BUF
+          P-CC := '1'
+        END-IF
+      END-IF
+    END-IF
+    P-RECORD := MR-P-RECORD
+    IF *CODEPAGE NE ' '
+      PERFORM CHECK-HTML-TRIGRAPH /*SU8
+      IF +NOM-TRIGRAPH-HTML_READ = -1 /*old SU8
+        CALLNAT 'XXCPAGE' 'U' P-RECORD P-ERC P-ERT 2X #TRACING
+      END-IF
+    END-IF
+    #MR-P-FILE-NAME := P-FILE-NAME
+  VALUE 1
+    IF #XS-FIRW-CONTROL-CHAR = 'F'
+      P-CC := '1'
+    END-IF
+    RESET #MR-P-POSITION #MR-P-FILE-NAME P-RECORD +SATSQ-REQUEST-LENGTH
+    REDUCE DYNAMIC #MR-P-BUFFER TO 0
+  NONE
+    RESET #MR-P-POSITION #MR-P-FILE-NAME P-RECORD P-ERT
+    RESET +SATSQ-REQUEST-LENGTH
+    REDUCE DYNAMIC #MR-P-BUFFER TO 0
+    P-ERC            := 2040
+    #XX-MSG-DYNA (1) := MR-P-RC
+END-DECIDE
+IF #TRACING
+  COMPRESS 'Read new record from buffer with RC ' MR-P-RC
+    '/ position' MR-P-POSITION
+    '/ record begining with' SUBSTR(P-RECORD,1,30) *LINE TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* READ-MULTIRECORD-BUFFER
+*
+************************************************************************
+DEFINE SUBROUTINE SET-DYNA-2 /* delete paths in file name
+************************************************************************
+#DYNA-STRING  := P-FILE-NAME
+REPEAT
+  UNTIL #DYNA-STRING = ' '
+  SEPARATE #DYNA-STRING INTO #DYNA-FILE-NAME REMAINDER #DYNA-STRING
+    WITH DELIMITER '/'
+END-REPEAT
+#XX-MSG-DYNA (2) := #DYNA-FILE-NAME
+*
+END-SUBROUTINE /* SET-DYNA-2
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-EOF
+************************************************************************
+#EOF  := TRUE
+RESET +P-RC  /* NOMALL-1107 in
+IF #TRACING
+  COMPRESS 'EOF set. Closing file handle' P-FILE-HANDLE
+    '/ file' P-FILE-NAME *LINE TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+RESET P-ERC P-ERT /* EOF is no error
+IF P-FILE-HANDLE NE 0
+  #P-FUNCTION := 'CLOSE'
+  PERFORM UNIX-FUNCTION
+END-IF
+RESET P-ERC P-ERT /* If close not worked - forget it.
+*
+END-SUBROUTINE /* HANDLE-EOF
+*
+************************************************************************
+DEFINE SUBROUTINE SET-TRACE
+************************************************************************
+IF P-FUNCTION = 'CL-TL'
+  ESCAPE ROUTINE          /* would be a loop.
+END-IF
+IF #TRACING
+  IF NOT +NPR-TRACE
+    #P-FUNCTION := 'CL-TL'
+    PERFORM UNIX-FUNCTION
+  END-IF
+ELSE
+  IF +NPR-TRACE
+    #P-FUNCTION := 'CL-TL'
+    PERFORM UNIX-FUNCTION
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SET-TRACE
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-LOGIN /* login if no session id
+************************************************************************
+IF +P-NODE-ID NE P-NODE-NAME
+  RESET +P-NODE-ID +P-SESSION-ID
+END-IF
+IF  P-FUNCTION = 'LOGIN' OR = 'CL-TL' OR = 'INFO' OR = 'LOGOUT'
+  IF  P-FUNCTION = 'LOGIN' OR = 'INFO' OR = 'LOGOUT'
+    +NOD-GONE := FALSE                /* NOMALL-2470
+  END-IF
+  ESCAPE ROUTINE
+END-IF
+IF  +P-SESSION-ID = 0                 /* not logged in
+  IF #TRACING
+    COMPRESS 'Performing implicit login to node'
+      P-NODE-NAME 'with user' P-USERID *LINE TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+  #P-FUNCTION := 'LOGIN'
+  PERFORM UNIX-FUNCTION
+* NOMALL-2294 BLI start
+  IF +P-SESSION-ID EQ 0            /* login failed
+      OR +P-NODE-ID NE P-NODE-NAME /* wrong node
+    +NOD-GONE := TRUE
+  ELSE                             /* NOMALL-2470
+    +NOD-GONE := FALSE
+  END-IF
+  IF #TRACING                      /* NOMALL-2470
+    COMPRESS 'Session-ID' +P-SESSION-ID 'Node-ID' +P-NODE-ID
+      *LINE TO #TRACE-MSG
+    IF +NOD-GONE COMPRESS '+NOD-GONE' #TRACE-MSG TO #TRACE-MSG END-IF
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+* NOMALL-2294 BLI end
+  ESCAPE ROUTINE
+ELSE
+  IF #TRACING
+    COMPRESS 'NPR Session-ID is' +P-SESSION-ID
+      'Login already performed.' *LINE TO #TRACE-MSG
+    IF +NOD-GONE COMPRESS '+NOD-GONE' #TRACE-MSG TO #TRACE-MSG END-IF
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CHECK-LOGIN
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-FLUSH /* flush write buffer
+************************************************************************
+RESET P-ERC P-ERT
+IF #MR-P-POSITION GT 0 AND +DIRTY-BUFFER
+  +BUFFER-FLUSH := TRUE
+  #P-FUNCTION := 'WRITE'
+  PERFORM UNIX-FUNCTION /* recursive call!
+  IF P-ERC = 4605  /*SU6
+    #4605 := TRUE
+  ELSE
+    IF P-ERC NE 0
+      P-ERC := 5 /* text of NPR Unix required.
+    END-IF
+  END-IF
+END-IF
+RESET +BUFFER-FLUSH #MR-P-POSITION +SATSQ-REQUEST-LENGTH
+REDUCE DYNAMIC #MR-P-BUFFER TO 0
++DIRTY-BUFFER := FALSE
+*
+END-SUBROUTINE /* WRITE-FLUSH
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-TO-BUFFER
+************************************************************************
+RESET #POS
+REPPOS. REPEAT
+  ADD 1 TO #POS
+  EXAMINE SUBSTR(P-RECORD,#POS) FOR ' ' GIVING LENGTH IN #LEN
+  IF P-BINARY = 'Y'
+    DECIDE FOR FIRST CONDITION
+      WHEN #LEN GE 72
+        #LEN := 72
+      WHEN #LEN < 1
+        ESCAPE BOTTOM (REPPOS.)
+      WHEN NONE
+        #LEN-CHECK := #LEN
+        DIVIDE 4 INTO #LEN-CHECK REMAINDER #LEN-REMAINDER
+        IF #LEN-REMAINDER NE 0
+          #LEN-REMAINDER := 4 - #LEN-REMAINDER
+          COMPRESS P-RECORD SUBSTR(#EQUALS,1,#LEN-REMAINDER)
+            TO P-RECORD LEAVING NO
+          ADD #LEN-REMAINDER TO #LEN
+        END-IF
+    END-DECIDE
+  END-IF
+  IF #LEN < 1 AND P-BINARY = 'Y'
+    ESCAPE BOTTOM (REPPOS.)
+  END-IF
+  +DIRTY-BUFFER  := TRUE
+  ADD 1 TO #MR-P-POSITION
+  IF #LEN = 0
+    #LEN-A := '001'
+    IF *LENGTH(#MR-P-BUFFER) < #MR-P-POSITION - 1 /* = trailing blanks
+      #FROM3 := *LENGTH(#MR-P-BUFFER) + 1
+      #LEN3  := #MR-P-POSITION - #FROM3 + 1
+      MOVE SUBSTR(#BLANKS,1,#LEN3)
+        TO SUBSTR(#MR-P-BUFFER,#FROM3) /* dummy entry
+    END-IF
+    MOVE #LEN-A TO SUBSTR(#MR-P-BUFFER,#MR-P-POSITION,3)
+    ADD 3 TO #MR-P-POSITION
+  ELSE
+    MOVE EDITED #LEN (EM=999) TO #LEN-A
+    #LENPLUS1 :=  *LENGTH(#MR-P-BUFFER) + 1
+    IF #MR-P-POSITION > #LENPLUS1
+      #DIFF := #MR-P-POSITION - #LENPLUS1
+      MOVE #HEX01
+        TO SUBSTR(#MR-P-BUFFER,#LENPLUS1,#DIFF) /* significant blanks
+      EXAMINE #MR-P-BUFFER FOR H'01' REPLACE WITH ' '
+    END-IF
+    MOVE #LEN-A TO SUBSTR(#MR-P-BUFFER,#MR-P-POSITION,3)
+    #MR-P-POSITION := #MR-P-POSITION + 3
+    MOVE SUBSTR(P-RECORD,#POS,#LEN)
+      TO SUBSTR(#MR-P-BUFFER,#MR-P-POSITION,#LEN)
+    #MR-P-POSITION := #MR-P-POSITION + #LEN - 1
+    #POS           := #POS           + #LEN - 1
+  END-IF
+  IF P-BINARY = 'Y'
+    #LEN2 := #BUFFER-SIZE   - 75  /* (max 75  + length-bytes)
+  ELSE
+    #LEN2 := #BUFFER-SIZE   - 253 /* (max 250 + length-bytes)
+  END-IF
+  +SATSQ-REQUEST-LENGTH := *LENGTH (#MR-P-BUFFER)
+    + 1000 + 300 /*see comments at top SU5 was + 2000
+  IF #TRACING
+    COMPRESS 'Set +SATSQ-REQUEST-LENGTH to'
+      +SATSQ-REQUEST-LENGTH TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+  IF #MR-P-POSITION GE #LEN2
+    PERFORM WRITE-FLUSH
+    IF P-ERC NE 0
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+  IF (P-BINARY = 'Y' AND #LEN < 72) OR P-BINARY NE 'Y'
+    ESCAPE BOTTOM (REPPOS.)
+  END-IF
+END-REPEAT
+RESET #POS
+*
+END-SUBROUTINE /* WRITE-TO-BUFFER
+*
+************************************************************************
+DEFINE SUBROUTINE UNIX-FUNCTION
+************************************************************************
+ADD 1 TO +LOOP-COUNT
+IF +LOOP-COUNT > 10
+  P-ERC := 5
+  COMPRESS *PROGRAM 'Internal error: Functional loop in' *LINE TO P-ERT
+  ESCAPE ROUTINE
+END-IF
+#STACK-FUNCTION := 'PUSH' /* stack parameter for XXUX---N
+CALLNAT 'XXUXST-N' #STACK-FUNCTION #STACK-RC XXUX---P
+IF #STACK-RC NE 0
+  P-ERC := 5
+  COMPRESS *PROGRAM 'Internal error: Stack overflow' *LINE TO P-ERT
+  ESCAPE ROUTINE
+END-IF
+P-FUNCTION := #P-FUNCTION
+IF NPR-TRACE SPECIFIED
+  CALLNAT 'XXUX---N' XXUX---P NPR-TRACE
+ELSE
+  CALLNAT 'XXUX---N' XXUX---P
+END-IF
+#P-ERC-SAVE    := P-ERC /* remember return code below
+#P-ERT-SAVE    := P-ERT
+#P-FILE-HANDLE := P-FILE-HANDLE   /* remember handle
+#P-MIME-TYPE   := P-MIME-TYPE     /* for GETATTR
+IF #P-SESSION-ID-A IS (N10)
+  #P-SESSION-INT := +P-SESSION-ID /* remember session
+END-IF
+#STACK-FUNCTION := 'POP' /* get parameter for XXUX---N back
+CALLNAT 'XXUXST-N' #STACK-FUNCTION #STACK-RC XXUX---P
+IF #STACK-RC NE 0
+  P-ERC := 5
+  COMPRESS *PROGRAM 'Internal error: Stack overflow' *LINE TO P-ERT
+END-IF
+IF #P-ERC-SAVE = 0
+  RESET P-ERC P-ERT        /* old error codes of original call obsolete.
+  P-FILE-HANDLE := #P-FILE-HANDLE /* remember handle
+  +P-SESSION-ID := #P-SESSION-INT
+ELSE
+  IF P-FUNCTION NE 'CL-TL'
+    P-ERC := #P-ERC-SAVE
+    P-ERT := #P-ERT-SAVE
+    PERFORM NODE-SESSION   /* BLI NOMALL-2294
+  ELSE
+    RESET P-ERC P-ERT
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* UNIX-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE TRACE-AFTER-CALL
+************************************************************************
+IF #TRACING
+  COMPRESS +XS-C-OBJECT '/' P-FUNCTION TO #TRACE-MSG LEAVING NO
+  COMPRESS 'Function' #TRACE-MSG 'executed' #A10
+    'with RC' P-ERC 'in' #LINE TO #TRACE-MSG
+  IF P-ERC NE 0
+    COMPRESS #TRACE-MSG '/' P-ERT TO #TRACE-MSG LEAVING NO
+  END-IF
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* TRACE-AFTER-CALL
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-HTML-TRIGRAPH /*READ here SU8 SU9
+* For WRITE see RMPRDSK
+************************************************************************
+* Similar coding in RMPRDSK - same exit different flag.
+IF +NOM-TRIGRAPH-HTML_READ NE 0
+  ESCAPE ROUTINE /*alread checked
+END-IF
++NOM-TRIGRAPH-HTML_READ := -1 /*subpgm not available / old handling
+#OBJ  := 'UEX-HTML'
+PERFORM NOMCHCKP-CHECK-PROG NOMCHCKP-PARMS
+IF #LIB NE ' '
+  CALLNAT 'UEX-HTML' #AVOID-TRIGRAPH-HTML_READ 1X /*only 'old' flag
+  IF #AVOID-TRIGRAPH-HTML_READ > 0
+    +NOM-TRIGRAPH-HTML_READ := #AVOID-TRIGRAPH-HTML_READ
+  END-IF
+END-IF
+IF #TRACING
+  COMPRESS 'UEX-HTML: read:' +NOM-TRIGRAPH-HTML_READ
+    ' (' #AVOID-TRIGRAPH-HTML_READ ')' TO #TRACE-MSG LEAVING NO /*SU9
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* CHECK-HTML-TRIGRAPH
+*
+END

@@ -1,0 +1,248 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    EOMFOMGN
+* Version   1.3
+* Function  DB Interface EOM Object Folder (general attributes)
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* mrs     1993-08-03           created
+* fhi     2000-08-24 QA03      Use NAT23006 for error values
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2007-12-19 p(300375) add fo-default-location to nrm-folders
+* XSETHZ  4010-12-15 NOMALL-907 check for #Inbasket & #Listeneingang
+* xsetggr 2011-01-06 NOMALL-907 actions if linked folder does not exist
+* XSETGGR 2011-05-03 nomall-902 add read-next,readhold-next functions
+* xsetggr 2011-11-08 NOMALL-1069 prevent cross-linked folders
+* xsetggr 2012-12-05 NOMALL-89  maintenance of folder grants
+* fhi     2014-07-14 NOMALL-1434 Avoid deletion of own grants.
+* fhi     2014-09-25 NOMALL-1434 same
+* BLI     2018-01-12 NOMALL-1963 Granting vs. removed links
+* SU1     2021-09-30 NOMALL-2495 linked FO does not exist:show user(907)
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING EOM----P
+PARAMETER USING EOMFOM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL USING EOM----E
+LOCAL
+1 LINKED-FOLDER VIEW OF NRM-FOLDER
+  2 FO-USER-ID
+  2 FO-NAME
+  2 FO-ID
+  2 FO-LINKED-FO-ID     (A10)
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER    (A8)
+    3 FO-LINKED-ID      (B2)
+1 NEW-FOLDER VIEW OF NRM-FOLDER
+  2 FO-USER-FO-ID
+  2 REDEFINE FO-USER-FO-ID
+    3 FO-USER           (A8)
+    3 FO-NEWID          (B2)
+1 FOLDER VIEW OF NRM-FOLDER
+  2 FO-ID
+  2 FO-NAME
+  2 FO-USER-ID
+  2 FO-DESC
+  2 FO-MAP-LAYOUT
+  2 FO-LINKED-FO-ID
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER-ID (A8)
+    3 FO-LINKED-ID      (B2)
+  2 FO-DEFAULT-LOCATION
+*
+1 #FOLDER               (I4)
+1 #FOLDER-N             (N5)
+1 REDEFINE #FOLDER-N
+  2 #FOLDER-A           (A5)
+*
+1 #S-USER-FO-ID         (A10)
+1 REDEFINE #S-USER-FO-ID
+  2 #S-USER             (A8)
+  2 #S-FO-ID            (B2)
+1 #T-USER-FO-ID         (A10)
+1 REDEFINE #T-USER-FO-ID
+  2 #T-USER             (A8)
+  2 #T-FO-ID            (B2)
+*
+1 #FO-USER-NAME         (A24)
+1 REDEFINE #FO-USER-NAME
+  2 #FO-USER-ID              (A8)
+  2 #FO-NAME                 (A16)
+1 #NUMBER2                   (I4)
+1 #FO-LINKED-FO-ID           (A10)
+1 REDEFINE #FO-LINKED-FO-ID
+  2 #FO-LINKED-USER          (A8)
+  2 #FO-LINKED-ID            (B2)
+1 #GR-FOLDER-NAME            (A25)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-READ, EOM-READ-NEXT, EOM-READHOLD, EOM-READHOLD-NEXT
+    PERFORM READ-GENERAL-ATTRIBUTES
+  VALUE EOM-ADD, EOM-MODIFY
+    PERFORM MODIFY-GENERAL-ATTRIBUTES
+  NONE  IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-GENERAL-ATTRIBUTES
+************************************************************************
+#FO-USER-ID := EOMFOM-I-USER
+#FO-NAME    := EOMFOM-I-NAME
+*
+FNDFO. FIND FOLDER WITH FO-USER-NAME = #FO-USER-NAME
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0352
+    ESCAPE BOTTOM (FNDFO.)
+  END-NOREC
+  EOMFOM-ID         := FO-ID
+  EOMFOM-NAME       := FO-NAME
+  EOMFOM-MAP-LAYOUT := FO-MAP-LAYOUT
+  EOMFOM-DESC       := FO-DESC
+  EOMFOM-DEFAULT-LOCATION := FO-DEFAULT-LOCATION
+  EOMFOM-USER-ID := FO-USER-ID
+  #FOLDER-N := FO-ID
+  COMPRESS FO-USER-ID #FOLDER-A TO EOMFOM-INTERNAL-NAME LEAVING NO
+*
+  IF FO-LINKED-FO-ID NE ' '
+    LNK. FIND LINKED-FOLDER WITH FO-USER-FO-ID = FO-LINKED-FO-ID(FNDFO.)
+      IF NO RECORDS FOUND /*show user without FO name->user must act
+        EOMFOM-LINKED-FOLDER-USERID := FOLDER.FO-LINKED-USER-ID /*SU1
+        RESET EOMFOM-LINKED-FOLDER-NAME
+/*SU1     EOMFOM-LINKED-FOLDER-USERID
+        ESCAPE BOTTOM(LNK.)
+      END-NOREC
+      EOMFOM-LINKED-FOLDER-USERID := FO-USER-ID (LNK.)
+      EOMFOM-LINKED-FOLDER-NAME   := FO-NAME   (LNK.)
+    END-FIND
+  ELSE
+    RESET EOMFOM-LINKED-FOLDER-USERID EOMFOM-LINKED-FOLDER-NAME
+  END-IF
+*
+  IF EOM-FUNCTION = EOM-READHOLD OR = EOM-READHOLD-NEXT
+    UPD. GET FOLDER *ISN (FNDFO.)
+    IF FO-NAME NE FO-NAME
+      UPDATE (UPD.)
+    END-IF
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* READ-GENERAL-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-GENERAL-ATTRIBUTES
+************************************************************************
+#FO-USER-ID := EOMFOM-I-USER
+#FO-NAME    := EOMFOM-I-NAME
+RESET  #NUMBER2
+FNDMOD. FIND FOLDER WITH FO-USER-NAME = #FO-USER-NAME
+  IF NO RECORDS FOUND
+    IF EOM-FUNCTION = EOM-ADD AND
+        (#FO-NAME ='#Inbasket' OR='#Listeneingang')
+      IF #FO-NAME = '#Inbasket'
+        #FO-NAME := '#Listeneingang'
+      ELSE
+        #FO-NAME := '#Inbasket'
+      END-IF
+      FND2. FIND NUMBER FOLDER WITH FO-USER-NAME = #FO-USER-NAME
+      #NUMBER2 := *NUMBER (FND2.)
+    END-IF
+  END-NOREC
+  #FO-LINKED-FO-ID := FOLDER.FO-LINKED-FO-ID
+  IF #FO-LINKED-FO-ID = ' '
+    #FOLDER-N := FOLDER.FO-ID
+    COMPRESS FOLDER.FO-USER-ID #FOLDER-A TO #GR-FOLDER-NAME LEAVING NO
+  ELSE
+    #FOLDER-N := FOLDER.FO-LINKED-ID
+    COMPRESS FOLDER.FO-LINKED-USER-ID #FOLDER-A
+      TO #GR-FOLDER-NAME LEAVING NO
+  END-IF
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN EOM-FUNCTION =EOM-ADD AND *NUMBER (FNDMOD.) =0 AND #NUMBER2 =0
+      FO-USER-ID := #FO-USER-ID
+      FO-NAME    := #FO-NAME
+      #S-USER    := #FO-USER-ID
+      RESET  #S-FO-ID
+      #T-USER    := #FO-USER-ID
+      #T-FO-ID   := H'FFFF'
+      HISTOGRAM NEW-FOLDER FOR FO-USER-FO-ID FROM #S-USER-FO-ID
+      THRU #T-USER-FO-ID                                              /*
+        #FOLDER := FO-NEWID
+      END-HISTOGRAM
+      IF #FOLDER < 100
+        #FOLDER := 100
+      END-IF
+      ADD 1 TO #FOLDER
+      FO-ID := #FOLDER
+      EOMFOM-ID := #FOLDER
+    WHEN EOM-FUNCTION=EOM-ADD AND (*NUMBER(FNDMOD.) > 0 OR #NUMBER2 > 0)
+      EOMMSG-NR := 0353
+      ESCAPE BOTTOM (FNDMOD.)
+    WHEN EOM-FUNCTION = EOM-MODIFY AND *NUMBER (FNDMOD.) = 0
+      EOMMSG-NR := 0352
+      ESCAPE BOTTOM (FNDMOD.)
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+*
+  IF *NUMBER (FNDMOD.) > 0
+    GETMOD. GET FOLDER *ISN (FNDMOD.)
+  END-IF
+*
+  FOLDER.FO-DESC             := EOMFOM-DESC
+  FOLDER.FO-MAP-LAYOUT       := EOMFOM-MAP-LAYOUT
+  FOLDER.FO-DEFAULT-LOCATION := EOMFOM-DEFAULT-LOCATION
+*
+  IF EOMFOM-LINKED-FOLDER-USERID = ' '
+    RESET FOLDER.FO-LINKED-FO-ID
+  ELSE
+    #FO-USER-ID := EOMFOM-LINKED-FOLDER-USERID
+    #FO-NAME    := EOMFOM-LINKED-FOLDER-NAME
+    FNDLFO. FIND LINKED-FOLDER WITH FO-USER-NAME = #FO-USER-NAME
+      IF NO RECORDS FOUND
+        EOMMSG-NR         := 0352   /* linked folder not exist
+        EOMMSG-FIELD-NAME := 'EOMFOM-LINKED-FOLDER-NAME'
+        ESCAPE ROUTINE
+      END-NOREC
+*
+      IF LINKED-FOLDER.FO-LINKED-USER = EOMFOM-I-USER
+      AND LINKED-FOLDER.FO-LINKED-ID   = FOLDER.FO-ID                 /*
+        EOMMSG-NR         := 0357
+        EOMMSG-FIELD-NAME := 'EOMFOM-LINKED-FOLDER-NAME'
+        ESCAPE ROUTINE
+      END-IF
+      FOLDER.FO-LINKED-USER-ID := LINKED-FOLDER.FO-USER-ID
+      FOLDER.FO-LINKED-ID      := LINKED-FOLDER.FO-ID
+    END-FIND
+  END-IF
+*
+  IF *NUMBER (FNDMOD.)=0 AND #NUMBER2=0
+    STOFO. STORE FOLDER
+  ELSE
+    UPDATE (GETMOD.)
+  END-IF
+*
+END-FIND
+* BLI NOMALL-1963 Former logic deleted: CHECK-FOLDERS routine counted
+* the amount of links. If no links exist the authorization was deleted.
+END-SUBROUTINE /* MODIFY-GENERAL-ATTRIBUTES
+* --------------------------------------- on error ---------------------
+INCLUDE C-EOMERR
+*
+END

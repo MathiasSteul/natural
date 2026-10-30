@@ -1,0 +1,190 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMVIST3 (template: NOMVISTA)
+* Function  List records for Adabas Vista (via DE XH=OBJECT-TIME)
+* Version   3.4
+* Active report related object types: AB BC AC AR MA FS
+*
+* Maintenance:
+* uuu     yyyy-mm-dd itrac ....
+* SU1     2018-06-19 NOMALL-2117 created
+* ----------------------------------------------------------------------
+DEFINE DATA LOCAL
+1 VISTA VIEW OF NRM-VISTA
+  2 OBJECT-TIME
+  2 OBJECT-TYPE (A10)
+* 2 OBJECT-TYPE-TIME (A17) /*old super-deÜÜ XI
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+1 AB VIEW OF NRM-ACTIVE-BUNDLES
+1 SR VIEW OF NRM-ACTIVE-BUNDLES
+* *****
+1 #N-HEADER
+  2 MAIN-LINE        (A78)
+  2 DATE-FORMAT      (A1)
+  2 MAP-NAME         (A8) INIT <*PROGRAM>
+1 #FROM-TIME         (T)
+1 #THRU-TIME         (T)
+1 #DATE-FROM         (T)
+1 #DATE-THRU         (T) INIT <*TIMX>
+1 #OBJ-NR            (I2) CONST <200>
+1 #TAB               (0:#OBJ-NR)
+  2 #OBJ-CNT         (P10) /*format of *NUMBER
+  2 #OBJ-T           (A10) /*only 2 bytes should be used
+  2 #OBJ-N           (A20)
+  2 #OBJ-TIME-FIRST  (T)
+  2 #OBJ-TIME-LAST   (T)
+  2 #OBJ-CNT-ALL     (P10) /*read objects without XH
+1 #TIT2              (A55)
+  CONST <'* List data for descriptor XH (Adabas Vista)LFILE 91 *' >
+1 #I                 (I2)
+1 #I1                (I2)
+1 #IGN-EMPTY         (L) INIT <TRUE>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT SG=OFF
+SET KEY ALL
+WRITE TITLE 2T MAIN-LINE (AD=OI CD=GR DY=<TU>)
+  / 12T #TIT2 70T 'Page:' *PAGE-NUMBER (NL=3) /
+*
+#REP. REPEAT
+  CALLNAT 'N-HEADER' #N-HEADER
+  RESET *PAGE-NUMBER
+  PERFORM #INIT
+*
+  INPUT (AD=MILT'_' IP=OFF) 2T MAIN-LINE (AD=OI CD=GR DY=<TU>) /
+    12T #TIT2 (AD=O) 70T *PROGRAM (AD=DO)//
+    'Date from ....................:' #DATE-FROM
+    (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS) /
+    'Date thru ....................:' #DATE-THRU
+    (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS) /
+    'Show used objeyt types only ..:' #IGN-EMPTY (EM='N'/'Y') '(Y/N)' //
+    'Possible object types:' /
+    #OBJ-T (01)(AD=O AL=2) #OBJ-N (01)(AD=O)
+    #OBJ-T (02)(AD=O AL=2) #OBJ-N (02)(AD=O)
+    #OBJ-T (03)(AD=O AL=2) #OBJ-N (03)(AD=O) /
+    #OBJ-T (04)(AD=O AL=2) #OBJ-N (04)(AD=O)
+    #OBJ-T (05)(AD=O AL=2) #OBJ-N (05)(AD=O)
+    #OBJ-T (06)(AD=O AL=2) #OBJ-N (06)(AD=O) /
+    #OBJ-T (07)(AD=O AL=2) #OBJ-N (07)(AD=O)
+    #OBJ-T (08)(AD=O AL=2) #OBJ-N (08)(AD=O)
+    #OBJ-T (09)(AD=O AL=2) #OBJ-N (09)(AD=O) /
+    #OBJ-T (10)(AD=O AL=2) #OBJ-N (10)(AD=O)
+    #OBJ-T (11)(AD=O AL=2) #OBJ-N (11)(AD=O)
+    #OBJ-T (12)(AD=O AL=2) #OBJ-N (12)(AD=O) /
+    #OBJ-T (13)(AD=O AL=2) #OBJ-N (13)(AD=O)
+    #OBJ-T (14)(AD=O AL=2) #OBJ-N (14)(AD=O)
+    21/1 'End with PF3'
+  IF *PF-KEY NE 'ENTR'
+    ESCAPE MODULE
+  END-IF
+  IF #DATE-FROM GE #DATE-THRU
+    REINPUT 'Date from must be less than Date thru.' MARK *#DATE-FROM
+  END-IF
+************************************************************************
+  #FROM-TIME := #DATE-FROM
+  #THRU-TIME := #DATE-THRU
+* *****
+  R. READ VISTA BY OBJECT-TIME = #FROM-TIME THRU #THRU-TIME
+    EXAMINE FULL #OBJ-T (*) FOR FULL OBJECT-TYPE GIVING INDEX #I
+    IF #I = 0 AND OBJECT-TYPE NE ' ' /*last entry must be emptyÜ
+      EXAMINE FULL #OBJ-T (1:#OBJ-NR) FOR FULL #OBJ-T(0) GIVING INDEX #I
+      #OBJ-T (#I) := OBJECT-TYPE
+      #OBJ-N (#I) := #OBJ-N (0)
+    END-IF
+    ADD 1 TO #OBJ-CNT (#I)
+    IF #OBJ-TIME-FIRST (#I) = 0 OR #OBJ-TIME-FIRST (#I) > OBJECT-TIME
+      #OBJ-TIME-FIRST (#I) := OBJECT-TIME
+    END-IF
+    IF #OBJ-TIME-LAST (#I) = 0 OR #OBJ-TIME-LAST (#I) < OBJECT-TIME
+      #OBJ-TIME-LAST (#I) := OBJECT-TIME
+    END-IF
+  END-READ
+  PERFORM #WRITE
+************************************************************************
+  IF *DEVICE = 'BATCH'
+    ESCAPE MODULE
+  END-IF
+END-REPEAT /*(#REP.)
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE #INIT
+************************************************************************
+RESET #I #I1 #TAB(*)
+#OBJ-N (0) := '<< unknown >>'
+ADD 1 TO #I #OBJ-T(#I):='AB' #OBJ-N(#I):='ACTIVE-BUNDLES'
+ADD 1 TO #I #OBJ-T(#I):='AC' #OBJ-N(#I):='REPORT-CONTENTS'
+ADD 1 TO #I #OBJ-T(#I):='AR' #OBJ-N(#I):='ACTIVE-REPORTS'
+ADD 1 TO #I #OBJ-T(#I):='AD' #OBJ-N(#I):='ARCHIVE-DATASET'
+ADD 1 TO #I #OBJ-T(#I):='BC' #OBJ-N(#I):='BUNDLE-CONTENTS'
+ADD 1 TO #I #OBJ-T(#I):='DR' #OBJ-N(#I):='DATASET-REPORT'
+ADD 1 TO #I #OBJ-T(#I):='FN' #OBJ-N(#I):='FILE-NAMES'
+ADD 1 TO #I #OBJ-T(#I):='FS' #OBJ-N(#I):='FILED-SYSOUTS'
+ADD 1 TO #I #OBJ-T(#I):='MA' #OBJ-N(#I):='MAIL'
+ADD 1 TO #I #OBJ-T(#I):='PO' #OBJ-N(#I):='PRINTOUTS'
+ADD 1 TO #I #OBJ-T(#I):='SE' #OBJ-N(#I):='SESSIONS'
+ADD 1 TO #I #OBJ-T(#I):='SR' #OBJ-N(#I):='SOURCE'
+ADD 1 TO #I #OBJ-T(#I):='SS' #OBJ-N(#I):='STATISTICS'
+ADD 1 TO #I #OBJ-T(#I):='SI' #OBJ-N(#I):='SUBTASK-INFO'
+*
+END-SUBROUTINE /* #INIT
+*
+************************************************************************
+DEFINE SUBROUTINE #WRITE
+************************************************************************
+FOR #I = 0 TO #OBJ-NR
+  DECIDE ON FIRST #OBJ-T (#I)
+    VALUE 'AB' /*'ACTIVE-BUNDLES'
+      #AB. FIND NUMBER AB WITH AB-BUNDLE-RNB > ' '
+      #OBJ-CNT-ALL (#I) := *NUMBER (#AB.)
+**VALUE 'AC' /*'REPORT-CONTENTS'
+    VALUE 'AR' /*'ACTIVE-REPORTS'
+      #AR. FIND NUMBER AR WITH AR-REPORT-RNB > ' '
+      #OBJ-CNT-ALL (#I) := *NUMBER (#AR.)
+**VALUE 'AD' /*'ARCHIVE-DATASET'
+**VALUE 'BC' /*'BUNDLE-CONTENTS'
+**VALUE 'DR' /*'DATASET-REPORT'
+**VALUE 'FN' /*'FILE-NAMES'
+**VALUE 'FS' /*'FILED-SYSOUTS'
+**VALUE 'MA' /*'MAIL'
+**VALUE 'PO' /*'PRINTOUTS'
+**VALUE 'SE' /*'SESSIONS'
+**VALUE 'SR' /*'SOURCE'
+**    #SR. FIND NUMBER SR WITH SR-ID > 0
+**    #OBJ-CNT-ALL (#I) := *NUMBER (#SR.)
+**VALUE 'SS' /*'STATISTICS'
+**VALUE 'SI' /*'SUBTASK-INFO'
+    NONE IGNORE
+  END-DECIDE
+  IF #OBJ-T (#I) = ' ' AND #OBJ-CNT (#I) = 0
+  OR (#IGN-EMPTY AND #OBJ-CNT (#I) = 0 AND #OBJ-CNT-ALL (#I)= 0)      /*
+    ESCAPE TOP
+  END-IF
+  ADD 1 TO #I1
+  DISPLAY ' ' #I1 (NL=3) 'T' #OBJ-T (#I) (AL=2) 'Name' #OBJ-N (#I)
+    'records' #OBJ-CNT (#I)
+    'First' #OBJ-TIME-FIRST (#I) (EM=YYYY'-'MM'-'DD) /* 'HH':'II':'SS)
+    'Last' #OBJ-TIME-LAST (#I) (EM=YYYY'-'MM'-'DD) /* 'HH':'II':'SS)
+    'all'  #OBJ-CNT-ALL (#I)(ZP=OFF)
+  IF SUBSTR(#OBJ-T(#I),3) NE ' '
+    WRITE 'Object Type:' #OBJ-T (#I)
+  END-IF
+END-FOR
+WRITE '--- -- -------------------- ---------- ---------- ----------'
+WRITE 'total:' T*#OBJ-CNT *COUNTER (R.)
+WRITE / '*** End of Report ***'
+*
+END-SUBROUTINE /* #WRITE
+*
+END

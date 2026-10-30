@@ -1,0 +1,267 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* C-NATERN - Standard ON-ERROR Routine. Substitutes:
+*   "COMPRESS *ERROR-NR '/' *PROGRAM '/' *ERROR-LINE TO variable"
+*   where: variable is represented by #ERROR-MSG
+*
+* Maintenance
+* uuuuuu yyyy-mm-dd s(999999) ...
+* fhi    2007-07-12           created from C-NATERR, because changes in
+*                             PRODINFO would cause to recatalog all
+*                             modules using C-NATERR.
+* fhi    2005-08-29 p(266530) Make monitor independent from NPR MF
+* fhi    2007-06-14 NOM32     Compress IUPD level into msg, shorten msg.
+* fhi    2007-11-09 FHI241    Show Natural call stack
+* fhi    2008-05-13 FHI253    Improve error line
+* fhi    2008-10-30 P309557   Avoid usage of PRODINFO, use NATF0400 instead.
+* fhi    2008-12-09 P309884   Avoid usage of PRODINFO, use NATF0400 instead.
+* fhi    2009-02-27 P300323   Rename RGETSTEP to NOMGSTEP delivered in SYSTEM
+* fhi    2009-05-28 P317285   Replace NOMVER with NOMVI
+* fhi    2010-09-03 NOMALL-97 Call RMRDCDSP with correct trace variable
+* fhi    2010-09-03 NOMALL-97 Extend message line
+* fhi    2010-09-21 NOMALL-97 Modernize error reading, use new RLOG
+* fhi    2010-10-06 NOMALL-97 Modernize error reading, use new RLOG
+* fhi    2012-05-02 NOMALL-1118 Correct error output
+* fhi    2012-06-20 NOMALL-1067 Add cat date of object to error output
+*                               partly rewritten for NOM 3.4, no tags.
+* splildav 2012-09-09 NOMALL-94 Service-pack is A4
+* fhi      2012-09-13 NOMALL-94 Show version with NOMVER
+* raya    2013-03-17  NOMALL-1214 check cat date of useres
+* fhi     2013-07-10  NOMALL-1251 Add xml string for NAT8311
+* fhi     2014-07-17  NOMALL-1430 Extend error message for NAT8312
+* fhi     2015-06-24  NOMALL-1573 Get Lastmsg infos
+* SU1     2015-12-04 NOMALL-1779 switch to avoid lastmsg
+* fhi      2016-04-15 NOMALL-1837 Introduce +DEVICE for testing
+* fhi      2017-01-06 NOMALL-1961 Improve error handling
+* fhi      2018-05-11 NOMALL-1621 Handle Network error 224
+* fhi      2018-10-02 NOMALL-1621 Handle node down, NAT5999, too
+* fhi      2019-09-16 NOMALL-2294 Call RMLEVEL with desired log-type
+* SU2     2020-04-07 NOMALL-2349 ON ERROR: show full msg
+* SU3     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU4     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* ---------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #ERROR-MSG (A253) BY VALUE RESULT
+1 #WRITE-LOG (A1)   OPTIONAL
+1 #XML       (A)    DYNAMIC BY VALUE  OPTIONAL
+1 #LASTMSG   (L)    OPTIONAL
+************************************************************************
+LOCAL USING NOMVER-A
+INDEPENDENT
+1 +DEVICE              (A8)
+1 +G-TASK-NUMBER       (I1)
+1 +NOD-CURRENT-ID      (A20)
+1 +NOD-LOCAL-ID        (A20)
+************************************************************************
+LOCAL USING RLOG-L
+LOCAL USING RMTASK-P
+LOCAL
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU3
+  2 MF-TYPE
+  2 MF-MONITOR-ID
+1 NAT23010_PARMS
+  2 ERR_NUM            (I4)
+  2 ERR_LINE           (I4)
+  2 ERR_PROGRAM        (A32)
+  2 ERR_LIB            (A32)
+  2 ERR_DBID           (I4)
+  2 ERR_FNR            (I4)
+  2 ERR_TIME           (T)
+  2 ERR_PGM_TYPE       (A1)
+  2 ERR_PGM_TYPE_LONG  (A11)
+  2 ERR_LANG           (I4)
+  2 ERR_LEVEL          (I4)
+  2 ERR_CLASS          (I1)
+  2 ERR_TYPE           (I1)
+  2 ERR_MSG_TYPE       (I1)
+  2 ERR_FILLER         (A30)
+*
+1 PARA-NAT42020
+  2 P-ERROR-NUMBER     (N4)
+  2 REDEFINE P-ERROR-NUMBER
+    3 ERROR-A4         (A4)
+  2 P-LANG-CODE        (I1)
+  2 P-ERROR-TEXT       (A250)
+  2 REDEFINE P-ERROR-TEXT
+    3 P-ERROR-SHORT    (A78)
+  2 P-RETURN-CODE      (N1)
+1 XXNATDIR
+  2 P-LIBRARY          (A8)
+  2 P-MODULE           (A8)
+  2 P-LEVEL            (N2)
+  2 P-DIRECTORY
+    3 M-SA-DATE        (A10)
+    3 M-SA-TIME        (A8)
+    3 M-SA-TIMESTAMP   (T)
+    3 M-SA-SIZE        (A6)
+    3 M-CA-DATE        (A10)
+    3 M-CA-TIME        (A8)
+    3 M-CA-TIMESTAMP   (T)
+    3 M-CA-BP-SIZE     (A6)
+  2 P-ERC              (N4)
+*
+1 #PRODUCT             (A3)
+1 #VERSION             (N2)
+1 #RELEASE             (N2)
+1 #SP                  (N2)
+1 #CF                  (N4)
+1 #POS                 (I4)
+1 #NUM                 (I4)
+1 #LEN                 (I4)
+1 #I                   (I4)
+1 #LINE                (A11)
+1 #LINE-N              (I4)
+1 #COL                 (A11)
+1 #COL-N               (I4)
+1 #XML-TEMP            (A) DYNAMIC
+1 #P-ERC               (N4)
+1 #LASTMSG-L           (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=133
+*
+IF #LASTMSG SPECIFIED
+  #LASTMSG-L := #LASTMSG
+END-IF
+RESET #P-ERC
+DECIDE ON EVERY VALUE OF #P-ERC
+  VALUE 0
+    PERFORM NOMCHCKP-CHECK-PROG 'NOMGSTEP' #P-ERC
+  VALUE 0
+    CALLNAT 'NOMGSTEP' '*' #P-ERC
+  VALUE 0
+    #PRODUCT := 'EOM'
+    PERFORM NOMCHCKP-CHECK-PROG 'NOMVER-N' #P-ERC
+  VALUE 0
+    CALLNAT 'NOMVER-N' NOMVER-PARMS
+    #VERSION := NOMVER-VERSION
+    #RELEASE := NOMVER-RELEASE
+    #SP      := NOMVER-SP
+    #CF      := NOMVER-CF
+    PERFORM NOMCHCKP-CHECK-PROG 'NAT23010' #P-ERC
+  VALUE 0
+    CALLNAT 'NAT23010' NAT23010_PARMS
+    RESET P-LANG-CODE                 /* use *LANGUAGE
+    P-ERROR-NUMBER := ERR_NUM
+    PERFORM NOMCHCKP-CHECK-PROG 'NAT42020' #P-ERC
+  VALUE 0
+    CALLNAT 'NAT42020' P-ERROR-NUMBER P-LANG-CODE P-ERROR-TEXT
+      P-RETURN-CODE
+    P-LIBRARY    := ERR_LIB
+    P-MODULE     := ERR_PROGRAM
+    PERFORM XXNATDIR-GETDIR XXNATDIR /* #P-ERC
+  VALUE 0
+    IF (ERR_LIB NE MASK ('SYSNOM') AND ERR_LIB NE MASK ('NOM3'))
+    OR ERR_LIB = 'SYSNOMU'                                            /*
+      COMPRESS ERR_LIB '/' ERR_PROGRAM '/' #VERSION #RELEASE #SP #CF
+        '/' ERR_LINE '/' ERR_NUM '?' TO #ERROR-MSG LEAVING NO
+    ELSE
+      COMPRESS ERR_PROGRAM '/' #VERSION #RELEASE #SP #CF '/'
+        SUBSTR(M-CA-DATE,3,2) SUBSTR(M-CA-DATE,6,2)
+        SUBSTR(M-CA-DATE,9,2) '/' ERR_LINE '/' ERR_NUM '?'
+        TO #ERROR-MSG LEAVING NO
+    END-IF
+    IF ERR_NUM = 3224 OR = 5999 OR = 3148 /* NETWORK error or node down
+    AND +NOD-CURRENT-ID NE +NOD-LOCAL-ID                              /*
+      UPD-MON. FIND MF-NODE WITH MF-MONITOR-ID = +NOD-CURRENT-ID
+        MF-TYPE := F#SUSP(<MF-MONITOR-ID,MF-TYPE,ERR_NUM>)
+        UPDATE (UPD-MON.)
+        END TRANSACTION
+      END-FIND
+    END-IF
+/* Show the location where an xml error occurred.
+    IF #XML SPECIFIED AND ERR_NUM = 8311 /* (XML parsing error)
+      EXAMINE P-ERROR-TEXT FOR 'line' GIVING POSITION IN #POS
+      IF #POS NE 0
+        RESET #LINE-N #COL-N
+        SEPARATE SUBSTR(P-ERROR-TEXT,#POS)
+          INTO #LINE #LINE #COL #COL #COL IGNORE
+        DECIDE FOR EVERY CONDITION
+          WHEN #LINE IS (N11)
+            #LINE-N := VAL(#LINE)
+          WHEN #COL  IS (N11)
+            #COL-N  := VAL(#COL)
+          WHEN #LINE-N NE 0 AND #COL-N NE 0
+            FORXML. FOR #I = 1 TO #LINE-N /* Get the indicated line
+              IF #XML = ' '
+                RESET #COL-N
+                ESCAPE BOTTOM (FORXML.)
+              END-IF
+              SEPARATE #XML INTO #XML-TEMP REMAINDER #XML
+                WITH DELIMITERS H'0A'
+            END-FOR
+          WHEN #COL-N NE 0
+            EXAMINE #XML-TEMP FOR ' ' GIVING LENGTH IN #LEN
+            #POS := #COL-N - 19   /* 20 cols before error location
+            IF #POS < 1
+              #POS := 1
+            END-IF
+            #NUM := 30           /* 20 cols after error location
+            IF #NUM + #POS - 1 > #LEN
+              #NUM := #LEN - #POS + 1
+            END-IF
+            COMPRESS #ERROR-MSG
+              '?At:?''...' SUBSTR(#XML-TEMP,#POS,#NUM) '...'''
+              TO #ERROR-MSG LEAVING NO
+          WHEN NONE
+            IGNORE
+        END-DECIDE
+      END-IF
+    END-IF
+  VALUE 0
+    PERFORM XXLASTMS #ERROR-MSG #P-ERC #LASTMSG-L
+  VALUE 0
+    EXAMINE #ERROR-MSG FOR '?' REPLACE ' '
+    PERFORM NOMCHCKP-CHECK-PROG 'RLOG' #P-ERC
+  VALUE 0
+    IF #WRITE-LOG SPECIFIED
+      IF #ERROR-MSG NE MASK (NNNN) AND #ERROR-MSG NE MASK ('NOM'NNNN)
+        COMPRESS 'NOM0021' #ERROR-MSG TO #ERROR-MSG
+      END-IF
+      IF +DEVICE NE 'BATCH'
+        LG-USERID   := *USER
+      ELSE
+        RMTASK-P.FUNCTION       := 'L'
+        RMTASK-P.SUBTASK-NUMBER := +G-TASK-NUMBER
+        CALLNAT 'RMTASKID' RMTASK-P
+        LG-USERID               := RMTASK-P.TASK-ID
+      END-IF
+      LG-CODE     := 'MO'
+      LG-MSG      := #ERROR-MSG
+      LG-FUNCTION := #WRITE-LOG
+      CALLNAT 'RLOG' PL-PARMS
+    END-IF
+  ANY
+    IF #P-ERC NE 0
+      COMPRESS *ERROR-NR '/' *PROGRAM '/' *ERROR-LINE TO #ERROR-MSG
+    END-IF
+  NONE
+    IGNORE
+END-DECIDE
+IF *MACHINE-CLASS = 'MAINFRAME'
+  FETCH RETURN 'RMRDCDSP'  /* Display RDC statistics in batch
+*
+END-IF
+IF +DEVICE = 'BATCH'
+  FETCH RETURN 'RMLEVEL' 'W'
+END-IF
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  COMPRESS 'Error in error routine:' *ERROR-NR '/' *PROGRAM '/'
+    *ERROR-LINE TO #ERROR-MSG
+  PRINT #ERROR-MSG
+  ESCAPE ROUTINE /*ÜÜ Caller must handle it ÜÜ
+*
+END-ERROR
+*
+END

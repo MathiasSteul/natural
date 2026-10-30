@@ -1,0 +1,416 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RXREF
+* Version   2.1
+* Function  Cross reference user-exit and separator usage
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* sju 00-10-11 p(191368) created
+* SU1 2015-01-09 NOMALL-1548 invoke map language dependent
+* SU2     2016-08-02 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* GGS01 2021-08-05 NOMALL-2453 Update Object Prefix/Name
+* GGS02 2021-08-16 NOMALL-2453 fix length for NAT41002
+* GGS03 2021-08-17             Variable wildcard chars, bug fix
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  NRM-GL
+* -----------------------------LDA's------------------------------------
+LOCAL  USING  RPFK---L
+LOCAL  USING  XXGMSG-A
+LOCAL USING N-41002L
+* -----------------------------local Variables--------------------------
+LOCAL
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-EXITLIB
+  2 R-EXITMEM
+  2 R-SEPMEM
+1 NRM-PRINTERS VIEW OF NRM-PRINTERS
+  2 P-ID
+  2 P-EXITLIB
+  2 P-EXITMEM
+1 NRM-BUNDLES VIEW OF NRM-BUNDLES
+  2 B-BUNDLE
+  2 B-SEPMEM
+*
+1 #USER                      (A8)
+1 CV-MAP                     (C) INIT < (AD=I CD=NE)>
+1 L-HEADER                   (A78)
+1 L-OBJECT-TYPE              (A1)
+1 L-OBJECT-PREFIX            (A25) INIT <'*'>
+1 L-EXIT-LIBRARY             (A25)
+1 L-EXIT-MEMBER              (A25)
+1 L-EXIT-TYPE                (A1)
+1 L-PRINT-OUTPUT             (A1) INIT <'N'>
+1 L-SEPARATOR-NAME           (A25)
+1 L-OBJECT                   (A25/1:15)
+1 L-EXITNAME                 (A17/1:15)
+1 REDEFINE L-EXITNAME
+  2 L-EXIT-REDEF             (1:15)
+    3 L-EXIT-A               (A8)
+    3 L-SPARE                (A1)
+    3 L-EXIT-B               (A8)
+1 #OBJ-INDEX                 (I4)
+*** For selection
+1 #LEN                       (N3)
+1 #OBJECT-FROM               (A25)
+1 #OBJECT-TO                 (A25)
+1 #LIBRARY-FROM              (A25)
+1 #LIBRARY-TO                (A25)
+1 #MEMBER-FROM               (A25)
+1 #MEMBER-TO                 (A25)
+1 #SEPARATOR-FROM            (A25)
+1 #SEPARATOR-TO              (A25)
+1 #ADACALL-COUNT             (I4)
+1 #MAX-ADACALLS              (I4) CONST <1000>
+1 #FATHER-PROG               (A8) INIT <'RMENU'>
+1 #LANGUAGE                  (I1)
+1 #SEPMEM                    (A16)
+1 REDEFINE #SEPMEM
+  2 #SEPSTART                (A8)
+  2 #SEPEND                  (A8)
+*
+1 #KEY-MASK                  (A25)    /* GGS01 >
+1 #KEY-LEN                   (I2)
+1 #USE-AS-START-VALUE        (L)      /* < GGS01
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+/*SU2 OPTIONS MCG=OFF
+*
+DEFINE WINDOW WORKING-WAIT SIZE 5*40 BASE 08/15 CONTROL SCREEN
+*
+FORMAT (1) PS=60 LS=80
+*
+AT TOP OF PAGE (1)
+  IF L-EXIT-TYPE = 'S'
+    WRITE (1) NOTITLE NOHDR 30T 'Reports using Exit' //
+      'Report Name' 30T 'Library' 40T 'Member' /
+  ELSE
+    IF L-EXIT-TYPE = 'P'
+      WRITE (1) NOTITLE NOHDR 30T 'Printers using Exit' //
+        'Printer Name' 30T 'Library' 40T 'Member' /
+    ELSE
+      IF L-OBJECT-TYPE = 'R'
+        WRITE (1) NOTITLE NOHDR 27T 'Reports using Separator' //
+          'Report Name' 30T 'Start' 40T 'End' /
+      ELSE
+        IF L-OBJECT-TYPE = 'B'
+          WRITE (1) NOTITLE NOHDR 27T 'Bundles using Separator' //
+            'Bundle Name' 30T 'Start' 40T 'End' /
+        END-IF
+      END-IF
+    END-IF
+  END-IF
+END-TOPPAGE
+RESET G-COMMIT
+CALLNAT 'RGETLIB' #XX-ERROR-APPL
+*
+#USER:= G-USERID
+*
+MAIN-LOOP. REPEAT
+*
+  RESET G-NATRP-ERC G-NATRP-ERT
+  SCREEN-LOOP. REPEAT
+*
+    IF #LANGUAGE NE *LANGUAGE
+      #LANGUAGE := *LANGUAGE
+      PERFORM INIT-PFKEYS
+      PERFORM SET-PFKEYS
+    END-IF
+*
+    PERFORM FLIP-DISPLAY
+    SET CONTROL 'L'
+    SET CONTROL 'WB'
+    CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RXREFM1&'
+    RESET G-MAP-MODIFIED
+*
+    INPUT WITH TEXT G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RXREFM1&'
+    RESET G-NATRP-ERC G-NATRP-ERT
+    INCLUDE RPFKVA-C
+    INCLUDE C-DIRECT
+    DECIDE ON FIRST VALUE OF G-PF-FUNC
+      VALUE 'HELP'     REINPUT USING HELP
+      VALUE 'EXIT'     ESCAPE BOTTOM(MAIN-LOOP.)
+      VALUE 'FLIP'     PERFORM FLIP-HANDLE
+        ESCAPE BOTTOM(SCREEN-LOOP.)
+      VALUE 'MENU'     ESCAPE BOTTOM(MAIN-LOOP.)
+      ANY     RESET G-DIRECT-COMMAND
+      NONE    IGNORE
+    END-DECIDE
+    PERFORM VALIDATE-INPUT
+    RESET #ADACALL-COUNT
+    CLOSE PRINTER (1)
+*
+  END-REPEAT
+*
+END-REPEAT
+IF G-PF-FUNC = 'MENU'
+  FETCH #FATHER-PROG
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*                                        GGS01 >>
+DEFINE SUBROUTINE HANDLE-MASK
+************************************************************************
+IF #KEY-MASK NE ' '
+  /* NAT41002-FIELD  := L-OBJECT-PREFIX                  /* GGS03
+  EXAMINE NAT41002-FIELD FOR ' ' LENGTH NAT41002-LENGTH  /* GGS02
+  NAT41002-MASK   := #KEY-MASK
+  /* NAT41002-LENGTH := #KEY-LEN                            GGS02
+  CALLNAT 'NAT41002' #NAT41002
+  IF NAT41002-MATCHED NE 'Y'
+    ESCAPE TOP /*to READ-loop
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* HANDLE-MASK
+*                                        << GGS01
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+IF L-EXIT-TYPE NE ' '
+  IF L-EXIT-TYPE = 'S' OR = 'P'
+    IF L-OBJECT-TYPE NE ' '
+      REINPUT *0180 MARK *L-EXIT-TYPE
+    END-IF
+  ELSE
+    REINPUT *0181 MARK *L-EXIT-TYPE
+  END-IF
+  IF L-PRINT-OUTPUT = 'Y' OR = 'N'
+    PERFORM XREF-EXITS
+  ELSE
+    REINPUT *0183 MARK *L-PRINT-OUTPUT
+  END-IF
+ELSE
+  IF L-OBJECT-TYPE NE 'R' AND L-OBJECT-TYPE NE 'B'
+    REINPUT *0182 MARK *L-OBJECT-TYPE
+  ELSE
+    IF L-PRINT-OUTPUT = 'Y' OR = 'N'
+      PERFORM XREF-SEPARATORS
+    ELSE
+      REINPUT *0183 MARK *L-PRINT-OUTPUT
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE XREF-EXITS
+************************************************************************
+* Init selection keys
+#LEN:= 8
+CALLNAT 'SELALPHA' L-EXIT-LIBRARY #LIBRARY-FROM #LIBRARY-TO #LEN
+CALLNAT 'SELALPHA' L-EXIT-MEMBER #MEMBER-FROM #MEMBER-TO #LEN
+IF L-EXIT-TYPE = 'S'
+  IF G-DISPLAY-LONG-NAMES
+    #LEN:= 25
+  ELSE
+    #LEN:= 17
+  END-IF
+END-IF
+*                                                      GGS01 >
+* CALLNAT 'SELALPHA' L-OBJECT-PREFIX #OBJECT-FROM #OBJECT-TO #LEN
+CALLNAT 'SELALPH2' L-OBJECT-PREFIX #OBJECT-FROM #OBJECT-TO #KEY-MASK
+  #KEY-LEN '*' '?' #USE-AS-START-VALUE                 /* GGS03
+*                                                      < GGS01
+IF L-EXIT-TYPE = 'S'
+  REPEXITS. READ REPORTS BY R-REPNAME STARTING FROM #OBJECT-FROM
+     THRU #OBJECT-TO                                   /* GGS01 >
+    /* IF R-REPNAME GT #OBJECT-TO
+    /*   ESCAPE BOTTOM
+    /* END-IF
+    NAT41002-FIELD := R-REPNAME                        /* GGS03
+    PERFORM HANDLE-MASK
+    /*                                                 < GGS01
+    PERFORM CHECK-ADACALLS
+    IF R-EXITMEM = ' '
+      ESCAPE TOP
+    END-IF
+    IF R-EXITMEM = #MEMBER-FROM THRU #MEMBER-TO
+        AND R-EXITLIB = #LIBRARY-FROM THRU #LIBRARY-TO
+      IF L-PRINT-OUTPUT = 'Y'
+        WRITE (1) NOTITLE NOHDR R-REPNAME 30T R-EXITLIB 40T R-EXITMEM
+      ELSE
+        ADD 1 TO #OBJ-INDEX
+        L-OBJECT(#OBJ-INDEX)  := R-REPNAME
+        L-EXIT-A(#OBJ-INDEX)  := R-EXITLIB
+        L-EXIT-B(#OBJ-INDEX)  := R-EXITMEM
+        IF #OBJ-INDEX GE 15
+          PERFORM OBJECT-WINDOW
+          IF *PF-KEY = 'PF3'
+            ESCAPE ROUTINE
+          END-IF
+        END-IF
+      END-IF
+    END-IF
+  END-READ
+ELSE
+  PRTEXITS. READ NRM-PRINTERS BY P-ID STARTING FROM #OBJECT-FROM
+     THRU #OBJECT-TO                                   /* GGS01 >
+    /* IF P-ID GT #OBJECT-TO
+    /*   ESCAPE BOTTOM
+    /* END-IF
+    NAT41002-FIELD := P-ID                             /* GGS03
+    PERFORM HANDLE-MASK
+    /*                                                 < GGS01
+    PERFORM CHECK-ADACALLS
+    IF P-EXITMEM = ' ' ESCAPE TOP END-IF
+    IF P-EXITMEM = #MEMBER-FROM THRU #MEMBER-TO
+        AND P-EXITLIB = #LIBRARY-FROM THRU #LIBRARY-TO
+      IF L-PRINT-OUTPUT = 'Y'
+        WRITE (1) NOTITLE NOHDR P-ID 30T P-EXITLIB 40T P-EXITMEM
+      ELSE
+        ADD 1 TO #OBJ-INDEX
+        L-OBJECT(#OBJ-INDEX):= P-ID
+        L-EXIT-A(#OBJ-INDEX):= P-EXITLIB
+        L-EXIT-B(#OBJ-INDEX):= P-EXITMEM
+        IF #OBJ-INDEX GE 15
+          PERFORM OBJECT-WINDOW
+          IF *PF-KEY = 'PF3'
+            ESCAPE ROUTINE
+          END-IF
+        END-IF
+      END-IF
+    END-IF
+  END-READ
+END-IF
+IF #OBJ-INDEX GT 0
+  PERFORM OBJECT-WINDOW
+END-IF
+*
+END-SUBROUTINE /* XREF-EXITS
+*
+************************************************************************
+DEFINE SUBROUTINE XREF-SEPARATORS
+************************************************************************
+* Init selection keys
+#LEN:= 8
+CALLNAT 'SELALPHA' L-SEPARATOR-NAME #SEPARATOR-FROM #SEPARATOR-TO #LEN
+IF G-DISPLAY-LONG-NAMES
+  #LEN:= 25
+ELSE
+  IF L-OBJECT-TYPE = 'B'
+    #LEN:= 8
+  ELSE
+    #LEN:= 17
+  END-IF
+END-IF
+*                                                      GGS01 >
+* CALLNAT 'SELALPHA' L-OBJECT-PREFIX #OBJECT-FROM #OBJECT-TO #LEN
+CALLNAT 'SELALPH2' L-OBJECT-PREFIX #OBJECT-FROM #OBJECT-TO #KEY-MASK
+  #KEY-LEN '*' '?' #USE-AS-START-VALUE                 /* GGS03
+*                                                      < GGS01
+IF L-OBJECT-TYPE = 'R'
+  REPSEPS. READ REPORTS BY R-REPNAME STARTING FROM #OBJECT-FROM
+    THRU #OBJECT-TO                                   /* GGS01 >
+    /* IF R-REPNAME GT #OBJECT-TO
+    /*   ESCAPE BOTTOM
+    /* END-IF
+    NAT41002-FIELD := R-REPNAME                       /* GGS03
+    PERFORM HANDLE-MASK
+    /*                                                 < GGS01
+    PERFORM CHECK-ADACALLS
+    #SEPMEM:= R-SEPMEM
+    IF #SEPMEM = ' '
+      ESCAPE TOP
+    END-IF
+    IF #SEPSTART = #SEPARATOR-FROM THRU #SEPARATOR-TO
+        OR #SEPEND = #SEPARATOR-FROM THRU #SEPARATOR-TO
+      IF L-PRINT-OUTPUT = 'Y'
+        WRITE (1) NOTITLE NOHDR R-REPNAME 30T #SEPSTART 40T #SEPEND
+      ELSE
+        ADD 1 TO #OBJ-INDEX
+        L-OBJECT(#OBJ-INDEX):= R-REPNAME
+        L-EXIT-A(#OBJ-INDEX):= #SEPSTART
+        L-EXIT-B(#OBJ-INDEX):= #SEPEND
+        IF #OBJ-INDEX GE 15
+          PERFORM OBJECT-WINDOW
+          IF *PF-KEY = 'PF3'
+            ESCAPE ROUTINE
+          END-IF
+        END-IF
+      END-IF
+    END-IF
+  END-READ
+ELSE
+  BUNSEPS. READ NRM-BUNDLES BY B-BUNDLE STARTING FROM #OBJECT-FROM
+     THRU #OBJECT-TO                                   /* GGS01 >
+     /* IF B-BUNDLE GT #OBJECT-TO
+     /*   ESCAPE BOTTOM
+     /* END-IF
+    NAT41002-FIELD := B-BUNDLE                         /* GGS03
+    PERFORM HANDLE-MASK
+    /*                                                 < GGS01
+    PERFORM CHECK-ADACALLS
+    #SEPMEM:= B-SEPMEM
+    IF #SEPMEM = ' '
+      ESCAPE TOP
+    END-IF
+    IF #SEPSTART = #SEPARATOR-FROM THRU #SEPARATOR-TO
+        OR #SEPEND = #SEPARATOR-FROM THRU #SEPARATOR-TO
+      IF L-PRINT-OUTPUT = 'Y'
+        WRITE (1) NOTITLE NOHDR B-BUNDLE 30T #SEPSTART 40T #SEPEND
+      ELSE
+        ADD 1 TO #OBJ-INDEX
+        L-OBJECT(#OBJ-INDEX):= B-BUNDLE
+        L-EXIT-A(#OBJ-INDEX):= #SEPSTART
+        L-EXIT-B(#OBJ-INDEX):= #SEPEND
+        IF #OBJ-INDEX GE 15
+          PERFORM OBJECT-WINDOW
+          IF *PF-KEY = 'PF3'
+            ESCAPE ROUTINE
+          END-IF
+        END-IF
+      END-IF
+    END-IF
+  END-READ
+END-IF
+IF #OBJ-INDEX GT 0
+  PERFORM OBJECT-WINDOW
+END-IF
+*
+END-SUBROUTINE /* XREF-SEPARATORS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-ADACALLS
+************************************************************************
+ADD 1 TO #ADACALL-COUNT
+IF #ADACALL-COUNT GE #MAX-ADACALLS
+  RESET #ADACALL-COUNT
+  SET CONTROL 'N'
+  INPUT WINDOW = 'WORKING-WAIT' (AD=OI)
+    /  'Working ...Please Wait'
+END-IF
+*
+END-SUBROUTINE /* CHECK-ADACALLS
+* --------------------------------------- object-window ----------------
+DEFINE SUBROUTINE OBJECT-WINDOW
+SET CONTROL 'WC22L50B01/35F'
+INPUT USING MAP 'RXREFM2&' /*SU1 '1' -> '&'
+RESET #OBJ-INDEX L-OBJECT(*) L-EXITNAME(*) #ADACALL-COUNT
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+* --------------------------------------- set pfkeys -------------------
+INCLUDE RPFSET-C
+*
+END

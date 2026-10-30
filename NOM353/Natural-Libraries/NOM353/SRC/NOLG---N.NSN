@@ -1,0 +1,144 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOLG---N - interface of calling RLOG from NGC
+* The values used for LG-CODE are:
+*     AB  =  Active Bundle Maintenance
+*     AR  =  Active Report Maintenance
+*     A1  =  Archive/Condense
+*     BM  =  Bundle Maintenance
+*     DM  =  Distribution List Maintenance (?)
+*     LM  =  Distribution List Maintenance
+*     ME  =  Monitor Sub Task
+*     MO  =  Monitor
+*     M2  =  Monitor Shutdown
+*     NP  =  Scan Queues
+*     OE  =  Online Error (?)
+*     PM  =  Logical Printer
+*     PR  =  Printer
+*     RM  =  Report Definition Maintenance
+*     R1  =  Revive
+*     UI  =  User Information
+*     UM  =  User Maintenance
+*     UO  =  User Logged Off
+*     US  =  User
+*     TR  =  Trace
+*
+* Maintenance:
+* XSETGGR 2012-03-07 NOMALL-1099 created
+* xsetggr 2012-03-15 NOMALL-1099 add parm to know is it message from OPO
+* SU1     2018-10-30 RLOG-P -> RLOG-L
+* --------------------------------------------------------------------
+DEFINE DATA PARAMETER USING RLOG-L
+PARAMETER
+1 P-USER-LIB           (A8)
+1 OPO-MSG              (L)  OPTIONAL
+************************************************************************
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE    (L/1:20)
+*
+LOCAL USING SAT00009
+LOCAL
+1 USER-EXITS VIEW OF NRM-MONITOR
+  2 M-USER-DEFAULTS
+  2 REDEFINE M-USER-DEFAULTS
+    3 M-NOMEXIT-ACTIVE (A1/1:20)
+1 #STEPLIB-ADDED       (L)
+1 #I                   (I2)
+1 #K                   (I2)
+1 #STEPLIB-EXIST       (L)
+1 #CURRENT-LIB         (A8)
+1 P-KIND               (A1) INIT <'C'>   /* Catalogued
+1 P-OBJECT             (A8)              /* Object name (<AA>PERM-N)
+1 P-LIBRARIES          (A8/0:8) /* Out   Appl library and 8 steplibs
+1 P-OBJ-FOUND          (A8/0:8) /* Out   Oject name if found
+1 P-ERT                (A70)    /* Out   Message in case of error
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FIND (1) USER-EXITS WITH M-MONITOR-ID = 'API-DEFS'
+  FOR #K 1 20
+    IF M-NOMEXIT-ACTIVE (#K) = 'Y'
+      +G-NOMEXIT-ACTIVE (#K) := TRUE
+    ELSE
+      +G-NOMEXIT-ACTIVE (#K) := FALSE
+    END-IF
+  END-FOR
+END-FIND
+*
+IF OPO-MSG NOT SPECIFIED OR (OPO-MSG SPECIFIED AND NOT OPO-MSG)
+  IF +G-NOMEXIT-ACTIVE(4) OR +G-NOMEXIT-ACTIVE(10)
+    PERFORM GET-CURRENT-LIB
+    PERFORM ADD-STEPLIB
+  END-IF
+ELSE
+  RESET #STEPLIB-ADDED
+END-IF
+CALLNAT 'RLOG' PL-PARMS
+*
+IF #STEPLIB-ADDED
+  PERFORM REMOVE-STEPLIB
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-CURRENT-LIB
+************************************************************************
+P-OBJECT := 'ES-SLO-N'
+CALLNAT 'ES-SLO-N' P-KIND P-OBJECT
+  P-LIBRARIES (0:8) P-OBJ-FOUND (0:8) P-ERT
+FOR #I = 0 TO 8
+  IF P-OBJ-FOUND (#I) = P-OBJECT
+    #CURRENT-LIB := P-LIBRARIES (#I)
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* GET-CURRENT-LIB
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-STEPLIB
+************************************************************************
+RESET NAT00009-RESPONSE
+*
+CALLNAT 'RLIBACT' P-USER-LIB #STEPLIB-EXIST #CURRENT-LIB
+IF NOT #STEPLIB-EXIST
+  NAT00009-LIBRARY  := P-USER-LIB
+  RESET  NAT00009-FNR NAT00009-DBID
+  NAT00009-APPLIC   := #CURRENT-LIB
+  NAT00009-FUNCTION := 08
+  CALLNAT 'NAT00009' NAT00009-PARMS
+  IF NAT00009-RESPONSE EQ 0
+    #STEPLIB-ADDED := TRUE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* ADD-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE REMOVE-STEPLIB
+************************************************************************
+IF NOT #STEPLIB-ADDED
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'RLIBACT' P-USER-LIB #STEPLIB-EXIST #CURRENT-LIB
+IF #STEPLIB-EXIST
+  NAT00009-LIBRARY  := P-USER-LIB
+  RESET  NAT00009-FNR NAT00009-DBID
+  NAT00009-FUNCTION := 16     /* delete
+  CALLNAT 'NAT00009' NAT00009-PARMS
+  RESET #STEPLIB-ADDED
+END-IF
+*
+END-SUBROUTINE /* REMOVE-STEPLIB
+*
+END

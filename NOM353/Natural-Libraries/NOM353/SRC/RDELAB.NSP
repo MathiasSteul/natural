@@ -1,0 +1,77 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDELAB - Delete active bundle and it's contents
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* gw      1996-11-01 s(999999) cleanup
+* gw      1996-11-01 s(252288) delete fails with adabas response code
+* wcd     2000-04-01 CE 7267   re-cat VABUND-L changes
+* xsisgg  2000-08-23 CE7461    Extend Report and Bundle names
+* xsetggr 2003-08-14 p(204583) log deleting of active bundle
+* xsetggr 2007-05-04 NOM3201   Change run number format to P11
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-11-05 NOMALL-1450 only restructured
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  NRM-GL
+LOCAL  USING  VBURP-L
+LOCAL  USING  SUPER-L
+LOCAL  USING  RLOG-L
+LOCAL
+1 ACTIVE-BUNDLES VIEW OF NRM-ACTIVE-BUNDLES
+1 #BC-SUPER                  (A41)
+1 REDEFINE  #BC-SUPER
+  2 #BC-BUNDLE               (A25)
+  2 #BC-BUNDRNB              (P11)
+  2 #BC-GROUP                (A8)
+  2 #BC-SEQNO                (P3)
+1 #NEWVAL                    (B2) /* in
+1 #OLDVAL                    (B2) /* out
+1 #OBJ                       (A50)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#AB-BUNDLE := #BC-BUNDLE := G-C-BUNDLE
+#AB-BUNDRNB := #BC-BUNDRNB := G-C-BUNDRNB
+*
+FIND-AB. FIND ACTIVE-BUNDLES WITH AB-BUNDLE-RNB = #AB-BUNDLE-RNB
+  RESET #BC-GROUP #BC-SEQNO
+  #NEWVAL := 0
+  CALLNAT 'SETMADIO' #NEWVAL #OLDVAL
+  FIND-BC. READ BUNDLE-CONTENTS BY BC-BUNDLE-RNB-GROUP-SEQNO = #BC-SUPER
+    IF BC-BUNDLE NE G-C-BUNDLE OR BC-BUNDRNB NE G-C-BUNDRNB
+      ESCAPE BOTTOM
+    END-IF
+    #AR-REPNAME := BC-REPNAME
+    #AR-REPRNB := BC-REPRNB
+    DELETE RECORD (FIND-BC.)
+    COMPRESS #BC-BUNDLE '/' #BC-BUNDRNB TO #OBJ LEAVING NO
+    PERFORM RMLOGDEL #OBJ 'BUNDLE-CONTENTS'
+    IF *COUNTER = 50
+      RESET *COUNTER
+      END TRANSACTION
+    END-IF
+  END-READ
+  #NEWVAL := #OLDVAL
+  CALLNAT 'SETMADIO' #NEWVAL #OLDVAL
+  DELETE RECORD (FIND-AB.)
+  COMPRESS #BC-BUNDLE '/' #BC-BUNDRNB TO #OBJ LEAVING NO
+  PERFORM RMLOGDEL #OBJ 'ACTIVE-BUNDLE'
+  LG-USERID := G-USERID
+  LG-CODE := 'AB'
+  COMPRESS G-C-BUNDLE '-'  G-C-BUNDRNB TO LG-OBJECT-NAME LEAVING NO
+  LG-BUNDLE := G-C-BUNDLE
+  LG-BUNDRNB := G-C-BUNDRNB
+  COMPRESS '2122' LG-OBJECT-NAME INTO LG-MSG
+  CALLNAT 'RLOG' PL-PARMS
+END-FIND
+*
+END

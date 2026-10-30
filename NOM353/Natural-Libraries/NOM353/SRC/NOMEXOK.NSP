@@ -1,0 +1,180 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member       NOMEXOK
+* Version      3.2
+* Function     API to confirm a printout manually as printed or in error
+*              Will set PO-STATUS from 'X' to 'D' or 'E'
+*
+* Input parameters:
+* #PO-ID    - NOM PO-ID of the printed output.            - Required.
+* #PO-ERROR - Error no of target printer or 0000=success. - Optional.
+* #PO-MSG   - Error message or empty.                     - Optional.
+*
+* Maintenance
+* uuuuuuuu yyyy-mm-dd s(999999) ...
+* fhi      2009-10-30 P321483   Introduce CONFIRM in jobcards.
+* fhi      2009-11-16 P321483   Use INPUT for parameters, not the stack
+*                               No tags.
+* fhi      2010-02-22 P321483   Correct END TRANSACTION handling,
+*                               some minor changes not tagged.
+* fhi      2010-02-23 P321483   Log all actions. Rewritten, no tags
+* fhi      2010-03-01 P321483   Show *PROGRAM, log *USER,   no tags
+* fhi      2010-09-03 NOMALL-97 Extend message line
+* fhi      2010-09-07 NOMALL-97 Extend message line
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL USING RLOG-L
+LOCAL USING EOMPOSTE
+LOCAL
+1 PO-UPD VIEW OF NRM-PRINTOUTS
+  2 PO-BUNDLE
+  2 PO-BUNDRNB
+  2 PO-LOGICAL
+  2 PO-PRINTED
+  2 PO-STATUS
+  2 PO-MSG
+/*SU2 2 PO-PHYSICAL-NAME 2 PO-PRINTER-TYPE 2 PO-JOBCARD(1:3) 2 PO-USERID
+/*SU2 2 PO-CREATED 2 PO-LANGUAGE 2 PO-COPIES
+  2 PO-REPNAME
+  2 PO-REPRNB
+/*SU2 2 PO-ID 2 PO-SCHEDULED 2 PO-LAST-PRINTED-RECNO
+/*SU2 2 PO-OBJECT-TYPE /*SU1
+/*SU2 2 PO-OBJECT-TIME /*SU1
+* -----------------------------Local Fields-----------------------------
+1 #PO-ID                     (N7)
+1 #PO-ID-A                   (A7)
+1 #PO-ERROR                  (N4)
+1 #PO-MSG                    (A250)
+1 #RC-MAX                    (N4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+CALLNAT 'NOMGSTEP' '*' #PO-ERROR
+IF #PO-ERROR NE 0
+  WRITE NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Error' #PO-ERROR  'creating Natural steplib chain. Aborting.'
+  TERMINATE 50
+END-IF
+RESET #RC-MAX
+*
+REP. REPEAT
+  RESET #PO-ID #PO-ERROR #PO-MSG
+  INPUT (AD=AW) '=' #PO-ID-A '=' #PO-ERROR '=' #PO-MSG (AL=70)
+  IF #PO-ID-A = 'END' OR = 'end' OR = 'End' OR = ' '
+    ESCAPE BOTTOM (REP.)
+  END-IF
+  IF #PO-ID-A = 'FIN' OR = 'fin' OR = 'Fin'
+    TERMINATE #RC-MAX
+  END-IF
+  RESET #PO-ID
+  IF #PO-ID-A IS (N7)
+    #PO-ID := VAL(#PO-ID-A)
+  END-IF
+  FNDPO. FIND PO-UPD WITH PO-ID = #PO-ID
+    IF NO RECORDS FOUND
+      IF #RC-MAX < 1
+        #RC-MAX := 1
+      END-IF
+      COMPRESS *PROGRAM 'Printout' #PO-ID-A 'not found.' TO #PO-MSG
+      #PO-ERROR := 50 /* abort
+      PERFORM WRITE-LOG
+      END TRANSACTION
+      ESCAPE BOTTOM
+    END-NOREC
+    IF PO-STATUS NE ##STATUS-EXTERNAL-OK
+      #RC-MAX   := 2
+      COMPRESS *PROGRAM 'Printout' #PO-ID 'not awaiting external OK.'
+        TO #PO-MSG
+      #PO-ERROR := 50 /* abort
+      PERFORM WRITE-LOG
+      END TRANSACTION
+      ESCAPE BOTTOM
+    END-IF
+    DECIDE FOR FIRST CONDITION
+      WHEN #PO-ERROR = 0
+        PO-STATUS  := ##STATUS-PRINTED-SUCCESSFULLY
+        PO-PRINTED := *TIMX
+      WHEN #PO-ERROR > 0
+        PO-STATUS := ##STATUS-EXTERNAL-OK
+      WHEN NONE
+        PO-STATUS := ##STATUS-ERROR
+        #PO-ERROR := ABS(#PO-ERROR)
+        IF #PO-MSG = ' '
+          #PO-MSG := '8850'
+          CALLNAT 'RSUBMSGN' #PO-MSG
+        END-IF
+    END-DECIDE
+    PERFORM WRITE-LOG
+    IF #PO-MSG NE ' '
+      PO-MSG := #PO-MSG
+    ELSE
+      RESET PO-MSG
+    END-IF
+/*SU2 PO-OBJECT-TYPE := 'PO' /*SU1
+/*SU2 PO-OBJECT-TIME := *TIMX /*SU1
+    UPDATE (FNDPO.)
+    END OF TRANSACTION
+  END-FIND
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG
+************************************************************************
+IF PO-BUNDLE NE ' '
+  COMPRESS PO-BUNDLE '/' PO-BUNDRNB TO LG-MSG LEAVING NO
+ELSE
+  COMPRESS PO-REPNAME '/' PO-REPRNB TO LG-MSG LEAVING NO
+END-IF
+DECIDE ON FIRST VALUE OF PO-STATUS
+  VALUE ##STATUS-PRINTED-SUCCESSFULLY
+    IF PO-BUNDLE NE ' '
+      COMPRESS '7212' LG-MSG TO LG-MSG
+    ELSE
+      COMPRESS '7202' LG-MSG TO LG-MSG
+    END-IF
+  VALUE ##STATUS-EXTERNAL-OK
+    IF #PO-MSG NE ' '
+      COMPRESS 'NOM8860' *PROGRAM 'ID:' #PO-ID-A ':' #PO-MSG TO LG-MSG
+    ELSE
+      LG-MSG := 8860
+    END-IF
+  NONE
+    IF #PO-MSG NE ' '
+      COMPRESS 'NOM7204' *PROGRAM 'ID:'
+        #PO-ID-A 'Err:' #PO-ERROR TO LG-MSG
+    ELSE
+      IF PO-BUNDLE NE ' '
+        COMPRESS '7214' LG-MSG TO LG-MSG
+      ELSE
+        COMPRESS '7204' LG-MSG TO LG-MSG
+      END-IF
+    END-IF
+END-DECIDE
+LG-BUNDLE  := PO-BUNDLE
+LG-BUNDRNB := PO-BUNDRNB
+LG-REPNAME := PO-REPNAME
+LG-REPRNB  := PO-REPRNB
+LG-PRINTER := PO-LOGICAL
+LG-USERID  := *USER
+LG-CODE    := 'MO'
+COMPRESS LG-MSG PO-LOGICAL TO LG-MSG
+WRITE NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  LG-MSG (AL=70)
+CALLNAT 'RLOG' PL-PARMS
+*
+END-SUBROUTINE /* WRITE-LOG
+*
+END

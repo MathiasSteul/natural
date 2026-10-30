@@ -1,0 +1,74 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ----------------------------------------------------------------------
+* Member    MIGSAT
+* Version   3.5.
+* Function  Migrate SAT-LOG-FILE35 to show records of former versions   >
+*
+* Maintenance
+* uuuuuuu yyyy-mm-dd Issue
+* fhi     2019-03-14 NOMALL-2251 Created.
+* SU1     2022-02-15 NOMALL-2517 migrate field LOG-NOM-TIME-INV
+* ----------------------------------------------------------------------
+DEFINE DATA LOCAL
+1 SAT-LOG-FILE VIEW OF SAT-LOG-FILE35
+  2 LOG-TIME
+  2 REDEFINE LOG-TIME
+    3 LOG-TIME-P        (P12)
+  2 LOG-MICROSECONDS    (P5)
+  2 LOG-MICROSECONDS-INV(P5)
+  2 LOG-NOM-TIME-INV    (P13)
+  2 LOG-PRODUCT-CODE    (A3) /*SU1
+*
+1 #READ                 (I4)
+1 #NO-READ              (I4)
+1 #NO-UPDATED           (I4)
+1 #SAT34-INV            (P13) CONST <9000000000000> /*SU1
+1 #UPD-MICRO            (L) /*SU1
+1 #UPD-TIME-INV         (L) /*SU1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RD. READ SAT-LOG-FILE BY ISN
+  ADD 1 TO #READ
+  IF LOG-PRODUCT-CODE NE 'NOM' /*SU1
+    ESCAPE TOP
+  END-IF
+  RESET #UPD-MICRO #UPD-TIME-INV
+  ADD 1 TO #NO-READ
+  DECIDE FOR EVERY CONDITION
+    WHEN LOG-TIME-P = MASK(ZZZZZZZZZZZZ) AND LOG-TIME-P NE 0
+    AND LOG-MICROSECONDS = 0 OR LOG-MICROSECONDS-INV = 0              /*
+      #UPD-MICRO := TRUE
+    WHEN NOT (LOG-NOM-TIME-INV = 1 THRU #SAT34-INV) /*SU1
+      #UPD-TIME-INV := TRUE
+    WHEN ANY
+      GT. GET SAT-LOG-FILE *ISN(RD.)
+      IF #UPD-MICRO
+        LOG-MICROSECONDS     := 1
+        LOG-MICROSECONDS-INV := 99999
+      END-IF
+      IF #UPD-TIME-INV /*NOM3.4
+        SUBTRACT #SAT34-INV FROM LOG-NOM-TIME-INV /*SU1
+      END-IF
+      UPDATE (GT.)
+      ADD 1 TO #NO-UPDATED
+      IF *COUNTER (RD.) > 100
+        END TRANSACTION
+        RESET *COUNTER (RD.)
+      END-IF
+    WHEN NONE IGNORE
+  END-DECIDE
+END-READ
+END TRANSACTION
+PRINT (AD=L) 'Log records read total:' #READ 'NOM:' #NO-READ /
+  'Log records updated:' #NO-UPDATED
+*
+END

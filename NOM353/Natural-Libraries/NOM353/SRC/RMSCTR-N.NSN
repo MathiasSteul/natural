@@ -1,0 +1,144 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMSCTR-N - Check if it is a trigger to a seq. File (JES2/JES3)
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* mrs     1993-11-11 s(999999) created
+* gw      1994-08-05 s(999999) saved in in lib nom133o and split into
+*                      two routines RMSCTR-N - check if trigger
+*                                   RMSCCD-N - check DS and rename
+* gw      1997-02-15 s(259812) trigger to sequential file
+* gw      1998-05-12 p(168326) 9999999 to 99999999
+* jvd     1998-09-10 p(164220) NOM141ÖNAT23
+*                      p(168326) is now in p(164220) so I have removed
+*                      all refferance to P(168326) to make easier
+*                      reading
+* fhi     2000-10-04 QA05      Improve error message
+* xsetggr 2007-11-23 NOM3201 Support 5 byte node numbers
+* xsetggr 2008-02-14 p(300297) changes in RMSCTR-P
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2017-01-18 NOMALL-1916 Use binary NPR RECORD* fields
+* fhi     2017-01-27 NOMALL-1961 Show node name in errors
+* bli     2018-10-15 NOMALL-2061 remove CODEPAGE, POWER(see RMSCPWRN),
+*                                RCCTYP-E
+* ---------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING RMSCTR-P
+************************************************************************
+LOCAL USING RMSR---E
+LOCAL USING RMSR---L
+LOCAL
+1 SYSOUT VIEW OF READ-SPOOL
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD
+  2 RECORD-HEX1
+  2 REDEFINE RECORD-HEX1
+    3 REC-PREF           (A4)
+    3 REC-PARAM          (A76)
+  2 REDEFINE RECORD-HEX1
+    3 REC-CC             (A1)
+    3 REC-CC-PREF        (A4)
+    3 REC-CC-PARAM       (A75)
+  2 RECORD-HEX2
+  2 RECORD-HEX3
+*
+1 DSN                    (A44)
+1 VOL                    (A6)
+1 RECFM                  (A2)
+1 BLKSIZE                (N5)
+1 RECSIZE                (N5)
+1 NUMREC                 (N10)
+1 CC                     (A10)
+1 MON                    (A8)
+1 NODE                   (N5)
+1 #PARAM                 (A76)
+1 #RMSCTR-IN-SOURCE-TYPE (P3)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET RMSCTR-ERROR-CODE RMSCTR-ERROR-TEXT RMSCTR-IS-TRIGGER
+#SOURCE-ATTRIBUTES := RMSCTR-IN-ATTRIBUTES
+#RMSCTR-IN-SOURCE-TYPE := RMSCTR-IN-SOURCE-TYPE
+DECIDE ON FIRST RMSCTR-IN-SOURCE-TYPE
+  VALUE JES2, JES3
+    PERFORM READ-SPOOL-RECORDS-JES
+  NONE VALUE
+    RMSCTR-ERROR-CODE := 0005
+    COMPRESS *PROGRAM 'Invalid Source Type' #RMSCTR-IN-SOURCE-TYPE
+      TO RMSCTR-ERROR-TEXT
+END-DECIDE
+*
+FORMAT LS=200
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SPOOL-RECORDS-JES
+************************************************************************
+NODE := #JES-NODE
+*
+FNDJES. FIND SYSOUT WITH NODE = #JES-NODE AND JOB-NAME = #JES-JOB-NAME
+AND JOB-NUMBER = #JES-JOB-NUMBER AND TYPE = #JES-TYPE                 /*
+AND DATA-SET-KEY = #JES-DATA-SET-KEY                                  /*
+  PERFORM HANDLE-IT
+  RMSCTR-OUT-SOURCE-TYPE := SEQUENTIAL-FILE-MVS
+  RMSCTR-IS-TRIGGER := TRUE
+  STACK TOP DATA #PARAM
+  INPUT (AD=MI) DSN NODE CC
+  RESET  #SOURCE-ATTRIBUTES
+  #FMVS-NODE   := NODE
+  #FMVS-DSNAME := DSN
+  RMSCTR-OUT-ATTRIBUTES := #SOURCE-ATTRIBUTES
+  RMSCTR-OUT-IDENT-FILE := DSN
+END-FIND
+*
+END-SUBROUTINE /* READ-SPOOL-RECORDS-JES
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-IT
+************************************************************************
+IF ERROR-CODE NE 0
+  RMSCTR-ERROR-CODE := 0005
+  COMPRESS ERROR-TEXT '/' #JES-NODE '/' *PROGRAM '/' *LINE
+    TO RMSCTR-ERROR-TEXT
+  ESCAPE BOTTOM
+END-IF
+SYSOUT.RECORD-HEX1  := F#CONVERT-RECORD-HEX
+  (<SYSOUT.RECORD-HEX1,SYSOUT.RECORD-HEX2,SYSOUT.RECORD-HEX3,
+  1X>)
+DECIDE FOR FIRST CONDITION
+  WHEN REC-PREF = 'NOM'
+    #PARAM := REC-PARAM
+  WHEN REC-CC-PREF = 'NOM'
+    #PARAM := REC-CC-PARAM
+  WHEN NONE
+    ESCAPE BOTTOM
+END-DECIDE
+*
+END-SUBROUTINE /* HANDLE-IT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  DECIDE ON FIRST *ERROR-NR
+    VALUE 1105, 1106  RMSCTR-ERROR-CODE := 4204
+    NONE              RMSCTR-ERROR-CODE := 0021
+      COMPRESS *ERROR-NR '/' *PROGRAM '/' *ERROR-LINE
+        TO RMSCTR-ERROR-TEXT LEAVING NO
+  END-DECIDE
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

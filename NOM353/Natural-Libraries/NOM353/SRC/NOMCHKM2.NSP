@@ -1,0 +1,92 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ----------------------------------------------------------------------
+* Member    NOMCHKM2
+* Version   3.4.
+* Template  MIGMAIL
+*
+* Function  Add one mail record for Active Reports without Mail record  >
+*   see RDSTRP/RADDMAIL
+*
+* Maintenance
+* uuuuuuu yyyy-mm-dd Issue
+* SU1     2019-07-31 NOMALL-2302 Created
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL
+1 MAIL VIEW OF NRM-MAIL
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-PROCESS-TIME
+1 USERS VIEW OF NRM-USERS
+* *****
+1 #REP-RNB                (A31)
+1 REDEFINE #REP-RNB
+  2 #REPNAME              (A25)
+  2 #REPRNB               (P11)
+1 #ERC                    (N4)
+1 #UPD                    (L)
+1 #USER                   (A8)
+1 #NOM-USER               (A8)
+1 #AR-WITHOUT-MA          (I4)
+
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#USER := #NOM-USER := 'SAG' /*dataport unix
+*
+SET KEY ALL
+*
+NUM. FIND NUMBER AR WITH AR-REPORT-RNB = H'00' THRU H'FF'
+INPUT (AD=MILT IP=OFF)
+  10T '* --- NOMCHKM2 - Add mail record for Active Reports --- *'
+  /// 'Distribute reports to user ..' #USER
+  /   'NOM User ID (for LOG) .......' #NOM-USER
+  /   'With update .................' #UPD (EM='N'/'Y')
+  //  'Number of Active Reports ....' *NUMBER (NUM.)(AD=LO)
+  //  'End with PF3'
+IF *PF-KEY NE 'ENTR'
+  ESCAPE MODULE
+END-IF
+IF #UPD
+  US1. FIND NUMBER USERS WITH USER-ID = #USER
+  IF *NUMBER(US1.) = 0
+    REINPUT *2,#USER MARK *#USER
+  END-IF
+  US2. FIND NUMBER USERS WITH USER-ID = #NOM-USER
+  IF *NUMBER(US2.) = 0
+    REINPUT *2,#NOM-USER MARK *#NOM-USER
+  END-IF
+END-IF
+*
+RDAR. READ AR BY AR-REPORT-RNB
+  #REPNAME  := AR-REPNAME
+  #REPRNB   := AR-REPRNB
+  FND-MA. FIND NUMBER MAIL WITH MA-REP-RNB = #REP-RNB
+  IF *NUMBER (FND-MA.) = 0
+    ADD 1 TO #AR-WITHOUT-MA
+    DISPLAY ' ' #AR-WITHOUT-MA 'Active Report' #REPNAME 'RNB' #REPRNB
+      'processed:' AR-PROCESS-TIME(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    IF #UPD
+      CALLNAT 'RADDMAIL' #REPNAME #REPRNB #NOM-USER #USER #ERC
+      IF #ERC NE 0
+        PRINT 'error from RADDMAIL:' #ERC
+      END-IF
+    END-IF
+  END-IF
+END-READ
+*
+PRINT (AD=L)
+  '*---*'
+  / *NUMBER (NUM.) 'Active Reports found'
+  / #AR-WITHOUT-MA 'without Mail records' #UPD (EM='found'/'updated')
+  // '***** End of List *****'
+*
+END

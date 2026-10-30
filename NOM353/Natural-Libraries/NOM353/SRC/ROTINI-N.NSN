@@ -1,0 +1,90 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ROTINI-N       Init Object Type
+*                Read the Object Definition from SYSERR only if it
+*                is not in the GLOBAL Pool
+*
+* MAINTENANCE:
+* fhi     2010-09-03 NOMALL-97 Extend message line
+*
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 G-OBJ-IDENT              (I2)
+1 G-OBJ-TYPE               (A32)
+1 G-OTB
+  2 G-OTB-NUM              (I2)
+  2 G-OBJECT-BUFFER        (1:20)
+    3 G-OTB-IDENT          (I2)
+    3 G-OTB-USE            (P5)
+    3 G-OTB-TEXT           (A32)
+* ----------------------------------------------------------------------
+LOCAL USING XXGMSG-A
+LOCAL
+1 #OTB-NUM                 (I2)   CONST <20>
+1 #FND-ENTRY               (I2)
+1 #I                       (I2)
+1 #MIN-ENTRY               (I2)
+1 #MIN-USE                 (P5)   INIT <99999>
+1 #START-VALUE             (P5)   INIT <99999>
+1 EXIST-IN-POOL            (L)
+1 #ERRN                    (N4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM CHECK-IF-EXIST
+IF NOT EXIST-IN-POOL
+  PERFORM REPLACE-AN-ENTRY
+END-IF
+G-OBJ-TYPE := G-OTB-TEXT (#FND-ENTRY)
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-IF-EXIST
+************************************************************************
+EXIST-IN-POOL := FALSE
+RESET INITIAL #MIN-USE
+FOR #I = 1 TO G-OTB-NUM
+  IF G-OTB-IDENT (#I) = G-OBJ-IDENT
+    #FND-ENTRY := #I
+    G-OTB-USE (#I) := #START-VALUE
+    EXIST-IN-POOL := TRUE
+  ELSE
+    G-OTB-USE (#I) := G-OTB-USE (#I) - 1
+    IF G-OTB-USE (#I) < #MIN-USE
+      #MIN-USE := G-OTB-USE (#I)
+      #MIN-ENTRY := #I
+    END-IF
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* CHECK-IF-EXIST
+*
+************************************************************************
+DEFINE SUBROUTINE REPLACE-AN-ENTRY
+************************************************************************
+IF G-OTB-NUM < #OTB-NUM
+  G-OTB-NUM := G-OTB-NUM + 1
+  #FND-ENTRY := G-OTB-NUM
+ELSE
+  #FND-ENTRY := #MIN-ENTRY
+END-IF
+G-OTB-IDENT (#FND-ENTRY) := G-OBJ-IDENT
+G-OTB-USE   (#FND-ENTRY) := #START-VALUE
+#ERRN                    := G-OBJ-IDENT
+#XX-ERROR-CODE := #ERRN
+CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+G-OTB-TEXT  (#FND-ENTRY) := #XX-SHORT-TEXT
+*
+END-SUBROUTINE /* REPLACE-AN-ENTRY
+*
+END

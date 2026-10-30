@@ -1,0 +1,274 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NODLFF-N - EOM API Distribution List - Functions: delete, rename
+*
+* Maintenance:
+* XSETGGR 2002-08-08 created
+* XSETGGR 2002-11-14 use new parameter ES-APP-SERVER-LIBRARY
+* XSETGGR 2007-03-24 use NOMOD-TYPE = 'D'
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-20 NOMALL-901 correct writing delete operations in log
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* SU1     2014-03-05 NOMALL-1281 show last update user+date - no changes
+* CF1     2018-12-04 NOMALL-2181 Reject reserved names ADMIN, PUBLIC
+* ------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING NOMODE-A
+LOCAL USING RLOG-L
+LOCAL
+1 DL VIEW OF NRM-DISTRIBUTION-LIST
+  2 D-LIST-NAME
+  2 D-USER-LIST (191)
+  2 C*D-USER-LIST
+1 US VIEW OF NRM-USERS
+1 GR VIEW OF NRM-GRANTS
+  2 GR-USERID
+  2 GR-OBJECT-TYPE
+  2 GR-OBJECT-NAME
+1 RP VIEW OF NRM-REPORTS-NEW
+  2 R-NATRPT-DIST (10)
+  2 C*R-NATRPT-DIST
+1 #ES-CONTROL               (A250)
+1 #ES-INPUT-AREA            (A253/1:3)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1  #ES-MSG-FIELD            (A32)
+1  REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+1 #C                        (I4)
+1 #I                        (I4)
+1 #OLD-NAME                 (A8)
+1 #GR-TYPE-NAME             (A26)
+1 REDEFINE #GR-TYPE-NAME
+  2 #GR-TYPE                (A1)
+  2 #GR-NAME                (A25)
+1 #GR-SUPER                 (A34)
+1 REDEFINE #GR-SUPER
+  2 #GR-TYPE                (A1)
+  2 #GR-USERID              (A8)
+  2 #GR-OBJECT              (A25)
+1 #GR-SUPER-E               (A34)
+1 #MEMBERS                  (A250)
+1 REDEFINE #MEMBERS
+  2 #MEMBER-C               (N2)
+  2 #MEMBER                 (A8/31)
+1 #C100                     (I4)
+1 #OBJ                      (A50)
+1 #USER-LIB                 (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC #ES-MSG-NR
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+NOMOD-PARMS := ES-SELECT
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+#OLD-NAME   := ES-KEY-PARM(1)
+FDL. FIND DL WITH D-LIST-NAME = #OLD-NAME
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0602              /* List not defined
+    #ES-MSG-FIELD-NAME := 'LIST'
+    PERFORM GET-MSG-TXT
+    ESCAPE ROUTINE
+  END-NOREC
+  IF ES-ORIG-FUNCTION = 'RN'
+    IF ES-NEWNAME = ' '
+      #ES-MSG-NR := 0606
+      #ES-MSG-FIELD-NAME := 'NEWNAME'
+      PERFORM GET-MSG-TXT
+      ESCAPE ROUTINE
+    END-IF
+    IF ES-NEWNAME = 'ADMIN' OR= 'PUBLIC'                   /* CF1 ->
+      IF ES-NEWNAME = 'ADMIN'
+        #ES-MSG-NR := 0517   /* reserved name ADMIN is not applicable
+      ELSE
+        #ES-MSG-NR := 0518   /* reserved name PUBLIC is not applicable
+      END-IF
+      #ES-MSG-FIELD-NAME := 'NEWNAME'
+      PERFORM GET-MSG-TXT
+      ESCAPE ROUTINE
+    END-IF                                                 /* CF1 <-
+    /*
+    FNN. FIND NUMBER DL WITH D-LIST-NAME = ES-NEWNAME
+    IF *NUMBER(FNN.) = 0
+      FNNU. FIND NUMBER US WITH USER-ID = ES-NEWNAME
+      IF *NUMBER(FNNU.) = 0
+        GDLRN. GET DL *ISN(FDL.)
+        D-LIST-NAME := ES-NEWNAME
+        UPDATE (GDLRN.)
+        PERFORM UPDATE-RELATIONS
+      ELSE
+        #ES-MSG-NR :=  0519
+        #ES-MSG-FIELD-NAME := 'NEWNAME'
+        PERFORM GET-MSG-TXT
+        ESCAPE ROUTINE
+      END-IF
+    ELSE
+      #ES-MSG-NR :=  0605
+      #ES-MSG-FIELD-NAME := 'NEWNAME'
+      PERFORM GET-MSG-TXT
+      ESCAPE ROUTINE
+    END-IF
+  ELSE
+    RESET ES-NEWNAME
+    GDLDL. GET DL *ISN(FDL.)
+    DELETE (GDLDL.)
+    #OBJ := #OLD-NAME
+    PERFORM RMLOGDEL #OBJ 'DISTR-LIST'
+    PERFORM UPDATE-RELATIONS
+  END-IF
+END-FIND
+PERFORM WRITE-LOG-RECORD
+END TRANSACTION
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RELATIONS
+************************************************************************
+#GR-TYPE-NAME.#GR-TYPE := 'L'
+#GR-TYPE-NAME.#GR-NAME := #OLD-NAME
+FGRO. FIND GR WITH GR-TYPE-NAME = #GR-TYPE-NAME
+  DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+    VALUE 'DL'
+      GGROD. GET GR *ISN(FGRO.)
+      DELETE (GGROD.)
+    VALUE 'RN'
+      GGROR. GET GR *ISN(FGRO.)
+      GR-OBJECT-NAME := ES-NEWNAME
+      UPDATE (GGROR.)
+    ANY VALUE
+      PERFORM END-TRANSACTION
+    NONE VALUE IGNORE
+  END-DECIDE
+END-FIND
+#GR-SUPER.#GR-TYPE := 'L'
+#GR-SUPER.#GR-USERID := #OLD-NAME
+#GR-SUPER.#GR-OBJECT :=  H'FF'
+#GR-SUPER-E :=  #GR-SUPER
+#GR-SUPER.#GR-OBJECT :=  H'00'
+FGR. FIND GR WITH GR-SUPER = #GR-SUPER THRU #GR-SUPER-E
+  DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+    VALUE 'DL'
+      GGRD. GET GR *ISN(FGR.)
+      DELETE (GGRD.)
+    VALUE 'RN'
+      GGRR. GET GR *ISN(FGR.)
+      GR-USERID := ES-NEWNAME
+      UPDATE (GGRR.)
+    ANY VALUE
+      PERFORM END-TRANSACTION
+    NONE VALUE IGNORE
+  END-DECIDE
+END-FIND
+FRP. FIND RP WITH R-NATRPT-DIST = #OLD-NAME
+  #C := C*R-NATRPT-DIST
+  EXAMINE FULL R-NATRPT-DIST (1:#C) FOR FULL #OLD-NAME
+    GIVING INDEX #I
+  IF #I > 0
+    GRP. GET RP *ISN(FRP.)
+    R-NATRPT-DIST(#I) := ES-NEWNAME
+    UPDATE(GRP.)
+  END-IF
+  PERFORM END-TRANSACTION
+END-FIND
+FDLM. FIND DL WITH D-USER-LIST = #OLD-NAME
+  #C := C*D-USER-LIST
+  EXAMINE FULL D-USER-LIST(1:#C) FOR FULL #OLD-NAME
+    GIVING INDEX #I
+  IF #I > 0
+    GDLM. GET DL *ISN(FDLM.)
+    D-USER-LIST(#I) := ES-NEWNAME
+    UPDATE(GDLM.)
+    IF #MEMBER-C < 31
+      #MEMBER-C := #MEMBER-C + 1
+      #MEMBER(#MEMBER-C) := D-LIST-NAME
+    END-IF
+  END-IF
+  PERFORM END-TRANSACTION
+END-FIND
+ES-SELECT := #MEMBERS
+*
+END-SUBROUTINE /* UPDATE-RELATIONS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+ES-MSG-FIELD := #ES-MSG-FIELD
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+LG-USERID := ES-USER
+IF ES-ORIG-FUNCTION = 'DL'
+  COMPRESS '0075' #OLD-NAME 'DISTR-LIST' TO LG-MSG
+  LG-CODE     := 'MO'
+  LG-FUNCTION := 'W'
+  CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+END-IF
+*
+IF NOMOD-LOG-TYPES (*) = 'D'
+  LG-CODE := 'LM'
+  DECIDE ON FIRST ES-ORIG-FUNCTION
+    VALUE 'DL'
+      COMPRESS '0764' #OLD-NAME TO LG-MSG
+      LG-OBJECT-NAME := #OLD-NAME
+      CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+    VALUE 'RN'
+      COMPRESS '0763' #OLD-NAME ES-NEWNAME TO LG-MSG
+      LG-OBJECT-NAME := ES-NEWNAME
+      CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+    NONE VALUE IGNORE
+  END-DECIDE
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE END-TRANSACTION
+************************************************************************
+ADD 1 TO #C100
+IF #C100 GE 100
+  END TRANSACTION
+  RESET #C100
+END-IF
+*
+END-SUBROUTINE /* END-TRANSACTION
+*
+END

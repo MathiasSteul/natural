@@ -1,0 +1,1027 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 5
+* <Natural Source Header
+* RDEFNO - Define a Mainframe Node (Template:RDEFUX)
+*
+* Maintenance
+* uuuuuu yyyy-mm-dd iTrac       Comment
+* fhi    2015-05-05 NOMALL-1478 created
+* fhi    2018-01-18 NOMALL-1917 Enhance handling of email address field
+* SU1    2018-03-27             handle monitor in error correct
+* SU2    2018-03-27             remote node BS2: copy must be Y
+* fhi    2018-04-25 NOMALL-1918 Introduce monitor type error ('E')
+* fhi    2018-07-19 NOMALL-1918 same / Status 'E' erfunden
+* SU3    2018-07-27             monitor:no 2. one(new)+no spool change+
+*        ESY/NPR error does not change status+NPR5999->999+CP for remote
+* SU4    2018-07-31             store BS2 device without H'FF'
+* fhi    2018-10-04 NOMALL-1621 Down status is char 'I' instead of '-'
+* fhi    2018-11-07 NOMALL-1620 Use email recipients in 8.1.2 only
+* BLI    2018-11-19 NOMALL-2176 NOM node number: up to 65535
+* BLI    2019-01-24 NOMALL-1621 Use 'inactive: I' instead of 'down'
+* SU5    2019-10-17 NOMALL-2329 avoid NAT1009/dump if to much ADA calls
+* SU6    2020-01-27             avoid Adabas calls exceeded (INT-ID=0)
+* BLI    2020-05-07 NOMALL-2309 access rights Monitor System Defaults
+* SU7    2020-06-04 NOMALL-2349 use N-ESYLGg
+* SU8    2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU9    2021-07-09 NOMALL-2475 add node:avoid err. in monitor
+* SU10   2021-08-26 NOMALL-2484 field M-BS2-DEST only if BS2 node
+* BLI    2021-09-24 NOMALL-2498 Status vs. MF-TYPE
+* SU11   2022-03-16 NOMALL-2539 monitor down: avoid to much ADA calls+
+*                   NOMALL-2538 ÜÜÜ avoid TYPE=S (RMINIT NAT1116+..)ÜÜÜ
+* SU12   2022-03-16 ES-32029    Spool Class "SYSOUT" optional
+* SU13   2022-09-19 NOMALL-2578 check trigger for remote BS2
+* SU14   2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+*
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE         (L/1:20)
+1 +NOD-LOCAL-NAME           (A16)
+1 +NOD-LOCAL-SPOOL-TYPE     (A8)
+*
+LOCAL USING RPFK---L
+LOCAL USING RMSETSTE
+LOCAL USING XXGMSG-A
+LOCAL USING RLOG-L
+LOCAL USING EOMFLD-E /*for NOMEX007
+*
+LOCAL
+1 #MF-NODES VIEW OF NRM-MF-NODES /*SU8 NRM-MONITOR
+1 UX-NODES VIEW OF NRM-UX-NODES
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+  2 R-INTERNAL-NODE-ID
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU8 NRM-MONITOR
+  2 MF-MONITOR-NODE /*number
+  2 MF-SPOOL-TYPE
+  2 MF-SYSTEM-TYPE
+  2 MF-PRODUCT-NAME         (A16)
+  2 MF-BS2-DEST             (A8/1:4)
+  2 MF-NPR-USERID
+  2 MF-INTERNAL-NODE-ID
+  2 MF-TYPE /*status
+  2 MF-MONITOR-DESCRIPTION
+  2 MF-LAST-UPDATE
+  2 MF-LAST-UPDATE-USER
+  2 MF-MONITOR-ID         /*prefix 'R-' + name
+  2 REDEFINE MF-MONITOR-ID
+    3 #MONITOR-PREFIX       (A2)
+  2 MF-REMOTE-CODEPAGE
+*   spool attr.:
+  2 MF-CLASSES              (1:20)
+  2 MF-JES3-OUTPUT-CLASSES  (1:20)
+  2 MF-TEMP-CLASS
+  2 MF-PRINT-CLASS
+  2 MF-ERR-CLASS
+  2 MF-TIME-SCHEDULE /*BS2
+1 NRM-MONITOR-CONTAINER VIEW OF NRM-MONITOR
+  2 M-COPY-FILES-V141       (1)
+  2 REDEFINE M-COPY-FILES-V141
+    3 M-CP-TAB              (1)
+      4 M-CP-DBID           (N5)
+      4 M-CP-FNR            (N5)
+      4 M-CP-IDENT          (A16)
+1 SYS-INFO VIEW OF SYSTEM-INFO
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 NODE-ID
+  2 SPOOL-TYPE
+  2 SYSTEM-TYPE
+  2 PRODUCT-NAME
+  2 ESY-VERSION
+1 API-DEFAULTS VIEW OF NRM-MONITOR /*SU13
+  2 M-TIME-SCHEDULE         (A1)
+  2 M-NATRPT-DBID-N5        (N5)
+  2 M-NATRPT-FNR-N5         (N5)
+* *****
+1 #NO-CONTAINER             (L) INIT <TRUE>
+1 L-HEADER                  (A78)
+1 #ISN                      (P10)
+1 L-STATUS                  (A1)
+1 #MONITOR                  (L) /*SU11
+1 L-NODE-STATUS             (A8)
+1 L-ERR                     (A50/1:2)
+1 #SYSTEM-TYPE              (A9) /*A9 for 'Mainframe'
+1 CV-MAP                    (C) INIT <(AD=IP)>
+1 CV-MAP1                   (C) INIT <(AD=IP)> /*for status M
+1 #BS2-RENAME-CV            (C) INIT <(AD=IP CD=NE)> /*SU13 P added
+1 #BS2-COPY-CV              (C) INIT <(AD=IP CD=NE)> /*SU13 P added
+1 #BS2-REMARK1              (A45) /*SU13
+1 #BS2-REMARK2              (A45) /*SU13
+1 #PF-KEY                   (A4) /* FOR *PF-KEY
+1 #FUNC                     (A1) /* D)isplay, M)odify, A(dd
+1 #FATHER-PROG              (A8) INIT <'RLISNO'>
+1 #LAST-MOD                 (A40)
+1 #BS2-PARMS
+  2 #BS2-RENAME             (A1)
+  2 #BS2-COPY               (A1)
+1 #MONITOR-ID               (A20) INIT <'R-'>
+1 REDEFINE #MONITOR-ID
+  2 #NODE-PREFIX            (A2)
+  2 #NODE                   (A16)
+1 #OLD-NODE-NAME            (A16)
+1 #OLD-NODE-NR              (N5)
+1 #OLD-STATUS               (A1)
+1 #OLD-STATUS_START         (A1) /*SU3
+1 #POS                      (I4)
+1 #SPOOL-TYPES              (L/1:3) /*SU14 was 4
+1 REDEFINE #SPOOL-TYPES
+  2 #BS2                    (L)
+  2 #JES3                   (L)
+  2 #JES2                   (L) /*'JES2','JES'
+/*SU14  2 #POWER                  (L) /*'POWER','POWR'
+1 #SPOOL-TYPES-OLD          (L/1:3) /*SU14 was 4
+1 REDEFINE #SPOOL-TYPES-OLD
+  2 #BS2-OLD                (L)
+  2 #JES3-OLD               (L)
+  2 #JES2-OLD               (L)
+/*SU14  2 #POWER-OLD              (L)
+1 #MF-SPOOL-TYPE-OLD        (A8)
+1 #MF-SYSTEM-TYPE-OLD       (A8)
+1 #MF-PRODUCT-NAME-OLD      (A16)
+1 #CHECK                    (L)
+1 #PANEL                    (I1) /*0=main/1=spool
+1 #WRAP-ARRAY               (A79/*)
+1 #WRAP-LINESIZE            (P5) INIT <37>
+1 #SPOOL-TAB                (A1/1:3) /*BS2000/JES3/JES2 SU14 4 /POWER
+1 #CHECKED                  (L)
+1 #DATA-OK                  (L)
+1 #BACKOUT                  (L)
+1 #SAVE
+  2 MF-PRINT-CLASS          (A1)
+  2 MF-TEMP-CLASS           (A4)
+  2 MF-BS2-DEST             (A8/1:4)
+  2 MF-CLASSES              (A1/1:20)
+  2 MF-ERR-CLASS            (A1)
+  2 MF-JES3-OUTPUT-CLASSES  (A1/1:20)
+1 #BS2-SAVE
+  2 #BS2-COPY               (A1)
+  2 #BS2-RENAME             (A1)
+1 #OLD-CP                   (A64)
+1 #INT-NODE-ID              (P11)
+1 #I                        (I4)
+1 #USED-TXT                 (A30)
+1 #USED                     (L)
+1 #TYPE-DIF                 (L)
+1 #MODIFIED-BY-EXIT         (L)
+1 NOMEX007-FIELD-MODIFIABLE (A1)
+1 NOMEX007-FIELD-VALUE      (A54)
+1 #FF8                      (A8) CONST <H'FFFFFFFFFFFFFFFF'>
+1 #EMPTY_A8                 (A8) CONST <' '>
+1 #SETTIME                  (L) INIT <TRUE> /*SU5
+1 #ALLOWED                  (L)             /* BLI NOMALL-2309
+1 #CALLER                   (A8) INIT <*PROGRAM>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE WINDOW SPOOL-TYPE SIZE 10*45 CONTROL WINDOW
+DEFINE WINDOW WAIT SIZE 4*78 BASE BOTTOM LEFT /*SU5
+*
+PERFORM INIT-SET-PFKEYS
+INPUT G-C-FUNC / #NODE
+#FUNC := G-C-FUNC
+#OLD-NODE-NAME := #NODE
+*
+RESET G-NATRP-ERC G-COMMIT G-MAP-MODIFIED
+IF G-AUTOCOMMIT = 'I'
+  G-COMMIT := TRUE
+END-IF
+*
+DECIDE ON FIRST VALUE OF #FUNC
+  VALUE 'A' /*Add new
+    CALLNAT 'NARPSEC' G-USER-PROFILE 'MMO' #ALLOWED /* BLI NOMALL-2309
+    INCLUDE C-NALLOW                                /* BLI NOMALL-2309
+    MF-NODE.MF-NPR-USERID := 'NOMMON'
+    #NODE                := '<new>' /*placeholder
+    MF-NODE.MF-MONITOR-ID := #MONITOR-ID
+    RESET #NODE
+    L-STATUS := MF-NODE.MF-TYPE := 'D' /*Default: deaktivated SU9
+    CALLNAT 'RMNOID-N' MF-NODE.MF-INTERNAL-NODE-ID /*get new internal ID
+    STORE1. STORE MF-NODE
+    #ISN := *ISN (STORE1.)
+/*SU9 G-NATRP-ERC := 31
+    G-COMMIT := TRUE
+    #FUNC := 'M'
+  VALUE 'D','M' /*Display/Modify
+    IF #FUNC = 'M'                           /* BLI NOMALL-2309 start
+      CALLNAT 'NARPSEC' G-USER-PROFILE 'MMO' #ALLOWED /* Mofify
+    ELSE
+      CALLNAT 'NARPSEC' G-USER-PROFILE 'DMO' #ALLOWED /* Display
+    END-IF
+    INCLUDE C-NALLOW                         /* BLI NOMALL-2309 end
+    F. FIND MF-NODE WITH MF-MONITOR-ID = #MONITOR-ID
+      IF NO RECORDS FOUND
+        G-NATRP-ERC := 2024
+        INCLUDE C-ESCAPE /* STOP
+      END-NOREC
+      #ISN := *ISN (F.)
+      L-STATUS := MF-NODE.MF-TYPE
+      IF MF-NODE.MF-TYPE = 'M' /*SU11
+        #MONITOR := TRUE
+      END-IF
+      #OLD-NODE-NR := MF-NODE.MF-MONITOR-NODE
+      PERFORM GET-NPR-NODE /*L-STATUS changed
+      PERFORM SET-SPOOL-TYPE
+      #MF-SPOOL-TYPE-OLD   := MF-NODE.MF-SPOOL-TYPE
+      #MF-SYSTEM-TYPE-OLD  := MF-NODE.MF-SYSTEM-TYPE
+      #MF-PRODUCT-NAME-OLD := MF-NODE.MF-PRODUCT-NAME
+      PERFORM GET-STATUS-TEXT
+    END-FIND
+    IF #FUNC ='M' AND (#MONITOR OR L-STATUS='A') /*Monitor/active SU11
+      G-NATRP-ERC := 1543 /*Monitor suspended during editing of :1:
+      IF G-LANGUAGE = 2
+        COMPRESS 'Knoten ''' #NODE '''' TO G-NATRP-ERT LEAVING NO
+      ELSE
+        COMPRESS 'Node ''' #NODE '''' TO G-NATRP-ERT LEAVING NO
+      END-IF
+      LG-USERID := G-USERID
+      LG-CODE := 'MO'
+      COMPRESS G-NATRP-ERC G-NATRP-ERT TO LG-MSG
+      CALLNAT 'RLOG' PL-PARMS
+      END TRANSACTION
+    END-IF
+    PERFORM GET-USED-RP
+  NONE VALUE
+    INCLUDE C-ESCAPE /* STOP
+END-DECIDE
+IF MF-NODE.MF-INTERNAL-NODE-ID = 0 /*SU6
+  *ERROR-NR := 999 /*internal error - should not happens
+END-IF
+#INT-NODE-ID := MF-NODE.MF-INTERNAL-NODE-ID
+* *****
+* Now input:
+* *****
+IF #FUNC = 'M'
+  CV-MAP := CV-MAP1 := #BS2-RENAME-CV := #BS2-COPY-CV := (AD=I CD=NE)
+END-IF
+#OLD-STATUS_START := L-STATUS
+IF #MONITOR /*SU1 MF-NODE.M-TYPE /*status Monitor cannot be changed SU11
+  RESET INITIAL CV-MAP1
+END-IF
+MAIN-LOOP. REPEAT
+  FIND-LOOP. FIND MF-NODE WITH MF-NODE.MF-INTERNAL-NODE-ID =#INT-NODE-ID
+    IF #MONITOR-PREFIX NE #NODE-PREFIX
+      ESCAPE TOP
+    END-IF
+    CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDEFNOM&'
+    CALLNAT 'N-HEAD2' MF-NODE.MF-LAST-UPDATE-USER MF-NODE.MF-LAST-UPDATE
+      #LAST-MOD G-DATE-FORMAT
+    PERFORM FLIP-DISPLAY
+    IF #FUNC = 'M'
+      GETREC. GET MF-NODE #ISN /*update after INPUT (HOLD)
+      IF NOT(#MF-SPOOL-TYPE-OLD=' ' OR= MF-NODE.MF-SPOOL-TYPE)
+        #TYPE-DIF := TRUE
+        MF-NODE.MF-SPOOL-TYPE  := #MF-SPOOL-TYPE-OLD
+        MF-NODE.MF-SYSTEM-TYPE := #MF-SYSTEM-TYPE-OLD
+        MF-NODE.MF-PRODUCT-NAME := #MF-PRODUCT-NAME-OLD
+        #SPOOL-TYPES (*)       := #SPOOL-TYPES-OLD (*)
+        PERFORM SET-SPOOL-TYPE
+        PERFORM GET-STATUS-TEXT
+        UPDATE (GETREC.)
+      END-IF
+    END-IF
+    IF #PANEL = 0 /*main
+      PERFORM INPUT-NODE
+      DECIDE ON FIRST VALUE OF G-PF-FUNC
+        VALUE ##PFK-EXIT
+          IF G-AUTOCOMMIT = 'I'
+            BACKOUT TRANSACTION
+          END-IF
+          INCLUDE C-ESCAP2 /* STOP
+        VALUE ##PFK-AREPORT-SPOOL /*PF10 SPOOL
+          #PANEL := 1
+/*SU8     MOVE BY NAME MF-NODE TO #SAVE
+          PERFORM SAVE-IT /*SU8
+          RESET #POS
+          PERFORM INIT-SET-PFKEYS
+        NONE IGNORE
+      END-DECIDE
+    ELSE /*spool panel
+      PERFORM INPUT-SPOOL
+      DECIDE ON FIRST VALUE OF G-PF-FUNC
+        VALUE ##PFK-EXIT
+/*SU8     MOVE BY NAME #SAVE TO MF-NODE
+/*SU8     MOVE BY NAME #BS2-SAVE TO #BS2-PARMS
+          PERFORM RESTORE-IT /*SU8
+          #PANEL := 0
+          RESET G-NATRP-ERC G-NATRP-ERT
+          PERFORM INIT-SET-PFKEYS
+          ESCAPE TOP
+        NONE IGNORE
+      END-DECIDE
+    END-IF
+    IF #FUNC NE 'D' AND (CV-MAP MODIFIED OR G-MAP-MODIFIED
+    OR #BS2-RENAME-CV MODIFIED OR #BS2-COPY-CV MODIFIED               /*
+    OR #MODIFIED-BY-EXIT)                                             /*
+      G-COMMIT := TRUE
+      MF-NODE.MF-MONITOR-ID      := #MONITOR-ID
+      MF-NODE.MF-LAST-UPDATE     := *TIMX
+      MF-NODE.MF-LAST-UPDATE-USER := G-USERID
+      IF #MONITOR /*just to be sure SU11
+        MF-NODE.MF-TYPE := 'M'
+      END-IF
+      UPDATE  (GETREC.) /*MONITOR
+      IF G-NATRP-ERC = 0
+        G-NATRP-ERC := 32
+      END-IF
+    END-IF
+    DECIDE ON FIRST VALUE OF G-PF-FUNC
+      VALUE ##PFK-EXIT /*PF3
+        BACKOUT TRANSACTION
+        G-NATRP-ERC := 16
+        RESET G-MAP-MODIFIED G-COMMIT G-HOLD-TIME
+        ESCAPE ROUTINE
+      VALUE ##PFK-FLIP /*PF4
+        PERFORM FLIP-HANDLE
+      VALUE ##PFK-COMMIT /*PF5
+        #CHECK := TRUE
+        PERFORM INPUT-SPOOL
+        IF G-COMMIT
+          RESET G-MAP-MODIFIED
+          INCLUDE C-COMMIT
+          RESET G-COMMIT G-HOLD-TIME
+          G-NATRP-ERC := 15
+        END-IF
+      VALUE ##PFK-BACKOUT /*PF6
+        BACKOUT TRANSACTION
+        #PANEL := 0 /*main
+        G-NATRP-ERC := 16
+        RESET G-MAP-MODIFIED G-COMMIT G-HOLD-TIME L-ERR (*)
+      NONE IGNORE
+    END-DECIDE
+*
+  END-FIND /*(FIND-LOOP.)
+END-REPEAT /*(MAIN-LOOP.)
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NPR-NODE
+************************************************************************
+IF MF-NODE.MF-SYSTEM-TYPE = ' '
+  #SYSTEM-TYPE := 'Mainframe'
+ELSE
+  #SYSTEM-TYPE := MF-NODE.MF-SYSTEM-TYPE
+END-IF
+IF MF-NODE.MF-PRODUCT-NAME = ' '
+  MF-NODE.MF-PRODUCT-NAME := 'Mainframe'
+END-IF
+EXAMINE MF-NODE.MF-PRODUCT-NAME FOR 'OSD' REPLACE WITH 'BS2000'
+RESET L-ERR (*) /*L-NODE-STATUS
+*
+FNDNPR. FIND SYS-INFO WITH NODE = MF-NODE.MF-MONITOR-NODE
+  IF NOT #MONITOR /*SU11
+   IF L-STATUS EQ 'D'                               /* NOMALL-2498 start
+      L-STATUS := MF-NODE.MF-TYPE := 'D'             /* deactive
+    ELSE
+      DECIDE ON FIRST VALUE OF SYS-INFO.ERROR-CODE
+        VALUE 0   IGNORE
+**    VALUE 999 L-STATUS := MF-NODE.MF-TYPE := 'I' /* inactive
+        VALUE 999 L-STATUS := MF-NODE.MF-TYPE := 'S' /* suspend
+        NONE
+          L-STATUS := MF-NODE.MF-TYPE := 'E'         /* error
+      END-DECIDE
+    END-IF                                           /* NOMALL-2498 end
+  END-IF                                           /* NOMALL-2498 end
+  IF SYS-INFO.ERROR-CODE NE 0
+*   G-NATRP-ERC := 5
+*   G-NATRP-ERT := SYS-INFO.ERROR-TEXT
+    ESCAPE BOTTOM
+  END-IF
+  MF-NODE.MF-SPOOL-TYPE := SYS-INFO.SPOOL-TYPE
+  #SYSTEM-TYPE  := MF-NODE.MF-SYSTEM-TYPE := SYS-INFO.SYSTEM-TYPE
+  MF-NODE.MF-PRODUCT-NAME := SYS-INFO.PRODUCT-NAME
+  IF MF-NODE.MF-MONITOR-DESCRIPTION = ' ' AND #FUNC NE 'D' /*Display
+    MF-NODE.MF-MONITOR-DESCRIPTION := SYS-INFO.NODE-ID
+  END-IF
+  /*Deactivated/Monitor/Suspended/Error
+  IF NOT(MF-NODE.MF-TYPE ='D' OR='M' OR='S' OR='E')
+    IF MF-NODE.MF-SPOOL-TYPE = ' ' /*NPR down
+**    L-STATUS := MF-NODE.MF-TYPE := 'I' /* inactive NOMALL-2498
+      L-STATUS := MF-NODE.MF-TYPE := 'S' /* suspend  NOMALL-2498
+      ESCAPE ROUTINE
+    END-IF
+    MF-NODE.MF-TYPE := 'A' /*up
+    CALLNAT 'N-ESYLG' 1X MF-NODE.MF-MONITOR-NODE MF-NODE.MF-NPR-USERID
+      #CALLER G-NATRP-ERC G-NATRP-ERT 1X
+    IF G-NATRP-ERC NE 0
+      IF G-NATRP-ERC = 3148 OR=5999
+**      L-STATUS := MF-NODE.MF-TYPE := 'I' /* inactive NOMALL-2498
+        L-STATUS := MF-NODE.MF-TYPE := 'S' /* suspend  NOMALL-2498
+      ELSE
+        L-STATUS := MF-NODE.MF-TYPE := 'E' /* error    NOMALL-2498
+      END-IF
+      G-NATRP-ERC := 7128 /*ESY Node :1: access error :2:
+      COMPRESS MF-NODE.MF-MONITOR-NODE G-NATRP-ERT TO G-NATRP-ERT
+      #POS := POS(MF-NODE.MF-NPR-USERID)
+    END-IF
+  END-IF
+  IF G-NATRP-ERC =0 AND #FUNC NE 'D' AND (SYS-INFO.ESY-VERSION < '3.6.2'
+  AND SYS-INFO.ESY-VERSION NE ' ') AND NOT(L-STATUS ='D' OR='S')      /*
+    G-NATRP-ERC := 9215 /*Node deactivated, install ESY:1:or higher.
+    G-NATRP-ERT := '3.6.2'
+    G-MAP-MODIFIED := TRUE
+    L-STATUS := MF-NODE.MF-TYPE := 'D'
+  END-IF
+END-FIND
+IF SYS-INFO.ERROR-CODE NE 0
+  IF #MONITOR /*SU3
+    MF-NODE.MF-MONITOR-NODE := #OLD-NODE-NR
+  END-IF
+  PERFORM XXWRAP-WORD-WRAP 'L' SYS-INFO.ERROR-TEXT
+    #WRAP-ARRAY (*) #WRAP-LINESIZE
+  IF *OCC(#WRAP-ARRAY) > 0
+    L-ERR (1) := #WRAP-ARRAY (1)
+  END-IF
+  IF *OCC(#WRAP-ARRAY) > 1
+    L-ERR (2) := #WRAP-ARRAY (2)
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* GET-NPR-NODE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-SPOOL-TYPE
+************************************************************************
+RESET #JES3 #JES2 #BS2 /*SU14 #POWER
+DECIDE FOR FIRST CONDITION
+  WHEN MF-NODE.MF-SPOOL-TYPE ='JES3'
+    #JES3 := TRUE
+  WHEN MF-NODE.MF-SPOOL-TYPE ='JES2' OR='JES'
+    #JES2 := TRUE
+  WHEN MF-NODE.MF-SPOOL-TYPE ='POWER' OR='POWR'
+/*SU14-> #POWER := TRUE
+    G-NATRP-ERC := 4501 /*Invalid Spool Type:1:
+    COMPRESS MF-NODE.MF-SPOOL-TYPE '(' MF-SYSTEM-TYPE
+      ' not supported since NOM 3.6)' TO G-NATRP-ERT LEAVING NO
+    #POS        := POS(MF-NODE.MF-MONITOR-NODE)
+    ESCAPE ROUTINE /*SU14 <-
+  WHEN MF-NODE.MF-SPOOL-TYPE =SCAN 'BS2' OR='SPOOL'
+  OR MF-NODE.MF-SYSTEM-TYPE=SCAN 'BS2'                                /*
+    #BS2 := TRUE
+    IF MF-NODE.MF-TIME-SCHEDULE = 'K'
+      #BS2-PARMS.#BS2-COPY := 'Y'
+      #BS2-PARMS.#BS2-RENAME := 'N'
+    ELSE
+      #BS2-PARMS.#BS2-RENAME := MF-NODE.MF-TIME-SCHEDULE
+      #BS2-PARMS.#BS2-COPY := 'N'
+    END-IF
+    PERFORM #NOMEX007
+    PERFORM BS2-INFO /*SU13
+  WHEN NONE IGNORE
+END-DECIDE
+IF NOT(#SPOOL-TYPES-OLD (*))
+  #SPOOL-TYPES-OLD (*) := #SPOOL-TYPES (*)
+END-IF
+IF NOT (#SPOOL-TYPES-OLD (*) = #SPOOL-TYPES (*)) OR #TYPE-DIF
+  RESET #TYPE-DIF
+  IF #USED OR #MONITOR /*SU11
+    G-NATRP-ERC := 2063 /*Node used in:1:Reports; no Spool Type change
+    #POS        := POS(MF-NODE.MF-MONITOR-NODE)
+    MF-NODE.MF-MONITOR-NODE := #OLD-NODE-NR
+    G-NATRP-ERT := #I
+    ESCAPE ROUTINE
+  END-IF
+  #SPOOL-TYPES-OLD (*) := #SPOOL-TYPES (*)
+  G-NATRP-ERC := 2061 /*spool attr. reseted
+  RESET MF-NODE.MF-CLASSES (*) MF-NODE.MF-JES3-OUTPUT-CLASSES (*)
+    MF-NODE.MF-TEMP-CLASS MF-NODE.MF-PRINT-CLASS
+    MF-NODE.MF-ERR-CLASS MF-NODE.MF-TIME-SCHEDULE #CHECKED
+END-IF
+*
+END-SUBROUTINE /* SET-SPOOL-TYPE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-STATUS-TEXT
+************************************************************************
+IF #MONITOR
+  #XX-ERROR-CODE := 2049 /* Monitor
+ELSE
+  DECIDE ON FIRST VALUE OF L-STATUS /*NRM-MF-NODE.M-TYPE
+    VALUE 'S' #XX-ERROR-CODE := 2032 /* suspended
+    VALUE 'D' #XX-ERROR-CODE := 2047 /* deactivated
+    VALUE 'A' #XX-ERROR-CODE := 2030 /* active
+    VALUE 'E' #XX-ERROR-CODE := 2051 /* in error
+** NONE      #XX-ERROR-CODE := 2008 /* down
+* BLI     2019-01-24 NOMALL-1621 line above out, below in
+    NONE      #XX-ERROR-CODE := 2031 /* inactive
+  END-DECIDE
+END-IF
+CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+L-NODE-STATUS := #XX-SHORT-TEXT
+*
+END-SUBROUTINE /* GET-STATUS-TEXT
+*
+************************************************************************
+DEFINE SUBROUTINE INPUT-NODE
+************************************************************************
+#REP. REPEAT
+  IF #POS = 0
+    #POS := POS(G-DIRECT-COMMAND)
+  END-IF
+  #OLD-CP := MF-NODE.MF-REMOTE-CODEPAGE
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+    MARK #POS USING MAP 'RDEFNOM&'
+  RESET G-NATRP-ERC
+  INCLUDE RPFKVA-C
+  INCLUDE RPFKEX2C
+  IF MF-NODE.MF-SPOOL-TYPE ='POWER' OR='POWR' /*SU14
+    IF *PF-KEY = 'PF3'
+      RESET G-COMMIT
+      BACKOUT TRANSACTION
+      ESCAPE MODULE
+    END-IF
+    G-NATRP-ERC := 4501 /*Invalid Spool Type:1:
+    COMPRESS MF-NODE.MF-SPOOL-TYPE '(' MF-SYSTEM-TYPE
+      ' not supported since NOM 3.6)' TO G-NATRP-ERT LEAVING NO
+    #POS        := POS(MF-NODE.MF-MONITOR-NODE)
+    ESCAPE TOP /*nothing else possible
+  END-IF
+  IF #FUNC NE 'D' AND (L-STATUS NE #OLD-STATUS
+  OR #OLD-NODE-NR NE MF-NODE.MF-MONITOR-NODE)                         /*
+    RESET L-ERR (*)
+    PERFORM CHECK-DATA /*SU3 ->
+    IF G-NATRP-ERC NE 0
+      RESET #PANEL /*main
+      ESCAPE ROUTINE
+    END-IF /*SU3 <-
+    PERFORM GET-NPR-NODE
+    PERFORM SET-SPOOL-TYPE
+    IF G-NATRP-ERC NE 0
+      #OLD-STATUS := L-STATUS
+      ESCAPE TOP
+    END-IF
+    PERFORM GET-STATUS-TEXT
+  END-IF
+  #OLD-STATUS := L-STATUS
+  #OLD-NODE-NR := MF-NODE.MF-MONITOR-NODE
+  PERFORM CHECK-DATA /*check if data ok - set #DATA-OK
+  IF #DATA-OK
+    PERFORM CHECK-SPOOL /*check if data ok - set #DATA-OK
+    IF NOT #DATA-OK
+      #PANEL := 1
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+*
+  #PF-KEY := *PF-KEY
+  IF #PF-KEY NE 'ENTR'
+    ESCAPE ROUTINE
+  END-IF
+  INCLUDE C-DIRECT
+*
+  IF #FUNC = 'D'
+    ESCAPE ROUTINE
+  END-IF
+  IF G-NATRP-ERC = 0 /* #DATA-OK
+    ESCAPE BOTTOM (#REP.)
+  END-IF
+*
+END-REPEAT /*(#REP.)
+MF-NODE.MF-TYPE := L-STATUS
+*
+IF MF-NODE.MF-NPR-USERID = ' '
+  MF-NODE.MF-NPR-USERID := 'NOMMON'
+END-IF
+*
+END-SUBROUTINE /* INPUT-NODE
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-DATA
+************************************************************************
+RESET G-NATRP-ERC G-NATRP-ERT
+#DATA-OK := TRUE
+IF #FUNC = 'D'
+  ESCAPE ROUTINE
+END-IF
+#REP1. REPEAT
+  DECIDE FOR EVERY CONDITION
+    WHEN #NODE = ' '
+      G-NATRP-ERC := 2020
+      #POS        := POS(#NODE)
+      ESCAPE BOTTOM(#REP1.)
+    WHEN #FUNC = 'M' AND #NODE NE #OLD-NODE-NAME
+      FIND-MF. FIND NUMBER #MF-NODES WITH MF-MONITOR-ID = #MONITOR-ID
+      FIND-UX. FIND NUMBER UX-NODES WITH UX-NODE-NAME = #NODE
+      IF *NUMBER(FIND-MF.) NE 0 OR *NUMBER(FIND-UX.) NE 0
+        G-NATRP-ERC := 2022
+        #POS        := POS(#NODE)
+        ESCAPE BOTTOM(#REP1.)
+      END-IF
+      #OLD-NODE-NAME := #NODE
+**check it again before STORE/ET
+    WHEN NOT (MF-NODE.MF-MONITOR-NODE = 1 THRU 65535) /* BLI
+      G-NATRP-ERC := 0641
+      #POS        := POS(MF-NODE.MF-MONITOR-NODE)
+      ESCAPE BOTTOM(#REP1.)
+    WHEN MF-NODE.MF-NPR-USERID = ' '
+      G-NATRP-ERC := 2020
+      #POS        := POS(MF-NODE.MF-NPR-USERID)
+      ESCAPE BOTTOM(#REP1.)
+    WHEN +NOD-LOCAL-SPOOL-TYPE NE MF-NODE.MF-SPOOL-TYPE /*SU3
+    AND MF-NODE.MF-REMOTE-CODEPAGE =' '                               /*
+      #POS        := POS(MF-NODE.MF-REMOTE-CODEPAGE)
+      G-NATRP-ERC := 2020 /*NOM2020 Please enter field.
+      ESCAPE BOTTOM(#REP1.)
+/* only one monitor:
+**  WHEN NOT (L-STATUS='A' OR='D' OR='M')              BLI NOMALL-2498
+    WHEN NOT (L-STATUS='A' OR='D' OR='M' OR='E' OR='S') /* NOMALL-2498
+    OR (L-STATUS='M' AND NOT #MONITOR)                            /*SU11
+      G-NATRP-ERC := 9213 /*Please enter 'A'(act)or'D' (deact)
+      #POS        := POS(L-STATUS)
+      L-STATUS    := #OLD-STATUS_START
+      ESCAPE BOTTOM(#REP1.)
+      /*ÜÜcoding must be before next WHEN(INPUT/REINPUT)
+    WHEN MF-NODE.MF-REMOTE-CODEPAGE NE ' ' /*help+check
+      CALLNAT 'N-CP-CH2' MF-NODE.MF-REMOTE-CODEPAGE G-NATRP-ERC
+        G-NATRP-ERT #OLD-CP
+      IF G-NATRP-ERC NE 0
+        #POS := POS(MF-NODE.MF-REMOTE-CODEPAGE)
+        ESCAPE BOTTOM(#REP1.)
+      END-IF
+* fhi    2018-07-19 NOMALL-1918 start commenting. Can be activated
+*                               as the status could have been changed.
+* WHEN NOT (L-STATUS ='D' OR='M') /*SU1
+* AND MF-NODE.MF-TYPE = '-' OR='E' /*down/error                       /*
+*   G-NATRP-ERC := 2062 /*node cannot be activated
+*   #POS        := POS(L-STATUS)
+*   ESCAPE BOTTOM(#REP1.)
+* fhi    2018-07-19 NOMALL-1918 end   commenting
+    WHEN NOT (#BS2 OR #JES3 OR #JES2) /*SU14 OR #POWER)
+      G-NATRP-ERC := 4501 /*Invalid Spool Type
+      SET CONTROL 'MB'
+      INPUT WINDOW = 'SPOOL-TYPE' WITH TEXT *G-NATRP-ERC,' '
+        USING MAP 'RDEFNOS&'
+      SET CONTROL 'YB'
+      DECIDE FOR FIRST CONDITION
+        WHEN #SPOOL-TAB (1) NE ' '
+          MF-NODE.MF-SPOOL-TYPE := 'SPOOL' /*'BS2000'
+          #BS2 := TRUE
+        WHEN #SPOOL-TAB (2) NE ' '
+          MF-NODE.MF-SPOOL-TYPE := 'JES3'
+          #JES3 := TRUE
+        WHEN #SPOOL-TAB (3) NE ' '
+          MF-NODE.MF-SPOOL-TYPE := 'JES2'
+          #JES2 := TRUE
+/*SU14  WHEN #SPOOL-TAB (4) NE ' ' MF-NODE.MF-SPOOL-TYPE := 'POWER'
+/*SU14    #POWER := TRUE
+        WHEN ANY
+          RESET G-NATRP-ERC
+          G-MAP-MODIFIED := TRUE
+          ESCAPE BOTTOM /*(#REP1.)
+        WHEN NONE IGNORE
+      END-DECIDE
+      RESET G-NATRP-ERC
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+  ESCAPE BOTTOM(#REP1.)
+END-REPEAT /*(#REP1.)
+IF G-NATRP-ERC NE 0
+  RESET #DATA-OK
+  IF #MONITOR /*SU3 SU11
+    MF-NODE.MF-MONITOR-NODE := #OLD-NODE-NR
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CHECK-DATA
+*
+************************************************************************
+DEFINE SUBROUTINE INPUT-SPOOL
+************************************************************************
+IF #POS = 0
+  #POS := POS(G-DIRECT-COMMAND)
+END-IF
+IF #CHECK
+  PERFORM CHECK-SPOOL
+  RESET #CHECK
+  IF G-NATRP-ERC = 0 /*INPUT only if data invalid
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+IF CV-MAP MODIFIED OR CV-MAP1 MODIFIED
+OR #BS2-RENAME-CV MODIFIED OR #BS2-COPY-CV MODIFIED                   /*
+  G-COMMIT := TRUE
+END-IF
+/*SU8 MOVE BY NAME #BS2-PARMS TO #BS2-SAVE
+#BS2-SAVE.#BS2-RENAME := #BS2-PARMS.#BS2-COPY /*SU8
+#BS2-SAVE.#BS2-COPY   := #BS2-PARMS.#BS2-RENAME /*SU8
+EXAMINE MF-NODE.MF-BS2-DEST (*) FOR H'FF' DELETE /*SU10 moved
+DECIDE FOR FIRST CONDITION
+  WHEN #JES3
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+      MARK #POS USING MAP 'RDEFNJ3&'
+  WHEN #JES2 /*SU14 OR #POWER
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+      MARK #POS USING MAP 'RDEFNOJ&'
+  WHEN #BS2
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+      MARK #POS USING MAP 'RDEFNOB&'
+/*    MU-field:avoid suppression (see RDEFNO/NODUOP1N/NOSDOP-N): SU4
+    EXAMINE FULL MF-NODE.MF-BS2-DEST (*) FOR FULL #EMPTY_A8 REPLACE #FF8
+  WHEN NONE
+    G-NATRP-ERC := 4501 /*Invalid Spool Type
+    RESET #PANEL
+    ESCAPE ROUTINE
+END-DECIDE
+#PF-KEY := *PF-KEY
+INCLUDE RPFKVA-C
+IF G-PF-FUNC = ##PFK-EXIT
+  ESCAPE ROUTINE
+END-IF
+INCLUDE C-DIRECT
+PERFORM CHECK-SPOOL
+*
+END-SUBROUTINE /* INPUT-SPOOL
+*
+************************************************************************
+DEFINE SUBROUTINE BS2-INFO /*SU13
+************************************************************************
+IF #NODE = +NOD-LOCAL-NAME /*local:use 1. entry from 8.1.2/PF7 SU13
+  MF-MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+  FIND NRM-MONITOR-CONTAINER WITH M-MONITOR-ID = MF-MONITOR-ID
+    IF (M-CP-DBID (1) NE 0 AND M-CP-FNR (1) NE 0)
+      RESET #NO-CONTAINER
+    END-IF
+  END-FIND /*record must exist Ü
+  IF *LANGUAGE = 1 /*SU13
+    #BS2-REMARK1 := 'Container File in Monitor defaults (8.1.2)'
+    #BS2-REMARK2 := 'Destination      DBID  FNR'
+  ELSE
+    #BS2-REMARK1 := 'Container Datei in Monitor-Standardw. (8.1.2)'
+    #BS2-REMARK2 := 'Destination      DBID  FNR'
+  END-IF
+ELSE /*remote: use trigger from 8.1.10
+  FNDTRIGGER. FIND (1) API-DEFAULTS WITH M-MONITOR-ID = 'API-DEFS'
+    M-CP-IDENT (1) := M-TIME-SCHEDULE
+    M-CP-DBID  (1) := M-NATRPT-DBID-N5
+    M-CP-FNR   (1) := M-NATRPT-FNR-N5
+  END-FIND
+  IF (M-CP-IDENT(1)='Y' AND M-CP-DBID(1) NE 0 AND M-CP-FNR(1) NE 0)
+    RESET #NO-CONTAINER
+  END-IF
+  IF *LANGUAGE = 1 /*SU13
+    #BS2-REMARK1 := 'NOM trigger container file (8.1.10)'
+    #BS2-REMARK2 := 'Process trigger  DBID  FNR'
+    IF M-CP-IDENT (1) = 'Y'
+      M-CP-IDENT (1) := 'activated'
+    ELSE
+      M-CP-IDENT (1) := 'deactivated'
+    END-IF
+  ELSE
+    #BS2-REMARK1 := 'NOM-Trigger-Container-Datei (8.1.10)'
+    #BS2-REMARK2 := 'Verarbeiten      DBID  FNR'
+    IF M-CP-IDENT (1) = 'Y'
+      M-CP-IDENT (1) := 'aktiviert'
+    ELSE
+      M-CP-IDENT (1) := 'deaktiviert'
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* BS2-INFO
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-SPOOL
+************************************************************************
+IF #FUNC = 'D'
+  #DATA-OK := TRUE
+  ESCAPE ROUTINE
+END-IF
+RESET G-NATRP-ERC G-NATRP-ERT #POS #DATA-OK
+DECIDE FOR FIRST CONDITION
+  WHEN #JES3
+    DECIDE FOR FIRST CONDITION
+/*SU12 -> WHEN NOT (MF-NODE.MF-CLASSES(*) NE ' ') AND
+/*        NOT (MF-NODE.MF-JES3-OUTPUT-CLASSES(*) NE ' ')
+/*      G-NATRP-ERC := 0629
+/*SU12 <- #POS        := POS(MF-NODE.MF-CLASSES(1))
+      WHEN MF-NODE.MF-TEMP-CLASS = ' '
+      AND MF-NODE.MF-JES3-OUTPUT-CLASSES (*) NE ' '                   /*
+        G-NATRP-ERC := 0627
+        #POS        := POS(MF-NODE.MF-TEMP-CLASS)
+      WHEN MF-NODE.MF-TEMP-CLASS NE ' '
+      AND (MF-NODE.MF-TEMP-CLASS = MF-NODE.MF-PRINT-CLASS             /*
+      OR  MF-NODE.MF-TEMP-CLASS = MF-NODE.MF-JES3-OUTPUT-CLASSES (*)) /*
+        G-NATRP-ERC := 0626
+        #POS        := POS(MF-NODE.MF-TEMP-CLASS)
+      WHEN MF-NODE.MF-ERR-CLASS NE ' '
+      AND (MF-NODE.MF-ERR-CLASS = MF-NODE.MF-PRINT-CLASS              /*
+      OR= MF-NODE.MF-JES3-OUTPUT-CLASSES (*))                         /*
+        G-NATRP-ERC := 0640
+        #POS        := POS(MF-NODE.MF-ERR-CLASS)
+      WHEN MF-NODE.MF-PRINT-CLASS = ' '
+        G-NATRP-ERC := 0622
+        #POS        := POS(MF-NODE.MF-PRINT-CLASS)
+      WHEN MF-NODE.MF-PRINT-CLASS = MF-NODE.MF-JES3-OUTPUT-CLASSES (*)
+        G-NATRP-ERC := 0623
+        #POS        := POS(MF-NODE.MF-PRINT-CLASS)
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+************************************************************************
+  WHEN #JES2 /*SU14 OR #POWER
+    DECIDE FOR FIRST CONDITION
+/*SU12  WHEN NOT (MF-NODE.MF-CLASSES(*) NE ' ')
+/*SU12  G-NATRP-ERC := 0629
+/*SU12  #POS        := POS(MF-NODE.MF-CLASSES(1))
+      WHEN MF-NODE.MF-TEMP-CLASS = ' '
+        G-NATRP-ERC := 0627
+        #POS        := POS(MF-NODE.MF-TEMP-CLASS)
+      WHEN MF-NODE.MF-TEMP-CLASS = MF-NODE.MF-CLASSES(*)
+        G-NATRP-ERC := 0626
+        #POS        := POS(MF-NODE.MF-TEMP-CLASS)
+      WHEN MF-NODE.MF-PRINT-CLASS = ' '
+        G-NATRP-ERC := 0622
+        #POS        := POS(MF-NODE.MF-PRINT-CLASS)
+      WHEN MF-NODE.MF-PRINT-CLASS = MF-NODE.MF-CLASSES (*)
+      OR  MF-NODE.MF-PRINT-CLASS = MF-NODE.MF-TEMP-CLASS              /*
+        G-NATRP-ERC := 0623
+        #POS        := POS(MF-NODE.MF-PRINT-CLASS)
+      WHEN MF-NODE.MF-ERR-CLASS NE ' '
+      AND (MF-NODE.MF-ERR-CLASS = MF-NODE.MF-PRINT-CLASS              /*
+      OR= MF-NODE.MF-CLASSES (*))                                     /*
+        G-NATRP-ERC := 0640
+        #POS        := POS(MF-NODE.MF-ERR-CLASS)
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+************************************************************************
+  WHEN #BS2
+    DECIDE FOR FIRST CONDITION
+      WHEN #NODE NE +NOD-LOCAL-NAME AND #BS2-PARMS.#BS2-COPY NE 'Y'/*SU2
+        G-NATRP-ERC := 4208 /*Spool: 'Copy files' act. for remote Node
+        #POS        := POS(#BS2-PARMS.#BS2-COPY)
+        #BS2-PARMS.#BS2-COPY := 'Y'
+        #BS2-PARMS.#BS2-RENAME := 'N'
+        G-MAP-MODIFIED := TRUE
+      WHEN NOT (#BS2-PARMS.#BS2-RENAME = 'Y' OR = 'N')
+        G-NATRP-ERC := 9206
+        #POS        := POS(#BS2-PARMS.#BS2-RENAME)
+      WHEN NOT (#BS2-PARMS.#BS2-COPY   = 'Y' OR = 'N')
+        G-NATRP-ERC := 9206
+        #POS        := POS(#BS2-PARMS.#BS2-COPY)
+      WHEN #BS2-PARMS.#BS2-RENAME = 'Y' AND #BS2-PARMS.#BS2-COPY = 'Y'
+        G-NATRP-ERC := 9211
+        #POS        := POS(#BS2-PARMS.#BS2-RENAME)
+      WHEN #BS2-PARMS.#BS2-COPY ='Y' /*container defined in montor def.?
+        IF #NO-CONTAINER AND NOT(L-STATUS ='D' OR='S')
+          IF #NODE = +NOD-LOCAL-NAME /*local SU13
+            G-NATRP-ERC := 9214 /*Remote node deact, define cont. file
+          ELSE
+            G-NATRP-ERC := 9216 /*Remote node deact, define trigger file
+          END-IF
+          #POS     := POS(#BS2-PARMS.#BS2-COPY)
+          L-STATUS := 'D'
+          G-MAP-MODIFIED := TRUE
+          PERFORM GET-STATUS-TEXT /*SU13
+        END-IF
+      WHEN NONE IGNORE
+    END-DECIDE
+    MF-NODE.MF-TIME-SCHEDULE := #BS2-PARMS.#BS2-RENAME
+    IF #BS2-PARMS.#BS2-COPY = 'Y'
+      MF-NODE.MF-TIME-SCHEDULE := 'K'
+    END-IF
+************************************************************************
+  WHEN NONE
+    G-NATRP-ERC := 4501 /*Invalid Spool Type
+END-DECIDE
+IF G-NATRP-ERC = 0
+  #DATA-OK := TRUE
+END-IF
+*
+END-SUBROUTINE /* CHECK-SPOOL
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-SET-PFKEYS
+************************************************************************
+PERFORM INIT-PFKEYS
+PERFORM SET-PFKEYS
+SET KEY PF01=HELP NAMED G-PF-TEXT (1)
+SET KEY PF13=HELP NAMED G-PF-TEXT (1)
+*
+END-SUBROUTINE /* INIT-SET-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+RESET G-PF-KEYS (*)
+INCLUDE RPFSTD-C
+INCLUDE RPFCOM-C
+IF #PANEL = 0 /*main
+  INCLUDE RPFARS-C /*PF10 Spool
+END-IF
+RESET G-PF-KEYS (12) G-PF-KEYS (24)
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-USED-RP
+************************************************************************
+RESET #I
+RE. READ REPORTS BY R-REPNAME
+  IF #SETTIME /*SU5
+    ST. SETTIME
+    RESET #SETTIME
+  END-IF
+  IF *TIMD (ST.) > 30 /*3 seconds SU11 was 50
+    SET CONTROL 'N'
+    INPUT WINDOW='WAIT' USING MAP 'RDEFNOW&'
+    #SETTIME := TRUE
+  END-IF
+  IF R-INTERNAL-NODE-ID = MF-NODE.MF-INTERNAL-NODE-ID
+  OR (#MONITOR AND R-INTERNAL-NODE-ID = 0) /*Monitor is default RP  SU11
+    #USED := TRUE
+    ADD 1 TO #I
+    IF #I > 100 /*SU5
+      #USED-TXT := '>100'
+      ESCAPE BOTTOM (RE.)
+    END-IF
+  END-IF
+END-READ
+IF #USED-TXT = ' '
+  #USED-TXT := #I
+END-IF
+IF *LANGUAGE = 1
+  COMPRESS 'used in' #USED-TXT 'Report Def.' TO #USED-TXT
+ELSE
+  COMPRESS 'verwendet in' #USED-TXT 'Report Def.' TO #USED-TXT
+END-IF
+*
+END-SUBROUTINE /* GET-USED-RP
+*
+************************************************************************
+DEFINE SUBROUTINE #NOMEX007
+************************************************************************
+IF NOT +G-NOMEXIT-ACTIVE (7) /* now get values from exit
+  ESCAPE ROUTINE
+END-IF
+NOMEX007-FIELD-VALUE := #BS2-PARMS.#BS2-RENAME
+RESET NOMEX007-FIELD-MODIFIABLE #MODIFIED-BY-EXIT
+CALLNAT 'NOMEX007' BS2-FILERENAME NOMEX007-FIELD-MODIFIABLE
+  NOMEX007-FIELD-VALUE G-NATRP-ERC G-NATRP-ERT
+DECIDE ON EVERY VALUE OF NOMEX007-FIELD-MODIFIABLE
+  VALUE 'Y' , 'N'
+    IF #BS2-PARMS.#BS2-RENAME NE NOMEX007-FIELD-VALUE
+      #MODIFIED-BY-EXIT := TRUE     /* force an update
+    END-IF
+    #BS2-PARMS.#BS2-RENAME := NOMEX007-FIELD-VALUE
+  VALUE 'N'
+    #BS2-RENAME-CV := (AD=IP)
+  NONE IGNORE
+END-DECIDE
+*
+NOMEX007-FIELD-VALUE := #BS2-PARMS.#BS2-COPY
+RESET NOMEX007-FIELD-MODIFIABLE
+CALLNAT 'NOMEX007' BS2-FILECOPY NOMEX007-FIELD-MODIFIABLE
+  NOMEX007-FIELD-VALUE G-NATRP-ERC G-NATRP-ERT
+DECIDE ON EVERY VALUE OF NOMEX007-FIELD-MODIFIABLE
+  VALUE 'Y' , 'N'
+    IF #BS2-PARMS.#BS2-COPY NE NOMEX007-FIELD-VALUE
+      #MODIFIED-BY-EXIT := TRUE     /* force an update
+    END-IF
+    #BS2-PARMS.#BS2-COPY := NOMEX007-FIELD-VALUE
+  VALUE 'N'
+    #BS2-COPY-CV := (AD=IP)
+  NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* #NOMEX007
+*
+************************************************************************
+DEFINE SUBROUTINE SAVE-IT /*SU8
+************************************************************************
+#SAVE.MF-PRINT-CLASS             := MF-NODE.MF-PRINT-CLASS
+#SAVE.MF-TEMP-CLASS              := MF-NODE.MF-TEMP-CLASS
+#SAVE.MF-BS2-DEST            (*) := MF-NODE.MF-BS2-DEST            (*)
+#SAVE.MF-CLASSES             (*) := MF-NODE.MF-CLASSES             (*)
+#SAVE.MF-ERR-CLASS               := MF-NODE.MF-ERR-CLASS
+#SAVE.MF-JES3-OUTPUT-CLASSES (*) := MF-NODE.MF-JES3-OUTPUT-CLASSES (*)
+*
+END-SUBROUTINE /* SAVE-IT
+*
+************************************************************************
+DEFINE SUBROUTINE RESTORE-IT /*SU8
+************************************************************************
+MF-NODE.MF-PRINT-CLASS             := #SAVE.MF-PRINT-CLASS
+MF-NODE.MF-TEMP-CLASS              := #SAVE.MF-TEMP-CLASS
+MF-NODE.MF-BS2-DEST            (*) := #SAVE.MF-BS2-DEST            (*)
+MF-NODE.MF-CLASSES             (*) := #SAVE.MF-CLASSES             (*)
+MF-NODE.MF-ERR-CLASS               := #SAVE.MF-ERR-CLASS
+MF-NODE.MF-JES3-OUTPUT-CLASSES (*) := #SAVE.MF-JES3-OUTPUT-CLASSES (*)
+#BS2-PARMS.#BS2-RENAME := #BS2-SAVE.#BS2-COPY
+#BS2-PARMS.#BS2-COPY   := #BS2-SAVE.#BS2-RENAME
+*
+END-SUBROUTINE /* RESTORE-IT
+* --------------------------------------- set pfekys -------------------
+INCLUDE RPFSET-C /*SUBROUTINE SET-PFKEYS
+*
+END

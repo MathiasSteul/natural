@@ -1,0 +1,141 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    MIGVIST3
+* Function  For one active bundle copy field OBJECT-TIME to all related
+*           OBJECT-TYPEs: BC,PO (for AR too)
+* Version   3.4
+*
+* Maintenance:
+* uuu     yyyy-mm-dd itrac ....
+* SU1     2015-05-25 NOMALL-1631 created (based on RDELAB)
+* SU2     2016-08-12 NOMALL-1814(NOM3.5) remove AdaVista fields
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER
+1 #AB-BUNDLE-RNB      (A31) /*in
+1 REDEFINE #AB-BUNDLE-RNB
+  2 #BC-BUNDLE_IN     (A25)
+  2 #BC-BUNDRNB_IN    (P11)
+1 #AB-TIME            (T)   /*in
+1 #COUNTER-OT         (I4)  /*in/out: for upd. related objets
+1 #COUNTER-OT-NOT     (I4)  /*in/out: for not upd. related objets
+* *****
+/*SU2 LOCAL USING VBURP-L  /*NRM-BUNDLE-CONTENTS
+LOCAL
+1 BUNDLE-CONTENTS VIEW OF NRM-BUNDLE-CONTENTS /*SU2
+  2 BC-OBJECT-TYPE
+  2 BC-OBJECT-TIME
+  2 BC-BUNDLE
+  2 BC-BUNDRNB
+1 PRINTOUTS VIEW OF NRM-PRINTOUTS
+  2 PO-OBJECT-TYPE
+  2 PO-OBJECT-TIME
+* *****
+1 #UPD-COUNT          (I2)
+1 #BC-SUPER           (A41)
+1 REDEFINE #BC-SUPER
+  2 #BC-BUNDLE        (A25)
+  2 #BC-BUNDRNB       (P11)
+  2 #BC-GROUP         (A8)
+  2 #BC-SEQNO         (P3)
+1 REDEFINE #BC-SUPER
+  2 #BC-REP-RNB       (A31)
+1 #OBJ-TYPE-TAB       (A22/1:2) CONST <
+  'BC'-'BUNDLE-CONTENTS' ,
+  'PO'-'PRINTOUTS' >
+1 REDEFINE #OBJ-TYPE-TAB
+  2 #TAB-GR           (1:2)
+    3 #OBJ-TYPE       (A2)
+    3 #OBJ-NAME       (A20)
+1 #I                  (I2)
+1 #TEST (L) CONST <FALSE> /*must be set to FALSE for delivery
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF #TEST AND #COUNTER-OT = 0 AND #COUNTER-OT-NOT = 0
+  PRINT *PROGRAM '>'(8) 'in test mode.'
+END-IF
+#BC-BUNDLE  := #BC-BUNDLE_IN
+#BC-BUNDRNB := #BC-BUNDRNB_IN
+RESET #BC-GROUP #BC-SEQNO
+FOR #I = 1 TO *OCC(#OBJ-TYPE-TAB)
+  DECIDE ON FIRST VALUE OF #OBJ-TYPE (#I)
+    VALUE '  ' ESCAPE TOP
+    VALUE 'BC' PERFORM #BC
+    VALUE 'PO' PERFORM #PO
+    NONE
+      PRINT (AD=L) 'Invalid object type:'
+        #OBJ-TYPE (#I) #OBJ-NAME (#I) '=' #I
+  END-DECIDE
+  END TRANSACTION
+END-FOR
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE #BC /*BUNDLE-CONTENTS
+************************************************************************
+BC. READ BUNDLE-CONTENTS BY BC-BUNDLE-RNB-GROUP-SEQNO = #BC-SUPER
+  IF BC-BUNDLE NE #BC-BUNDLE OR BC-BUNDRNB NE #BC-BUNDRNB
+    ESCAPE BOTTOM
+  END-IF
+  IF BC-OBJECT-TYPE (BC.) = 'BC' AND BC-OBJECT-TIME = 0
+    ADD 1 TO #COUNTER-OT-NOT
+  ELSE
+    ADD 1 TO #COUNTER-OT
+    BC-OBJECT-TYPE := #OBJ-TYPE (#I)
+    BC-OBJECT-TIME := #AB-TIME
+    IF NOT #TEST
+      UPDATE (BC.)
+    END-IF
+  END-IF
+  PERFORM #ET
+END-READ /*(BC.)
+*
+END-SUBROUTINE /* #BC
+*
+************************************************************************
+DEFINE SUBROUTINE #PO /*PRINTOUTS
+************************************************************************
+PO. FIND PRINTOUTS WITH PO-BUNDLE-RNB = #BC-REP-RNB
+  IF PO-OBJECT-TYPE (PO.) = #OBJ-TYPE (#I) AND PO-OBJECT-TIME NE 0
+    ADD 1 TO #COUNTER-OT-NOT
+  ELSE
+    ADD 1 TO #COUNTER-OT
+    PO-OBJECT-TYPE := #OBJ-TYPE (#I)
+    PO-OBJECT-TIME := #AB-TIME
+    IF NOT #TEST
+      UPDATE (PO.)
+    END-IF
+  END-IF
+  PERFORM #ET
+END-FIND /*(PO.)
+*
+END-SUBROUTINE /* #PO
+*
+************************************************************************
+DEFINE SUBROUTINE #ET
+************************************************************************
+ADD 1 TO #UPD-COUNT
+IF #UPD-COUNT GE 50
+  IF #TEST
+    BACKOUT TRANSACTION
+  ELSE
+    END TRANSACTION
+  END-IF
+  RESET #UPD-COUNT
+END-IF
+*
+END-SUBROUTINE /* #ET
+*
+END

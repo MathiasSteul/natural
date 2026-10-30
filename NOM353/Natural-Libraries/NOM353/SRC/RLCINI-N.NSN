@@ -1,0 +1,126 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RLCINI-N       Init Line Commands
+*                Read the Line Command Definition from SYSERR only if it
+*                is not in the GLOBAL Pool
+*
+* MAINTENANCE:
+* fhi 02-10-30 fhi101    switch on optimizer compiler
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-11-18 NOMALL-97 Correct parameter substitution
+* fhi     2011-01-10 NOMALL-97 Init always. Ignore pool.
+* raya    2013-05-06 NOMALL-1255 avoid error 1316
+* SU1     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 G-OBJ-TYPE               (A32)
+1 G-LC
+  2 G-LC-NUM               (I2)
+  2 G-LINE-COMMANDS        (1:20)
+    3 G-LC-IDENT           (I2)
+    3 G-LC-CODE            (A2)
+    3 G-LC-SHORT           (A10)
+    3 G-LC-TEXT            (A32)
+1 G-LCB
+  2 G-LCB-NUM              (I2)
+  2 G-LINE-COMMAND-BUFFER  (1:20)
+    3 G-LCB-IDENT          (I2)
+    3 G-LCB-USE            (P5)
+    3 G-LCB-CODE           (A2)
+    3 G-LCB-SHORT          (A10)
+    3 G-LCB-TEXT           (A32)
+************************************************************************
+LOCAL USING XXGMSG-A
+LOCAL
+1 #LCB-NUM                 (I2)   CONST <20>
+1 #FND-ENTRY               (I2)
+1 #I                       (I2)
+1 #J                       (I2)
+1 #MIN-ENTRY               (I2)
+1 #MIN-USE                 (P5)   INIT <99999>
+1 #START-VALUE             (P5)   INIT <99999>
+1 #LAN                     (A1)
+1 EXIST-IN-POOL            (L)
+1 #ERRN                    (N4)
+1 #ERT-CODE                (A2)
+1 #ERT-SHORT               (A10)
+1 #ERT-TEXT                (A50)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FOR #J = 1 TO G-LC-NUM
+  RESET INITIAL #FND-ENTRY #I #MIN-ENTRY #MIN-USE EXIST-IN-POOL
+  PERFORM INIT-LINE-COMMAND
+  G-LC-CODE  (#J) := G-LCB-CODE (#FND-ENTRY)
+  G-LC-SHORT (#J) := G-LCB-SHORT (#FND-ENTRY)
+  G-LC-TEXT  (#J) := G-LCB-TEXT (#FND-ENTRY)
+END-FOR
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-LINE-COMMAND
+************************************************************************
+#LAN := *LANGUAGE
+PERFORM CHECK-IF-EXIST
+PERFORM REPLACE-AN-ENTRY
+*
+END-SUBROUTINE /* INIT-LINE-COMMAND
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-IF-EXIST
+************************************************************************
+EXIST-IN-POOL := FALSE
+RESET INITIAL #MIN-USE
+FOR #I = 1 TO G-LCB-NUM
+  IF G-LCB-IDENT (#I) = G-LC-IDENT (#J)
+    #FND-ENTRY := #I
+    G-LCB-USE (#I) := #START-VALUE
+    EXIST-IN-POOL := TRUE
+  ELSE
+    G-LCB-USE (#I) := G-LCB-USE (#I) - 1
+    IF G-LCB-USE (#I) < #MIN-USE
+      #MIN-USE := G-LCB-USE (#I)
+      #MIN-ENTRY := #I
+    END-IF
+  END-IF
+END-FOR
+IF #MIN-ENTRY EQ 0
+  #MIN-ENTRY := 1
+END-IF
+*
+END-SUBROUTINE /* CHECK-IF-EXIST
+*
+************************************************************************
+DEFINE SUBROUTINE REPLACE-AN-ENTRY
+************************************************************************
+#XX-MSG-DYNA (1) := G-OBJ-TYPE
+IF G-LCB-NUM < #LCB-NUM
+  ADD 1 TO G-LCB-NUM
+  #FND-ENTRY := G-LCB-NUM
+ELSE
+  #FND-ENTRY := #MIN-ENTRY
+END-IF
+G-LCB-IDENT (#FND-ENTRY) := G-LC-IDENT (#J)
+G-LCB-USE   (#FND-ENTRY) := #START-VALUE
+#ERRN                    := G-LC-IDENT (#J)
+#XX-ERROR-CODE := #ERRN
+CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+SEPARATE #XX-SHORT-TEXT LEFT JUSTIFIED
+  INTO #ERT-CODE #ERT-SHORT REMAINDER #ERT-TEXT
+G-LCB-CODE  (#FND-ENTRY) := #ERT-CODE
+G-LCB-SHORT (#FND-ENTRY) := #ERT-SHORT
+G-LCB-TEXT  (#FND-ENTRY) := #ERT-TEXT
+*
+END-SUBROUTINE /* REPLACE-AN-ENTRY
+*
+END

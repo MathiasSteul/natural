@@ -1,0 +1,393 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RSELBU-N
+* Version   1.3
+* Function  Select bundle from list
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  98-07-16 p(172297) created for build list active bundle redesign
+* xsiszha 2000-08-02 (CE7461) Extend Report and Bundle Names
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #OBJECT                     (A25)
+1 #USER-ID                    (A8)
+1 #USER-TYPE                  (A1) /*not used Ü?
+1 G-SUPPORT-LONG-NAMES        (L)
+1 G-DISPLAY-LONG-NAMES        (L)
+************************************************************************
+INDEPENDENT
+1 +G-AUTHORIZATION            (A8)
+1 +G-RLISAB-SEL-COORD         (A8)
+1 +G-RLISBU-SEL-BUNDLE        (A25)
+1 +G-SELECT-ACTIVE-BUNDLE     (L)
+* *****
+LOCAL USING VGRANT-L
+LOCAL USING VUSERS-L
+LOCAL
+1 ACTIVE-BUNDLES VIEW OF NRM-ACTIVE-BUNDLES
+  2 AB-BUNDLE
+1 BUNDLES VIEW OF NRM-BUNDLES
+  2 B-BUNDLE
+  2 B-DESC
+  2 B-COORDINATOR-ID
+* *****
+1 #COORD                      (A8)
+1 #I                          (P2)
+1 #J                          (P2)
+1 #NOFLINES                   (I2) CONST <10>
+1 #SCREEN                     (1:#NOFLINES)
+  2 L-NAME                    (A25)
+  2 L-DESC                    (A40)
+  2 L-COORD                   (A8)
+1 CV-MARK                     (C/1:#NOFLINES)
+1 L-MARK                      (A1/1:#NOFLINES)
+1 END-OF-PROCESSING           (L)
+1 END-OF-DISPLAY              (L)
+1 END-OF-DATA                 (L)
+1 NEW-SEARCH                  (L)
+*
+1 #ERC                        (N4)
+1 #PAGE                       (P3) INIT <1>
+1 #NOFPAGES                   (I2) CONST <20>
+1 #S-OBJECT                   (A25)
+1 #OBJECT-F                   (A25/1:#NOFPAGES)
+1 #OBJECT-T                   (A25)
+1 CV-LINE                     (C/1:#NOFLINES)
+1 HIGHLIGHT                   (L)
+1 #LEN                        (N3)
+1 #OLD-OBJECT                 (A25)
+1 #OLD-COORD                  (A8)
+1 #COUNTER                    (P10)
+1 #GR-FROM                    (A34)
+1 REDEFINE #GR-FROM
+  2 #GR-TYPE-F                (A1)
+  2 #GR-USERID-F              (A8)
+  2 #GR-OBJECT-F              (A25)
+1 #GR-TO                      (A34)
+1 REDEFINE #GR-TO
+  2 #GR-TYPE-T                (A1)
+  2 #GR-USERID-T              (A8)
+  2 #GR-OBJECT-T              (A25)
+1 #AUTHORIZATION              (A8)
+1 #AUTHORIZE-SWITCH           (A8)
+1 #ZERO-PUBLIC                (L)
+1 #ZERO-USERID                (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM PF-KEYS
+*
+#S-OBJECT := #OBJECT
+RESET #OBJECT
+#COORD :=  +G-RLISAB-SEL-COORD
+*
+DECIDE ON FIRST VALUE +G-AUTHORIZATION
+  VALUE ' '
+    +G-AUTHORIZATION := #AUTHORIZATION := #USER-ID
+    #AUTHORIZE-SWITCH := 'PUBLIC'
+  VALUE 'PUBLIC'
+    #AUTHORIZATION    := 'PUBLIC'
+    #AUTHORIZE-SWITCH := #USER-ID
+  NONE
+    #AUTHORIZATION    := #USER-ID
+    #AUTHORIZE-SWITCH := 'PUBLIC'
+END-DECIDE
+*
+PERFORM INIT-SELECTION-KEYS
+*
+FIND USERS WITH USER-ID = #USER-ID
+END-FIND
+*
+IF #OBJECT = SCAN '*'
+  #S-OBJECT := #OBJECT
+END-IF
+IF USERS.PROF-TYPE = 'A'
+  REPEAT
+    UNTIL END-OF-PROCESSING
+    IF #AUTHORIZATION = 'PUBLIC'
+      PERFORM READ-GRANTED-OBJECTS
+    ELSE
+      PERFORM READ-ALL-OBJECTS
+    END-IF
+    IF *PF-KEY = 'PF3'
+      ESCAPE BOTTOM
+    END-IF
+  END-REPEAT
+ELSE
+  PERFORM READ-GRANTED-OBJECTS
+END-IF
+*
++G-RLISAB-SEL-COORD  := #COORD
++G-RLISBU-SEL-BUNDLE := #S-OBJECT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ALL-OBJECTS
+************************************************************************
+MAIN. REPEAT UNTIL END-OF-PROCESSING
+  IF #AUTHORIZATION = 'PUBLIC'
+    ESCAPE ROUTINE
+  END-IF
+  RESET #I #COUNTER
+  RESET INITIAL END-OF-DATA NEW-SEARCH
+  REA. READ BUNDLES BY B-BUNDLE = #OBJECT-F (#PAGE) ENDING AT #OBJECT-T
+    IF #I = #NOFLINES
+      PERFORM SCREEN-IO
+      IF END-OF-PROCESSING OR NEW-SEARCH
+        ESCAPE BOTTOM (REA.)
+      END-IF
+    END-IF
+    IF +G-SELECT-ACTIVE-BUNDLE
+      READ (1) ACTIVE-BUNDLES BY AB-BUNDLE-STATUS = B-BUNDLE
+      END-READ
+      REJECT IF AB-BUNDLE NE B-BUNDLE
+    END-IF
+    REJECT IF #COORD NE ' ' AND #COORD NE B-COORDINATOR-ID
+    ADD 1 TO #I
+    ADD 1 TO #COUNTER
+    PERFORM OBJECT-TO-SCREEN
+  END-READ
+  DECIDE FOR FIRST CONDITION
+    WHEN #I > 0 OR #COUNTER = 0
+      END-OF-DATA := TRUE
+    WHEN ANY
+      PERFORM SCREEN-IO
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-REPEAT
+*
+END-SUBROUTINE /* READ-ALL-OBJECTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-GRANTED-OBJECTS
+************************************************************************
+GRANT. REPEAT
+  UNTIL END-OF-PROCESSING
+  IF USERS.PROF-TYPE = 'A' AND #AUTHORIZATION NE 'PUBLIC'
+    ESCAPE ROUTINE
+  END-IF
+  RESET #I #COUNTER
+  RESET INITIAL END-OF-DATA NEW-SEARCH
+  #GR-TYPE-F   := #GR-TYPE-T   := 'B'
+  #GR-USERID-F := #GR-USERID-T := #AUTHORIZATION
+  #GR-OBJECT-F := #OBJECT-F (#PAGE)
+  #GR-OBJECT-T := #OBJECT-T
+  REAG. READ GRANTS BY GR-SUPER STARTING FROM #GR-FROM
+    IF GR-OBJECT-TYPE NE #GR-TYPE-T OR GR-USERID NE #GR-USERID-T OR
+        GR-OBJECT-NAME > #GR-OBJECT-T
+      ESCAPE BOTTOM (REAG.)
+    END-IF
+    FND. FIND BUNDLES WITH B-BUNDLE = GR-OBJECT-NAME
+      IF #I = #NOFLINES
+        PERFORM SCREEN-IO
+        IF END-OF-PROCESSING OR NEW-SEARCH
+          ESCAPE BOTTOM (REAG.)
+        END-IF
+      END-IF
+      IF +G-SELECT-ACTIVE-BUNDLE
+        READ (1) ACTIVE-BUNDLES BY AB-BUNDLE-STATUS = B-BUNDLE
+        END-READ
+        REJECT IF AB-BUNDLE NE B-BUNDLE
+      END-IF
+      REJECT IF #COORD NE ' ' AND #COORD NE B-COORDINATOR-ID
+      ADD 1 TO #I
+      ADD 1 TO #COUNTER
+      PERFORM OBJECT-TO-SCREEN
+    END-FIND
+  END-READ
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN #I > 0
+      IF #AUTHORIZATION = 'PUBLIC'
+        #ZERO-PUBLIC := FALSE
+      ELSE
+        #ZERO-USERID := FALSE
+      END-IF
+      END-OF-DATA := TRUE
+    WHEN #I = 0
+      IF #AUTHORIZATION = 'PUBLIC'
+        #ZERO-PUBLIC := TRUE
+      ELSE
+        #ZERO-USERID := TRUE
+      END-IF
+      PERFORM SWITCH-AUTHORIZATION
+      PERFORM CHECK-NEW-SEARCH
+      END-OF-DATA := TRUE
+      IF NOT (#ZERO-PUBLIC AND #ZERO-USERID)
+        SET CONTROL 'N'
+      END-IF
+    WHEN ANY
+      PERFORM SCREEN-IO
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-REPEAT
+*
+END-SUBROUTINE /* READ-GRANTED-OBJECTS
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+IF #I < #NOFLINES
+  CV-MARK (#I+1:#NOFLINES) := (AD=DP)
+END-IF
+*
+RESET END-OF-DISPLAY
+*
+REPEAT
+  DECIDE FOR FIRST CONDITION
+    WHEN #ERC NE 0
+      IGNORE
+    WHEN END-OF-DATA AND #PAGE > 1
+      #ERC := 12                   /* bottom of data
+    WHEN END-OF-DATA AND #PAGE = 1
+      #ERC := 14                   /* all
+    WHEN NOT END-OF-DATA AND #PAGE = 1
+      #ERC := 11                   /* top of data
+    WHEN NONE
+      #ERC := 13                   /* more
+  END-DECIDE
+  SET CONTROL 'Y41'
+  SET CONTROL 'M18'
+  IF G-DISPLAY-LONG-NAMES
+    SET CONTROL 'WC21L79B1/01F'
+    INPUT WITH TEXT *#ERC USING MAP 'RSELBUL&'
+  ELSE
+    SET CONTROL 'WC21L70B1/07F'
+    INPUT WITH TEXT *#ERC USING MAP 'RSELBUM&'
+  END-IF
+  SET CONTROL 'WB'
+  RESET #ERC
+  PERFORM COMMAND-PF-KEY
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+RESET #I #SCREEN (*)
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE OBJECT-TO-SCREEN
+************************************************************************
+L-NAME  (#I) := BUNDLES.B-BUNDLE
+L-DESC  (#I) := BUNDLES.B-DESC
+L-COORD (#I) := BUNDLES.B-COORDINATOR-ID
+CV-MARK (#I) := (AD=I)
+IF HIGHLIGHT
+  CV-LINE (#I) := (AD=I)
+ELSE
+  CV-LINE (#I) := (AD=D)
+END-IF
+*
+END-SUBROUTINE /* OBJECT-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+FOR #J = 1 TO #I
+  IF L-MARK (#J) NE ' ' AND *PF-KEY NE 'PF3'
+    #OBJECT := L-NAME (#J)
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+    ESCAPE ROUTINE
+  END-IF
+END-FOR
+*
+DECIDE ON FIRST *PF-KEY
+  VALUE 'PF3'
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+  VALUE 'PF7'
+    IF #PAGE > 1
+      SUBTRACT 1 FROM #PAGE
+      END-OF-DATA := FALSE
+      END-OF-DISPLAY := NEW-SEARCH := TRUE
+    END-IF
+  VALUE 'PF8'
+    IF NOT END-OF-DATA
+      ADD 1 TO #PAGE
+      IF #PAGE > #NOFPAGES
+        #PAGE := #NOFPAGES
+        #OBJECT-F (1:9) := #OBJECT-F (2:10)
+      END-IF
+      #OBJECT-F (#PAGE) := BUNDLES.B-BUNDLE
+      END-OF-DISPLAY := TRUE
+    END-IF
+  VALUE 'PF10'
+    PERFORM SWITCH-AUTHORIZATION
+  VALUE 'PF9'
+    IF G-SUPPORT-LONG-NAMES
+      IF G-DISPLAY-LONG-NAMES
+        G-DISPLAY-LONG-NAMES := FALSE
+      ELSE
+        G-DISPLAY-LONG-NAMES := TRUE
+      END-IF
+    END-IF
+  NONE IGNORE
+END-DECIDE
+*
+PERFORM CHECK-NEW-SEARCH
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-NEW-SEARCH
+************************************************************************
+IF #S-OBJECT NE #OLD-OBJECT OR #COORD NE #OLD-COORD OR NEW-SEARCH
+  RESET INITIAL #PAGE
+  RESET #OBJECT-F (*)
+  PERFORM INIT-SELECTION-KEYS
+  NEW-SEARCH := END-OF-DISPLAY := TRUE
+END-IF
+*
+END-SUBROUTINE /* CHECK-NEW-SEARCH
+*
+************************************************************************
+DEFINE SUBROUTINE SWITCH-AUTHORIZATION
+************************************************************************
+IF +G-AUTHORIZATION = 'PUBLIC'
+  +G-AUTHORIZATION  := #USER-ID
+  #AUTHORIZATION    := #USER-ID
+  #AUTHORIZE-SWITCH := 'PUBLIC'
+ELSE
+  +G-AUTHORIZATION  := 'PUBLIC'
+  #AUTHORIZATION    := 'PUBLIC'
+  #AUTHORIZE-SWITCH := #USER-ID
+END-IF
+*
+NEW-SEARCH := TRUE
+*
+END-SUBROUTINE /* SWITCH-AUTHORIZATION
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-SELECTION-KEYS
+************************************************************************
+IF G-DISPLAY-LONG-NAMES
+  #LEN := 25
+ELSE
+  #LEN := 8
+END-IF
+CALLNAT 'SELALPHA' #S-OBJECT #OBJECT-F (#PAGE) #OBJECT-T #LEN
+#OLD-OBJECT := #S-OBJECT
+#OLD-COORD  := #COORD
+*
+END-SUBROUTINE /* INIT-SELECTION-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+*
+END-SUBROUTINE /* PF-KEYS
+*
+END

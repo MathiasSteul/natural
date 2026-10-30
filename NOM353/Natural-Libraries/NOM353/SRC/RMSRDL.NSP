@@ -1,0 +1,162 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMSRDL  Process cleanup orders
+*         Cleanup orders are created by NOM's main task.
+*         The orders are processed locally on the nodes where
+*         the sources reside.
+*
+* Creation and Maintenance History
+* uuu yy-mm-dd s(999999) ...
+* gw  93-02-01 s(999999) created
+* mrs 94-06-15 s(999999) g-natrp-erc g-natrp-ert reseted
+* sju 00-03-27 p(191368) monitor multitasking
+* sju 04-11-29 nom31     restow for changed NRM-ORDER
+* SU1 2014-02-10 NOMALL-1344 unix - daily cleanup does not delete orders
+*                            - just remove deactivated coding
+* fhi     2017-01-11 NOMALL-1961 Change descriptor of NRM-ORDER
+* fhi     2018-12-14 NOM 3.5     Add CPU measure
+* fhi     2019-06-05 NOMALL-2267 More details if '0 records loaded'
+* BLI     2019-10-10 NOMALL-2244 unnecessary msg of -2267 to trace
+* BLI1    2023-04-18 NOMALL-2628 correct deletion of s. from remote MF
+* SU2     2023-10-25 NOMALL-2653 avoid NAT3047 (Holdqueque) + show error
+* SU3     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+*
+DEFINE DATA GLOBAL USING MONIT-GL
+*
+INDEPENDENT
+1 +NOD-CURRENT-NAME        (A16)
+1 +NOD-CURRENT-NODE        (N5)        /* BLI1
+/*SU3 1 +NOD-LOCAL-NODE          (N5)        /* BLI1
+*
+LOCAL  USING RMODTY-E         /* equates   order types
+LOCAL  USING RMOD---L
+LOCAL  USING RMSR---E         /* BLI1
+LOCAL  USING RMSR---L         /* BLI1
+*
+LOCAL
+1 SOURCE VIEW OF NRM-SOURCE
+/*SU3  2 SR-ID                     /* BLI1 start
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-TYPE                   /* BLI1 end
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-MONITOR-ID
+  2 OD-TYPE
+  2 OD-TIME-SCHEDULED
+  2 OD-SOURCE-ID
+  2 OD-PARAMETER           (1)
+  2 REDEFINE OD-PARAMETER
+    3 OD-IDENT             (A8)
+    3 OD-FILLER1           (A17)
+  2 OD-ERROR-CODE
+  2 OD-ERROR-TEXT
+*
+1 #OD-START                (A9)
+1 REDEFINE #OD-START
+  2 #OD-TYPE               (B2)
+  2 #OD-TIME               (T)
+1 RMSETTIM
+  2 FUNCTION               (A1)
+  2 ERC                    (N4)
+  2 MSG                    (A250)
+1 #TRACING                 (L)
+1 #MSG                     (A250)
+1 #ET                      (I2) /*SU2
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM RMGTRACE-GET-SETTINGS #TRACING
+IF #TRACING
+  RMSETTIM.FUNCTION := 'S'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+END-IF
+#OD-TYPE       := OD-DELETE-SOURCE
+RESET  #OD-TIME
+*
+OD. READ ORDER BY OD-TYPE-TIME = #OD-START
+  IF OD-TYPE NE #OD-TYPE
+    ESCAPE BOTTOM
+  END-IF
+  IF OD-TIME-SCHEDULED GT *TIMX
+    ESCAPE TOP
+  END-IF
+* for mainframe nodes a logon has to be done for the following RMSRDL-N
+  FIND SOURCE WITH SR-ID = OD-SOURCE-ID    /* BLI1 start
+    #SOURCE-ATTRIBUTES := SR-ATTRIBUTES-IDENT
+    CALLNAT 'RMSR7--N'#SOURCE-ATTRIBUTES SR-TYPE /*conv.Jobnr N5->N7
+  END-FIND
+  IF (SR-TYPE EQ SEQUENTIAL-FILE-BS2 AND
+      #FBS2-NODE NE +NOD-CURRENT-NODE) OR
+      ((SR-TYPE EQ JES2-QUEUE-ENTRY OR SR-TYPE EQ JES3-QUEUE-ENTRY) AND
+      #JES-QUEUE-NODE NE +NOD-CURRENT-NODE) OR
+      ((SR-TYPE EQ JES2 OR SR-TYPE EQ JES3) AND
+      #JES-NODE NE +NOD-CURRENT-NODE) OR
+      (SR-TYPE EQ SEQUENTIAL-FILE-MVS AND
+      #FMVS-NODE NE +NOD-CURRENT-NODE)
+/*SU3 or (SR-TYPE EQ SEQUENTIAL-FILE-VSE AND
+/*SU3 #FVSE-NODE NE +NOD-CURRENT-NODE) OR
+/*SU3 (SR-TYPE EQ POWER AND #POWER-NODE NE +NOD-CURRENT-NODE)
+    ESCAPE TOP
+  END-IF                                   /* BLI1 end
+*
+  UPD. GET ORDER *ISN (OD.) /*SU2
+  OD-TYPE := OD-DELETE-SOURCE-IN-PROCESS
+  OD-MONITOR-ID := G-MONITOR-ID
+  UPDATE (UPD.) /*SU2 was (OD.)
+  END TRANSACTION
+*
+  CALLNAT 'RMSRDL-N' G-NATRP-ERC G-NATRP-ERT OD-SOURCE-ID G-LG-USERID
+*
+  #OD-PARAMETER := OD-PARAMETER (1)
+  FIND SOURCE WITH SR-ID = OD-SOURCE-ID
+    DELETE
+    ADD 1 TO #ET /*SU2 ->
+    IF #ET > 200
+      RESET #ET
+      END TRANSACTION
+    END-IF /*SU2 <-
+  END-FIND
+*
+  GETOD. GET ORDER *ISN (OD.)
+  IF G-NATRP-ERC = 0
+    OD-TYPE       := OD-DELETE-SOURCE-OK
+    RESET  OD-SOURCE-ID
+  ELSE
+    OD-TYPE       := OD-DELETE-SOURCE-FAILED
+    OD-ERROR-CODE := G-NATRP-ERC
+    OD-ERROR-TEXT := G-NATRP-ERT
+    IF #TRACING                          /* BLI NOMALL-2244 start
+      COMPRESS 'Order' OD-ID '- node' +NOD-CURRENT-NAME
+        'got error:' G-NATRP-ERT TO #MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #MSG  /* BLI NOMALL-2244
+    END-IF                               /* BLI NOMALL-2244 end
+  END-IF
+  UPDATE (GETOD.)
+  END TRANSACTION
+*
+END-READ
+RESET G-NATRP-ERC G-NATRP-ERT
+IF #TRACING
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+  END TRANSACTION
+END-IF
+*
+************************************************************************
+ON ERROR /*SU2
+************************************************************************
+  PRINT *DAT4I *TIME(AL=8) *PROGRAM '>> error:' *ERROR *ERROR-LINE
+  SET CONTROL '<TECH' /*show last error
+*
+END-ERROR
+*
+END

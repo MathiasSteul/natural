@@ -1,0 +1,367 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RLISLG - LIST log for an object
+*
+* Maintenance
+* MB 91-05-20 - LOG MESSAGE TO BE LANGUAGE DEPENDENT - ARE TAKEN FROM
+*                SYSNOM ERROR MESSAGES
+* mrs 91-12-27 s(141159) support languages other than english
+* gw  94-01-11 s(999999) remove line command 'delete', add 'info'
+* gw  96-10-15 s(231722) TOP doesn't go top
+* jvd 97-10-09 p(163166) Replace Callnat 'OUTDATE' with 'IODATE-N'
+*                        Y2C and use only one date routine for NOM
+* sju 00-03-24 p(191368) use N-HEADER instead of C-HEADER
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsiszha 2000-08-07 (CE7461) Extend Report and Bundle Names (NOCH NICHT
+* sju 00-11-14 s(999999) SAT logging
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* xsetggr 2008-05-03 p(303852) use SATLGR2P/N
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-07 NOMALL-97 Extend message line, old tags deleted
+* xsetggr 2012-02-02 NOMALL-1100 use RSUBMSGN to extract msg text
+* raya    2013-06-19 NOMALL-1259 use SATLGR3P/N
+* SU1     2014-05-21 NOMALL-1388 avoid S0C7 -> SAT-288 (only restruct.)
+* SU2     2015-01-26 NOMALL-1388 avoid S0C7/(SAT-288:SATLGR3P changed)
+* fhi     2017-01-04 NOMALL-1913 Use microseconds for logging
+* fhi     2018-04-12 NOMALL-1913 Show microseconds in info screen
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+GLOBAL USING  NRM-GL
+LOCAL  USING  SATLGR4P
+LOCAL  USING  SATLG01E
+LOCAL  USING  RLC----L
+LOCAL  USING  RPFK---L
+LOCAL  USING  ROT----L
+LOCAL
+1 #PANNEL-NO                         (I1) INIT <1>
+1 #FATHER-PROG                       (A8)
+1 #OBJECT-TYPE                       (A32)
+1 #OBJECT-IDENT                      (I2)
+1 #OBJECT-NAME                       (A60) /*LENGTH FOR CHANGE A25
+1 #NOFLINES                          (P2) INIT <015 >
+1 #NOFPAGES                          (P3) INIT <0100 >
+1 #END-OF-DATA                       (L)
+1 #CP                                (P3)
+1 #MAXP                              (P3)
+1 #MAXAP                             (P3)
+1 #NEWVAL                            (L)
+1 #BACKWARD                          (L)
+1 #FORWARD                           (L)
+1 #TOP                               (L)
+1 #BOT                               (L)
+1 GET-SCREEN                         (L)
+1 #LAST-KEY                          (A40)
+1 REDEFINE    #LAST-KEY
+  2 #LK-TYPE                         (A2)
+  2 #LK-OBJECT                       (A25)
+  2 #LK-TIMEINV                      (P13)
+  2 #LK-ISN                          (P10)
+1 #PAGES                             (A40/100)
+1 REDEFINE    #PAGES
+  2 #PAGES1                          (100)
+    3 #PK-TYPE                       (A2)
+    3 #PK-OBJECT                     (A25)
+    3 #PK-TIMEINV                    (P13)
+    3 #PK-ISN                        (P10)
+*
+1 L-HEADER                           (A78)
+1 L-SCREEN                           (15)
+  2 #L-MSG                           (A65)
+  2 #L-USERID                        (A8)
+  2 #L-DATE                          (A8)
+  2 #L-TIME                          (A10)
+  2 #L-TIME-ZONE                     (A5)
+  2 L-ISN                            (P10)
+1 #BOTLINE                           (A78)
+1 REDEFINE    #BOTLINE
+  2 #BOT-1                           (A26)
+  2 #BOT-2                           (A23)
+  2 #BOT-3                           (A29)
+1 REDEFINE    #BOTLINE
+  2 #MORE-1                          (A28)
+  2 #TOP-2                           (A21)
+  2 #MORE-3                          (A29)
+*
+1 L-LCMD                             (15)
+  2 L-IDENT                          (I2)
+  2 L-MARK                           (A2)
+  2 CV-MARK                          (C)
+*
+*
+1 I                                  (N5)
+1 #ERROR-NUMBER                      (N4)
+1 F                                  (P2)
+1 #LAN                               (I1)
+1 #FORMATED-DATE                     (A10)
+1 REDEFINE #FORMATED-DATE
+  02  #S-FORMATED-DATE               (A8)
+1 #ERROR-CODE                        (N4)
+1 #ERROR-TEXT                        (A250)
+1 #L-MSG-ALL                         (A)  DYNAMIC
+1 #WRAP-MESSAGE                      (A65/*)
+1 #I                                 (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+INPUT #OBJECT-TYPE #OBJECT-NAME
+*
+SATLGR-START-TYPE       := #OBJECT-TYPE
+SATLGR-END-TYPE         := #OBJECT-TYPE
+SATLGR-START-OBJECT     := #OBJECT-NAME
+SATLGR-END-OBJECT       := #OBJECT-NAME
+SATLGR-PRODUCT          := 'NOM'
+SATLGR-LANGUAGE         := *LANGUAGE
+SATLGR-SEARCH-KEY       := SATLG-ENV-TYPE-OBJECT-TIMEINV
+SATLGR-ACCESS-TYPE      := SATLG-READ
+SATLGR-NUMBER-OF-RECORDS:= 1
+DECIDE ON FIRST VALUE OF #OBJECT-TYPE
+  VALUE 'RM'
+    #OBJECT-IDENT := ##EQO-REPORT
+    #FATHER-PROG := 'RLISRP'
+  VALUE 'BM'
+    #OBJECT-IDENT := ##EQO-BUNDLE
+    #FATHER-PROG := 'RLISBU'
+  VALUE 'PM'
+    #OBJECT-IDENT := ##EQO-PRINTER
+    #FATHER-PROG := 'RLISPR'
+  VALUE 'UM'
+    #OBJECT-IDENT := ##EQO-USER
+    #FATHER-PROG := 'RLISUS'
+  VALUE 'AB'
+    #OBJECT-IDENT := ##EQO-ACTIVE-BUNDLE
+    #FATHER-PROG := 'RLISAB'
+  VALUE 'AR'
+    #OBJECT-IDENT := ##EQO-ACTIVE-REPORT
+    #FATHER-PROG := 'RLISAC'
+  VALUE 'LM'
+    #OBJECT-IDENT := ##EQO-LIST
+    #FATHER-PROG := 'RLISAC'
+  ANY
+    CALLNAT 'ROTINI-N' #OBJECT-IDENT #OBJECT-TYPE G-OTB
+    COMPRESS #OBJECT-TYPE  #OBJECT-NAME '-' H'01' TO #OBJECT-TYPE
+  NONE IGNORE
+END-DECIDE
+*
+RESET G-LINECOM(*)
+*
+#NEWVAL := TRUE
+MAIN-LOOP. REPEAT
+  CV-MARK(*) := (AD=P)
+  RESET L-MARK(*)
+  IF #LAN NE *LANGUAGE
+    #LAN            := *LANGUAGE
+    SATLGR-LANGUAGE := #LAN
+    GET-SCREEN      := TRUE
+    CALLNAT 'ROTINI-N' ##EQO-LOG-RECORD G-OBJ-TYPE G-OTB
+    PERFORM INIT-PFKEYS
+    PERFORM INIT-LINECOM
+  END-IF
+  PERFORM SET-PFKEYS
+  INCLUDE RMVHLP-C
+*
+  PERFORM GET-SCREEN
+*
+  MOVE ALL '*' TO #BOTLINE
+  DECIDE FOR EVERY CONDITION
+    WHEN #CP = 1
+      MOVE '**** TOP OF DATA ****' TO #TOP-2
+    WHEN #END-OF-DATA
+      MOVE '**** BOTTOM OF DATA ****' TO #BOT-2
+    WHEN NONE
+      COMPRESS 'PAGE:' #CP 'OF' #MAXAP TO #BOT-2
+  END-DECIDE
+*
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RLISLGM&'
+  INCLUDE C-TOPBOT
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'WB'
+  IF #PANNEL-NO = 1
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RLISLGM&'
+  ELSE
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RLISLG2&'
+  END-IF
+  INCLUDE RPFKVA-C
+  RESET G-NATRP-ERC G-NATRP-ERT
+  RESET #FORWARD #BACKWARD #NEWVAL G-NATRP-ERT G-NATRP-ERC
+  INCLUDE C-DIRECT
+*
+  DECIDE ON FIRST VALUE OF G-PF-FUNC
+    VALUE 'HELP'        REINPUT USING HELP
+    VALUE 'FLIP'        PERFORM FLIP-HANDLE
+    VALUE 'UP'          MOVE TRUE TO #BACKWARD
+    VALUE 'DOWN'        MOVE TRUE TO #FORWARD
+    VALUE 'EXIT'
+      INCLUDE C-ESCAPE
+    VALUE 'RIGHT'
+      IF  #PANNEL-NO = 1
+        MOVE 2 TO #PANNEL-NO
+      END-IF
+    VALUE 'LEFT'
+      IF  #PANNEL-NO = 2
+        MOVE 1 TO #PANNEL-NO
+      END-IF
+    VALUE 'MENU'
+      INCLUDE C-MENU
+    NONE VALUE IGNORE
+  END-DECIDE
+*
+  PERFORM LINE-COMMANDS
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SCREEN
+************************************************************************
+IF G-DIRECT-COMMAND = 'TOP'
+  #TOP := TRUE
+ELSE
+  RESET #TOP
+END-IF
+RESET G-NATRP-ERT
+DECIDE FOR EVERY  CONDITION
+  WHEN #NEWVAL OR #TOP
+    RESET #PAGES(*) #MAXP #MAXAP
+    #PK-TYPE(1)   := SATLGR-START-TYPE
+    #PK-OBJECT(1) := #OBJECT-NAME
+    RESET #PK-TIMEINV(1) #PK-ISN(1)
+    #CP := #MAXAP := 1
+  WHEN #BOT
+    #CP := #MAXAP
+  WHEN #FORWARD
+    IF #END-OF-DATA
+      ESCAPE ROUTINE
+    END-IF
+    IF #CP = #NOFPAGES
+      #PAGES(1 : #NOFPAGES - 1) := #PAGES(2 : #NOFPAGES)
+      RESET #PAGES(#CP)
+      #PAGES(#CP) := #LAST-KEY
+    ELSE
+      ADD 1 TO #CP
+      IF #CP > #MAXAP
+        #PAGES(#CP) := #LAST-KEY
+      END-IF
+    END-IF
+  WHEN #BACKWARD
+    IF #CP < 2
+      IGNORE
+    ELSE
+      SUBTRACT 1 FROM #CP
+    END-IF
+  WHEN GET-SCREEN  IGNORE
+  WHEN NONE        ESCAPE ROUTINE
+END-DECIDE
+*
+IF #CP >= #MAXAP
+  #MAXAP := #CP
+END-IF
+*
+SATLGR-START-TYPE     := #PK-TYPE(#CP)
+SATLGR-START-OBJECT   := #PK-OBJECT(#CP)
+SATLGR-START-TIMEINV4 := #PK-TIMEINV(#CP)
+SATLGR-START-ISN      := #PK-ISN(#CP)
+*
+RESET I L-SCREEN(*) #END-OF-DATA
+*
+CALLNAT 'SATLGR4N' SATLGR-PARMS /* NOMALL-1913 was 'SATLGR3N'
+IF SATLGR-USER-DATA (1) = ' ' AND SATLGR-MESSAGE (1) NE ' '
+  SATLGR-USER-DATA (1) := SATLGR-MESSAGE (1) /* old stuff
+END-IF
+REDUCE DYNAMIC #L-MSG-ALL TO 0
+FOR #I = 1 TO 20
+  IF SATLGR-USER-DATA (#I) = ' '
+    ESCAPE BOTTOM
+  END-IF
+  CALLNAT 'RSUBMSGN' SATLGR-USER-DATA (#I)
+  COMPRESS #L-MSG-ALL SATLGR-USER-DATA (#I) TO #L-MSG-ALL
+END-FOR
+IF SATLGR-RECORDS-FOUND NE 0
+  PERFORM XXWRAP-WORD-WRAP 'L' #L-MSG-ALL #WRAP-MESSAGE (*) 65
+  SATLGR-RECORDS-FOUND := *OCC (#WRAP-MESSAGE)
+END-IF
+FOR I = 1 TO #NOFLINES
+  IF I GT SATLGR-RECORDS-FOUND
+    #END-OF-DATA:= TRUE
+    ESCAPE BOTTOM
+  END-IF
+*
+  L-ISN(I)     := SATLGR-ISN(I)
+  #L-USERID(I) := SATLGR-EXEC-USERID(I)
+  #L-MSG (I) := #WRAP-MESSAGE (I)
+  IF #L-MSG (I) IS (N4)
+    #ERROR-NUMBER := VAL(#L-MSG (I))
+    CALLNAT 'RSUBMSGN' #L-MSG(I)
+    COMPRESS SATLGR-NOM-OBJECT-NAME(I) #L-MSG(I) TO #L-MSG(I)
+  END-IF
+  MOVE EDITED SATLGR-TIME(I) (EM=HH':'II':'SS'.'T) TO #L-TIME(I)
+  MOVE EDITED SATLGR-TIME(I) (EM=YYYYMMDD) TO #L-DATE(I)
+  MOVE SATLGR-TIME-ZONE(I)                 TO #L-TIME-ZONE(I)
+  CALLNAT 'IODATE-N' 'M' 'S' #L-DATE(I) #FORMATED-DATE
+    G-DATE-FORMAT #ERROR-CODE #ERROR-TEXT
+  IF #ERROR-CODE = 0
+    #L-DATE(I) := #S-FORMATED-DATE
+  END-IF
+  CV-MARK (I) := (AD=I)
+*
+END-FOR
+*
+IF NOT #END-OF-DATA
+  #LK-TYPE   := SATLGR-NOM-TYPE(#NOFLINES)
+  #LK-OBJECT := SATLGR-NOM-OBJECT-NAME(#NOFLINES)
+  #LK-TIMEINV:= SATLGR-TIME-INV(#NOFLINES)
+  #LK-ISN    := SATLGR-ISN(#NOFLINES)
+ELSE
+  #MAXP := #CP
+END-IF
+*
+END-SUBROUTINE /* GET-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE LINE-COMMANDS
+************************************************************************
+RESET L-IDENT (*)
+INCLUDE RLCMTI-C
+FOR I 1 TO #NOFLINES
+  IF L-IDENT (I) = ##EQU-INFO
+    FETCH RETURN 'RINFLO' L-ISN (I)
+    GET-SCREEN := TRUE
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* LINE-COMMANDS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-LINECOM
+************************************************************************
+G-LC-IDENT (01) := ##EQU-INFO
+G-LC-NUM        := 1
+CALLNAT 'RLCINI-N' G-OBJ-TYPE G-LC G-LCB
+CALLNAT 'RFLIPG-N' G-LC G-LINECOM (*)
+*
+END-SUBROUTINE /* INIT-LINECOM
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFBRW-C
+INCLUDE RPFLR--C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSET-C
+*
+END

@@ -1,0 +1,350 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMSRDL-N - Delete source of report
+*
+* Creation and Maintenance History
+* uuu yy-mm-dd s(999999) ...
+* gw  93-02-01           created
+* mrs 93-10-05 s(999999) JES2/JES3 corrected
+* mrs 93-10-18 s(999999) delete JES2 queue entry implemented
+* mrs 93-11-12 s(999999) FMVS implemented
+* mrs 94-01-07 s(999999) spool-files use function instead of command
+* mrs 94-03-03 s(999999) FBS2 implemented
+* mrs 94-06-15 s(999999) FGG implemented
+* gw  94-06-21 s(999999) CMASPOOL implemented
+* gw  98-06-19 p(171778) long object name for log
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* sju 00-03-07 p(192737) better error logging
+* fhi 00-08-24 QA03      Use NAT23006 for error values
+* fhi 05-04-19 NOM31107  Support 7-byte job numbers
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2008-06-30 P306704   Running job cancelled
+* fhi     2009-03-17 P306704   Correction of P306704
+* bli     2009-08-17 P319357   Remove P306704 (see NPR solution P319375)
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2013-05-24 NOMALL-1260 Change CMA Spool to CA Spool on interf
+*                                No tags, only literals changed
+* SU1 2014-02-10 NOMALL-1344 unix - daily cleanup does not delete orders
+*                            - just remove deactivated coding
+* SU2     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER
+1 P-RCHKSPLN
+  2 P-ERC                      (N4)
+  2 P-ERT                      (A250)
+  2 P-SOURCE-ID                (P10)
+  2 P-MONITOR-ID               (A8)
+* *****
+INDEPENDENT
+1 +G-L-OBJECT-NAME             (A60)
+* *****
+LOCAL USING CONST-L
+LOCAL USING RLOG-L
+LOCAL USING RMSR---E
+LOCAL USING RMSR---L
+LOCAL
+1 SOURCE-TEXT VIEW OF NRM-SOURCE-TEXT
+  2 ST-ID
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-TYPE
+  2 SR-ATTRIBUTES-IDENT
+1 SPOOL-FILE VIEW OF SPOOL-FILES
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 REDEFINE ERROR-TEXT
+    3 ERROR-IDENT (A8)
+1 SPOOL-UPDATE VIEW OF SPOOL-UPDATE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 REDEFINE ERROR-TEXT
+    3 ERROR-IDENT (A8)
+/*SU2  2 QUEUE
+1 VTOC-UPDATE VIEW OF VTOC-UPDATE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 REDEFINE ERROR-TEXT
+    3 ERROR-IDENT (A8)
+1 CATALOG VIEW OF CATALOG
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 REDEFINE ERROR-TEXT
+    3 ERROR-IDENT (A8)
+/*SU2  2 DSNAME
+  2 VOLSER
+*
+1 LFILE                      (L)
+1 #LFILE-RC                  (I4)
+1 #LFILE-OLDDBID             (P5)
+1 #LFILE-OLDFILE             (P5)
+1 #LFILE-NEWDBID             (P5)
+1 #LFILE-NEWFILE             (P5)
+*
+1 #TARGET-DBID               (N5)
+1 #TARGET-FNR                (N5)
+*
+1 #ST-ID-LINE                (B10)
+1 REDEFINE #ST-ID-LINE
+  2 #ST-ID                   (P10)
+  2 #ST-LINE                 (B4)
+*
+1 #ESF-PURGE-PARMS           (A48)
+1 REDEFINE  #ESF-PURGE-PARMS
+  2 #ESFP
+    3 #ESFP-STA              (A2)
+    3 #ESFP-SEQ-UNUSED       (B2)
+    3 #ESFP-OWN              (A8)
+    3 #ESFP-SSN-UNUSED       (B4)
+    3 #ESFP-USR-UNUSED       (B4)
+    3 #ESFP-RS1-UNUSED       (B4)
+    3 #ESFP-FNO              (B4)
+    3 #ESFP-RS2-UNUSED       (B12)
+1 #ESF-RC                    (B4)
+1 REDEFINE  #ESF-RC
+  2 #ESF-RC-I                (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FIND (1) SOURCE WITH SR-ID = P-SOURCE-ID
+  #SOURCE-ATTRIBUTES := SR-ATTRIBUTES-IDENT
+END-FIND
+CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES SR-TYPE
+*
+DECIDE ON FIRST VALUE SR-TYPE
+  VALUE CMASPOOL
+    PERFORM DELETE-SOURCE-CMASPOOL
+  VALUE JES2-QUEUE-ENTRY, JES3-QUEUE-ENTRY
+    IF #JES-QUEUE-GROUP-ID NE '*'
+      FIND SPOOL-UPDATE WITH NODE = #JES-QUEUE-NODE
+      AND JOB-NAME   = #JES-QUEUE-JOB-NAME                            /*
+      AND JOB-NUMBER = #JES-QUEUE-JOB-NUMBER                          /*
+      AND GROUP-ID   = #JES-QUEUE-GROUP-ID AND FUNCTION   = 'CANCEL'  /*
+        COMPRESS #JES-QUEUE-JOB-NAME '/' #JES-QUEUE-JOB-NUMBER '/'
+          #JES-QUEUE-GROUP-ID TO +G-L-OBJECT-NAME LEAVING NO
+        COMPRESS +G-L-OBJECT-NAME TO LG-MSG LEAVING NO
+        IF ERROR-CODE > 0
+          P-ERC := ERROR-CODE
+          P-ERT := ERROR-TEXT
+          COMPRESS '7116' SPOOL-UPDATE.ERROR-IDENT LG-MSG TO LG-MSG
+        ELSE
+          COMPRESS '7115' LG-MSG TO LG-MSG
+        END-IF
+        PERFORM WRITE-LOG-RECORD
+      END-FIND
+    END-IF
+  VALUE JES2 , JES3
+    FIND SPOOL-FILE  WITH JOB-NAME    = #JES-JOB-NAME
+    AND JOB-NUMBER = #JES-JOB-NUMBER AND TYPE = #JES-TYPE             /*
+    AND DATA-SET-KEY = #JES-DATA-SET-KEY AND NODE = #JES-NODE         /*
+    AND FUNCTION     = #SPOOL-FILES-DELETE                            /*
+      COMPRESS #JES-JOB-NAME '/' #JES-JOB-NUMBER '/' #JES-TYPE '/'
+        #JES-DATA-SET-KEY TO +G-L-OBJECT-NAME LEAVING NO
+      COMPRESS +G-L-OBJECT-NAME TO LG-MSG LEAVING NO
+      IF ERROR-CODE > 0
+        P-ERC := ERROR-CODE
+        P-ERT := ERROR-TEXT
+        COMPRESS '7116' SPOOL-FILE.ERROR-IDENT LG-MSG TO LG-MSG
+      ELSE
+        COMPRESS '7115' LG-MSG TO LG-MSG
+      END-IF
+      PERFORM WRITE-LOG-RECORD
+    END-FIND
+/*SU2  VALUE POWER
+/*SU2  VALUE SEQUENTIAL-FILE-VSE
+  VALUE NOM-DATA-BASE
+    PERFORM GET-LFILE
+    #TARGET-DBID := #NOMDB-DBID
+    #TARGET-FNR  := #NOMDB-FNR
+    PERFORM SET-LFILE
+    #ST-ID := #NOMDB-ID
+    RESET  #ST-LINE
+    READ SOURCE-TEXT BY ST-ID-LINE = #ST-ID-LINE
+      IF ST-ID NE #NOMDB-ID
+        ESCAPE BOTTOM
+      END-IF
+      DELETE
+      IF *COUNTER = 50
+        RESET *COUNTER
+        END TRANSACTION
+      END-IF
+    END-READ
+    END TRANSACTION
+    PERFORM REFRESH-LFILE
+    COMPRESS '(' #NOMDB-ID '/' #NOMDB-FILE-IDENT '/' #NOMDB-DBID '/'
+      #NOMDB-FNR ')' TO +G-L-OBJECT-NAME LEAVING NO
+    COMPRESS +G-L-OBJECT-NAME TO LG-MSG LEAVING NO
+    COMPRESS '7115' LG-MSG TO LG-MSG
+    PERFORM WRITE-LOG-RECORD
+  VALUE SEQUENTIAL-FILE-MVS
+    PERFORM DELETE-SOURCE-FMVS
+  VALUE SEQUENTIAL-FILE-BS2
+    PERFORM DELETE-SOURCE-FBS2
+  VALUE LMS , EPS
+    IGNORE
+  NONE
+    IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+LG-USERID := P-MONITOR-ID
+LG-CODE   := 'MO'
+CALLNAT 'RLOG' PL-PARMS
+*
+END OF TRANSACTION
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+IF NOT LFILE
+  #LFILE-NEWDBID := #TARGET-DBID
+  #LFILE-NEWFILE := #TARGET-FNR
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-NEWDBID #LFILE-NEWFILE
+  IF #LFILE-RC NE 0
+    P-ERC := 4007
+    P-ERT := #LFILE-RC
+  ELSE
+    LFILE := TRUE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE REFRESH-LFILE
+************************************************************************
+IF LFILE
+  RESET #LFILE-RC
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+  IF #LFILE-RC NE 0
+    P-ERC := 4008
+    P-ERT := #LFILE-RC
+  ELSE
+    LFILE := FALSE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* REFRESH-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-LFILE
+************************************************************************
+RESET #LFILE-RC
+CALLNAT 'RMIGGFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+IF #LFILE-RC NE 0
+  P-ERC := 4006
+  P-ERT := #LFILE-RC
+END-IF
+*
+END-SUBROUTINE /* GET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-SOURCE-FMVS
+************************************************************************
+FNDCAT. FIND CATALOG WITH NODE = #FMVS-NODE AND DSNAME = #FMVS-DSNAME
+AND PREFIX = 'NO'                                                     /*
+  IF ERROR-CODE > 0
+    COMPRESS #FMVS-NODE '/' #FMVS-DSNAME TO +G-L-OBJECT-NAME LEAVING NO
+    COMPRESS +G-L-OBJECT-NAME TO LG-MSG LEAVING NO
+    P-ERC := ERROR-CODE
+    P-ERT := ERROR-TEXT
+    COMPRESS '7116' VTOC-UPDATE.ERROR-IDENT LG-MSG TO LG-MSG
+    ESCAPE BOTTOM (FNDCAT.)
+  END-IF
+  #FMVS-VOLSER := VOLSER (FNDCAT.)
+  FIND VTOC-UPDATE WITH NODE = #FMVS-NODE AND DSNAME = #FMVS-DSNAME
+  AND VOLSER = #FMVS-VOLSER AND CATALOG-UPDATE = 'YES'                /*
+  AND FUNCTION       = #VTOC-UPDATE-PURGE                             /*
+    COMPRESS #FMVS-NODE '/' #FMVS-DSNAME TO +G-L-OBJECT-NAME LEAVING NO
+    COMPRESS +G-L-OBJECT-NAME TO LG-MSG LEAVING NO
+    IF ERROR-CODE > 0
+      P-ERC := ERROR-CODE
+      P-ERT := ERROR-TEXT
+      COMPRESS '7116' VTOC-UPDATE.ERROR-IDENT LG-MSG TO LG-MSG
+    ELSE
+      COMPRESS '7115' LG-MSG TO LG-MSG
+    END-IF
+    PERFORM WRITE-LOG-RECORD
+  END-FIND
+*
+END-FIND
+*
+END-SUBROUTINE /* DELETE-SOURCE-FMVS
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-SOURCE-FBS2
+************************************************************************
+IF #FBS2-FILE-TYPE = 'FGG'
+  ESCAPE ROUTINE
+END-IF
+FIND VTOC-UPDATE WITH NODE = #FBS2-NODE AND DSNAME = #FBS2-DSNAME
+AND FUNCTION   = #VTOC-UPDATE-PURGE                                   /*
+  COMPRESS #FBS2-NODE '/' #FBS2-DSNAME TO +G-L-OBJECT-NAME LEAVING NO
+  COMPRESS +G-L-OBJECT-NAME TO LG-MSG LEAVING NO
+  IF ERROR-CODE > 0
+    P-ERC := ERROR-CODE
+    P-ERT := ERROR-TEXT
+    COMPRESS '7116' VTOC-UPDATE.ERROR-IDENT LG-MSG TO LG-MSG
+  ELSE
+    COMPRESS '7115' LG-MSG TO LG-MSG
+  END-IF
+  PERFORM WRITE-LOG-RECORD
+END-FIND
+*
+END-SUBROUTINE /* DELETE-SOURCE-FBS2
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-SOURCE-CMASPOOL
+************************************************************************
+RESET #ESFP
+*
+#ESFP-STA := '90'
+#ESFP-FNO := #CMASPOOL-SEQNO
+#ESFP-OWN := #CMASPOOL-OWNNM
+*
+CALL 'ESFPURG' #ESF-PURGE-PARMS
+#ESF-RC := RET ('ESFPURG')
+IF #ESF-RC > H'0000'
+  P-ERC := 0005
+  COMPRESS '(RC='  #ESF-RC-I '/STA=' #ESFP-STA ')' TO LG-MSG LEAVING NO
+  COMPRESS '7116' LG-MSG TO LG-MSG
+ELSE
+  COMPRESS 'CASPOOL/' #CMASPOOL-OWNNM '/' #CMASPOOL-DEST
+    TO +G-L-OBJECT-NAME LEAVING NO
+  COMPRESS +G-L-OBJECT-NAME TO LG-MSG LEAVING NO
+  COMPRESS '7115' LG-MSG TO LG-MSG
+END-IF
+PERFORM WRITE-LOG-RECORD
+*
+END-SUBROUTINE /* DELETE-SOURCE-CMASPOOL
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  IF LFILE
+    CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+    LFILE := FALSE
+  END-IF
+  P-ERC := 0021
+  CALLNAT 'C-NATERN' P-ERT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

@@ -1,0 +1,487 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RHANMT - Manage monitor subtasks
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* sju 00-03-13 s(191368) written
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* fhi 00-09-05 S(191603) Monitor status not updated in OSD
+* sju 03-02-12 p(225404) Show correct action values after subtask end
+* sju 04-07-15 NOM31     Extra parm for RMEVNT-N
+* sju 05-03-29 NOM31     +, - to switch trace on/off for a subtask
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* fhi 05-11-15 P272724   End Transaction for Unix Eventing necessary
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2015-02-09 NOMALL-1450 'ST'->'SI'
+* SU3     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-07-29 NOMALL-1636 Restrict log display by user profile
+* SU4     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* fhi     2016-11-09 NOMALL-1621 Add Unix node to status
+* fhi     2016-11-15 NOMALL-1961 Duplicate monitor copy task, no tags
+* fhi     2017-01-05 NOMALL-1621 Add line display
+* fhi     2018-11-09 NOMALL-1621 Deactivate PF8. Nobody knows what it is
+* BLI     2019-11-22 NOMALL-2338 Log Display of single tasks
+* SU5     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING RPFK---L
+LOCAL USING VSUBT-L
+LOCAL USING RLOG-L
+LOCAL USING RMSETSTE
+LOCAL USING RMTASK-P
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR
+  2 M-WAIT-MINIMUM
+  2 M-WAIT-MAXIMUM
+  2 M-WAIT-INCREMENT
+  2 M-MONITOR-TASKS
+  2 REDEFINE M-MONITOR-TASKS
+    3 M-TASK-NUMBER            (N3/1:12)
+  2 M-STATUS
+  2 M-LAST-ACTIVE
+1 #MAX-TASKS                   (N2) CONST <59>
+1 #MAX-FUNC                    (N2) CONST <12>
+1 #FUNCTIONS                   (A1/#MAX-FUNC)
+  CONST <'S','C','C','C','C','C','C','C','C','C','R','P'>
+1 #MAX-MAP                     (N2) CONST <13>
+1 #MAP-IX                      (N2)
+1 #FROM                        (A16)
+1 #END                         (A16)
+1 CV-MAP                       (C)  INIT <(AD=I CD=NE)>
+1 CV-LINES                     (C/1:#MAX-MAP)
+1 CV-WAIT                      (C/1:#MAX-MAP)
+1 CV-MARK                      (C/1:#MAX-MAP)
+1 #FATHER-PROG                 (A8) INIT <'RHANMO'>
+1 L-HEADER                     (A78)
+1 L-MARK                       (A1/1:#MAX-MAP)
+1 L-TASK-NUMBER                (N2/1:#MAX-MAP)
+1 REDEFINE L-TASK-NUMBER
+  2 L-TASK-NO                  (A2/1:#MAX-MAP)
+1 L-TASK-STATUS                (A24/1:#MAX-MAP)
+1 L-TASK-ACTION                (A5/1:#MAX-MAP)
+1 L-TASK-DATE                  (A10/1:#MAX-MAP)
+1 L-TASK-TIME                  (A8/1:#MAX-MAP)
+1 L-WAIT-FACTORS               (1:#MAX-MAP)
+  2 L-WAIT-MIN                 (N4)
+  2 L-WAIT-MAX                 (N4)
+  2 L-WAIT-INCR                (N4)
+  2 L-WAIT-CURR                (N4)
+1 #STOP                        (L)
+1 #MAP-ITEM                    (P3)
+1 #I                           (I4)
+1 #FUNC                        (A1)
+1 #LANGUAGE                    (I1)
+1 #MONITISN                    (P10)
+1 #TASK-ISN                    (P10/1:#MAX-MAP)
+1 #NUMBER                      (N3)
+1 #YEAR-LAST-ACTIVE            (A4)
+1 #ERROR-CODE                  (N4)
+1 #ERROR-TEXT                  (A250)
+1 #CONFIRM                     (A8)
+1 #EVENT-NAME                  (A8)
+1 #SHUTDOWN                    (L)
+1 #LOG-USERID                  (A8)
+1 #EVENT-MESSAGE               (A250)
+1 #DLO                         (L)
+1 #UX-NODE                     (A16)
+1 #LINE                        (N4)
+1 REDEFINE #LINE
+  2 #LINE-A                    (A4)
+1 #POS                         (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+INPUT #MONITISN
+RESET G-COMMIT G-LINECOM(*)
+GET NRM-MONITOR #MONITISN
+CALLNAT 'NARPSEC' G-USER-PROFILE 'STP' #STOP
+*
+#FUNC := G-C-FUNC
+MAIN-LOOP. REPEAT
+  FIND-LOOP. REPEAT
+    L-TASK-ACTION(1):= 'M'          /* TASK 1 IS THE MONITOR
+    FOR #I = 1 TO #MAX-FUNC
+      IF M-TASK-NUMBER (#I) = 1
+        EXAMINE L-TASK-ACTION(1)
+          FOR #FUNCTIONS(#I) GIVING POSITION IN #POS
+        IF #POS = 0
+          COMPRESS L-TASK-ACTION(1) #FUNCTIONS(#I)
+            TO L-TASK-ACTION(1) LEAVING NO
+        END-IF
+      END-IF
+    END-FOR
+    CV-LINES(*) := (CD=RE)
+    IF G-PF-FUNC = ##PFK-WAIT
+      RESET INITIAL CV-WAIT(*)
+    ELSE
+      CV-WAIT(*) := (AD=P CD=YE)
+    END-IF
+    L-TASK-NUMBER(1) := #NUMBER := 1
+    CALLNAT 'RHANMON' L-TASK-STATUS(1) L-TASK-TIME(1) L-TASK-DATE(1)
+      G-MONITOR-NODE G-MONITOR-JOBNAME G-SPOOL-TYPE L-WAIT-MIN(1)
+      L-WAIT-MAX(1) L-WAIT-INCR(1) L-WAIT-CURR(1) G-DATE-FORMAT
+      G-LANGUAGE #ERROR-TEXT #ERROR-CODE #MONITISN #NUMBER #UX-NODE
+      #LINE
+    IF #LINE NE 0
+      MOVE '<'     TO SUBSTR(L-TASK-STATUS(1),20,1)
+      MOVE #LINE-A TO SUBSTR(L-TASK-STATUS(1),21)
+    END-IF
+    IF L-TASK-STATUS(1) = ' '
+      IF G-LANGUAGE = 2
+        L-TASK-STATUS(1) := ' --- wartet ---'
+      ELSE
+        L-TASK-STATUS(1) := ' --- waiting ---'
+      END-IF
+    END-IF
+*
+    RMTASK-P.FUNCTION       := 'S'
+    RMTASK-P.SUBTASK-NUMBER := 21
+    CALLNAT 'RMTASKID' RMTASK-P
+    #FROM   := RMTASK-P.TASK-ID
+    RMTASK-P.SUBTASK-NUMBER := #MAX-TASKS
+    CALLNAT 'RMTASKID' RMTASK-P
+    #END    := RMTASK-P.TASK-ID
+    #MAP-IX := 1
+    READ-SUBT. READ NRM-SUBTASK-INFO BY ST-SUBTASK-ID = #FROM THRU #END
+      ACCEPT IF ST-EXEC-TYPE NE 'N'
+      RMTASK-P.TASK-ID        := ST-SUBTASK-ID
+      RMTASK-P.FUNCTION       := 'G'
+      CALLNAT 'RMTASKID' RMTASK-P
+      MOVE EDITED ST-LAST-ACTIVE (EM=YYYY) TO #YEAR-LAST-ACTIVE
+      IF #YEAR-LAST-ACTIVE = '0000'
+        ESCAPE TOP
+      END-IF
+      #MAP-IX                   := #MAP-IX + 1
+      IF #MAP-IX > #MAX-MAP
+        ESCAPE BOTTOM (READ-SUBT.)
+      END-IF
+      #TASK-ISN(#MAP-IX)        := *ISN (READ-SUBT.)
+      L-TASK-NUMBER(#MAP-IX)    := RMTASK-P.SUBTASK-NUMBER
+      #NUMBER                   := RMTASK-P.SUBTASK-NUMBER
+      CALLNAT 'RHANMON' L-TASK-STATUS(#MAP-IX)
+        L-TASK-TIME(#MAP-IX) L-TASK-DATE(#MAP-IX)
+        G-MONITOR-NODE G-MONITOR-JOBNAME G-SPOOL-TYPE
+        L-WAIT-MIN(#MAP-IX) L-WAIT-MAX(#MAP-IX)
+        L-WAIT-INCR(#MAP-IX) L-WAIT-CURR(#MAP-IX)
+        G-DATE-FORMAT G-LANGUAGE #ERROR-TEXT #ERROR-CODE
+        #TASK-ISN(#MAP-IX) #NUMBER #UX-NODE #LINE
+      IF L-TASK-STATUS(#MAP-IX) = ' '
+        IF *LANGUAGE = 2
+          L-TASK-STATUS(#MAP-IX) := ' --- wartet ---'
+        ELSE
+          L-TASK-STATUS(#MAP-IX) := ' --- waiting ---'
+        END-IF
+      END-IF
+      IF #LINE NE 0
+        MOVE ' '     TO SUBSTR(L-TASK-STATUS(#MAP-IX),20,1)
+        MOVE #LINE-A TO SUBSTR(L-TASK-STATUS(#MAP-IX),21)
+      END-IF
+      RESET L-TASK-ACTION(#MAP-IX)
+      FOR #I = 1 TO #MAX-FUNC
+        IF M-TASK-NUMBER (#I) = #NUMBER
+          COMPRESS L-TASK-ACTION(#MAP-IX) #FUNCTIONS(#I)
+            TO L-TASK-ACTION(#MAP-IX) LEAVING NO
+        END-IF
+      END-FOR
+      IF ST-EXEC-TYPE = 'N'   /* TASK NOT USED
+          AND (L-TASK-STATUS(#MAP-IX) = SCAN #EQN-CLOSED OR
+          L-TASK-STATUS(#MAP-IX) = SCAN #EQ2-CLOSED OR
+          L-TASK-STATUS(#MAP-IX) = SCAN #EQN-NOTACTIVE OR
+          L-TASK-STATUS(#MAP-IX) = SCAN #EQ2-NOTACTIVE)
+        RESET L-TASK-NUMBER(#MAP-IX)
+          L-TASK-STATUS(#MAP-IX) L-TASK-ACTION(#MAP-IX)
+        SUBTRACT 1 FROM #MAP-IX
+      END-IF
+    END-READ
+    FOR #MAP-ITEM = 1 TO #MAX-MAP
+      IF L-TASK-NUMBER(#MAP-ITEM) = 0
+        CV-WAIT(#MAP-ITEM) := CV-MARK(#MAP-ITEM) := CV-LINES(#MAP-ITEM) := (AD=NP)
+        ESCAPE TOP
+      END-IF
+      IF (L-TASK-STATUS(#MAP-ITEM)=SCAN(#EQN-CLOSED) OR=SCAN(#EQ2-CLOSED)
+      OR=SCAN(#EQN-NOTACTIVE) OR=SCAN(#EQ2-NOTACTIVE)                 /*
+      OR=SCAN(#EQN-ABENDED) OR=SCAN(#EQ2-ABENDED))                    /*
+      AND NOT (L-TASK-STATUS(1) = SCAN(#EQN-CLOSED) OR=SCAN(#EQ2-CLOSED)
+      OR = SCAN(#EQN-NOTACTIVE) OR = SCAN(#EQ2-NOTACTIVE)             /*
+      OR = SCAN(#EQN-ABENDED) OR = SCAN(#EQ2-ABENDED))                /*
+* task has failed for some reason - task 1 is now doing its work
+        EXAMINE L-TASK-ACTION(1)
+          FOR L-TASK-ACTION(#MAP-ITEM) GIVING POSITION #POS
+        IF #POS = 0
+          COMPRESS L-TASK-ACTION(1) L-TASK-ACTION(#MAP-ITEM)
+            TO L-TASK-ACTION(1) LEAVING NO
+        END-IF
+        RESET L-TASK-ACTION(#MAP-ITEM)
+      END-IF
+    END-FOR
+    IF #LANGUAGE NE *LANGUAGE
+      PERFORM INIT-PFKEYS
+      PERFORM SET-PFKEYS
+      #LANGUAGE := *LANGUAGE
+    END-IF
+    PERFORM FLIP-DISPLAY
+    SET CONTROL 'M21'
+    CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RHANMTM&'
+    SET CONTROL 'WB'
+    PERFORM BEFORE-INPUT
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RHANMTM&'
+    PERFORM AFTER-INPUT
+    RESET G-NATRP-ERC G-NATRP-ERT
+*
+    INCLUDE C-DIRECT
+    INCLUDE RPFKVA-C
+    INCLUDE RPFKED-C
+*
+    IF CV-MAP MODIFIED OR G-MAP-MODIFIED
+      PERFORM VALIDATE-INPUT
+    END-IF
+    INCLUDE REXDO--C
+*
+  END-REPEAT
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+IF CV-MARK(*) MODIFIED
+  PERFORM LINE-COMMANDS
+END-IF
+FOR #MAP-ITEM = 1 TO #MAX-MAP
+  IF CV-WAIT(#MAP-ITEM) MODIFIED
+    PERFORM VALIDATE-WAIT-FACTORS
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE BEFORE-INPUT
+************************************************************************
+RESET #MAP-ITEM
+*
+END-SUBROUTINE /* BEFORE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE AFTER-INPUT
+************************************************************************
+RESET #MAP-ITEM
+*
+END-SUBROUTINE /* AFTER-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+RESET G-PF
+*
+INCLUDE RPFSTD-C
+INCLUDE RPFCOM-C
+G-PF-IDENT(8) := ##PFN-WAIT
+G-PF-CODE(8)  := ##PFK-WAIT
+G-PF-IDENT(20):= ##PFN-WAIT
+G-PF-CODE(20) := ##PFK-WAIT
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE LINE-COMMANDS
+************************************************************************
+FOR #MAP-ITEM = 1 TO #MAX-MAP
+  IF CV-MARK(#MAP-ITEM) MODIFIED
+**  #NUMBER:= L-TASK-NUMBER(#MAP-IX)
+    #NUMBER:= L-TASK-NUMBER(#MAP-ITEM)   /* NOMALL-2338 BLI
+    DECIDE ON FIRST VALUE OF L-MARK (#MAP-ITEM)
+      VALUE 'C'                          /* shutdown
+        PERFORM CLOSE-TASK
+      VALUE 'W'                          /* wake
+        PERFORM WAKE-TASK
+      VALUE 'P'                          /* purge all
+        FETCH RETURN 'RPURGBP' 'ALL' #NUMBER
+        PERFORM WAKE-TASK
+      VALUE 'E'                          /* purge single
+        FETCH RETURN 'RPURGBP' 'ONE' #NUMBER
+        PERFORM WAKE-TASK
+      VALUE 'L'                          /* task log
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'DLO' #DLO
+        IF NOT #DLO
+          REINPUT *0020 MARK *G-DIRECT-COMMAND
+        END-IF
+        RMTASK-P.FUNCTION       := 'L'
+        RMTASK-P.SUBTASK-NUMBER := #NUMBER
+        CALLNAT 'RMTASKID' RMTASK-P
+        #LOG-USERID:= RMTASK-P.TASK-ID
+        FETCH RETURN 'RTASKLG' #LOG-USERID
+      VALUE '+', '-'
+        PERFORM MONITOR-TRACE
+      VALUE ' '
+        IGNORE
+      NONE VALUE
+        REINPUT USING HELP MARK *L-MARK(#MAP-ITEM)
+    END-DECIDE
+    RESET L-MARK(#MAP-ITEM)
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* LINE-COMMANDS
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-TASK
+************************************************************************
+IF NOT #STOP
+  REINPUT *0020 ALARM
+END-IF
+SET CONTROL 'WC7L52B13/14F'
+SET CONTROL 'M4'
+INPUT USING MAP 'RHANMOW&'
+IF *PF-KEY = 'PF3'
+  SET CONTROL 'WB'
+  SET CONTROL 'M21'
+  ESCAPE ROUTINE
+END-IF
+*
+IF #CONFIRM NE 'SHUTDOWN'
+  REINPUT *0004 ALARM
+END-IF
+*
+SET CONTROL 'WB'
+SET CONTROL 'M21'
+IF #MAP-ITEM = 1
+  RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)
+  FIND NRM-MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+    M-STATUS:= 'D'
+    M-LAST-ACTIVE:= *TIMX
+    UPDATE
+  END-FIND    /* NOMALL-1961 fhi in
+ELSE
+  GET NRM-SUBTASK-INFO #TASK-ISN(#MAP-ITEM)
+  ST-STATUS:= 'D'
+  ST-LAST-ACTIVE:= *TIMX
+/*SU3 ST-OBJECT-TYPE := 'SI' /*SU1 SU2 'ST'->'SI'
+/*SU3 ST-OBJECT-TIME := *TIMX /*SU1
+  UPDATE
+END-IF
+END TRANSACTION
+*
+CALLNAT 'RMSETSTN' 'D' G-MONITOR-NODE G-NATRP-DBID G-NATRP-FNR
+  #SHUTDOWN #NUMBER
+*
+LG-USERID := G-USERID
+LG-CODE := 'MO'
+LG-MSG := '1514'
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+L-TASK-STATUS(#MAP-ITEM) := #EQN-SHUTDOWN
+PERFORM WAKE-TASK
+IF #MAP-ITEM LE 1
+  RESET L-MARK(2:#MAX-MAP)
+END-IF
+*
+END-SUBROUTINE /* CLOSE-TASK
+*
+************************************************************************
+DEFINE SUBROUTINE WAKE-TASK
+************************************************************************
+RMTASK-P.FUNCTION       := 'E'
+RMTASK-P.SUBTASK-NUMBER := #MAP-ITEM
+CALLNAT 'RMTASKID' RMTASK-P
+#EVENT-NAME   := RMTASK-P.TASK-ID
+*
+CALLNAT 'RMEVNT-N' G-MONITOR-NODE #EVENT-NAME 'POST    ' L-WAIT-CURR(#MAP-ITEM)
+  G-NATRP-ERC G-NATRP-ERT #EVENT-MESSAGE
+END TRANSACTION
+IF G-NATRP-ERC NE 0
+  G-NATRP-ERC := 0005
+END-IF
+*
+END-SUBROUTINE /* WAKE-TASK
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-WAIT-FACTORS
+************************************************************************
+IF L-WAIT-MIN(#MAP-ITEM) GT L-WAIT-MAX(#MAP-ITEM)
+  REINPUT *0628 MARK *L-WAIT-MIN(#MAP-ITEM)
+END-IF
+IF L-WAIT-INCR(#MAP-ITEM) GT L-WAIT-MAX(#MAP-ITEM)
+  REINPUT *0631 MARK *L-WAIT-INCR(#MAP-ITEM)
+END-IF
+IF #MAP-ITEM = 1
+  GETMAIN. GET NRM-MONITOR #MONITISN
+  COMPRESS M-WAIT-MINIMUM '/' L-WAIT-MIN(#MAP-ITEM) ':' M-WAIT-MAXIMUM
+    '/' L-WAIT-MAX(#MAP-ITEM) ':' M-WAIT-INCREMENT '/' L-WAIT-INCR(#MAP-ITEM)
+    TO LG-OBJECT-NAME LEAVING NO
+  NRM-MONITOR.M-WAIT-MINIMUM  := L-WAIT-MIN(#MAP-ITEM)
+  NRM-MONITOR.M-WAIT-MAXIMUM  := L-WAIT-MAX(#MAP-ITEM)
+  NRM-MONITOR.M-WAIT-INCREMENT:= L-WAIT-INCR(#MAP-ITEM)
+  UPDATE(GETMAIN.)
+ELSE
+  GETSUB. GET NRM-SUBTASK-INFO #TASK-ISN(#MAP-ITEM)
+  COMPRESS ST-WAIT-MINIMUM '/' L-WAIT-MIN(#MAP-ITEM) ':' ST-WAIT-MAXIMUM
+    '/' L-WAIT-MAX(#MAP-ITEM) ':' ST-WAIT-INCREMENT '/' L-WAIT-INCR(#MAP-ITEM)
+    TO LG-OBJECT-NAME LEAVING NO
+  NRM-SUBTASK-INFO.ST-WAIT-MINIMUM  := L-WAIT-MIN(#MAP-ITEM)
+  NRM-SUBTASK-INFO.ST-WAIT-MAXIMUM  := L-WAIT-MAX(#MAP-ITEM)
+  NRM-SUBTASK-INFO.ST-WAIT-INCREMENT:= L-WAIT-INCR(#MAP-ITEM)
+/*SU3 NRM-SUBTASK-INFO.ST-OBJECT-TYPE := 'SI' /*SU1 SU2 'ST'->'SI'
+/*SU3 NRM-SUBTASK-INFO.ST-OBJECT-TIME := *TIMX /*SU1
+  UPDATE(GETSUB.)
+END-IF
+LG-CODE:= 'MO'
+LG-USERID:= G-USERID
+IF G-LANGUAGE = 2
+  LG-MSG:= 'Aktive'
+ELSE
+  LG-MSG:= 'Active'
+END-IF
+COMPRESS '0681' LG-MSG L-TASK-NUMBER(#MAP-ITEM) TO LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+G-NATRP-ERC := 0032
+END TRANSACTION
+*
+END-SUBROUTINE /* VALIDATE-WAIT-FACTORS
+*
+************************************************************************
+DEFINE SUBROUTINE MONITOR-TRACE
+************************************************************************
+IF L-MARK(#MAP-ITEM) = '+'
+  #EVENT-MESSAGE := 'TRACEON'
+ELSE
+  #EVENT-MESSAGE := 'TRACEOFF'
+END-IF
+RMTASK-P.FUNCTION       := 'E'
+RMTASK-P.SUBTASK-NUMBER := #MAP-ITEM
+CALLNAT 'RMTASKID' RMTASK-P
+#EVENT-NAME   := RMTASK-P.TASK-ID
+*
+CALLNAT 'RMEVNT-N' G-MONITOR-NODE #EVENT-NAME 'SENDPOST' L-WAIT-CURR(#MAP-ITEM)
+  G-NATRP-ERC G-NATRP-ERT #EVENT-MESSAGE
+END TRANSACTION
+IF G-NATRP-ERC NE 0
+  G-NATRP-ERC := 0005
+END-IF
+IF G-NATRP-ERC = 0
+  IF L-MARK(#MAP-ITEM) = '+'
+    G-NATRP-ERC:= 1539
+  ELSE
+    G-NATRP-ERC:= 1540
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* MONITOR-TRACE
+* --------------------------------------- set pfkeys -------------------
+INCLUDE RPFSET-C
+*
+END

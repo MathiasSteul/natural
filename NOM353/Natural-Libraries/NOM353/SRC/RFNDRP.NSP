@@ -1,0 +1,547 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RFNDRP  - Find report definitions
+*
+* Maintenance
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsiszha 2000-08-11 (CE7461)  Extend Report and Bundle Names
+* fhi     2003-07-29 P(227985) Clear unused modules
+* BLI1/SU1 2023-06-06 ES-33992 enhance result list to 1000
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING RLC----L
+LOCAL USING RPFK---L
+LOCAL USING ROT----L
+LOCAL USING VGRANT-L
+LOCAL
+1 REPORT VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-DESC
+  2 R-TYPE
+*
+1 #S-REPNAME              (A25)
+1 #S-REPORT-TYPE          (A1)
+1 #S-AUTHORIZATION        (A8)
+1 L-HEADER                (A78)
+1 #NOFLINES               (I2)  CONST <15>
+1 #MAX-FIND               (P10) CONST <1000>     /* BLI1
+1 #MAX-SEG                (I2) CONST <74> /*SU1
+1 L-SCREEN
+  2 L-SCREEN-NO-SAVE
+    3 L-SCR-NO            (1:#NOFLINES)
+      4 L-AUTHORIZATION   (A8)
+      4 L-REPORT-TYPE     (A1)
+      4 L-DESC            (A50)
+      4 CV-MARK           (C)
+      4 CVU               (C)
+  2 L-SCREEN-SEGMENT    (A200/1:#MAX-SEG) /*BLI1 was 11 SU1
+  2 REDEFINE L-SCREEN-SEGMENT /*was L-SCREEN-SAVE-AREA SU1
+    3 L-SCREEN-SEG        (#MAX-SEG)  /* BLI1 was 11
+      4 L-SCREEN-SEG-F    (A199)
+      4 L-SCREEN-SEG-L    (A1)
+  2 REDEFINE L-SCREEN-SEGMENT /*SU1
+    3 L-SCREEN-SAVE-AREA
+      4 L-SCR             (1:#NOFLINES)
+        5 L-IDENT         (I2)
+        5 L-REPORT        (A25)
+        5 L-ISN           (P10)
+        5 L-OPTION        (A1/1:6)
+        5 L-MARK          (A2)
+      4 #ISN-TAB
+        5 #ISN-T          (1:#MAX-FIND)
+          6 #ISNS         (P10)
+          6 #USER-ID      (A8)
+      4 #ISN-NUMBER       (P10)
+      4 #START            (P10)
+      4 #PANEL            (I1)
+  2 L-SCREEN-SEG-FLAG     (L/1:#MAX-SEG) /* BLI1 was 11 SU1
+*
+1 CV-LINES                (C)
+1 CV-SELECTION            (C/7)
+1 REDEFINE CV-SELECTION
+  2 CV-SKEY               (C)
+  2 CV-SREP               (C)
+  2 CV-SRTYPE             (C)
+  2 CV-SAUTH              (C)
+*
+1 RESTART                 (L)
+1 COMPRESS-TAB            (L)
+1 END-OF-PROCESSING       (L)
+1 END-OF-DISPLAY          (L)
+1 END-OF-DATA             (L)
+1 SORTED                  (L)
+1 GRANTED                 (L)
+1 REPOSITION              (L)
+1 NEW-FIND                (L)
+1 #I                      (I2)
+1 I                       (I2)
+1 F                       (I2)
+1 #J                      (I2)
+1 #RETAIN-SET             (A8) INIT <'RFNDRP'>
+1 #RETAIN-NUMBER          (P10)
+1 #ISN                    (P10)
+1 #LANGUAGE               (I1)
+1 #FATHER-PROG            (A8) INIT <'RMENU'>
+1 #DELETE                 (L)
+1 #UPDATE                 (L)
+1 #ALLOWED                (L)
+1 #STACK-PGM              (A8)
+1 #ADD-PROGRAM            (A8) INIT <'RDEFRP'>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+CALLNAT 'NARPSEC' G-USER-PROFILE 'DRP' #ALLOWED
+INCLUDE C-NALLOW
+CALLNAT 'NARPSEC' G-USER-PROFILE 'MRP' #UPDATE
+CALLNAT 'NARPSEC' G-USER-PROFILE 'PRP' #DELETE
+CV-SELECTION (*) := (AD=DP)
+IF *DATA = 1
+  PERFORM READ-FROM-STACK
+  PERFORM INIT-LINECOM
+  PERFORM LINE-COMMANDS
+  RESTART := TRUE
+END-IF
+*
+MAIN. REPEAT UNTIL END-OF-PROCESSING
+  IF RESTART
+    RESTART := FALSE
+  ELSE
+    #START := 1
+    PERFORM CREATE-SET
+  END-IF
+  IF #ISN-NUMBER > 0
+    PERFORM DISPLAY-RECORDS
+  END-IF
+END-REPEAT
+INCLUDE C-ESCAPE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DISPLAY-RECORDS
+************************************************************************
+RESET NEW-FIND END-OF-PROCESSING
+REPEAT
+  UNTIL NEW-FIND OR END-OF-PROCESSING
+  G-C-FUNC := 'L'
+  #J := #START - 1
+  PERFORM GET-SCREEN
+  PERFORM SCREEN-IO
+END-REPEAT
+*
+END-SUBROUTINE /* DISPLAY-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SCREEN
+************************************************************************
+RESET END-OF-DATA
+REPEAT
+  UNTIL #J >= #ISN-NUMBER
+  IF #I = #NOFLINES
+    ESCAPE ROUTINE
+  END-IF
+  ADD 1 TO #I
+  ADD 1 TO #J
+  GET REPORT #ISNS (#J)
+  IF G-USER-TYPE = 'A'
+    GRANTED := TRUE
+    GRANTS.GR-OPTION(*) := 'Y'
+    GRANTS.GR-USERID := 'ADMIN'
+  ELSE
+    GRANTS.GR-USERID := #USER-ID (#J)
+    CALLNAT 'RGRANT-N' GRANTS.GR-USERID 'R' R-REPNAME GRANTED
+      GRANTS.GR-OPTION(*)
+  END-IF
+  PERFORM DATA-TO-SCREEN
+END-REPEAT
+END-OF-DATA := TRUE
+*
+END-SUBROUTINE /* GET-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+RESET END-OF-DISPLAY
+IF #I < #NOFLINES
+  CV-MARK(#I + 1:#NOFLINES) := (AD=P)
+END-IF
+REPEAT
+  IF #LANGUAGE NE *LANGUAGE
+    #LANGUAGE := *LANGUAGE
+    CALLNAT 'ROTINI-N' ##EQO-REPORT G-OBJ-TYPE G-OTB
+    PERFORM INIT-PFKEYS
+    PERFORM INIT-LINECOM
+  END-IF
+  CALLNAT 'RFLIPG-N' G-LC G-LINECOM (*)
+  PERFORM SET-PFKEYS
+  INCLUDE RMVHLP-C
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RLISRPM&'
+  DECIDE FOR FIRST CONDITION
+    WHEN G-NATRP-ERC NE 0
+      IGNORE
+    WHEN END-OF-DATA AND #START > 1
+      G-NATRP-ERC := 12            /* bottom of data
+    WHEN END-OF-DATA AND #START = 1
+      G-NATRP-ERC := 14            /* all
+    WHEN NOT END-OF-DATA AND #START = 1
+      G-NATRP-ERC := 11            /* top of data
+    WHEN NONE
+      G-NATRP-ERC := 13            /* more
+  END-DECIDE
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'M21'
+  SET CONTROL 'WMB'
+  IF G-DISPLAY-LONG-NAMES
+    IF #PANEL = 2
+      INPUT WITH TEXT *G-NATRP-ERC, G-NATRP-ERT MARK *G-DIRECT-COMMAND
+        USING MAP 'RLISRP2&'
+    ELSE
+      INPUT WITH TEXT *G-NATRP-ERC, G-NATRP-ERT MARK *G-DIRECT-COMMAND
+        USING MAP 'RLISRPL&'
+    END-IF
+  ELSE
+    INPUT WITH TEXT *G-NATRP-ERC, G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RLISRPM&'
+  END-IF
+  RESET G-NATRP-ERC G-NATRP-ERT
+  PERFORM COMMAND-PF-KEY
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+RESET #I L-SCR (*) L-SCR-NO (*)
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-TO-SCREEN
+************************************************************************
+RESET  CV-MARK (#I)
+L-REPORT        (#I)     := REPORT.R-REPNAME
+L-DESC          (#I)     := REPORT.R-DESC
+L-REPORT-TYPE   (#I)     := REPORT.R-TYPE
+L-AUTHORIZATION (#I)     := GRANTS.GR-USERID
+L-ISN           (#I)     := #ISN
+L-OPTION        (#I,1:6) := GRANTS.GR-OPTION (1:6)
+*
+END-SUBROUTINE /* DATA-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+IF G-DIRECT-COMMAND NE ' '
+  PERFORM EXECUTE-DIRECT-COMMAND
+  ESCAPE ROUTINE
+END-IF
+DECIDE ON FIRST *PF-KEY
+  VALUE 'PF1'    REINPUT USING HELP
+  VALUE 'PF2'
+    PERFORM STACK-SCREEN
+    RESET G-C-REPORT
+    FETCH #ADD-PROGRAM 'A' G-C-REPORT
+  VALUE 'PF3'
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+  VALUE 'PF4'    PERFORM FLIP-HANDLE
+  VALUE 'PF7'
+    SUBTRACT #NOFLINES FROM #START
+    IF #START < 1
+      #START := 1
+    END-IF
+    END-OF-DISPLAY := TRUE
+  VALUE 'PF8'
+    ADD #NOFLINES TO #START
+    IF #START > #ISN-NUMBER
+      SUBTRACT #NOFLINES FROM #START
+    END-IF
+    IF #START < 1
+      #START := 1
+    END-IF
+    END-OF-DISPLAY := TRUE
+  VALUE 'PF9'
+    NEW-FIND := END-OF-DISPLAY := TRUE
+  VALUE 'PF9'
+    IF G-SUPPORT-LONG-NAMES
+      IF G-DISPLAY-LONG-NAMES
+        G-DISPLAY-LONG-NAMES := FALSE
+      ELSE
+        G-DISPLAY-LONG-NAMES := TRUE
+      END-IF
+    ELSE
+      NEW-FIND := TRUE
+    END-IF
+    END-OF-DISPLAY := TRUE
+  VALUE 'PF11'
+    #PANEL := 2
+    END-OF-DISPLAY := TRUE
+  VALUE 'PF10'
+    #PANEL := 1
+    END-OF-DISPLAY := TRUE
+  NONE
+    PERFORM LINE-COMMANDS
+    IF REPOSITION
+      END-OF-DISPLAY := TRUE
+    END-IF
+    IF #START > #ISN-NUMBER
+      SUBTRACT #NOFLINES FROM #START
+    END-IF
+    IF #START < 1
+      #START := 1
+    END-IF
+END-DECIDE
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFADD-C
+INCLUDE RPFBRW-C
+INCLUDE RPFQEX-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-LINECOM
+************************************************************************
+G-LC-IDENT (01) := ##EQU-DELETE
+G-LC-IDENT (02) := ##EQU-MODIFY
+G-LC-IDENT (03) := ##EQU-DISPLAY
+G-LC-IDENT (04) := ##EQU-COPY
+G-LC-IDENT (05) := ##EQU-AUTHORIZE
+G-LC-IDENT (06) := ##EQU-LOG
+G-LC-IDENT (07) := ##EQU-RENAME
+G-LC-IDENT (08) := ##EQU-LIST-AREPORT
+G-LC-NUM        := 8
+CALLNAT 'RLCINI-N' G-OBJ-TYPE G-LC G-LCB
+*
+END-SUBROUTINE /* INIT-LINECOM
+*
+************************************************************************
+DEFINE SUBROUTINE LINE-COMMANDS
+************************************************************************
+IF L-MARK(*) = '.'
+  INCLUDE C-ESCAPE
+END-IF
+INCLUDE RLCMTI-C
+FOR I 1 TO #NOFLINES
+  DECIDE ON FIRST VALUE OF L-IDENT (I)
+    VALUE ##EQU-LOG
+      IGNORE
+    VALUE ##EQU-DELETE
+      IF NOT #DELETE OR NOT(L-OPTION(I,1)= 'Y' OR
+          L-OPTION(I,3) ='Y')
+        REINPUT *0020 MARK *L-MARK(I) ALARM
+      END-IF
+    VALUE ##EQU-MODIFY
+      IF NOT #UPDATE OR  NOT(L-OPTION(I,1)= 'Y' OR
+          L-OPTION(I,2) ='Y' OR
+          L-OPTION(I,3) = 'Y')
+        L-IDENT (I) := ##EQU-DISPLAY
+      END-IF
+    VALUE ##EQU-DISPLAY
+      IGNORE
+    VALUE ##EQU-COPY,##EQU-RENAME
+      IF NOT #UPDATE OR NOT(L-OPTION(I,1)= 'Y' OR
+          L-OPTION(I,2) ='Y' OR
+          L-OPTION(I,3) = 'Y')
+        REINPUT *0020 MARK *L-MARK(I) ALARM
+      END-IF
+    VALUE ##EQU-AUTHORIZE
+      IF L-OPTION(I,1) NE 'Y'
+        REINPUT *0020 MARK *L-MARK(I) ALARM
+      END-IF
+    VALUE ##EQU-LIST-AREPORT
+      IGNORE
+    NONE IGNORE
+  END-DECIDE
+END-FOR
+*
+FOR I 1 TO #NOFLINES
+  IF L-IDENT (I) =  ##EQU-DELETE
+    RESET L-IDENT (I) L-MARK (I)
+    G-C-REPORT := L-REPORT (I)
+    FETCH RETURN 'RDELRP'
+    INCLUDE L-COMMIT
+    PERFORM DELETE-FROM-SET
+  END-IF
+END-FOR
+*
+FOR I 1 TO #NOFLINES
+  DECIDE ON FIRST VALUE OF L-IDENT (I)
+    VALUE ##EQU-LOG
+      FETCH RETURN 'RLISLG' 'RM' L-REPORT(I)
+      RESET L-MARK (I) L-IDENT (I)
+    VALUE ##EQU-MODIFY
+      RESET L-MARK (I) L-IDENT (I)
+      G-C-FUNC := 'M'
+      PERFORM COMMIT-WORK
+      PERFORM STACK-SCREEN
+      G-C-REPORT := L-REPORT(I)
+      FETCH 'RDEFRP'
+    VALUE ##EQU-DISPLAY
+      RESET L-MARK (I) L-IDENT (I)
+      G-C-REPORT := L-REPORT(I)
+      G-C-FUNC := 'D'
+      PERFORM STACK-SCREEN
+      FETCH 'RDEFRP'
+    VALUE ##EQU-COPY
+      PERFORM COMMIT-WORK
+      G-C-REPORT := L-REPORT(I)
+      FETCH RETURN 'RCOPRP'
+      REPOSITION := TRUE
+    VALUE ##EQU-RENAME
+      PERFORM COMMIT-WORK
+      G-C-REPORT := L-REPORT(I)
+      FETCH RETURN 'RRENRP'
+      PERFORM DELETE-FROM-SET
+    VALUE ##EQU-AUTHORIZE
+      PERFORM COMMIT-WORK
+      G-C-OBJNAME := L-REPORT(I)
+      G-FATHER-PROG := *PROGRAM
+      G-C-OBJTYPE := 'R'
+      G-C-GRANTS(1:6) := L-OPTION(I,1:6)
+      FETCH RETURN 'RLISGR'
+    VALUE ##EQU-LIST-AREPORT
+      RESET L-MARK (I) L-IDENT (I)
+      PERFORM COMMIT-WORK
+      PERFORM STACK-SCREEN
+      FETCH 'RLIACE' L-REPORT (I)
+    ANY   RESET L-MARK (I) L-IDENT (I)
+    NONE VALUE  IGNORE
+  END-DECIDE
+END-FOR
+*
+IF COMPRESS-TAB
+  RESET COMPRESS-TAB
+  PERFORM COMPRESS-ISN-TAB
+END-IF
+*
+END-SUBROUTINE /* LINE-COMMANDS
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-FROM-SET
+************************************************************************
+FNDDEL. FIND NUMBER REPORT WITH R-REPNAME = L-REPORT (I)
+IF *NUMBER (FNDDEL.) = 0
+  REPOSITION := TRUE
+  COMPRESS-TAB := TRUE
+  F := I + #START - 1
+  RESET #ISNS (F)
+END-IF
+*
+END-SUBROUTINE /* DELETE-FROM-SET
+*
+************************************************************************
+DEFINE SUBROUTINE COMPRESS-ISN-TAB
+************************************************************************
+F := #START
+REPEAT
+  UNTIL F > #ISN-NUMBER
+  IF #ISNS (F) = 0
+    RESET #ISNS (F)
+    IF F < #ISN-NUMBER
+      #ISNS (F:#ISN-NUMBER - 1) := #ISNS (F + 1:#ISN-NUMBER)
+      RESET  #ISNS (#ISN-NUMBER)
+    END-IF
+    SUBTRACT 1 FROM #ISN-NUMBER
+  ELSE
+    ADD 1 TO F
+  END-IF
+END-REPEAT
+*
+END-SUBROUTINE /* COMPRESS-ISN-TAB
+*
+************************************************************************
+DEFINE SUBROUTINE STACK-SCREEN
+************************************************************************
+FOR F = 1 TO *OCC(L-SCREEN-SEG-FLAG) /* BLI1 was 11
+  IF L-SCREEN-SEG-L (F) = H'00'
+    L-SCREEN-SEG-L (F) := H'01'
+    L-SCREEN-SEG-FLAG (F) := TRUE
+  ELSE
+    L-SCREEN-SEG-FLAG (F) := FALSE
+  END-IF
+END-FOR
+STACK TOP DATA FORMATTED L-SCREEN-SEG-FLAG (*)
+STACK TOP DATA FORMATTED L-SCREEN-SEGMENT (01:15)
+STACK TOP DATA FORMATTED L-SCREEN-SEGMENT (16:30)
+STACK TOP DATA FORMATTED L-SCREEN-SEGMENT (31:45)
+STACK TOP DATA FORMATTED L-SCREEN-SEGMENT (46:60)
+STACK TOP DATA FORMATTED L-SCREEN-SEGMENT (61:#MAX-SEG)
+#STACK-PGM := *PROGRAM
+STACK TOP DATA FORMATTED #STACK-PGM
+STACK TOP COMMAND *PROGRAM
+/*SU1 RESET F
+*
+END-SUBROUTINE /* STACK-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE READ-FROM-STACK
+************************************************************************
+INPUT #STACK-PGM
+IF #STACK-PGM NE *PROGRAM
+  *ERROR-NR := 999 /* internal error, should not occur
+END-IF
+INPUT (LS=202) L-SCREEN-SEGMENT (61:#MAX-SEG) /*#MAX-SEG >75 ->new lineÜ
+INPUT (LS=202) L-SCREEN-SEGMENT (46:60)
+INPUT (LS=202) L-SCREEN-SEGMENT (31:45)
+INPUT (LS=202) L-SCREEN-SEGMENT (16:30)
+INPUT (LS=202) L-SCREEN-SEGMENT (01:15)
+INPUT (LS=202) L-SCREEN-SEG-FLAG (*)
+FOR F = 1 TO *OCC(L-SCREEN-SEG-FLAG) /*was 11
+  IF L-SCREEN-SEG-FLAG (F) = TRUE
+    L-SCREEN-SEG-L (F) := H'00'
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* READ-FROM-STACK
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-SET
+************************************************************************
+CALLNAT 'RFNDRP-N' G-USERID G-USER-TYPE #RETAIN-SET #RETAIN-NUMBER
+  #MAX-FIND G-NATRP-ERC G-NATRP-ERT G-DISPLAY-LONG-NAMES
+RESET #ISN-NUMBER
+IF #RETAIN-NUMBER = 0
+  END-OF-PROCESSING := TRUE
+ELSE
+  CALLNAT 'RSRTRP-N' G-USERID G-USER-TYPE #RETAIN-SET #ISN-TAB
+    #ISN-NUMBER G-NATRP-ERC G-NATRP-ERT
+  RELEASE SET #RETAIN-SET
+END-IF
+*
+END-SUBROUTINE /* CREATE-SET
+*
+************************************************************************
+DEFINE SUBROUTINE EXECUTE-DIRECT-COMMAND
+************************************************************************
+MOVE LEFT G-DIRECT-COMMAND TO G-DIRECT-COMMAND
+IF G-DIRECT-COMMAND IS (N2.1) AND G-DIRECT-COMMAND NE '.'
+  COMPRESS '>' G-DIRECT-COMMAND INTO G-DIRECT-COMMAND LEAVING NO
+END-IF
+FETCH RETURN 'NRMCPR'
+SET CONTROL 'WMB'
+DECIDE ON FIRST VALUE OF G-NATRP-ERC
+  VALUE 9999
+    RESET G-NATRP-ERC
+    END-OF-DISPLAY := END-OF-PROCESSING := TRUE
+  VALUE 0,5,419,420,9998 IGNORE
+  VALUE 9997             RESET G-NATRP-ERC
+  NONE
+    REINPUT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND ALARM
+END-DECIDE
+*
+END-SUBROUTINE /* EXECUTE-DIRECT-COMMAND
+* --------------------------------------- set-pfkeys -------------------
+INCLUDE RPFSET-C
+*
+END

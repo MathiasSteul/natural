@@ -1,0 +1,120 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ----------------------------------------------------------------------
+* Member    NOMRPC-T
+* Version   3.2
+* Function  Test RPC Server for NOMRPT: Direct Input Interface
+*
+* ----------------------------------------------------------------------
+*
+* Maintenance
+* -----------
+* uuuuuu yyyy-mm-dd P999999 Remark
+* fhi    2007-06-11 NRT2423 Redirect Windows Printer Driver to NOM
+* fhi    2009-06-10 NRT3463 Adapt to NOMRPCX and multi_data
+* fhi    2010-10-11 NOMALL-97 Use dynamic memory
+* raya    2012-02-01 NOMALL-1096 error-text a250 in NOMRPCXP
+* fhi     2012-11-14 NOMALL-1143 Adapted for NOM34 NOMCOMPR. No tags.
+* ----------------------------------------------------------------------
+DEFINE DATA
+*
+LOCAL USING RMBAS64P
+LOCAL USING NOMRPCXP
+*
+LOCAL
+1 #CALL                    (A6)
+1 #BIN                     (B186) /* encoded length will be 248
+1 #I                       (P3)
+1 #J                       (P3)
+1 #IN-BUFFER               (L)
+*
+END-DEFINE
+* ------------------------------------------ main ----------------------
+FORMAT LS=200
+RESET NOMRPC-PARMS
+MOVE '3'    TO NOMRPC-TRACE-LEVEL
+MOVE 'B'    TO NOMRPC-INPUT-FORMAT
+MOVE 'OPEN' TO NOMRPC-FUNCTION
+MOVE
+  '<?xml version="1.0"  ?>'-
+  '<document>'-
+  '<zip-code>55</zip-code>'-
+  '<author>Shakespeare</author>'-
+  '<filename>testfile</filename>'-
+  '<filetype>bin</filetype>'-
+  '<rpc_user>fhi</rpc_user>'-
+  '<sender>fhi</sender>'-
+  '<source>PCFHI02</source>'-
+  '<db>10</db>'-
+  '<fnr>247</fnr>'
+  TO NOMRPC-DATA
+PERFORM CALL-NOMRPC
+RESET NOMRPC-DATA
+WRK.
+READ WORK FILE 7 #BIN
+  ADD 1 TO #J
+  B64-FUNCTION := 'BA'
+  COMPRESS B64-B #BIN TO B64-B
+  IF #J < 31
+    #IN-BUFFER := TRUE
+    ESCAPE TOP
+  END-IF
+  PERFORM FLUSH-BUFFER
+END-WORK
+IF #IN-BUFFER
+  PERFORM FLUSH-BUFFER
+END-IF
+MOVE 'CLOSE' TO NOMRPC-FUNCTION
+PERFORM CALL-NOMRPC
+* ----------------------------------------------------------------------
+* ------------------------------------------- flush buffer -------------
+DEFINE SUBROUTINE FLUSH-BUFFER
+CALLNAT 'RMBAS64N' B64-PARMS
+IF B64-RC NE 0
+  WRITE 'Encoding Error:' B64-RC
+  ESCAPE MODULE
+END-IF
+#IN-BUFFER := FALSE
+MOVE
+  '<?xml version="1.0"  ?>'-
+  '<document>'
+  TO NOMRPC-DATA
+FOR.
+FOR #I = 1 TO *OCC (B64-TEXT-ARRAY)
+  IF B64-TEXT-ARRAY (#I) = ' '
+    ESCAPE BOTTOM (FOR.)
+  END-IF
+  COMPRESS
+    NOMRPC-DATA
+    '<data>' B64-TEXT-ARRAY (#I) '</data>'
+    TO NOMRPC-DATA LEAVING NO
+END-FOR
+COMPRESS NOMRPC-DATA '</document>' TO NOMRPC-DATA LEAVING NO
+MOVE 'PUT' TO NOMRPC-FUNCTION
+PERFORM CALL-NOMRPC
+RESET #J NOMRPC-DATA B64-B B64-TEXT-ARRAY (*)
+REDUCE ARRAY B64-TEXT-ARRAY TO 0
+END-SUBROUTINE
+* ------------------------------------------- call nomrpc --------------
+DEFINE SUBROUTINE CALL-NOMRPC
+IF NOMRPC-TRACE-LEVEL > '0'
+  #CALL := 'Before'
+  DISPLAY #CALL NOMRPC-FUNCTION NOMRPC-RC NOMRPC-TRACE-LEVEL
+    NOMRPC-DATA (AL=20)
+END-IF
+CALLNAT 'NOMRPCX' NOMRPC-PARMS
+IF NOMRPC-TRACE-LEVEL > '0'
+  #CALL := 'After'
+  DISPLAY #CALL NOMRPC-FUNCTION NOMRPC-RC NOMRPC-TRACE-LEVEL
+    NOMRPC-DATA (AL=20)
+END-IF
+IF NOMRPC-RC NE 0
+  DISPLAY #CALL NOMRPC-FUNCTION NOMRPC-RC NOMRPC-ERROR-TEXT (AL=70)
+  ESCAPE MODULE
+END-IF
+END-SUBROUTINE
+* ----------------------------------------------------------------------
+END

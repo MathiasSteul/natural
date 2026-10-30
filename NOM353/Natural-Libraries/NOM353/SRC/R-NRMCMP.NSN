@@ -1,0 +1,103 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* R-NRMCMP - CALL the Compression Utility NRMCMP
+* *****
+* ATTENTION: the MF and Unix routines (NRMCMP) work different:  ÜÜ
+* Unix needs/fills only the old length fields Ü                 ÜÜ
+* *****
+*
+* Maintenance:
+* uuuuuuuu yyyy-mm-dd P999999 ....
+* fhi      2009-09-15 P320367 Created. Use NOMCOMPR as compression
+* fhi      2010-09-03 NOMALL-97 Extend message line
+* SPLILDAV 2012-06-27 NOMALL-1078 SUPPORT COMPRESSION 16K BYTE RECORDS
+* xsetggr  2013-06-10 NOMALL-1227 canel previous corrections for issue
+* RAYA     2013-06-23 NOMALL-1268 Trace
+* SU1      2013-12-19 NOMALL-1078 Correct different handling for Unix
+* SU2      2014-01-15 NOMALL-1078 bypass interface difference
+* fhi      2014-03-24 NOMALL-1326 If NOMCOMPR not linked, issue error
+* SU4      2016-09-06             (NOM3.5) correct ON ERROR handling
+* SU3      2016-11-10 NOMALL-1954 bypass interface difference-compress
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER
+1 #NRMCOMP-PARMS
+  2 #NRMCOMP-CB              (B40)
+  2 REDEFINE #NRMCOMP-CB
+    3 #NRMCOMP-CB_B4         (B4)
+  2 REDEFINE #NRMCOMP-CB
+    3 #COMP-COMMAND          (A1)
+    3 #COMP-CODE             (B1)
+    3 #COMP-INLENGTH-OLD     (B1)
+    3 #COMP-OUTLENGTH-OLD    (B1)
+    3 #COMP-INLENGTH         (B2)
+    3 #COMP-OUTLENGTH        (B2)
+  2 #NRMCOMP-INPUT           (A251)   BY VALUE RESULT
+  2 #NRMCOMP-OUTPUT          (A251)   BY VALUE RESULT
+  2 #NRMCOMP-ERC             (N4)     BY VALUE RESULT
+  2 #NRMCOMP-ERT             (A250)   BY VALUE RESULT
+************************************************************************
+LOCAL
+1 #TRACE (L) /*INIT <TRUE>
+1 #I     (I2)
+1 #MSG   (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT AD=L
+IF #TRACE
+  PRINT *PROGRAM 'in : cmd:' #COMP-COMMAND 'code:' #COMP-CODE
+    'inlen_old:' #COMP-INLENGTH-OLD 'outlen_old:' #COMP-OUTLENGTH-OLD
+    'inlen:' #COMP-INLENGTH 'outlen:' #COMP-OUTLENGTH
+    / 'input:' #NRMCOMP-INPUT (AL=20) #NRMCOMP-INPUT (EM=H(10))
+    / 'output:' #NRMCOMP-OUTPUT (AL=20) #NRMCOMP-OUTPUT (EM=H(10))
+END-IF
+IF *MACHINE-CLASS = 'MAINFRAME'
+  IF #COMP-CODE NE 'N'
+    WRITE *PROGRAM 'OLD COMPRESSION CODE' #COMP-CODE
+  END-IF
+  CALL 'NRMCMP' #NRMCOMP-CB #NRMCOMP-INPUT #NRMCOMP-OUTPUT
+ELSE
+  EXAMINE #NRMCOMP-INPUT FOR ' ' GIVING LENGTH #I
+  #COMP-INLENGTH-OLD := #I
+  IF #TRACE PRINT 'inlen_old set to' #I END-IF
+  CALL 'NRMCMP' #NRMCOMP-CB_B4 #NRMCOMP-INPUT #NRMCOMP-OUTPUT
+* SU3 #COMP-INLENGTH-old filled, #COMP-INLENGTH not ÜÜ
+  IF RET('NRMCMP') NE 0
+    #NRMCOMP-ERC := RET('NRMCMP')
+    COMPRESS 'Error' #NRMCOMP-ERC 'in compression routine.'
+      TO #NRMCOMP-ERT
+    #NRMCOMP-ERC := 5 /* error text supplied
+  END-IF
+END-IF
+IF #TRACE
+  PRINT *PROGRAM 'out : cmd:' #COMP-COMMAND 'code:' #COMP-CODE
+    'inlen_old:' #COMP-INLENGTH-OLD 'outlen_old:' #COMP-OUTLENGTH-OLD
+    'inlen:' #COMP-INLENGTH 'outlen:' #COMP-OUTLENGTH
+    / 'input:' #NRMCOMP-INPUT (AL=20) #NRMCOMP-INPUT (EM=H(10))
+    / 'output:' #NRMCOMP-OUTPUT (AL=20) #NRMCOMP-OUTPUT (EM=H(10))
+    / 'error:'#NRMCOMP-ERC #NRMCOMP-ERT
+END-IF
+*
+************************************************************************
+ON ERROR /*no ESCAPE+always MSG to log
+************************************************************************
+  IF *ERROR-NR = 920
+    #MSG := '134' /* NOM0134 NOMCOMPR missing.
+  ELSE
+    CALLNAT 'C-NATERN' #MSG
+  END-IF
+  PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+  END TRANSACTION
+* no escape to be able to show error to user
+END-ERROR
+*
+END

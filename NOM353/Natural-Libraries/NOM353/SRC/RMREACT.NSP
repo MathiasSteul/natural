@@ -1,0 +1,115 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMREACT - Try to reactivate suspended mainframe nodes
+*
+* Maintenance
+* uuuuuuuu yyyy-mm-dd iTrac       Remark
+* fhi      2016-10-28 NOMALL-1934 Created from NOMLOG
+* fhi      2018-12-14 NOM 3.5     Add CPU measure
+* BLI      2019-02-15 NOALL-2236  Check if node is active
+* SU1      2020-04-27 NOMALL-2349 use N-ESYLG
+* SU2     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU3     2021-08-27 NOMALL-2485 show correct node in MSG NOM2043
+* **********************************************************************
+DEFINE DATA
+GLOBAL USING MONIT-GL
+*
+INDEPENDENT
+1 +REACT-CYCLE        (I1)
+* *****
+/*SU2 LOCAL USING VMONITUL
+LOCAL
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU2
+  2 MF-NPR-USERID
+  2 MF-MONITOR-NODE
+  2 MF-TYPE
+  2 MF-MONITOR-ID
+1 #REACTIVATED        (L)         /* BLI NOALL-2236
+1 #TRACING            (L)
+1 #CATDATE            (A19)
+1 RMSETTIM
+  2 FUNCTION          (A1)
+  2 ERC               (N4)
+  2 MSG               (A250)
+1 #CALLER             (A8) INIT <*PROGRAM>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF G-TRACE GE *LEVEL
+  #TRACING := TRUE
+  RMSETTIM.FUNCTION := 'S'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS 'Start' *PROGRAM 'cataloged at'  #CATDATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+IF +REACT-CYCLE <= 0
+  RESET #REACTIVATED
+  IF #TRACING
+    COMPRESS 'Searching suspended mainframe nodes.' TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  END-IF
+  RDDATA. READ MF-NODE BY MF-TYPE-ID = 'SR-'
+    IF MF-TYPE NE 'S' /* No more suspended nodes
+    OR MF-MONITOR-ID NE MASK ('R-')                                   /*
+      ESCAPE BOTTOM (RDDATA.)
+    END-IF
+    CALLNAT 'N-ESYLG' 1X MF-MONITOR-NODE /*BLI NOALL-2236
+      MF-NPR-USERID #CALLER G-NATRP-ERC G-NATRP-ERT 1X
+    IF G-NATRP-ERC =0 /* BLI NOALL-2236
+      #REACTIVATED := TRUE
+      UPD. GET MF-NODE *ISN(RDDATA.) /*SU3
+      MF-NODE.MF-TYPE := 'A'
+      UPDATE (UPD.) /*SU3
+      COMPRESS '2043' SUBSTR(MF-MONITOR-ID,3) TO G-TRACE-MSG /*SU3
+/*SU3 COMPRESS '2043' SUBSTR(M-MONITOR-ID,3) TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+/*SU3 IF *COUNTER(RDDATA.) > 50 RESET *COUNTER(RDDATA.)
+      END TRANSACTION
+/*SU3 END-IF
+    END-IF                        /* BLI NOALL-2236
+  END-READ
+  IF NOT #REACTIVATED
+    IF #TRACING
+      COMPRESS 'No suspended mainframe nodes reactivated.'
+        TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END TRANSACTION
+    END-IF
+    +REACT-CYCLE := 9 /* Wait 10 cycles before checking again
+  ELSE                /* (This module is executed at end of the cycle)
+    IF #TRACING
+      COMPRESS 'Suspended mainframe nodes reactivated.' TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END TRANSACTION
+    END-IF
+    +REACT-CYCLE := 2 /* Wait  3 cycles before checking again
+  END-IF
+ELSE
+  SUBTRACT 1 FROM +REACT-CYCLE
+  IF #TRACING
+    COMPRESS 'Checking suspended mainframe nodes still skipped for'
+      +REACT-CYCLE 'monitor cycles.' TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  END-IF
+END-IF
+IF #TRACING
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+  COMPRESS *PROGRAM 'ended.' TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+END

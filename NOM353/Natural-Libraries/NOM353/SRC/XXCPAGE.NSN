@@ -1,0 +1,171 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ----------------------------------------------------------------------
+* Version   3.5
+* Function  Encode string with special char into named char
+*           for OPO and NPR Unix
+*
+* Encodes a string with special characters of a given codepage into
+* *CODEPAGE and replaces the special characters with HTML named char
+* of format "&named-char;" and vice versa. Converts linefeeds of
+* Windows, Unix and MAC-OS X into Unix Linefeeds H'0A'.
+* Function 'T' does not allow a target codepage.
+* Routine ignores single characters that cannot be converted (NAT3413)
+*
+* This routine checks for CP=OFF and ICU available and calls XXCPAGU or
+* XXCPAGA depending of the result.
+*
+* fhi§SAG Sep 2014
+*
+* ----------------------------------------------------------------------
+*
+* Maintenance
+* -----------
+* uuuuuu  yyyy-mm-dd iTrac       Remark
+* fhi     2014-08-20 NOMALL-1454 created.
+* fhi     2014-09-18 NOMALL-1454 Avoid square bracket as constant,
+*                                adapt to NPR 2.1.5.1 and OPO 3.4.3
+* fhi     2014-09-19 NOMALL-1454 Add trace statements
+* fhi     2014-09-22 NOMALL-1489 NAT0001 in EXAMINE,partly rewritten
+* fhi     2014-09-26 NOMALL-1491 Correct comm to OPO for OPO-51, no tags
+* fhi     2014-09-29 NOMALL-1475 Correct pipe character coding
+* fhi     2014-09-30 NOMALL-1475 Enhance trace, no tags
+* fhi     2014-10-01 NOMALL-1475 same
+* fhi     2015-03-25 NOMALL-1561 Handle line feeds correctly.
+* fhi     2016-02-09 NOMALL-1632 same
+* fhi     2016-04-04 NOMALL-1632 Always use U'...' literals in #STRING
+*                                No tags
+* SU1     2016-05-23 NOMALL-1851 ICU not active:return appr.msg
+* fhi     2016-10-04 vOMALL-1930 trace strings with failed conversion
+* fhi     2016-10-05 NOMALL-1930 Routine LOG-ERROR rewritten, no tags
+* fhi     2016-10-31 NOMALL-1946 Get printable hex prints
+* fhi     2016-11-03 NOMALL-1930 Don't throw a NOM0021 if conv-error.
+* fhi     2016-11-04 NOMALL-1930 same
+* fhi     2016-11-14 NOMALL-1930 Omit special chars in source, no tags
+* fhi     2016-11-21 NOMALL-1962 Still wrong conversions
+* fhi     2016-12-05 NOMALL-1962 same
+* fhi     2016-12-12 NOMALL-1962 same
+* SU2     2018-05-04             NAT ERR in LUW only in english
+* fhi     2018-05-11 NOMALL-1918 Use XXMVENC for conversion
+* fhi     2018-09-03 NOMALL-2125 Split XXCPAGE to alpha and unicode vers
+* fhi                            Rewritten
+* ----------------------------------------------------------------------
+DEFINE DATA
+*
+PARAMETER
+1 FUNCTION                         (A1) BY VALUE
+*                                  /* 'E' Encode for OPO
+*                                  /* 'D' Decode for OPO
+*                                  /* 'T' Encode for NPR (trigraphs)
+*                                  /* 'U' Decode for NPR (trigraphs)
+1 STRING                           (A) DYNAMIC BY VALUE RESULT
+1 ERC                              (I4) BY VALUE RESULT
+*                                  /* return code:
+*                                  /* 0=OK,
+*                                  /* 1=Invalid function
+*                                  /* n=Encoding error
+1 ERT                              (A) DYNAMIC BY VALUE RESULT
+1 SRC-CP                           (A) DYNAMIC BY VALUE OPTIONAL
+*                                  /* Source-Codepage.
+*                                  /* Only present in unicode environm.
+*                                  /* Convert to *CODEPAGE before
+*                                  /* execution
+1 TAR-CP                           (A) DYNAMIC BY VALUE OPTIONAL
+*                                  /* Target-Codepage.
+*                                  /* Only present in unicode environm.
+*                                  /* Convert to CODEPAGE after
+*                                  /* execution
+1 TRACE                            (L) BY VALUE OPTIONAL
+*
+1 USTRING                          (U) DYNAMIC OPTIONAL
+*                                  /* Only present in unicode environm.
+*                                  /* If specified: Use it instead of
+*                                  /* STRING for input
+************************************************************************
+LOCAL
+1 #CHCK-MOVE-U                     (U1) INIT <UH'20AC'> /* EURO char
+1 #CHCK-MOVE-A                     (A4)
+1 #ENC-ERC                         (I4)
+1 #TRACING                         (L)
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+*
+* Set tracing
+*
+IF TRACE SPECIFIED
+  #TRACING := TRACE
+END-IF
+RESET ERC ERT
+OPTIONS TQMARK=OFF
+SET GLOBALS CPCVERR=ON
+/* Throw Nat error if codepage conversion fails. Will be set to OFF by
+/* XXMVENC to get the destination string even after 3413 has occurred.
+*
+MOVE ENCODED #CHCK-MOVE-U TO #CHCK-MOVE-A IN CODEPAGE 'UTF-8'
+  GIVING #ENC-ERC
+/* Codepage UTF-8 exists on both, MF and Unix systems
+IF #ENC-ERC NE 0 OR *CODEPAGE = ' '
+  CALLNAT 'XXCPAGA'
+    FUNCTION STRING ERC ERT 2X #TRACING
+ELSE
+  DECIDE FOR FIRST CONDITION
+    WHEN    SRC-CP      SPECIFIED
+        AND TAR-CP      SPECIFIED
+        AND USTRING     SPECIFIED
+      CALLNAT 'XXCPAGU'
+        FUNCTION STRING ERC ERT SRC-CP TAR-CP #TRACING USTRING
+    WHEN    SRC-CP      SPECIFIED
+        AND TAR-CP      SPECIFIED
+        AND USTRING NOT SPECIFIED
+      CALLNAT 'XXCPAGU'
+        FUNCTION STRING ERC ERT SRC-CP TAR-CP #TRACING
+    WHEN    SRC-CP      SPECIFIED
+        AND TAR-CP  NOT SPECIFIED
+        AND USTRING     SPECIFIED
+      CALLNAT 'XXCPAGU'
+        FUNCTION STRING ERC ERT SRC-CP   1X   #TRACING USTRING
+    WHEN    SRC-CP  NOT SPECIFIED
+        AND TAR-CP      SPECIFIED
+        AND USTRING     SPECIFIED
+      CALLNAT 'XXCPAGU'
+        FUNCTION STRING ERC ERT 1X     TAR-CP #TRACING USTRING
+    WHEN    SRC-CP      SPECIFIED
+        AND TAR-CP  NOT SPECIFIED
+        AND USTRING NOT SPECIFIED
+      CALLNAT 'XXCPAGU'
+        FUNCTION STRING ERC ERT SRC-CP   1X   #TRACING
+    WHEN    SRC-CP  NOT SPECIFIED
+        AND TAR-CP  NOT SPECIFIED
+        AND USTRING     SPECIFIED
+      CALLNAT 'XXCPAGU'
+        FUNCTION STRING ERC ERT   2X          #TRACING USTRING
+    WHEN    SRC-CP  NOT SPECIFIED
+        AND TAR-CP      SPECIFIED
+        AND USTRING NOT SPECIFIED
+      CALLNAT 'XXCPAGU'
+        FUNCTION STRING ERC ERT   1X   TAR-CP #TRACING
+    WHEN    SRC-CP  NOT SPECIFIED
+        AND TAR-CP  NOT SPECIFIED
+        AND USTRING NOT SPECIFIED
+      CALLNAT 'XXCPAGU'
+        FUNCTION STRING ERC ERT   2X          #TRACING
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-IF
+*
+IF ERC = 3413 OR = -3413
+  RESET ERC ERT  /* Don't pass a codepage error to the caller.
+/*                  Has already been logged. That's all.
+END-IF
+*
+* -------------------------- end main ----------------------------------
+*
+END

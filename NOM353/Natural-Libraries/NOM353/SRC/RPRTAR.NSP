@@ -1,0 +1,127 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RPRTAR
+* Version   1.3
+* Function  Print Active Report
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-07-02           created
+* gw  94-05-13 s(999999) add parms to callnat 'RPRTRP-N'
+* jvd 98-05-04 p(168326)  Increase display size to show lines > 10m
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+*                        p(168326) is now in p(164220) so I have removed
+*                        all refferance to P(168326) to make easier
+*                        reading
+* wcd 00-04-01 CE 7267   recat for new version of RPRTRP-N
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* xsetggr 2007-05-07 NOM3201  Support 11 byte run numbers
+* fhi     2012-10-22 NOMALL-1204 Add trace output
+* BLI     2016-02-23 NOMALL-1829 Check flags A R L
+* SU1     2022-09-30 NOMALL-2583 restruct(no change);itrac for uqac only
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+*
+LOCAL
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-NUMBER-OF-LINES
+  2 AR-ARCHIVE
+  2 AR-REVIVE
+*
+1 #AR-REPORT-RNB           (A31)
+1 REDEFINE #AR-REPORT-RNB
+  2 #AR-REPNAME            (A25)
+  2 #AR-REPRNB             (P11)
+1 #FROM-LINE               (P8)
+1 #TO-LINE                 (P8)
+1 #HEADER-LINES            (N3)
+1 #LAYOUT-TAB              (A251)
+1 REDEFINE #LAYOUT-TAB
+  2 #LAYOUT-TAB-V          (A1/251)
+1 #LAYOUT
+  2 #LAYOUT-F              (P3/10)
+  2 #LAYOUT-T              (P3/10)
+  2 #LAYOUT-S              (P3/10)
+  2 #LAYOUT-N              (P3)
+  2 CV-LAYOUT              (C/10)
+1 USER-IN                  (L)
+1 USER-LAYOUT              (L)
+1 CV-SEQ                   (C/10)
+1 #TRACING                 (L)
+1 #TRACE-MSG               (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM RMGTRACO-GET-SETTINGS #TRACING
+IF #TRACING
+  COMPRESS 'Start' *PROGRAM TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+IF *DATA > 0
+  INPUT G-C-REPORT G-C-REPRNB
+END-IF
+*
+#AR-REPNAME := G-C-REPORT
+#AR-REPRNB  := G-C-REPRNB
+*
+FNDAR. FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REPORT-RNB
+  IF NO RECORDS FOUND
+    IF #TRACING
+      COMPRESS 'No records found for:' #AR-REPORT-RNB TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END TRANSACTION
+    END-IF
+    G-NATRP-ERC := 4100
+    ESCAPE ROUTINE
+  END-NOREC
+*
+  IF AR-ARCHIVE = '*' AND AR-REVIVE NE '*'
+    IF #TRACING
+      COMPRESS 'Report contents not available: AR-ARCHIVE=*'
+        'and ar-revive =' AR-REVIVE TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END TRANSACTION
+    END-IF
+**  ASSIGN G-NATRP-ERC = 0426 /* BLI NOMALL-1829
+    G-NATRP-ERC := 0441 /* BLI NOMALL-1829
+    ESCAPE ROUTINE
+  END-IF
+*
+  #FROM-LINE := 1
+  #TO-LINE   := AR-NUMBER-OF-LINES
+*
+  IF #TRACING
+    COMPRESS 'Calling RGETALYN with:' 'G-C-REPORT =' G-C-REPORT
+      '- G-C-REPRNB =' G-C-REPRNB '- G-USERID =' G-USERID
+      '- #LAYOUT-TAB =' #LAYOUT-TAB TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+  CALLNAT 'RGETLAYN' G-C-REPORT G-C-REPRNB G-USERID USER-IN USER-LAYOUT
+    #LAYOUT-TAB #LAYOUT CV-SEQ (*) #HEADER-LINES
+*
+  IF #TRACING
+    COMPRESS 'Calling RPRTRP-N with:' '- G-USERID' G-USERID
+      '- G-USER-TYPE' G-USER-TYPE '- G-C-REPORT' G-C-REPORT
+      '- G-C-REPRNB'  G-C-REPRNB '- G-C-PRINTER' G-C-PRINTER
+      '- #FROM-LINE'  #FROM-LINE '- #TO-LINE'    #TO-LINE
+      '- #LAYOUT-N'   #LAYOUT-N '- G-MONITOR-NODE' G-MONITOR-NODE
+      '- G-USER-PROFILE' G-USER-PROFILE TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+  CALLNAT 'RPRTRP-N' G-USERID G-USER-TYPE G-C-REPORT G-C-REPRNB
+    G-C-PRINTER #FROM-LINE #TO-LINE #LAYOUT-N #LAYOUT-F(*) #LAYOUT-T(*)
+    #HEADER-LINES G-MONITOR-NODE G-USER-PROFILE G-USE-OWNER G-NATRP-ERC
+    G-NATRP-ERT
+END-FIND
+*
+END

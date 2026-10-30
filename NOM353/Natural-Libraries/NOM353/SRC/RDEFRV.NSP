@@ -1,0 +1,335 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDEFRV - Define Reviving Defaults
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-06-17           rewritten
+* mrs 93-09-15           translate weekdays
+* gw  95-12-11 s(222350) user exit to allow/disallow access to NSPF
+* gw  96-09-09 s(250901) avoid NAT1106 when invoking NSPF
+* gw  98-03-13 s(278970) save search values in independent variables
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsetggr 01-05-03 p(205831) input check for schedule parameters
+* xsetggr 01-12-19 p(205776) err msg handling for Y/N fields
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* fhi     2008-05-07 P304223   Set defaults for Unix
+* xsetggr 2009-10-09 P320995  returns to default definition screen
+*                             after editing skeleton in NOM/unix
+* xsetggr 2010-02-18 P300184  use g-language instead of *language
+* xsetggr 2010-02-18 P304569  Modify only if PF10 pressed
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-06-24 NOMALL-1281 show last update user+date
+* NKEW1   2024-07-24 EF-4541     Decide what to show on map with func
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL  USING RPFK---L
+LOCAL  USING VARCIV-L
+LOCAL  USING RWKDAY-P
+LOCAL  USING RWKDAY-E
+LOCAL  USING RLOG-L
+LOCAL USING CONST-L /* NKEW1 changed
+LOCAL
+1 #FATHER-PROG             (A8) INIT <'RDFMEN'>
+1 CV-MAP                   (C)  INIT <(AD=I)>
+1 #ISN                     (N10)
+1 L-HEADER                 (A78)
+1 #ALLOWED                 (L)
+1 #WEEK-DAYS               (A2/7)
+  INIT <'SU','MO','TU','WE','TH','FR','SA'>
+1 #WEEKDAYS                (A2/1:7)
+1 #ADAY                    (A3)
+1 #NDAY                    (N3)
+1 I                        (P3)
+1 #FUNC                    (A1)
+1 #CURRENT-TIME            (T)
+1 #START-TIME              (A4)
+1 #TEMP-TIME               (A4)
+1 REDEFINE #TEMP-TIME
+  2 #TEMP-HH               (N2)
+  2 #TEMP-II               (N2)
+1 #LANGUAGE                (I1)
+1 #REVIVER-SKELETON        (A8)
+1 #PLAN-SCHED-TIME         (A5)
+1 #PLAN-SCHED-DATE         (A10)
+1 #EDIT-MEMBER             (A8)
+1 SPF-ACTIVE               (L)
+1 #NSPFCOM                 (A50)
+1 #ERC                     (N4)
+1 #ERT                     (A250)
+1 #DATE                    (A8)
+1 #EXIST                   (L)
+1 #PROGRAM                 (A8) INIT <*PROGRAM>
+1 #LOG-FLAG                (L)
+1 #LAST-MOD                (A40) /*SU2
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+* NKEW1 <
+#JOB_ADD_FIELD := F#SETVAR(<#_JOBCARDS(1:2),#_ADDITIONALPARA(1:2)>)
+* NKEW1 >
+IF *MACHINE-CLASS = 'MAINFRAME'
+  #REVIVER-SKELETON := 'JREVSKEL'
+ELSE
+  RESET  #REVIVER-SKELETON
+END-IF
+RESET G-COMMIT G-LINECOM(*)
+*
+IF G-C-FUNC = 'X'                  /* recursivly called
+  G-C-FUNC := #FUNC := 'M'
+ELSE
+  #FUNC := 'D'
+END-IF
+*
+MAIN-LOOP. REPEAT
+  FIND-LOOP. FIND ARCHIVE-TASK WITH M-MONITOR-ID = 'REVIVE'
+*
+    IF NO RECORDS FOUND
+      MOVE 'REVIVE' TO ARCHIVE-TASK.M-MONITOR-ID
+      MOVE '0000'   TO ARCHIVE-TASK.M-ARCHIVE-TIME-INT
+      MOVE '0000'   TO ARCHIVE-TASK.M-ARCHIVE-TIME-END
+      M-LAST-UPDATE      := *TIMX /*SU2
+      M-LAST-UPDATE-USER := G-USERID /*SU2
+      STOR. STORE ARCHIVE-TASK
+      END TRANSACTION
+      ESCAPE BOTTOM
+    END-NOREC
+*
+    MOVE *ISN TO #ISN
+    DECIDE ON FIRST VALUE OF #FUNC
+      VALUE 'M'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'MMO' #ALLOWED
+        INCLUDE C-NALLOW
+        IF NOT #LOG-FLAG
+          MOVE G-USERID TO LG-USERID
+          MOVE 'MO' TO LG-CODE
+          IF G-LANGUAGE = 2
+            MOVE '''Reaktivierung''' TO G-NATRP-ERT
+          ELSE
+            MOVE '''Reviving''' TO G-NATRP-ERT
+          END-IF
+          COMPRESS '1543' G-NATRP-ERT TO LG-MSG
+          MOVE      1543  TO G-NATRP-ERC
+          CALLNAT 'RLOG' PL-PARMS
+          END TRANSACTION
+          MOVE TRUE TO #LOG-FLAG
+        END-IF
+        GETREC. GET ARCHIVE-TASK #ISN
+      VALUE 'D'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'DMO' #ALLOWED
+        INCLUDE C-NALLOW
+        MOVE (AD=IP) TO CV-MAP
+      NONE VALUE
+        IGNORE
+    END-DECIDE
+*
+    SCREEN-LOOP. REPEAT
+      IF #LANGUAGE NE *LANGUAGE
+        PERFORM INIT-PFKEYS
+        PERFORM SET-PFKEYS
+*       #LANGUAGE := *LANGUAGE
+* xsetggr 2010-02-18 P300184 line above out, next line in
+        MOVE G-LANGUAGE TO #LANGUAGE *LANGUAGE
+      END-IF
+      PERFORM FLIP-DISPLAY
+      PERFORM BEFORE-INPUT
+      RESET G-MAP-MODIFIED
+      CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDEFARM&'
+      CALLNAT 'N-HEAD2' M-LAST-UPDATE-USER M-LAST-UPDATE /*SU2
+        #LAST-MOD G-DATE-FORMAT /*SU2
+*
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+        MARK *G-DIRECT-COMMAND USING MAP 'RDEFRVM&'
+      RESET G-NATRP-ERC G-NATRP-ERT
+      PERFORM AFTER-INPUT
+*
+      INCLUDE RPFKVA-C
+      INCLUDE C-DIRECT
+      INCLUDE RPFKED-C
+      IF G-PF-FUNC = ##PFK-MODIFY AND G-C-FUNC = 'M'
+        G-C-FUNC := 'X'
+        FETCH RETURN #PROGRAM
+        ESCAPE BOTTOM (MAIN-LOOP.)
+      END-IF
+*
+      IF (CV-MAP MODIFIED OR G-MAP-MODIFIED)
+          AND #FUNC NE 'D'
+        PERFORM VALIDATE-INPUT
+        M-LAST-UPDATE      := *TIMX /*SU2
+        M-LAST-UPDATE-USER := G-USERID /*SU2
+        UPDATE(GETREC.)
+        MOVE 0032 TO G-NATRP-ERC
+        INCLUDE C-COMMIT
+      END-IF
+      INCLUDE REXDO--C
+*
+      IF G-PF-FUNC = ##PFK-EDIT
+        PERFORM EDIT-SKELETON
+      END-IF
+*
+    END-REPEAT
+  END-FIND
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE BEFORE-INPUT
+************************************************************************
+IF ARCHIVE-TASK.M-PLAN-ARC-TIME = 0
+  RESET #PLAN-SCHED-DATE #PLAN-SCHED-TIME
+ELSE
+  MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME (EM=HH':'II)
+    TO #PLAN-SCHED-TIME
+  MOVE EDITED ARCHIVE-TASK.M-PLAN-ARC-TIME (EM=YYYYMMDD) TO #DATE
+  CALLNAT 'IODATE-N' 'M' 'L' #DATE #PLAN-SCHED-DATE G-DATE-FORMAT
+    #ERC #ERT
+  IF #ERC NE 0
+    G-NATRP-ERC := #ERC
+    G-NATRP-ERT := #ERT
+  END-IF
+END-IF
+RWKDAY-IN-WEEKDAYS (*) := ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS (*)
+RWKDAY-FUNCTION := RWKDAY-FROM-ENGLISH-TO-CURRENT
+CALLNAT 'RWKDAY-N' RWKDAY-PARMS
+#WEEKDAYS (*) := RWKDAY-OUT-WEEKDAYS (*)
+*
+END-SUBROUTINE /* BEFORE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE AFTER-INPUT
+************************************************************************
+RWKDAY-IN-WEEKDAYS (*) := #WEEKDAYS (*)
+RWKDAY-FUNCTION := RWKDAY-FROM-CURRENT-TO-ENGLISH
+CALLNAT 'RWKDAY-N' RWKDAY-PARMS
+ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS (*) := RWKDAY-OUT-WEEKDAYS (*)
+*
+END-SUBROUTINE /* AFTER-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+#TEMP-TIME := ARCHIVE-TASK.M-ARCHIVE-TIME-INT
+IF #TEMP-TIME NOT = MASK (NNNN) OR
+    NOT (#TEMP-HH = 0 THRU 23 AND #TEMP-II = 0 THRU 59)
+  REINPUT *51 MARK *ARCHIVE-TASK.M-ARCHIVE-TIME-INT
+END-IF
+*
+#TEMP-TIME := ARCHIVE-TASK.M-ARCHIVE-TIME-END
+IF #TEMP-TIME NOT = MASK (NNNN) OR
+    NOT (#TEMP-HH = 0 THRU 23 AND #TEMP-II = 0 THRU 59)
+  REINPUT *51 MARK *ARCHIVE-TASK.M-ARCHIVE-TIME-END
+END-IF
+*
+MOVE EDITED ARCHIVE-TASK.M-ARCHIVE-TIME (EM=HHII) TO #TEMP-TIME
+IF ARCHIVE-TASK.M-ARCHIVE-TIME-END < #TEMP-TIME
+  REINPUT *52 MARK *ARCHIVE-TASK.M-ARCHIVE-TIME-END
+END-IF
+*
+IF ARCHIVE-TASK.M-ARCHIVE-DAYS(*) NE ' ' AND
+    ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS(*) NE ' '
+  REINPUT *630 MARK *ARCHIVE-TASK.M-ARCHIVE-DAYS(1)
+END-IF
+*
+FOR I 1 TO 30
+  IF ARCHIVE-TASK.M-ARCHIVE-DAYS(I) = ' ' OR = 'ALL' OR = 'LD'
+    ESCAPE TOP
+  END-IF
+  MOVE ARCHIVE-TASK.M-ARCHIVE-DAYS(I) TO #ADAY
+  IF NOT(#ADAY IS (N2) )
+    REINPUT USING HELP MARK *ARCHIVE-TASK.M-ARCHIVE-DAYS(I)
+  END-IF
+  #NDAY := VAL(#ADAY)
+  IF NOT #NDAY = 1 THRU 31
+    REINPUT USING HELP MARK *ARCHIVE-TASK.M-ARCHIVE-DAYS(I)
+  END-IF
+END-FOR
+*
+FOR I 1 TO 7
+  IF NOT (ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS(I) = ' ' OR
+      ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS(I) = #WEEK-DAYS(1:7) )
+    REINPUT USING HELP MARK *#WEEKDAYS (I)
+  END-IF
+END-FOR
+*
+DECIDE ON FIRST VALUE OF ARCHIVE-TASK.M-TIME-SCHEDULE
+  VALUE 'N'     RESET ARCHIVE-TASK.M-PLAN-ARC-TIME
+  VALUE 'Y'     PERFORM GET-NEXT-PLAN-TIME
+  VALUE ' '
+    ARCHIVE-TASK.M-TIME-SCHEDULE := 'N'
+    RESET ARCHIVE-TASK.M-PLAN-ARC-TIME
+  NONE         REINPUT *1099 MARK *ARCHIVE-TASK.M-TIME-SCHEDULE
+END-DECIDE
+IF ARCHIVE-TASK.M-ARCHIVE-CALENDAR = SCAN '*'
+  REINPUT USING HELP MARK *ARCHIVE-TASK.M-ARCHIVE-CALENDAR
+END-IF
+*
+IF ARCHIVE-TASK.M-ARCHIVE-CALENDAR > ' '
+  CALLNAT 'RCHKCA' ARCHIVE-TASK.M-ARCHIVE-CALENDAR #EXIST
+  IF NOT #EXIST
+    REINPUT *2004  MARK *ARCHIVE-TASK.M-ARCHIVE-CALENDAR
+  END-IF
+END-IF
+*
+IF NOT ( ARCHIVE-TASK.M-ARCHIVE-BEFORE-AFTER = 'A' OR = 'B' OR = ' ' )
+  REINPUT *0061 MARK *ARCHIVE-TASK.M-ARCHIVE-BEFORE-AFTER
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NEXT-PLAN-TIME
+************************************************************************
+#CURRENT-TIME := *TIMX
+MOVE EDITED ARCHIVE-TASK.M-ARCHIVE-TIME (EM=HHII) TO #START-TIME
+IF #START-TIME = '0000'
+  #START-TIME := '0001'
+END-IF
+*
+CALLNAT 'RSCHED-N' #CURRENT-TIME #START-TIME
+  ARCHIVE-TASK.M-ARCHIVE-TIME-INT ARCHIVE-TASK.M-ARCHIVE-TIME-END
+  ARCHIVE-TASK.M-ARCHIVE-WEEK-DAYS (1:7)
+  ARCHIVE-TASK.M-ARCHIVE-DAYS (1:30)
+  ARCHIVE-TASK.M-ARCHIVE-CALENDAR ARCHIVE-TASK.M-ARCHIVE-BEFORE-AFTER
+  ARCHIVE-TASK.M-PLAN-ARC-TIME
+*
+END-SUBROUTINE /* GET-NEXT-PLAN-TIME
+*
+************************************************************************
+DEFINE SUBROUTINE EDIT-SKELETON
+************************************************************************
+PERFORM S-SEPED2 #PROGRAM #REVIVER-SKELETON #FUNC 2X
+*
+END-SUBROUTINE /* EDIT-SKELETON
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFCOM-C
+G-PF-IDENT (10) := ##PFN-MODIFY
+G-PF-CODE  (10) := ##PFK-MODIFY
+G-PF-IDENT (22) := ##PFN-MODIFY
+G-PF-CODE  (22) := ##PFK-MODIFY
+G-PF-IDENT (11) := ##PFN-EDIT
+G-PF-CODE  (11) := ##PFK-EDIT
+G-PF-IDENT (23) := ##PFN-EDIT
+G-PF-CODE  (23) := ##PFK-EDIT
+*
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+INCLUDE RPFSET-C /* set pfkeys
+*
+END

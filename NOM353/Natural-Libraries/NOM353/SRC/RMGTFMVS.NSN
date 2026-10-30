@@ -1,0 +1,101 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMGTFMVS
+* Version   1.3
+* Function  Get Top of Current Page (sequential File MVS Interface)
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-11-09 s(999999) created
+* mrs 94-05-09 s(999999) h'81' is a valid ff (write and skip) in BS2
+* xsetggr 2007-05-14 NOM3201   Convert node number to 5 digit format
+* fhi     2017-01-18 NOMALL-1916 Use binary NPR RECORD* fields
+* fhi     2017-01-27 NOMALL-1961 Show node name in errors
+* fhi     2017-07-11 NOMALL-2021 NPR error: use RECORD temporarily ÜÜÜ
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING RMGT---P
+************************************************************************
+INDEPENDENT
+1 +NOD-CURRENT-NAME      (A16) /*fhi 2017-01-27 NOMALL-1961 in
+*
+LOCAL USING RCCTYP-E             /* supported cc Types
+LOCAL USING RMSR---L             /* supported cc Types
+LOCAL
+1 SYSOUT VIEW OF READ-FILE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD-NUMBER
+  2 RECORD
+  2 RECORD-HEX1
+  2 REDEFINE RECORD-HEX1
+    3 RECORD-CC          (A1)
+  2 RECORD-HEX2
+  2 RECORD-HEX3
+*
+1 #RECORD-FROM           (P10)
+1 #RECORD-TO             (P10)
+1 #SOURCE-TYPE-B2        (B2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-ERROR-CODE P-ERROR-TEXT P-TOP-RECORD
+*
+#SOURCE-ATTRIBUTES := P-SOURCE-ATTRIBUTES
+#SOURCE-TYPE-B2 := P-SOURCE-TYPE
+CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES #SOURCE-TYPE-B2
+*
+#RECORD-FROM := P-RECORD-NUMBER
+FIND-TOP. REPEAT
+  #RECORD-TO := #RECORD-FROM
+  SUBTRACT 70 FROM #RECORD-FROM
+  IF #RECORD-FROM < 1
+    #RECORD-FROM := 1
+  END-IF
+*
+  FNDFMVS. FIND SYSOUT WITH DSNAME = #FMVS-DSNAME AND NODE = #FMVS-NODE
+  AND LRECL = #FMVS-LRECL AND RECFM = #FMVS-RECFM                     /*
+  AND BLKSIZE = #FMVS-BLKSIZE AND RECORD-NUMBER >= #RECORD-FROM       /*
+    IF NO RECORDS FOUND
+      P-ERROR-CODE := 0005
+      P-ERROR-TEXT := 'Invalid Line Number'
+      ESCAPE BOTTOM (FIND-TOP.)
+    END-NOREC
+    IF ERROR-CODE NE 0
+      P-ERROR-CODE := ERROR-CODE
+      COMPRESS ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE
+        TO P-ERROR-TEXT
+      ESCAPE BOTTOM (FIND-TOP.)
+    END-IF
+    SYSOUT.RECORD-HEX1 := F#CONVERT-RECORD-HEX
+      (<SYSOUT.RECORD-HEX1,SYSOUT.RECORD-HEX2,SYSOUT.RECORD-HEX3,
+      1X,P-CODEPAGE>)
+    IF (RECORD-CC = '1'   AND P-CC-TYPE = ASA-CODE)
+    OR (RECORD-CC = 'A'   AND P-CC-TYPE = BS2000-CC)                  /*
+    OR (RECORD-CC = H'89' AND P-CC-TYPE = MACHINE-CODE)               /*
+    OR (RECORD-CC = H'8B' AND P-CC-TYPE = MACHINE-CODE)               /*
+    OR (RECORD-CC = H'81' AND P-CC-TYPE = BS2000-CC) OR RECORD-NUMBER =1
+      IF RECORD-CC = H'89' AND P-CC-TYPE = MACHINE-CODE
+      OR (RECORD-CC = H'81' AND P-CC-TYPE = BS2000-CC)                /*
+        P-TOP-RECORD := RECORD-NUMBER + 1
+      ELSE
+        P-TOP-RECORD := RECORD-NUMBER
+      END-IF
+    END-IF
+    IF RECORD-NUMBER >= #RECORD-TO
+      IF P-TOP-RECORD > 0
+        ESCAPE BOTTOM (FIND-TOP.)
+      END-IF
+      ESCAPE BOTTOM (FNDFMVS.)
+    END-IF
+*
+  END-FIND
+END-REPEAT
+END

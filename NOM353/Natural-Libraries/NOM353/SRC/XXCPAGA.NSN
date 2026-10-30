@@ -1,0 +1,289 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* XXCPAGA - Encode string with special char into named char
+*           for OPO and NPR Unix. Version with Alpha variables
+*
+* Encodes a string with special characters of a given codepage into
+* *CODEPAGE and replaces the special characters with HTML named char
+* of format "&named-char;" and vice versa.
+* Routine ignores single characters that cannot be converted (NAT3413)
+* This alpha variables version takes care of NPR trigraphs only, all
+* special characters besides the trigraph characters are not changed and
+* in responsibility of the middleware conversion.
+*
+* Maintenance
+* -----------
+* uuuuuu  yyyy-mm-dd iTrac       Remark
+* fhi     2018-09-03 NOMALL-2125 created from XXCPAGE
+* fhi     2018-09-26 NOMALL-2125 Handle null bytes
+* fhi     2018-10-09 NOMALL-2125 Omit ICU better (no tags)
+* SU1     2024-03-07 ES-34613    NOM 3.6 Remove BS2
+* ----------------------------------------------------------------------
+DEFINE DATA
+*
+PARAMETER
+1 FUNCTION                         (A1) BY VALUE
+*                                  /* 'E' Encode for OPO
+*                                  /* 'D' Decode for OPO
+*                                  /* 'T' Encode for NPR (trigraphs)
+*                                  /* 'U' Decode for NPR (trigraphs)
+1 STRING                           (A) DYNAMIC BY VALUE RESULT
+1 ERC                              (I4) BY VALUE RESULT
+*                                  /* return code:
+*                                  /* 0=OK,
+*                                  /* 1=Invalid function
+*                                  /* n=Encoding error
+1 ERT                              (A) DYNAMIC BY VALUE RESULT
+1 SRC-CP                           (A) DYNAMIC BY VALUE OPTIONAL
+*                                  /* Ignored, for XXCPAGC only
+1 TAR-CP                           (A) DYNAMIC BY VALUE OPTIONAL
+*                                  /* Ignored, for XXCPAGC only
+1 TRACE                            (L) BY VALUE OPTIONAL
+*
+1 USTRING                          (U) DYNAMIC BY VALUE OPTIONAL
+*                                  /* Ignored, for XXCPAGC only
+*
+************************************************************************
+LOCAL
+1 #NPR-MAX                         (I2) CONST <14>
+INDEPENDENT
+1 +U-TABLE           (U1/256)      /* filled with function I in XXTR2U16
+1 REDEFINE +U-TABLE                /* No ICU is necessary for that.
+  2 #B-TABLE         (B2/256)      /* XXCPAGA only uses binary codes
+1 +NPR-SRC           (B1/#NPR-MAX) /* which don't need ICU either.
+************************************************************************
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RLOG-L
+LOCAL
+1 #I                               (I4)
+1 #I2                              (I4)
+/*SU1 1 #CODE-TABLE (A2/256) 1 #HEX (A)   DYNAMIC
+/*SU1 1 #INPUT-DATA-U (U75) /* dummy entry for XXCPAGC only
+/*SU1 1 #CP (A64)  /* CODEPAGE FOR XXCPAGC
+1 #HTML-MAX                        (I2) CONST <1>/* (may be extended)
+/* Table for functions 'D' and 'E':
+1 #HTML-SRC                        (A10/#HTML-MAX) CONST < '&' >
+1 #HTML-REP                        (A10/#HTML-MAX) CONST < '&amp;' >
+*
+/* Use trigraphs and hex codes one-byte characters only.
+/* Table for functions 'T' and 'U'
+1 #NPR-REF                         (B1/#NPR-MAX) /* Unicode represent.
+  CONST < H'3F',H'09',H'0C',H'5C',H'5E',H'7C',H'40',
+  H'7B',H'7D',H'5B',H'5D', H'21',H'60',H'7E' >
+1 #NPR-REP                         (A10/#NPR-MAX)
+  CONST < '??*', '??&','??+','??/','??''','??_','??%',
+  '??<', '??>','??(','??)', '??:', '??;','??-' >
+*
+1 #CLEANUP-MAX                     (I2) CONST <4>
+/* Simplify html coding
+1 #CLEANUP-SRC                     (A10/#CLEANUP-MAX)
+  CONST < '&amp;amp;','&#x00','&#x00',';amp;amp;' >
+1 #CLEANUP-REP                     (A10/#CLEANUP-MAX)
+  CONST < '&amp;','&#x','&#x',';amp;' >
+*
+1 #ENC-ERC                         (I4)
+1 #ENC-ERT                         (A250)
+1 #CODEPAGE                        (A64)
+1 #STRING                          (A)   DYNAMIC
+1 #HTML-HEX                        (A2)
+1 #IX                              (I4)
+1 #POS                             (I4)
+1 #POS3                            (I4)
+1 #LINE                            (I4)
+1 #TRACE-MSG                       (A250)
+1 #TRACING                         (L)
+1 #INPUT-DATA                      (A75)
+1 #HEXHIGH                         (A75)
+1 #HEXLOW                          (A75)
+1 #RULER                           (A75)
+1 #RULER-OFFSET                    (I4)
+1 #CP-MEMBER                       (A8)
+1 #CATDATE                         (A19)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+* Set tracing
+*
+IF TRACE SPECIFIED
+  #TRACING := TRACE
+  IF #TRACING
+    PERFORM XXCATAL-GET-CATDATE #CATDATE
+    COMPRESS *PROGRAM 'cataloged at' #CATDATE TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    COMPRESS 'STRING before function' FUNCTION 'has contents:'
+      TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    REP. REPEAT
+      PERFORM XXHEXPRT #INPUT-DATA #HEXHIGH #HEXLOW #RULER
+        #RULER-OFFSET TRUE STRING 75
+      IF #RULER-OFFSET = -1
+        ESCAPE BOTTOM (REP.)
+      END-IF
+      PERFORM XXRLOG-WRITE-LOG 'T' #INPUT-DATA
+      PERFORM XXRLOG-WRITE-LOG 'T' #HEXHIGH
+      PERFORM XXRLOG-WRITE-LOG 'T' #HEXLOW
+      PERFORM XXRLOG-WRITE-LOG 'T' #RULER
+      END TRANSACTION
+    END-REPEAT
+  END-IF
+END-IF
+RESET ERC ERT
+*
+OPTIONS TQMARK=OFF
+IF +NPR-SRC (*) NE 0
+  IGNORE
+ELSE
+*
+* Determine assumed codepage and fill +NPR-SRC for coding trigraphs
+*
+  RESET ERC ERT #CP-MEMBER
+  DECIDE FOR FIRST CONDITION
+    WHEN *LANGUAGE =  2 AND *OPSYS =SCAN('MVS') /*SU1 OR = SCAN ('VSE')
+      #CP-MEMBER := 'TBIB1141'
+    WHEN *LANGUAGE NE 2 AND *OPSYS = SCAN('MVS') /*SU1 OR = SCAN ('VSE')
+      #CP-MEMBER := 'TBIB1140'
+/* WHEN *LANGUAGE =  2 AND *OPSYS =SCAN('BS2') #CP-MEMBER:='TBEDF3DR'
+/* WHEN *LANGUAGE NE 2 AND *OPSYS =SCAN('BS2') #CP-MEMBER:='TBEDF3IR'
+/*SU1 <-
+    WHEN NONE IGNORE
+  END-DECIDE
+  IF #TRACING
+    COMPRESS 'Assumed codepage member:' #CP-MEMBER TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+  IF #CP-MEMBER NE ' ' /* it is a mainframe codepage
+    CALLNAT 'XXTR2U16' 'I' #CP-MEMBER 2X ERC ERT
+    IF #TRACING
+      #LINE := *LINE
+      COMPRESS 'XXTR2U16 returned (in line' #LINE '):' ERC ERT
+        TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+    IF ERC NE 0
+      ESCAPE ROUTINE
+    END-IF
+    FOR #I = 1 TO #NPR-MAX
+      EXAMINE FULL #B-TABLE (*) FOR FULL #NPR-REF (#I) GIVING INDEX #IX
+      IF #IX NE 0
+        +NPR-SRC(#I) := #IX - 1
+      ELSE
+        +NPR-SRC(#I) := #NPR-REF(#I)     /* no conversion
+      END-IF
+    END-FOR
+  ELSE /* it is a Unix ASCII codepage
+    FOR #I = 1 TO #NPR-MAX
+      +NPR-SRC(#I) := #NPR-REF(#I) /* is already ASCII
+    END-FOR
+  END-IF
+END-IF
+*
+* Handle codepages and functions
+*
+REDUCE DYNAMIC #STRING TO 0
+#CODEPAGE := *CODEPAGE
+#LINE     := *LINE
+MOVE STRING  TO #STRING
+DECIDE ON FIRST VALUE OF FUNCTION
+  VALUE 'E'
+    PERFORM CLEANUP
+    FOR #I = 1 TO #HTML-MAX
+      #I2 := 1
+      REPEAT
+        EXAMINE #STRING FROM #I2 FOR #HTML-SRC(#I)
+          GIVING POSITION IN #POS
+        IF #POS NE 0
+          EXAMINE #STRING STARTING FROM #POS FOR #HTML-SRC(#I)
+            REPLACE FIRST WITH #HTML-REP(#I)
+        ELSE
+          MOVE EDITED #HTML-SRC(#I) (EM=H) TO #HTML-HEX
+          #ENC-ERC := ERC := 3413
+          #ENC-ERT := ERT := #HTML-HEX
+          PERFORM LOG-ENC-ERROR
+        END-IF
+        #I2 := #POS + 1
+        UNTIL #POS = 0 OR #I2 > *LENGTH(#STRING)
+      END-REPEAT
+    END-FOR
+    PERFORM CLEANUP
+    EXAMINE #STRING FOR '&amp;cr;&amp;lf;' REPLACE WITH '&amp;lf;'
+  VALUE 'D'
+    PERFORM CLEANUP
+    FOR #I = 1 TO #HTML-MAX
+      EXAMINE #STRING FOR #HTML-REP(#I) REPLACE WITH #HTML-SRC(#I)
+    END-FOR
+    PERFORM CLEANUP
+  VALUE 'T'
+    PERFORM CLEANUP
+    FOR #I = 1 TO #NPR-MAX
+      EXAMINE #STRING FOR +NPR-SRC(#I) REPLACE WITH #NPR-REP(#I)
+    END-FOR
+    PERFORM CLEANUP
+  VALUE 'U'
+    PERFORM CLEANUP
+    EXAMINE #STRING FOR '&amp;' REPLACE WITH '&'
+    FOR #I = 1 TO #NPR-MAX
+      EXAMINE #STRING FOR #NPR-REP(#I) REPLACE WITH +NPR-SRC(#I)
+    END-FOR
+    FOR #I = 1 TO #HTML-MAX
+      EXAMINE #STRING FOR #HTML-REP(#I) REPLACE WITH #HTML-SRC(#I)
+    END-FOR
+    PERFORM CLEANUP
+  NONE
+    ERC := 1
+    COMPRESS 'Invalid function code' FUNCTION TO ERT
+END-DECIDE
+MOVE #STRING TO STRING
+IF #TRACING
+  COMPRESS 'STRING after function' FUNCTION 'has contents:'
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  REP2. REPEAT
+    PERFORM XXHEXPRT #INPUT-DATA #HEXHIGH #HEXLOW #RULER
+      #RULER-OFFSET TRUE STRING 75
+    IF #RULER-OFFSET = -1
+      ESCAPE BOTTOM (REP2.)
+    END-IF
+    PERFORM XXRLOG-WRITE-LOG 'T' #INPUT-DATA
+    PERFORM XXRLOG-WRITE-LOG 'T' #HEXHIGH
+    PERFORM XXRLOG-WRITE-LOG 'T' #HEXLOW
+    PERFORM XXRLOG-WRITE-LOG 'T' #RULER
+    END TRANSACTION
+  END-REPEAT
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CLEANUP
+************************************************************************
+FOR #I = 1 TO #CLEANUP-MAX
+  EXAMINE #STRING FOR #CLEANUP-SRC(#I) REPLACE WITH #CLEANUP-REP(#I)
+END-FOR
+EXAMINE #STRING FOR '&#x;' AND DELETE /* omit null bytes
+EXAMINE #STRING FOR H'00' GIVING POSITION IN #POS3
+DECIDE FOR FIRST CONDITION
+  WHEN #POS3 > 1
+    #POS3   := #POS3 - 1
+    #STRING := SUBSTR(#STRING,1,#POS3) /* null byte is end of string
+  WHEN #POS = 1
+    RESET #STRING
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CLEANUP
+*
+INCLUDE XXCPAGC /* logging routine 'LOG-ENC-ERROR'
+*
+END

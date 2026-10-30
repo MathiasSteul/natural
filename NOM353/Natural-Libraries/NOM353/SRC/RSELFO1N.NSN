@@ -1,0 +1,173 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RSELFO1N - Select a Folder to file active report in folder
+*
+* Maintenance
+* xsetggr 2011-11-09 NOMALL-1069 created from RSELFO-N
+* SU1     2024-04-29 NOM 36      remove unused
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #USER                (A8)
+1 #FOLDER              (A16)
+************************************************************************
+LOCAL
+1 FOLDERS VIEW OF NRM-FOLDER
+  2 FO-USER-ID
+  2 FO-NAME
+  2 FO-ID
+  2 FO-LINKED-FO-ID
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER (A8)
+    3 FO-LINKED-ID   (B2)
+/*SU1 1 MAIL VIEW OF NRM-MAIL 2 MA-FOLDER-TIME
+/*SU1 1 #FO-NUMBER (N5) 1 REDEFINE #FO-NUMBER 2 #FO-NUMBER-A (A5)
+/*SU1 1 J (P2) 1 #OBJECT-NAME (A25) 1 GRANTED (L)
+1 #I                       (P2)
+1 #J                       (P2)
+1 #NOFLINES                (I2)   CONST <10>
+1 #SCREEN  (1:#NOFLINES)
+  2 L-NAME                 (A16)
+1 CV-MARK                  (C/1:#NOFLINES)
+1 L-MARK                   (A1/1:#NOFLINES)
+1 END-OF-PROCESSING        (L)
+1 END-OF-DISPLAY           (L)
+1 END-OF-DATA              (L)
+1 NEW-SEARCH               (L)
+1 #ERC                     (N4)
+1 #PAGE                    (P3)  INIT <1>
+1 #NOFPAGES                (I2)  CONST <20>
+1 #FOL-KEY                 (A24/1:#NOFPAGES)
+1 REDEFINE #FOL-KEY
+  2 #FOL-TAB (1:#NOFPAGES)
+    3 #F-USER              (A8)
+    3 #F-NAME              (A16)
+1 CV-LINE                  (C/1:#NOFLINES)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #FOLDER
+PERFORM PF-KEYS
+*
+#F-USER (1) := #USER
+MOVE ALL H'00' TO #F-NAME (1)
+MAIN. REPEAT UNTIL END-OF-PROCESSING
+  RESET #I
+  RESET INITIAL END-OF-DATA NEW-SEARCH
+  REA. READ FOLDERS BY FO-USER-NAME = #FOL-KEY (#PAGE)
+    IF FO-USER-ID NE #USER
+      ESCAPE BOTTOM
+    END-IF
+    IF FO-ID = 1 OR FOLDERS.FO-LINKED-FO-ID > ' '
+      ESCAPE TOP /* file not possible to default folder
+    END-IF
+    IF #I = #NOFLINES
+      PERFORM SCREEN-IO
+      IF END-OF-PROCESSING OR NEW-SEARCH
+        ESCAPE BOTTOM (REA.)
+      END-IF
+    END-IF
+    ADD 1 TO #I
+    L-NAME(#I) := FOLDERS.FO-NAME
+    CV-MARK (#I) := (AD=I)
+  END-READ
+  DECIDE FOR FIRST CONDITION
+    WHEN #I > 0
+      END-OF-DATA := TRUE
+    WHEN *COUNTER (REA.) = 0 OR #I = 0
+      #FOLDER := 'NO'
+      ESCAPE BOTTOM (MAIN.)
+    WHEN ANY
+      PERFORM SCREEN-IO
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+IF #I < #NOFLINES
+  CV-MARK (#I+1:#NOFLINES) := (AD=DP)
+  CV-LINE (#I+1:#NOFLINES) := (AD=D)
+END-IF
+RESET END-OF-DISPLAY
+REPEAT
+  DECIDE FOR FIRST CONDITION
+    WHEN #ERC NE 0
+      IGNORE
+    WHEN END-OF-DATA AND #PAGE > 1
+      #ERC := 12                   /* bottom of data
+    WHEN END-OF-DATA AND #PAGE = 1
+      #ERC := 14                   /* all
+    WHEN NOT END-OF-DATA AND #PAGE = 1
+      #ERC := 11                   /* top of data
+    WHEN NONE
+      #ERC := 13                   /* more
+  END-DECIDE
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'Y41'
+  SET CONTROL 'M17'
+  SET CONTROL 'WC21L45B1/25F'
+  INPUT WITH TEXT *#ERC USING MAP 'RSELFOM&'
+  SET CONTROL 'WMB'
+  SET CONTROL 'MT'
+  RESET #ERC
+  PERFORM COMMAND-PF-KEY
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+RESET #I #SCREEN (*)
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+FOR #J = 1 TO #I
+  IF L-MARK (#J) NE ' '
+    #FOLDER := L-NAME   (#J)
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+    ESCAPE ROUTINE
+  END-IF
+END-FOR
+DECIDE ON FIRST *PF-KEY
+  VALUE 'PF3'
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+  VALUE 'PF7'    IF #PAGE > 1
+      SUBTRACT 1 FROM #PAGE
+      END-OF-DATA := FALSE
+      END-OF-DISPLAY := NEW-SEARCH := TRUE
+    END-IF
+  VALUE 'PF8'    IF NOT END-OF-DATA
+      ADD 1 TO #PAGE
+      IF #PAGE > #NOFPAGES
+        #PAGE := #NOFPAGES
+        #FOL-KEY (1:19) := #FOL-KEY (2:20)
+      END-IF
+      #FOL-KEY (#PAGE) := FOLDERS.FO-NAME
+      END-OF-DISPLAY := TRUE
+    END-IF
+  NONE           IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+*
+END-SUBROUTINE /* PF-KEYS
+*
+END

@@ -1,0 +1,137 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+*  RTRAST     TRACE - Select a temp report
+*
+*  MRS 91-06-20   created
+* xsiszha 2000-08-04 (CE7461) Extend Report and Bundle Names
+* xsetggr 2007-09-04 NOM3201  Support P11 format run numbers
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 P-SELECTED            (L)
+1 P-RNBR                (P11)
+1 P-REPNAME             (A25)
+1 P-MAXREC              (N7)
+1 P-DISPLAY-LONG-NAMES  (L)
+************************************************************************
+LOCAL
+1 TEMP-REPORT-CONTENTS VIEW OF NRM-REPORT-CONTENTS
+  2 AC-REPNAME
+  2 AC-REPRNB
+  2 AC-SEQNO
+*
+1 #NOFLINES             (I2)  CONST <10>
+1 L-SCREEN              (1:#NOFLINES)
+  2 L-MARK              (A1)
+  2 L-CVMARK            (C)
+  2 L-REPNAME           (A25)
+  2 L-MAXREC            (N7)
+1 #COUNTER              (P10)
+1 #I                    (P2)
+1 #TI                   (N7)          INIT <1>
+1 L-TEMP-REP-RNBR-SEQ   (A35) INIT <'#T-00000000000-0000'>
+1 REDEFINE L-TEMP-REP-RNBR-SEQ
+  2 L-TEMP-REPNAME      (A25)
+  2 REDEFINE L-TEMP-REPNAME
+    3 L-TEMP-FIL1       (A3)
+    3 L-TEMP-RNB        (N11)
+    3 L-TEMP-FIL2       (A1)
+    3 L-TEMP-COUNT      (N4)
+    3 L-TEMP-INSL       (A1)
+    3 L-TEMP-FIL3       (A1)
+  2 L-TEMP-RNBR         (P11)
+  2 L-TEMP-SEQ          (B4)
+1 S-TEMP-REP-RNBR-SEQ   (A35) INIT <'#T-00000000000-0000'>
+1 REDEFINE S-TEMP-REP-RNBR-SEQ
+  2 S-TEMP-REPNAME      (A25)
+  2 REDEFINE S-TEMP-REPNAME
+    3 S-TEMP-FIL1       (A3)
+    3 S-TEMP-RNB        (N11)
+    3 S-TEMP-FIL2       (A1)
+    3 S-TEMP-COUNT      (N4)
+    3 S-TEMP-INSL       (A1)
+    3 S-TEMP-FIL3       (A1)
+  2 S-TEMP-RNBR         (P11)
+  2 S-TEMP-SEQ          (B4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM PF-KEYS
+P-SELECTED := FALSE
+*
+L-TEMP-RNB          := L-TEMP-RNBR         := P-RNBR
+L-TEMP-SEQ          := H'FFFFFFFF'
+L-TEMP-COUNT        := 9999
+S-TEMP-REP-RNBR-SEQ := L-TEMP-REP-RNBR-SEQ
+S-TEMP-SEQ          := 0
+S-TEMP-COUNT        := 1
+REP. REPEAT
+  RESET #COUNTER
+  REAT. READ TEMP-REPORT-CONTENTS BY AC-REP-RNB-SEQ =S-TEMP-REP-RNBR-SEQ
+    IF AC-REPNAME > L-TEMP-REPNAME OR AC-REPRNB NE L-TEMP-RNBR
+      ESCAPE BOTTOM IMMEDIATE
+    END-IF
+    AT BREAK OF AC-REPNAME
+      IF #I = #NOFLINES
+        PERFORM SCREEN-IO
+        IF *PF-KEY = 'PF3' OR P-SELECTED
+          ESCAPE BOTTOM (REAT.) IMMEDIATE
+        END-IF
+      END-IF
+      ADD 1 TO #I
+      ADD 1 TO #COUNTER
+      L-REPNAME (#I) := OLD(AC-REPNAME)
+      L-MAXREC  (#I) := OLD(AC-SEQNO)
+      L-CVMARK  (#I) := (AD=I)
+    END-BREAK
+  END-READ
+  IF #I > 0
+    PERFORM SCREEN-IO
+  END-IF
+  UNTIL #COUNTER = 0 OR *PF-KEY = 'PF3' OR P-SELECTED
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+IF #I < #NOFLINES
+  L-CVMARK (#I+1:#NOFLINES) := (AD=DP)
+END-IF
+SET CONTROL 'M16'
+IF P-DISPLAY-LONG-NAMES
+  SET CONTROL 'WMFL43C20B02/35'
+  INPUT USING MAP 'RTRASTL&'
+ELSE
+  SET CONTROL 'WMFL35C20B02/43'
+  INPUT USING MAP 'RTRASTM&'
+END-IF
+SET CONTROL 'WMB'
+EXAMINE L-MARK (*) FOR 'X' GIVING INDEX IN #TI
+IF #TI > 0
+  P-REPNAME  := L-REPNAME (#TI)
+  P-MAXREC   := L-MAXREC (#TI)
+  P-SELECTED := TRUE
+END-IF
+RESET #I L-SCREEN (*)
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+*
+END-SUBROUTINE
+*
+END

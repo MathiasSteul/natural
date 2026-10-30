@@ -1,0 +1,408 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDEFBC - Modify a Report within an active Bundle
+*
+* Maintenance
+* mrs 91-12-20 s(999999) old version saved, various modifications
+* mrs 95-03-23 s(221788) avoid NAT0954
+* mrs 95-05-09 s(222896) security check corrected
+* gw  95-11-06 s(222119) change field length FCB fro 4 to 8
+* jvd 97-10-09 p(163166) Replace Callnat 'OUTDATE' with 'IODATE-N'
+*                        Y2C and use only one date routine for NOM
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsisgg 00-08-03 CE7461 Extend report and bundle names
+* XSETHZ  2004-02-13 P(250183) Separator member 'NONE'/'KEIN'
+* XSETHZ  2004-02-13 P(249974) Separator Pages Maintenance
+* sju     2004-03-08 P(250934) NOM0111 changing CHARS
+* xsetggr 2007-07-19 p(295731) honour default number of separator pages
+* xsetggr 2007-08-30 NOM3201   Change run number format to P11
+* xsetggr 2008-05-05 p(304350) get size of binary docs, if no found in
+*                              spool-atributes
+* xsetggr 2009-09-01 P314431  allow only NATUNIX&DISKUNIX printers for
+*                    unix systems,UNIXLP printers only for mainframe
+* fhi     2010-03-05 P307403 Don't use text and binary reports mixed
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-11-03 NOMALL-865 restow due to changes in EOMPHTYE
+* fhi     2011-01-11 NOMALL-936 Member name into message 1079
+* xsetggr 2012-11-29 NOMALL-89 add printer validation for non-admin user
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-07-07 NOMALL-1279 fill fields for Adabas Vista
+* fhi     2014-10-21 NOMALL-79   Introduce long filenames
+* SU3     2014-11-05 NOMALL-1450 fill fields for Adabas Vista
+* fhi     2015-06-30 NOMALL-1655 Leave copies field as entered
+* fhi     2015-07-06 NOMALL-1655 Backout for online (this program)
+* SU4     2015-08-11 NOMALL-1690 XXHASH restructure
+* SU5     2015-12-30 NOMALL-1722 XXHASH-P changed->recat
+* SU6     2016-01-18 NOMALL-1802 do not update Adabas Vista fields
+* SU7     2016-09-16 NOMALL-1915(NOM3.5) sep.member act. help->N-SEPMEM
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING RPFK---L
+LOCAL USING VBURP-L
+LOCAL USING RCCTYP-E
+LOCAL USING RMSPL--L
+LOCAL USING EOMPHTYE
+LOCAL USING XXHASH-P
+LOCAL USING RMSR---E
+LOCAL
+1 ACTIVE-REPORTS VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-CC-TYPE
+  2 AR-SPOOL-ATTRIBUTES
+1 PRINTERS VIEW OF NRM-PRINTERS
+  2 P-PHYSICAL-NAME
+  2 P-DISP
+1 PHYSICAL VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-PRINTER-TYPE
+* *****
+1 #FATHER-PROG              (A8) INIT <'RLISBC'>
+1 CV-MAP                    (C) INIT <(AD=I CD=NE)>
+1 L-HEADER                  (A78)
+1 #HEADER-2                 (A16)
+1 #PF-KEY                   (A4)
+1 #ALLOWED                  (L)
+1 #UPDATE                   (L)
+1 #FUNC                     (A1)
+1 #CREATED-DATE             (A8)
+1 #CHARSL                   (P2)
+1 #BC-REPORT-RNB            (A31)
+1 REDEFINE #BC-REPORT-RNB
+  2 #BC-REPORT              (A25)
+  2 #BC-REPRNB              (P11)
+1 #FORMATED-DATE            (A10)
+1 REDEFINE #FORMATED-DATE
+  2 #S-FORMATED-DATE        (A8)
+1 #ERROR-CODE               (N4)
+1 #ERROR-TEXT               (A250)
+1 #BUNDLE                   (A25)
+1 REDEFINE #BUNDLE
+  2 #BUNDLE-A               (A1/25)
+1 #REPORT                   (A25)
+1 REDEFINE #REPORT
+  2 #REPORT-A               (A1/25)
+1 #CH-B                     (A1)
+1 #CH-R                     (A1)
+1 #PF-CODE                  (A3)
+1 REDEFINE #PF-CODE
+  2 #PF-CODE-A              (A1/3)
+1 #PF-TEXT                  (A3)
+1 REDEFINE #PF-TEXT
+  2 #PF-TEXT-A              (A1/3)
+1 #R-SEPSTART               (A8)
+1 #R-SEPEND                 (A8)
+1 #RECNUM                   (I4)
+1 #BIN-SIZE                 (I4)
+1 #A4                       (A4)
+1 REDEFINE #A4
+  2 #I4                     (I4)
+1 #ERC                      (N4)
+1 #ERT                      (A250)
+1 #BINARY-REPORTS           (L)
+1 #OBJECT-NAME              (A25)
+1 #GRANTED                  (L)
+1 #GR-USERID                (A8)
+1 #GR-OPTIONS               (A1/6)
+1 #MARK                     (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET G-MAP-MODIFIED
+IF *DATA > 0
+  INPUT #BINARY-REPORTS
+END-IF
+#BC-REPORT := G-C-REPORT
+#BC-REPRNB := G-C-REPRNB
+#REPORT := G-C-REPORT
+#BUNDLE := G-C-BUNDLE
+*
+CALLNAT 'NARPSEC' G-USER-PROFILE 'DAB' #ALLOWED
+INCLUDE C-NALLOW
+*
+CALLNAT 'NARPSEC' G-USER-PROFILE 'MAB' #UPDATE
+*
+PERFORM INIT-PFKEYS
+*
+IF G-SUPPORT-LONG-NAMES
+  #PF-CODE := 'PF9'
+  #PF-TEXT := G-PF-TEXT(9)
+ELSE
+  #PF-CODE-A(1) := H'FA'
+  #PF-TEXT-A(1) := H'FA'
+END-IF
+#FUNC := G-C-FUNC
+*
+G-HOLD-TIME := *TIMX
+PERFORM READ-ACTIVE-REPORT
+*
+MAIN-LOOP. REPEAT
+  PERFORM SET-PFKEYS
+  FIND-LOOP. FIND (1) BUNDLE-CONTENTS WITH BC-REPORT-RNB = #BC-REPORT-RNB
+      WHERE BC-BUNDLE = G-C-BUNDLE AND BC-BUNDRNB = G-C-BUNDRNB
+    IF NO RECORDS FOUND
+      G-NATRP-ERC := 0710
+      INCLUDE C-ESCAPE
+    END-NOREC
+    CALLNAT 'N-NONE' BC-SEPSTART BC-SEPEND
+    DECIDE ON EVERY VALUE OF #FUNC
+      VALUE 'M'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'MAB' #ALLOWED
+        INCLUDE C-NALLOW
+        #HEADER-2 := 'UPDATE REPORT CHARACTERISTICS'
+        CALLNAT 'IODATE-N' 'M' 'S' #CREATED-DATE #FORMATED-DATE
+          G-DATE-FORMAT #ERROR-CODE #ERROR-TEXT
+        IF #ERROR-CODE = 0
+          #CREATED-DATE := #S-FORMATED-DATE
+        END-IF
+      VALUE 'D'
+        #HEADER-2 := 'DISPLAY REPORT CHARACTERISTICS'
+        CV-MAP := (AD=IP)
+        SET KEY PF5 NAMED OFF
+        SET KEY PF6 NAMED OFF
+      NONE IGNORE
+    END-DECIDE
+*
+    SCREEN-LOOP. REPEAT
+      IF #FUNC NE 'D'
+        INCLUDE C-HOLD
+      END-IF
+*
+      PERFORM BEFORE-INPUT
+      CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDEFBCM&'
+      SET CONTROL 'WC19L70B02/05F'
+      SET CONTROL 'M15'
+*
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK #MARK
+        USING MAP 'RDEFBCM&'
+      RESET G-NATRP-ERC G-NATRP-ERT #MARK
+*
+      #PF-KEY := *PF-KEY
+      INCLUDE C-DIRECT
+*
+      DECIDE ON FIRST VALUE OF #PF-KEY
+        VALUE 'PF1'
+          REINPUT USING HELP
+        VALUE 'PF3'
+          RESET G-HOLD-TIME
+          INCLUDE C-ESCAPE
+        VALUE 'PF6'
+          BACKOUT TRANSACTION
+          RESET G-HOLD-TIME
+          G-NATRP-ERC := 0016
+          RESET G-COMMIT
+          ESCAPE BOTTOM
+        VALUE 'PF9'
+          DECIDE FOR FIRST CONDITION
+            WHEN G-SUPPORT-LONG-NAMES AND NOT G-DISPLAY-LONG-NAMES
+              G-DISPLAY-LONG-NAMES := TRUE
+              #BUNDLE := BC-BUNDLE
+              #REPORT := BC-REPNAME
+              ESCAPE TOP
+            WHEN G-SUPPORT-LONG-NAMES AND G-DISPLAY-LONG-NAMES
+              RESET G-DISPLAY-LONG-NAMES
+              ESCAPE TOP
+            WHEN NONE IGNORE
+          END-DECIDE
+        NONE VALUE
+          IGNORE
+      END-DECIDE
+*
+      IF CV-MAP MODIFIED OR G-MAP-MODIFIED
+        G-MAP-MODIFIED := TRUE
+        PERFORM VALIDATE-INPUT
+        IF G-NATRP-ERC NE 0
+          ESCAPE TOP
+        END-IF
+        UPDATE(FIND-LOOP.)
+        G-NATRP-ERC := 32
+        INCLUDE C-COMMIT
+      END-IF
+*
+      DECIDE ON FIRST VALUE OF #PF-KEY
+        VALUE 'PF3'
+          END TRANSACTION
+          ESCAPE ROUTINE
+        VALUE 'PF5'
+          END TRANSACTION
+          RESET G-HOLD-TIME
+          G-NATRP-ERC := 0015
+          RESET G-COMMIT
+          ESCAPE BOTTOM (FIND-LOOP.)
+        VALUE 'PF12'
+          INCLUDE C-MENU
+        VALUE 'PF9'
+          DECIDE FOR FIRST CONDITION
+            WHEN G-SUPPORT-LONG-NAMES AND NOT G-DISPLAY-LONG-NAMES
+              G-DISPLAY-LONG-NAMES := TRUE
+              #BUNDLE := BC-BUNDLE
+              #REPORT := BC-REPNAME
+              ESCAPE TOP
+            WHEN G-SUPPORT-LONG-NAMES AND G-DISPLAY-LONG-NAMES
+              RESET G-DISPLAY-LONG-NAMES
+              ESCAPE TOP
+            WHEN NONE IGNORE
+          END-DECIDE
+        NONE VALUE
+          IGNORE
+      END-DECIDE
+*
+    END-REPEAT
+*
+  END-FIND
+*
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE BEFORE-INPUT
+************************************************************************
+IF NOT G-DISPLAY-LONG-NAMES
+  #CH-B := #BUNDLE-A(9)
+  #BUNDLE-A(9) := H'FA'
+  #CH-R := #REPORT-A(18)
+  #REPORT-A(18) := H'FA'
+END-IF
+*
+END-SUBROUTINE /* BEFORE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ACTIVE-REPORT
+************************************************************************
+RESET #ERC #ERT #RECNUM #BIN-SIZE
+FNDAR. FIND ACTIVE-REPORTS WITH AR-REPORT-RNB = #BC-REPORT-RNB
+  IF AR-CC-TYPE NE BINARY
+    ESCAPE TOP
+  END-IF
+  #SPOOL-ATTRIBUTES := AR-SPOOL-ATTRIBUTES
+  IF #SPOOL-DI-SIZE = #I4 OR = 0
+    CALLNAT 'RBINSZ-N' #BC-REPORT #BC-REPRNB 'R' #RECNUM #BIN-SIZE
+      #ERC #ERT
+    IF #BIN-SIZE > 0 AND #ERC = 0
+      #SPOOL-DI-SIZE := #BIN-SIZE
+      GETAR. GET ACTIVE-REPORTS *ISN(FNDAR.)
+      AR-SPOOL-ATTRIBUTES := #SPOOL-ATTRIBUTES
+      UPDATE (GETAR.)
+      DECIDE ON EVERY VALUE OF #SPOOL-TYPE
+        VALUE SEQUENTIAL-FILE-UNIX
+          XXHASH-PARMS.P-SHORT-NAME := #SPOOL-UNIX-FILE-NAME
+        VALUE DIRECT-INPUT
+          XXHASH-PARMS.P-SHORT-NAME := #SPOOL-DI-FILENAME
+        ANY
+          XXHASH-PARMS.P-FUNCTION := 'U' /*Update REPRNB
+          COMPRESS AR-REPNAME '/' AR-REPRNB TO XXHASH-PARMS.P-REPRNB
+            LEAVING NO
+          PERFORM XXHASH XXHASH-PARMS
+        NONE IGNORE
+      END-DECIDE
+      END TRANSACTION
+    END-IF
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-ACTIVE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+* validate printer
+IF BC-PRINTER NE ' '
+  IF BC-PRINTER = SCAN '*'
+    REINPUT USING HELP MARK *BC-PRINTER
+  END-IF
+  IF BC-PRINTER = SCAN('DEFAULT*')
+    REINPUT *0166   MARK *BC-PRINTER
+  END-IF
+*
+  IF NOT (BC-PRINTER = '*' OR = '?')
+    FNDPR. FIND PRINTERS WITH P-ID = BC-PRINTER
+      IF NO RECORDS FOUND
+        REINPUT *0108  MARK *BC-PRINTER
+      END-NOREC
+      FNDPH. FIND PHYSICAL WITH PH-VTAMID = P-PHYSICAL-NAME
+        IF *MACHINE-CLASS = 'MAINFRAME'
+          IF PH-PRINTER-TYPE = ##PHYS-NATUNIX
+            REINPUT *0130 MARK *BC-PRINTER
+          END-IF
+        ELSE
+          IF NOT(PH-PRINTER-TYPE = ##PHYS-DISKUNIX OR = ##PHYS-NATUNIX)
+            REINPUT *0131 MARK *BC-PRINTER
+          END-IF
+        END-IF
+      END-FIND
+    END-FIND
+    IF G-USER-TYPE NE 'A'
+      #OBJECT-NAME := BC-PRINTER
+      #GR-USERID   := G-USERID
+      CALLNAT 'RGRANT-N' #GR-USERID 'P' #OBJECT-NAME #GRANTED
+        #GR-OPTIONS(*)
+      IF #GRANTED AND PRINTERS.P-DISP = 'Y'
+        RESET #GRANTED
+      END-IF
+      IF NOT #GRANTED
+        REINPUT *1090 MARK *BC-PRINTER
+      END-IF
+    END-IF
+  END-IF
+END-IF
+*
+IF BUNDLE-CONTENTS.BC-SEPNO = 0 AND
+    (NOT(BUNDLE-CONTENTS.BC-SEPSTART = ' ' OR = 'NONE' OR = 'KEIN') OR
+    NOT(BUNDLE-CONTENTS.BC-SEPEND = ' ' OR = 'NONE' OR = 'KEIN'))
+  BUNDLE-CONTENTS.BC-SEPNO := 1
+END-IF
+IF BUNDLE-CONTENTS.BC-CHARS NE ' '
+  EXAMINE BUNDLE-CONTENTS.BC-CHARS FOR 'X' GIVING LENGTH IN #CHARSL
+  IF #CHARSL > 16               /* MAX 4 * 4
+    REINPUT *0111 MARK *BUNDLE-CONTENTS.BC-CHARS ALARM
+  END-IF
+END-IF
+*
+* existance and validation of separation pages
+*
+CALLNAT 'N-SEPMEM' BC-SEPSTART #R-SEPSTART 'S' 'R' 2X
+  G-NATRP-ERC G-NATRP-ERT
+IF G-NATRP-ERC NE 0
+  #MARK := POS(BC-SEPSTART)
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'N-SEPMEM' BC-SEPEND #R-SEPEND 'E' 'R' 2X
+  G-NATRP-ERC G-NATRP-ERT
+IF G-NATRP-ERC NE 0
+  #MARK := POS(BC-SEPEND)
+  ESCAPE ROUTINE
+END-IF
+IF BC-SEPNO = 0 AND (NOT(BC-SEPSTART = ' ' OR = 'NONE' OR = 'KEIN')
+OR NOT(BC-SEPEND   = ' ' OR = 'NONE' OR = 'KEIN'))                    /*
+  BC-SEPNO := 1
+END-IF
+IF AR-CC-TYPE NE BINARY AND #BINARY-REPORTS
+  REINPUT *0729 /* do not mix text and binary reports
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFEXT-C
+IF #FUNC = 'M'
+  INCLUDE RPFCOM-C
+END-IF
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+INCLUDE RPFSET-C /*set-pfkeys
+*
+END

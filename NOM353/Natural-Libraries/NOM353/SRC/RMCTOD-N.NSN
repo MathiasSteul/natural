@@ -1,0 +1,334 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member       RMCTOD-N
+* Function     Create Orders for Cat Natural Source
+* Version      3.5
+*
+* Template     RMBPOD-N
+*
+* Call<1>is program as follows:
+*
+* CALLNAT 'RMCTOD-N' RMCTOD
+*
+* Fill the following parameters:
+* RMCTOD-COMMAND    (A50)          - Natural command to be executed:
+*                                    'CAT', 'STOW', 'CHECK', 'SAVE'
+*                                    '#GET' ==> Get current status
+* RMCTOD-LIBRARY    (A8)           - Library of the Natural object (CAT)
+* RMCTOD-PROGRAM    (A8)           - Name of the Natural object    (CAT)
+* RMCTOD-ORDER-ID   (P10)          - Returned order-ID in functions
+*                                  - To be filled for function     #GET
+* RMCTOD-SOURCE     (A/*) DYNAMIC  - Source of the module of processing
+* RMCTOD-ERROR-CODE (N4)           - Returned message number
+* RMCTOD-ERROR-TEXT (A250)         - Returned message text
+*
+* Message numbers:
+* 1599 - Order number successfully queued,      functions CAT,CHECK,STOW
+* 1600 - Order number queueing failed,          functions CAT,CHECK,STOW
+* 1601 - Natural command executed successfully, function  #GET
+* 1602 - Natural command failed,                functions #GET
+* 1606 - Natural queueing failed,parameter err. functions CAT,CHECK,STOW
+*        (parameter is empty)
+* 1607 - Natural queueing failed, object error  functions CAT,CHECK,STOW
+*        (object missing, not accessible)
+* -1   - Order number is being processed,       function  #GET
+* -2   - Order number not found or wrong type.  function  #GET
+* -3   - Wrong function,                        function not implemented
+* Other: Natural error message of CAT attempt.
+*
+* Maintenance
+* uuuuuuuu yyyy-mm-dd iTrac       Desciption
+* --- -------- ------ --------------------------------------------------
+* fhi      2017-03-15 NOMALL-2008 Created
+* fhi      2018-04-17 NOMALL-2008 Add trace, no tags
+* fhi      2018-04-18 NOMALL-2008 Program rewritten, no tags.
+* fhi      2018-07-11 NOMALL-2008 same
+* fhi      2018-08-06 NOMALL-2135 Use internal node id in orders
+* SU1     2020-11-10 NOMALL-2440 recat for VMONIT-L
+* SU2     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+*         +                      recat for VMONIT-L M-NATRPT-DBID/-FNR
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER USING RMCTOD-P
+************************************************************************
+INDEPENDENT
+1 +NOD-CURRENT-INTERNAL-ID (P11) /* Internal node id of the curr. node
+************************************************************************
+LOCAL USING VMONIT-L
+LOCAL USING NOMWK--P
+LOCAL USING NOMFNC-E
+LOCAL USING RMTASK-E
+LOCAL USING RLOG-L
+LOCAL USING XXNATD-L
+LOCAL USING RMODTY-E
+LOCAL USING RMTASK-P
+LOCAL USING XXGMSG-A
+LOCAL
+1 #MAXSRC                   (I1) CONST <50>
+1  ORDER VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-TYPE
+  2 OD-MONITOR-ID
+  2 OD-USER-ID
+  2 OD-TIME-CREATED
+  2 OD-TIME-SCHEDULED
+  2 OD-PARAMETER            (1)
+  2 OD-MAX-RETRIES
+  2 OD-RETRY-INTERVAL
+  2 OD-INTERNAL-NODE-ID     (P15)
+  2 OD-ERROR-CODE
+  2 OD-ERROR-TEXT
+1 ORDER-SOURCE VIEW OF NRM-ORDER-SOURCE
+  2 OS-OD-ID
+  2 OS-RUNNUMBER
+  2 OS-SOURCE-TEXT          (#MAXSRC)
+*
+1 #OD-PARAMETER             (A250)
+1 REDEFINE #OD-PARAMETER
+  2 #OD-COMMAND             (A50)
+  2 #OD-LIBRARY             (A8)
+  2 #OD-PROGRAM             (A8)
+  2 #OD-PRODLIB             (A8)
+  2 #OD-PROGRAM-TYPE        (A1)
+  2 #OD-SOURCE-LINES        (I4)
+  2 #OD-SHORTMSG            (L)
+1 #OD-TYPE                  (F8)
+1 #TRACING                  (L)
+1 #TRACE-MSG                (A250)
+1 #LASTPROG                 (A8)
+1 #DUMMY                    (A)          DYNAMIC
+1 #I                        (I4)
+1 #J                        (I4)
+1 #K                        (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=100 PS=60
+DECIDE FOR EVERY CONDITION
+  WHEN RMCTOD-TRACING SPECIFIED
+    #TRACING    := RMCTOD-TRACING
+  WHEN #TRACING
+    IF RMCTOD-COMMAND NE '#GET'
+      COMPRESS 'Got Natural command' RMCTOD-COMMAND 'for exexution.'
+        TO #TRACE-MSG
+    ELSE
+      COMPRESS 'Got command to check the status' TO #TRACE-MSG
+    END-IF
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG
+    COMPRESS 'Called from' #LASTPROG TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+DECIDE ON FIRST VALUE OF RMCTOD-COMMAND
+  VALUES 'CAT', 'STOW', 'CHECK', 'SAVE'
+    RESET XXNATDIR
+    XXNATDIR.P-LIBRARY := RMCTOD-LIBRARY
+    XXNATDIR.P-MODULE  := RMCTOD-PROGRAM
+    PERFORM XXNATDIR-GETDIR XXNATDIR
+    DECIDE FOR EVERY CONDITION
+      WHEN RMCTOD-COMMAND    NE 'CHECK'
+          AND (RMCTOD-LIBRARY = ' '
+          OR   RMCTOD-PROGRAM = ' ')
+        RMCTOD-ERROR-CODE := 1606
+        PERFORM GET-MESSAGE
+      WHEN XXNATDIR.P-ERC NE 0 AND RMCTOD-LAST-IX < 1
+        RMCTOD-ERROR-CODE := 1607
+        PERFORM GET-MESSAGE
+      WHEN ANY
+        ESCAPE ROUTINE
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+    PERFORM STORE-CAT-SOURCE-ORDER
+    IF RMCTOD-ERROR-CODE = 0
+      RMCTOD-ERROR-CODE := 1599
+      PERFORM GET-MESSAGE
+      NOMWK-TASK-TYPE := EQU-MANAGE-PRINTOUTS
+      IF #TRACING
+        #TRACE-MSG :=     'Waking the monitor'
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      CALLNAT NOM-WAKE-MONITOR NOMWK-NOMVERS NOMWK-PARMS (*)
+      END TRANSACTION
+    ELSE
+      RMCTOD-ERROR-CODE := 1600
+      PERFORM GET-MESSAGE
+    END-IF
+    COMPRESS RMCTOD-COMMAND RMCTOD-PROGRAM RMCTOD-ERROR-TEXT TO LG-MSG
+  VALUE '#GET'
+    PERFORM GET-CAT-SOURCE-ORDER
+    PERFORM GET-MESSAGE
+  NONE
+    RMCTOD-ERROR-CODE := -3
+    COMPRESS 'Invalid command:' RMCTOD-COMMAND TO RMCTOD-ERROR-TEXT
+END-DECIDE
+IF #TRACING
+  COMPRESS *PROGRAM 'finished. Returning message no'
+    RMCTOD-ERROR-CODE 'with text 'RMCTOD-ERROR-TEXT 'to caller.'
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************-
+DEFINE SUBROUTINE GET-CAT-SOURCE-ORDER
+************************************************************************
+FIND ORDER WITH OD-ID = RMCTOD-ORDER-ID
+  IF NO RECORDS FOUND
+    RMCTOD-ERROR-CODE := -2
+    RMCTOD-ERROR-TEXT := 'Order number not found.'
+    ESCAPE ROUTINE
+  END-NOREC
+  #OD-TYPE :=  OD-TYPE                    /* first 2 digits: OD status
+  #OD-TYPE := #OD-TYPE / 100
+  #OD-TYPE := FRAC(#OD-TYPE) * 100 + 0.5  /* last 2 digits: Real OD type
+  #OD-TYPE := INT(#OD-TYPE)
+  DECIDE FOR FIRST CONDITION
+    WHEN OD-TYPE < 5000                   /* in queue or being processed
+      RMCTOD-ERROR-CODE := -1
+      RMCTOD-ERROR-TEXT := 'Order number is being processed.'
+    WHEN #OD-TYPE NE 32                   /* no cat order
+      RMCTOD-ERROR-CODE := -2
+      RMCTOD-ERROR-TEXT := 'Wrong order type.'
+    WHEN NONE
+      RMCTOD-ERROR-CODE := OD-ERROR-CODE
+      RMCTOD-ERROR-TEXT := OD-ERROR-TEXT
+  END-DECIDE
+END-FIND
+*
+END-SUBROUTINE /* GET-CAT-SOURCE-ORDER
+*                                                                       -
+************************************************************************-
+DEFINE SUBROUTINE GET-MESSAGE
+************************************************************************-
+DECIDE ON EVERY VALUE OF RMCTOD-ERROR-CODE
+  VALUES 1599, 1600, 1606, 1607
+    COMPRESS RMCTOD-ERROR-CODE #OD-COMMAND #OD-PROGRAM #OD-LIBRARY
+      XXNATDIR.P-ERC TO  #TRACE-MSG
+    RMCTOD-ERROR-TEXT := #TRACE-MSG
+  VALUES 1600, 1606, 1607
+    PERFORM XXRLOG-WRITE-LOG 'W' #TRACE-MSG
+  NONE
+    IGNORE
+END-DECIDE
+IF NOT RMCTOD-SHORTMSG AND RMCTOD-ERROR-CODE > 0 /*Resolved msg required
+  #XX-ERROR-CODE := RMCTOD-ERROR-CODE
+  SEPARATE RMCTOD-ERROR-TEXT INTO #DUMMY #XX-MSG-DYNA (*) IGNORE
+  CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+  RMCTOD-ERROR-TEXT := #XX-SHORT-TEXT
+END-IF
+IF #TRACING
+  COMPRESS 'Got message' RMCTOD-ERROR-CODE
+    '- with object ' #OD-LIBRARY #OD-PROGRAM
+    '- of type' #OD-PROGRAM-TYPE
+    '- and text' RMCTOD-ERROR-TEXT TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+*                                                                       -
+END-SUBROUTINE /* GET-MESSAGE
+*                                                                       -
+************************************************************************-
+DEFINE SUBROUTINE STORE-CAT-SOURCE-ORDER
+************************************************************************
+CALLNAT 'RMODID-N' ORDER.OD-ID RMCTOD-ERROR-CODE RMCTOD-ERROR-TEXT
+IF RMCTOD-ERROR-CODE NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)
+FIND NRM-MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+END-FIND
+RMTASK-P.FUNCTION       := 'L'
+RMTASK-P.SUBTASK-NUMBER := 1
+CALLNAT 'RMTASKID' RMTASK-P
+#OD-COMMAND      := RMCTOD-COMMAND
+#OD-LIBRARY      := RMCTOD-LIBRARY
+#OD-PROGRAM      := RMCTOD-PROGRAM
+#OD-PROGRAM-TYPE := RMCTOD-TYPE
+#OD-SHORTMSG     := RMCTOD-SHORTMSG
+CALLNAT 'RGETLIB' #OD-PRODLIB
+#OD-SOURCE-LINES := RMCTOD-LAST-IX
+*
+ORDER.OD-PARAMETER (1)     := #OD-PARAMETER
+ORDER.OD-TYPE              := OD-CAT-NATURAL-SOURCE
+ORDER.OD-MONITOR-ID        := RMTASK-P.TASK-ID
+ORDER.OD-USER-ID           := *USER
+ORDER.OD-TIME-CREATED      := *TIMX
+ORDER.OD-TIME-SCHEDULED    := *TIMX
+ORDER.OD-MAX-RETRIES       := M-MAX-RETRIES
+ORDER.OD-RETRY-INTERVAL    := M-RETRY-INTERVAL
+ORDER.OD-INTERNAL-NODE-ID  := +NOD-CURRENT-INTERNAL-ID
+RMCTOD-ORDER-ID            := ORDER.OD-ID
+*
+STORE ORDER
+IF #TRACING
+  COMPRESS 'Order' ORDER.OD-ID 'written: - monitor id:'
+    RMTASK-P.TASK-ID '- for user:' *USER '- command:' #OD-COMMAND
+    '- object:' #OD-PROGRAM 'in library' #OD-LIBRARY
+    '- source lines:' #I  TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+IF #TRACING AND RMCTOD-LAST-IX > 0
+  COMPRESS 'Got' RMCTOD-LAST-IX 'source lines' TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+RESET #K
+FORI. FOR #I = 1 TO RMCTOD-LAST-IX
+  OS-OD-ID     := ORDER.OD-ID
+  OS-RUNNUMBER := #I
+  FORJ. FOR #J = 1 TO #MAXSRC
+    IF #I > RMCTOD-LAST-IX
+      STORE ORDER-SOURCE
+      ADD 1 TO #K
+      IF #TRACING
+        COMPRESS 'Block' #K 'stored to Adabas' TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      ESCAPE BOTTOM (FORI.)
+    END-IF
+    IF RMCTOD-SOURCE (#I)  = MASK(9999' ')   /* line number contained
+    OR                     = MASK(9999H'09') /* tab instead of blank   *
+      OS-SOURCE-TEXT (#J) := SUBSTR(RMCTOD-SOURCE (#I),5)
+    ELSE
+      OS-SOURCE-TEXT (#J) := RMCTOD-SOURCE (#I)
+    END-IF
+    IF #TRACING
+      IF *LENGTH(RMCTOD-SOURCE (#I)) < 51
+        COMPRESS 'Line' #I '-' RMCTOD-SOURCE(#I) TO #TRACE-MSG
+      ELSE
+        COMPRESS 'Line' #I '-' SUBSTR(RMCTOD-SOURCE(#I),1,50) '...'
+          TO #TRACE-MSG
+      END-IF
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+    ADD 1 TO #I
+  END-FOR
+  STORE ORDER-SOURCE
+  ADD 1 TO #K
+  IF #TRACING
+    COMPRESS 'Block' #K 'stored to Adabas' TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+  END TRANSACTION
+  SUBTRACT 1 FROM #I
+END-FOR
+END TRANSACTION
+*
+END-SUBROUTINE /* STORE-CAT-SOURCE-ORDER
+*
+END

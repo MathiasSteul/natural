@@ -1,0 +1,425 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMSTCS - Interface for statistics (Optimize for Infrastructure)
+*  Interface to access the statistics data of NOM
+*  Note:  Caller has to do an END TRANSACTION for functions 'W' and 'A'
+*  Note2: To meet O4I requirements logging is done only if tracing is
+*         switched on, even if errors occurÜ
+*
+* Maintenance
+* User ID   yyyy-mm-dd Issue         Remark
+* --------------------------------------------------------------------
+* fhi       2010-05-28 NOMALL-93     Created
+* fhi       2010-08-30 NOMALL-93     Avoid END TRANSACTION
+* fhi       2010-08-31 NOMALL-93     Changes to meet O4I
+*                                    requirements. No tags.
+* fhi       2010-09-01 NOMALL-93     dto.
+* fhi       2010-09-03 NOMALL-97     Extend message line
+* fhi       2010-09-09 NOMALL-93     Changes to meet O4I
+*                                    requirements. New RLOG. No tags.
+* fhi       2010-09-13 NOMALL-93     dto.
+* fhi       2010-09-17 NOMALL-93     Ignore RLOG if not found
+* fhi       2010-09-21 NOMALL-93     Changes to meet O4I
+*                                    requirements. No tags.
+* fhi       2012-04-30 NOMALL-890    Entry in SS-START missing
+* raya      2012-07-01 NOMALL-1172   reset last message when 'D'
+* fhi       2012-08-29 NOMALL-1195   Avoid too many Adabas calls
+* SU1       2015-04-29 NOMALL-1450 fill fields for Adabas Vista
+* SU2       2016-01-22 NOMALL-1802 do not update Adabas Vista fields
+* fhi       2016-11-15 NOMALL-1961 Use new task IDs
+* fhi       2016-12-02 NOMALL-1961 Wrong linesize
+* fhi       2017-02-03 NOMALL-1913 Use new SAT routine SATTIMST
+* fhi       2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi       2018-04-25 NOM 3.5     NOSTATISTICS -> STATISTICS=ON
+* fhi       2018-12-13 NOMALL-1905 Check STATISTICS at startup only
+* SU3     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* SU4     2024-09-02 ES-35716    deactivate O4I
+/************************************* data ****************************
+DEFINE DATA
+PARAMETER USING NOMSTCSP
+************************************************************************
+INDEPENDENT
+1 +CMRDC (A1)
+/*SU4 1 +O4I   (L)
+************************************************************************
+LOCAL USING RLOG-L
+LOCAL USING RMTASK-P
+LOCAL
+1 STATISTICS VIEW OF NRM-STATISTICS
+  2 SS-ITEM
+  2 SS-TIMESTAMP
+  2 SS-START
+  2 C*SS-VALUE
+  2 SS-VALUE            (100)
+  2 SS-TITLE            (100)
+  2 SS-OBJECT-TYPE /*SU1
+  2 SS-OBJECT-TIME /*SU1
+1 NOMSTCSP-SAVE
+  2 VERSION             (N2)
+  2 FUNCTION            (A1)
+  2 ERC                 (N4)
+  2 ERT                 (A250)
+  2 SS-ITEM             (A16)
+  2 SS-TIMESTAMP        (A16)
+  2 SS-START            (A16)
+1 SS-VALUE-SAVE         (A/*) DYNAMIC
+1 SS-TITLE-SAVE         (A/*) DYNAMIC
+1 #I                    (I4)           /* general index
+1 #J                    (I4)           /* general index
+1 #K                    (I4)           /* general index
+1 #L                    (I4)           /* general index
+1 #F                    (F4)           /* intermediate floating point
+1 #LASTPROG             (A8)
+1 #PROG-LIST            (A8/20)        /* modules allowed
+/*                                     /* to write statistics
+  INIT <'RMONITOR','RMSETSTN','RMSCPRNT','RMPRSTCS'>
+1 #RECORDS-FOUND        (L)            /* records present?
+1 ##TXT-NOT-FOUND       (A24)    CONST <'Record not found'>
+1 #SUM                  (I4)
+1 #VALUE                (I4)
+1 #TRACING              (L)
+1 #PROGRAM              (A8)
+1 #RC                   (N4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+ESCAPE MODULE /*SU4
+FORMAT LS=133
+*
+REDUCE ARRAY SS-TITLE-SAVE TO 0
+REDUCE ARRAY SS-VALUE-SAVE TO 0
+EXPAND ARRAY SS-TITLE-SAVE TO (1:100)
+EXPAND ARRAY SS-VALUE-SAVE TO (1:100)
+RESET SS-TITLE-SAVE (*) SS-VALUE-SAVE (*)
+  NOMSTCSP.ERC NOMSTCSP.ERT
+#PROGRAM := *PROGRAM
+IF NOMSTCSP.TRACE SPECIFIED
+    AND NOMSTCSP.TRACE GE *LEVEL /* trace only n levels deep
+  #TRACING := TRUE
+  LG-FUNCTION := 'W'
+  COMPRESS  'Tracing program level:' *LEVEL TO LG-MSG
+  PERFORM WRITE-LOG
+ELSE
+  RESET #TRACING
+END-IF
+IF NOMSTCSP.TRACE SPECIFIED
+  CALLNAT 'NOMGSTEP' 'N' NOMSTCSP.ERC NOMSTCSP.TRACE /*ForceOwnSteplibs
+ELSE
+  CALLNAT 'NOMGSTEP' 'N' NOMSTCSP.ERC        /* Force own steplib chain
+END-IF
+PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG
+IF #TRACING
+  COMPRESS 'Starting. Interface version: ' NOMSTCSP.VERSION
+    ', called by ' #LASTPROG TO LG-MSG LEAVING NO
+  PERFORM WRITE-LOG
+END-IF
+INCLUDE CMRDC
+DECIDE ON FIRST VALUE OF NOMSTCSP.VERSION
+  VALUES 0,1
+    IF #TRACING
+      COMPRESS '=' NOMSTCSP.FUNCTION TO LG-MSG
+      PERFORM WRITE-LOG
+    END-IF
+    DECIDE ON EVERY VALUE OF NOMSTCSP.FUNCTION
+      VALUES 'A','C','W'
+        IGNORE /*SU4
+/*SU4 IF NOT +O4I IF #TRACING COMPRESS 'Ending, Statistics switched off.'
+/*SU4 TO LG-MSG LEAVING NO PERFORM WRITE-LOG END-IF ESCAPE MODULE END-IF
+      VALUE 'M'                        /* Get monitor data
+        MOVE BY NAME NOMSTCSP TO NOMSTCSP-SAVE
+        RESET NOMSTCSP #K #L SS-VALUE-SAVE (*) SS-TITLE-SAVE (*)
+        NOMSTCSP.SS-ITEM := 'MON-ID'
+        PERFORM CALL-MYSELF
+        NOMSTCSP.SS-ITEM := 'MON-PROFILE'
+        PERFORM CALL-MYSELF
+        NOMSTCSP.SS-ITEM := 'MON-STAT'
+        PERFORM CALL-MYSELF
+        NOMSTCSP.SS-ITEM := 'MON-TIME'
+        PERFORM CALL-MYSELF
+        NOMSTCSP.SS-ITEM := 'MON-WAITTIME'
+        PERFORM CALL-MYSELF
+        MOVE BY NAME NOMSTCSP-SAVE TO NOMSTCSP
+        REDUCE ARRAY NOMSTCSP.SS-VALUE TO 0
+        EXPAND ARRAY NOMSTCSP.SS-VALUE TO (1:25)
+        REDUCE ARRAY NOMSTCSP.SS-TITLE TO 0
+        EXPAND ARRAY NOMSTCSP.SS-TITLE TO (1:25)
+        RESET NOMSTCSP.SS-TITLE (*) NOMSTCSP.SS-VALUE (*)
+        MOVE BY NAME NOMSTCSP-SAVE TO NOMSTCSP
+        NOMSTCSP.SS-VALUE (1:25) := SS-VALUE-SAVE (1:25)
+        NOMSTCSP.SS-TITLE (1:25) := SS-TITLE-SAVE (1:25)
+      VALUE 'G'                        /* Get general data
+        MOVE BY NAME NOMSTCSP TO NOMSTCSP-SAVE
+        RESET NOMSTCSP #K #L SS-VALUE-SAVE (*) SS-TITLE-SAVE (*)
+        NOMSTCSP.SS-ITEM := 'TOTALS-GENERAL'
+        PERFORM CALL-MYSELF
+        REDUCE ARRAY NOMSTCSP.SS-VALUE TO 0
+        EXPAND ARRAY NOMSTCSP.SS-VALUE TO (1:10)
+        REDUCE ARRAY NOMSTCSP.SS-TITLE TO 0
+        EXPAND ARRAY NOMSTCSP.SS-TITLE TO (1:10)
+        RESET NOMSTCSP.SS-TITLE (*) NOMSTCSP.SS-VALUE (*)
+        NOMSTCSP.SS-VALUE (1:9) := SS-VALUE-SAVE (1:9)
+        NOMSTCSP.SS-TITLE (1:9) := SS-TITLE-SAVE (1:9)
+        NOMSTCSP.SS-ITEM := 'MON-ORDERS'
+        FIND (1) STATISTICS WITH SS-ITEM = NOMSTCSP.SS-ITEM
+        END-FIND
+        NOMSTCSP.SS-VALUE (10) := STATISTICS.SS-VALUE (1)
+        NOMSTCSP.SS-TITLE (10) := STATISTICS.SS-TITLE (1)
+        EXAMINE NOMSTCSP.SS-VALUE (10) FOR '*null*' AND DELETE
+        EXAMINE NOMSTCSP.SS-TITLE (10) FOR '*null*' AND DELETE
+        NOMSTCSP.FUNCTION := 'G' /* reset value to original one
+      VALUE 'P'
+        COMPRESS 'PRINTER-' NOMSTCSP.SS-ITEM
+          TO NOMSTCSP.SS-ITEM  LEAVING NO
+      VALUES 'R','P'                   /* Read statistics value directly
+        FIND (1) STATISTICS WITH SS-ITEM = NOMSTCSP.SS-ITEM
+          IF NO RECORDS FOUND
+            PERFORM NOT-FOUND
+          END-NOREC
+        END-FIND
+        MOVE BY NAME STATISTICS TO NOMSTCSP-PARAMS
+        REDUCE ARRAY NOMSTCSP.SS-VALUE TO 0
+        REDUCE ARRAY NOMSTCSP.SS-TITLE TO 0
+        #I := STATISTICS.C*SS-VALUE
+        IF #I > 0
+          EXPAND ARRAY NOMSTCSP.SS-VALUE TO (1:#I)
+          EXPAND ARRAY NOMSTCSP.SS-TITLE TO (1:#I)
+          NOMSTCSP.SS-VALUE (1:#I) := STATISTICS.SS-VALUE (1:#I)
+          NOMSTCSP.SS-TITLE (1:#I) := STATISTICS.SS-TITLE (1:#I)
+          EXAMINE NOMSTCSP.SS-VALUE (1:#I) FOR '*null*' AND DELETE
+          EXAMINE NOMSTCSP.SS-TITLE (1:#I) FOR '*null*' AND DELETE
+        END-IF
+      VALUE 'D'                        /* Execute Printer Discovery
+        RESET STATISTICS #F #I
+        REDUCE ARRAY NOMSTCSP.SS-VALUE TO 0
+        EXPAND ARRAY NOMSTCSP.SS-VALUE TO (1:100)
+        REDUCE ARRAY NOMSTCSP.SS-TITLE TO 0
+        EXPAND ARRAY NOMSTCSP.SS-TITLE TO (1:100)
+        RESET NOMSTCSP.SS-TITLE (*) NOMSTCSP.SS-VALUE (*)
+        READPRT. READ STATISTICS BY SS-ITEM = 'PRINTER-'
+          IF SUBSTR(STATISTICS.SS-ITEM,1,8) > 'PRINTER-'
+            ESCAPE BOTTOM (READPRT.)
+          END-IF
+          #F                     := #I := *COUNTER (READPRT.)
+          NOMSTCSP.SS-VALUE (#I) := SUBSTR(STATISTICS.SS-ITEM,9)
+          #F                     := #F / 100
+          #F                     := FRAC (#F)
+          IF #F = 0
+            #I          := #I + 100
+            EXPAND ARRAY NOMSTCSP.SS-VALUE TO (1:#I)
+            EXPAND ARRAY NOMSTCSP.SS-TITLE TO (1:#I)
+          END-IF
+        END-READ
+        IF #I > 0
+          REDUCE ARRAY NOMSTCSP.SS-VALUE TO (1:#I)
+          REDUCE ARRAY NOMSTCSP.SS-TITLE TO (1:#I)
+        ELSE
+          REDUCE ARRAY NOMSTCSP.SS-VALUE TO 0
+          REDUCE ARRAY NOMSTCSP.SS-TITLE TO 0
+        END-IF
+      VALUE 'C'                        /* Clear one statistics value
+        FIND (1) STATISTICS WITH SS-ITEM = NOMSTCSP.SS-ITEM
+          IF NO RECORDS FOUND
+            PERFORM NOT-FOUND
+          END-NOREC
+          PERFORM SATTIMST-GET-TIME 'L' STATISTICS.SS-START
+          STATISTICS.SS-TIMESTAMP := STATISTICS.SS-START
+          RESET STATISTICS.SS-VALUE (*) STATISTICS.SS-TITLE (*)
+          UPDATE
+          MOVE BY NAME STATISTICS TO NOMSTCSP-PARAMS /* NOMALL-890 in
+          IF #TRACING
+            COMPRESS '=' STATISTICS.SS-ITEM 'cleared.' TO LG-MSG
+            PERFORM WRITE-LOG
+          END-IF
+        END-FIND
+      VALUES 'A', 'W'                    /* Validate and write value
+        EXAMINE #PROG-LIST (*) FOR #LASTPROG GIVING INDEX IN #I
+        IF #I = 0
+          COMPRESS 'Calling program not allowed to use function '''
+            NOMSTCSP.FUNCTION '''' TO NOMSTCSP.ERT LEAVING NO
+          PERFORM ERROR
+        END-IF
+        #RECORDS-FOUND := TRUE
+        FIND STATISTICS WITH SS-ITEM = NOMSTCSP.SS-ITEM
+          IF NO RECORDS FOUND
+            IF NOMSTCSP.SS-ITEM = ' '
+              NOMSTCSP.ERT := 'Item must be filled.'
+              PERFORM ERROR
+            END-IF
+            #RECORDS-FOUND := FALSE
+            MOVE BY NAME NOMSTCSP-PARAMS TO STATISTICS
+          END-NOREC
+          PERFORM SATTIMST-GET-TIME 'L' STATISTICS.SS-START
+          IF STATISTICS.SS-START = ' '
+            STATISTICS.SS-START := STATISTICS.SS-TIMESTAMP
+          END-IF
+          #F := *OCC (NOMSTCSP.SS-VALUE)
+          IF #F > 100
+            #F := 100
+          END-IF
+          EXAMINE STATISTICS.SS-VALUE (*) FOR '*null*' AND DELETE
+          EXAMINE STATISTICS.SS-TITLE (*) FOR '*null*' AND DELETE
+          IF NOMSTCSP.FUNCTION = 'W'
+            FOR #I = 1 TO #F
+              IF NOMSTCSP.SS-VALUE (#I) NE ' '
+              OR NOMSTCSP.SS-TITLE (#I) NE ' '                        /*
+                STATISTICS.SS-VALUE (#I) := NOMSTCSP.SS-VALUE (#I)
+                STATISTICS.SS-TITLE (#I) := NOMSTCSP.SS-TITLE (#I)
+              ELSE
+                IF STATISTICS.SS-VALUE (#I) = ' '
+                  STATISTICS.SS-VALUE (#I) := '*null*'
+                END-IF
+                IF STATISTICS.SS-TITLE (#I) = ' '
+                  STATISTICS.SS-TITLE (#I) := '*null*'
+                END-IF
+              END-IF
+            END-FOR
+          ELSE
+            FOR #I = 1 TO #F
+              DECIDE FOR EVERY CONDITION
+                WHEN STATISTICS.SS-VALUE (#I) = ' '
+                AND NOMSTCSP.SS-VALUE (#I) NE ' '                     /*
+                  STATISTICS.SS-VALUE (#I) := '0'
+                WHEN NOMSTCSP.SS-VALUE (#I) IS (N10)
+                AND STATISTICS.SS-VALUE (#I) IS (N10)                 /*
+                  #SUM   := VAL (STATISTICS.SS-VALUE (#I))
+                  #VALUE := VAL (NOMSTCSP.SS-VALUE (#I))
+                  ADD #VALUE TO #SUM
+                  STATISTICS.SS-VALUE (#I) := #SUM
+                  STATISTICS.SS-TITLE (#I) := NOMSTCSP.SS-TITLE (#I)
+                WHEN STATISTICS.SS-VALUE (#I) = ' '
+                  STATISTICS.SS-VALUE (#I) := '*null*'
+                WHEN STATISTICS.SS-TITLE (#I) = ' '
+                  STATISTICS.SS-TITLE (#I) := '*null*'
+                WHEN NONE
+                  IGNORE
+              END-DECIDE
+            END-FOR
+          END-IF
+          IF #RECORDS-FOUND
+            UPDATE
+          ELSE
+            STATISTICS.SS-OBJECT-TYPE := 'SS' /*SU1 SU2 moved to STORE
+            STATISTICS.SS-OBJECT-TIME := *TIMX /*SU1 SU2 moved to STORE
+            STORE STATISTICS
+          END-IF
+          MOVE BY NAME STATISTICS TO NOMSTCSP-PARAMS /* NOMALL-890 in
+        END-FIND
+        IF #TRACING
+          COMPRESS '=' STATISTICS.SS-ITEM '=' STATISTICS.SS-TITLE (1:5)
+            '=' STATISTICS.SS-VALUE (1:5) TO LG-MSG
+          PERFORM WRITE-LOG
+        END-IF
+      NONE
+        COMPRESS 'Function' NOMSTCSP.FUNCTION 'not implemented.'
+          TO NOMSTCSP.ERT
+        PERFORM ERROR
+    END-DECIDE
+  NONE
+    NOMSTCSP.ERT := 'Interface version not supported.'
+    PERFORM ERROR
+END-DECIDE
+IF #TRACING
+  COMPRESS 'Ended.' '=' NOMSTCSP.ERC '=' NOMSTCSP.ERT TO LG-MSG
+  PERFORM WRITE-LOG
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE NOT-FOUND
+************************************************************************
+MOVE BY NAME NOMSTCSP-PARAMS TO STATISTICS
+REDUCE ARRAY NOMSTCSP.SS-VALUE TO 0
+REDUCE ARRAY NOMSTCSP.SS-TITLE TO 0
+NOMSTCSP.SS-ITEM := STATISTICS.SS-ITEM
+NOMSTCSP.ERC := 3
+COMPRESS ##TXT-NOT-FOUND NOMSTCSP.SS-ITEM TO NOMSTCSP.ERT
+IF #TRACING
+  COMPRESS '=' NOMSTCSP.ERT TO LG-MSG
+  PERFORM WRITE-LOG
+END-IF
+ESCAPE MODULE
+*
+END-SUBROUTINE /* NOT-FOUND
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-MYSELF
+************************************************************************
+NOMSTCSP.FUNCTION := 'R'
+CALLNAT #PROGRAM NOMSTCSP /* recursively called ÜÜ
+#I := *OCC (NOMSTCSP.SS-VALUE)
+DECIDE FOR EVERY CONDITION
+  WHEN #I > 5      /* make groups of 5 values
+  AND #K NE 0  /* but not the first time                              /*
+  AND NOMSTCSP.ERC = 0 /* call myself has worked                      /*
+    #I := 5
+  WHEN #I > 0 AND NOMSTCSP.ERC = 0 /* call myself has worked
+    #L := #K * 5 + 1
+    #J := #K * 5 + #I
+    SS-VALUE-SAVE (#L:#J) := NOMSTCSP.SS-VALUE (1:#I)
+    SS-TITLE-SAVE (#L:#J) := NOMSTCSP.SS-TITLE (1:#I)
+  WHEN NONE
+    IGNORE
+END-DECIDE
+ADD 1 TO #K
+*
+END-SUBROUTINE /* CALL-MYSELF
+*
+************************************************************************
+DEFINE SUBROUTINE ERROR
+************************************************************************
+REDUCE ARRAY NOMSTCSP.SS-VALUE TO 0
+REDUCE ARRAY NOMSTCSP.SS-TITLE TO 0
+NOMSTCSP.ERC := 5
+IF #TRACING
+  COMPRESS '=' NOMSTCSP.ERT TO LG-MSG
+  PERFORM WRITE-LOG
+  LG-MSG := 'Abended.'
+  PERFORM WRITE-LOG
+END-IF
+IF #TRACING
+  LG-FUNCTION := 'S'
+  COMPRESS NOMSTCSP.ERC '/' #LASTPROG '->' *PROGRAM '/'
+    'Should not occur:' NOMSTCSP.ERT INTO LG-MSG LEAVING NO
+  PERFORM WRITE-LOG
+END-IF
+ESCAPE MODULE
+*
+END-SUBROUTINE /* ERROR
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG
+************************************************************************
+RMTASK-P.FUNCTION       := 'L'
+RMTASK-P.SUBTASK-NUMBER := 1
+CALLNAT 'RMTASKID' RMTASK-P
+LG-USERID   := RMTASK-P.TASK-ID
+LG-CODE     := 'MO'
+PERFORM NOMCHCKP-CHECK-PROG 'RLOG' #RC
+IF #RC = 0
+  CALLNAT 'RLOG' PL-PARMS
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG
+************************************************************************
+ON ERROR
+************************************************************************
+  RESET NOMSTCSP
+  REDUCE ARRAY NOMSTCSP.SS-VALUE TO 0
+  REDUCE ARRAY NOMSTCSP.SS-TITLE TO 0
+  NOMSTCSP.ERC := -*ERROR-NR
+  COMPRESS 'Natural error' *ERROR-NR 'occurred in ' *PROGRAM 'line'
+    *ERROR-LINE TO NOMSTCSP.ERT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

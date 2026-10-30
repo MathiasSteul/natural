@@ -1,0 +1,418 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RLOG      Write a record to the log
+* Functions (field L-Function / LG-Function):
+* ' '/not specified - log to SAT log file only
+* 'W'               - log to SAT log file and write to output
+* 'T'               - write to output unless done online or in a server
+*                     environment. In this case write only to SAT log
+* Trace output to log file can be selected with NOMLOG.
+*
+* MAINTENANCE:
+* GW  91-07-08  use RGETERM to retrieve short text
+* GW  91-07-08  use XXSUBS-N to substitute variables
+* GW  91-10-03  always make error code to mask(NNNN)
+* GW  94-06-14  avoid NAT1316 when no jobcard specified for printjob.
+*               this is actually a NATURAL bug, all index values were ok
+* gw  95-12-13 s(999999) ??????????????????????????
+* gw  96-01-05 s(239209) ??????????????????????????
+* jwo 97-11-13 p(167263) add active reports exit
+* gw  98-06-19 p(171778) long object name for log
+* sju 00-11-14 s(999999) SAT logging
+* fhi 02-06-13 s(225125) Add email notificaton, NOMEX010
+* fhi 02-11-21 p(208888) Message Loop every Monitor Cycle
+* xsetggr 2007-05-02 NOM3201 Support 5 byte node numbers
+* xsetggr 2007-05-03 NOM3201 support P11 format run numbers
+* xsetggr 2008-05-03 p(303852) use SATLGW2P/N
+* xsetggr 2009-11-30 P322164 fill NOMEX010-MSG-TEXT
+* fhi     2010-02-23 P321483 If msg does not contain NOMnnnn, fill it.
+* fhi     2010-09-01 NOMALL-97 Introduce multiple lines for logs
+*                              Old tags deleted.
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-21 NOMALL-97 Extend message line
+* fhi     2010-10-06 NOMALL-97 Dynamic error parameters rewritten.No tag
+* fhi     2010-10-14 NOMALL-97 CALL to SAT rewritten, no tags.
+* fhi     2010-12-28 NOMALL-925 Work around for error NATOS-4870
+* xsetggr 2012-02-01 NOMALL-1099 get NOM msg nr if message pass to RLOG
+*         as language dependan text to provide work of NOMEXnnn
+* xsetggr 2012-02-02 NOMALL-1100 write language independant msgs to log
+* xsetggr 2012-03-15 NOMALL-1099 change level if written by NOLG---N
+* fhi      2012-12-07 NOMALL-1214 Correct function 'W' for online
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* RAYA    2013-06-25 NOMALL-1259 use SATLGW3N/P
+* fhi     2014-08-18 NOMALL-1454 Improve string handling, store
+*                                language independent
+* fhi     2014-09-11 NOMALL-1454 same
+* SU2     2015-09-25 NOMALL-1730 do not invoke user exit for Natural err
+* fhi     2015-09-30 NOMALL-1579 Add origin field
+* fhi     2015-09-30 NOMALL-1725 trace: do not invoke NOMEX004/10
+* SU3     2015-10-14 NOMALL-1725 correct above
+* BLI     2016-02-29 NOMALL-1829 Check always Flags A R L
+* fhi     2016-04-15 NOMALL-1837 Introduce +DEVICE instead of *DEVICE
+* fhi     2016-11-08 NOMALL-1621 Avoid collecting data in this module
+* fhi     2017-01-04 NOMALL-1913 Use microseconds for logging
+* fhi     2017-02-03 NOMALL-1913 Use new SAT routine SATTIMST
+* fhi     2017-03-29 NOMALL-2009 Some minor corrections, no tags
+* SU4     2018-10-30 NOMALL-2164 multiple tasks:msg NOM7016 disappears->
+*                    all duplicate handling removed-p(208888)
+* SU5     2020-06-19 NOMALL-2349 show full msg
+* SU6     2021-11-19 ES-31134    (only for uqac)/avoid mult.lines > 96
+* SU7     2022-02-23 NOMALL-2517 microseconds=0-> 1 (see SATLGW4N:N3674)
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING RLOG-L
+************************************************************************
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE      (L/1:20)
+1 +G-L-OBJECT-NAME       (A60)
+1 +TRACE-WRAP            (I2)
+1 +DEVICE                (A8)
+1 +CMRDC                 (A1)
+************************************************************************
+LOCAL USING XXGMSG-A
+LOCAL USING SATLGW4P
+LOCAL USING SATLF02P
+LOCAL
+1 SAT-LOG VIEW OF SAT-LOG-FILE35
+  2 LOG-PRODUCT-CODE
+  2 LOG-ENVIRONMENT
+  2 LOG-KEY-3
+  2 LOG-TIME
+  2 LOG-TIME-ZONE
+  2 LOG-MICROSECONDS
+  2 LOG-MICROSECONDS-INV
+  2 LOG-STATUS
+  2 LOG-MESSAGE
+  2 LOG-TASK-ID
+  2 LOG-JOB
+  2 LOG-JOB-ID
+  2 LOG-EXEC-NODE
+  2 LOG-EXEC-USERID
+  2 LOG-JOB-TYPE
+  2 LOG-USER-DATA (1:20)
+  2 LOG-NOM-TYPE
+  2 LOG-NOM-TIME-INV
+  2 LOG-NOM-OBJECT-NAME
+* *****
+1 #TIMX                  (T)
+1 #TIMX-INV              (T)
+1 #STRING                (A250)
+1 REDEFINE    #STRING
+  2 #STRING-ARRAY        (A1/1:250)
+1 #I                     (I2)
+1 #J                     (I2)
+1 #K                     (I2)
+1 #ERN                   (N4)
+1 #ERC                   (A250)
+1 #NOMEX004-MSG-CODE     (N4)
+1 #NOMEX004-MSG-SUPPRESS (L)
+1 #NOMEX004-ERROR-CODE   (N4)
+1 REDEFINE #NOMEX004-ERROR-CODE
+  2 #NOMEX004-ERROR-CODE-A4 (N4)
+1 #NOMEX004-ERROR-TEXT   (A250)
+1 #NOMEX010-MSG-CODE     (N4)
+1 #NOMEX010-MSG-TEXT     (A250)
+1 #NOMEX010-MSG-SUPPRESS (L)
+1 #NOMEX010-ERROR-CODE   (N4)
+1 REDEFINE #NOMEX010-ERROR-CODE
+  2 #NOMEX010-ERROR-CODE-A4 (A4)
+1 #NOMEX010-ERROR-TEXT   (A250)
+1 #L-MSG                 (A) DYNAMIC
+1 #MSG                   (A250)
+1 #FUNCTION              (A10)  /* (can be combined)
+* /* 'W'=additional write to output
+* /* 'T'=Trace output
+1 #LASTPROG              (A8)
+1 #WRAP-MESSAGE          (A250/*)
+1 #LEN                   (I2)
+1 #LINE                  (A128)
+1 SATLGW-MESSAGE         (A250)
+1 #NAT-ERR               (L)
+1 #PROGRAMS-MAX          (I2) CONST <18>
+1 #PROGRAMS              (A8/#PROGRAMS-MAX)
+  CONST < 'RMINIT','RMONITOR','RMCHKDWN','RMSC','RMSRCP','RMREV',
+  'NOMCLEAN', 'RJARC', 'RJCND','RJCOND','RMARC',
+  'RJREV', 'RMIMPORT', 'RMPR', 'RDEF','RLIS', 'NRM', 'NOMSAT' >
+1 #MODULES               (A10/#PROGRAMS-MAX)
+  CONST < 'Monitor','Monitor','Monitor','Scan','Copy','Revive',
+  'Cleanup', 'Archive', 'Condense','Condense','Archive',
+  'Revive', 'Import', 'Print','Online','Online','Online','Start-Mon' >
+1 #IX                    (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=133
+*
+IF +CMRDC = 'S'
+  CALL 'CMRDC' 'T' ' '                    /* Don't trace any events
+END-IF
+PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG
+IF #LASTPROG = 'XXRLOG'  /* must be one level before
+OR = 'NOLG---N'     /* NGC interface written msgs to log              /*
+    OR = 'C-NATERN'
+  PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG 1
+END-IF
+IF #LASTPROG = 'XXLOGERR'  /* must be two levels before
+  PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG 2
+END-IF
+*
+IF PL-PARMS.LG-MSG = ' '
+  IF +CMRDC = 'S'
+    CALL 'CMRDC' 'T' 'ALL'                  /* Trace all events
+  END-IF
+  ESCAPE ROUTINE
+END-IF
+IF LG-FUNCTION SPECIFIED
+  #FUNCTION := LG-FUNCTION
+END-IF
+*
+RESET #ERN
+SEPARATE LG-MSG INTO #ERC REMAINDER #STRING WITH DELIMITER ' '
+DECIDE FOR FIRST CONDITION
+  WHEN #ERC IS (N4)
+    #ERN := VAL(#ERC)
+    MOVE EDITED #ERN (EM=9999) TO #ERC
+  WHEN LG-MSG=MASK ('NOM'NNNN' ')
+    #ERC  := SUBSTR(LG-MSG,4,4)
+    #ERN  := VAL(#ERC)
+    LG-MSG := SUBSTR(LG-MSG,4)
+  WHEN LG-MSG=MASK ('NAT'NNNN' ')
+    #NAT-ERR := TRUE
+  WHEN NONE
+    IGNORE
+END-DECIDE
+IF +G-NOMEXIT-ACTIVE (4) AND NOT #NAT-ERR
+    AND LG-CODE NE 'TR' AND #ERN NE 0
+  #NOMEX004-MSG-CODE := #ERN
+  IF +CMRDC = 'S'
+    CALL 'CMRDC' 'T' 'ALL'                  /* Trace all events
+  END-IF
+  CALLNAT 'NOMEX004' #NOMEX004-MSG-CODE (AD=O) #NOMEX004-MSG-SUPPRESS
+    #NOMEX004-ERROR-CODE #NOMEX004-ERROR-TEXT
+  IF #NOMEX004-ERROR-CODE = 0
+    IF #NOMEX004-MSG-SUPPRESS
+      ESCAPE ROUTINE
+    END-IF
+  ELSE /*error in user exit
+    COMPRESS #NOMEX004-ERROR-CODE-A4 #NOMEX004-ERROR-TEXT
+      TO PL-PARMS.LG-MSG
+  END-IF
+  IF +CMRDC = 'S'
+    CALL 'CMRDC' 'T' ' '                    /* Don't trace any events
+  END-IF
+END-IF
+*
+IF +G-NOMEXIT-ACTIVE (10) AND NOT #NAT-ERR
+    AND LG-CODE NE 'TR' AND #ERN NE 0
+  #NOMEX010-MSG-CODE := #ERN
+  #MSG := PL-PARMS.LG-MSG
+  CALLNAT 'RSUBMSGN' #MSG
+  #NOMEX010-MSG-TEXT := #MSG
+*
+  IF +CMRDC = 'S'
+    CALL 'CMRDC' 'T' 'ALL'                  /* Trace all events
+  END-IF
+  CALLNAT 'NOMEX010' #NOMEX010-MSG-CODE (AD=O) #NOMEX010-MSG-TEXT (AD=O)
+    #NOMEX010-MSG-SUPPRESS #NOMEX010-ERROR-CODE #NOMEX010-ERROR-TEXT
+  IF #NOMEX010-ERROR-CODE = 0
+    IF #NOMEX010-MSG-SUPPRESS
+      ESCAPE ROUTINE
+    END-IF
+  ELSE /*error in user exit
+    COMPRESS #NOMEX010-ERROR-CODE-A4 #NOMEX010-ERROR-TEXT
+      TO PL-PARMS.LG-MSG
+  END-IF
+  IF +CMRDC = 'S'
+    CALL 'CMRDC' 'T' ' '                    /* Don't trace any events
+  END-IF
+END-IF
+* extracting of message text are moved to modules read log
+*
+PERFORM CALL-SATLOG
+IF +CMRDC = 'S'
+  CALL 'CMRDC' 'T' 'ALL'                  /* Trace all events
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-SATLOG
+************************************************************************
+RESET SATLGW-USER-DATA (*) #K
+#L-MSG := LG-MSG
+PERFORM XXWRAP-WORD-WRAP 'L' #L-MSG #WRAP-MESSAGE (*) 128
+FOR #J = 1 TO *OCC (#WRAP-MESSAGE)
+  #K := #K + 1
+  IF #K > 20
+    ESCAPE BOTTOM
+  END-IF
+  SATLGW-USER-DATA (#K) := #WRAP-MESSAGE (#J)
+END-FOR
+IF #FUNCTION = 'T'
+  LG-CODE := 'TR'
+END-IF
+*
+SATLGW-PRODUCT-CODE    := 'NOM'
+SATLGW-TASK-ID         := LG-USERID
+SATLGW-ET              := FALSE
+SATLGW-INVERT-TIME     := TRUE
+SATLGW-JOB             := LG-JOBNAME
+SATLGW-JOB-ID          := LG-JOBNO
+SATLGW-EXEC-NODE       := LG-NODE
+SATLGW-EXEC-USERID     := LG-USERID
+SATLGW-NOM-TYPE        := LG-CODE
+SATLGW-NOM-REPNAME     := LG-REPNAME
+SATLGW-NOM-REPRNB      := LG-REPRNB
+SATLGW-NOM-BUNDLE      := LG-BUNDLE
+SATLGW-NOM-BUNDRNB     := LG-BUNDRNB
+SATLGW-NOM-PRINTER     := LG-PRINTER
+SATLGW-MESSAGE         := SATLGW-USER-DATA (1)
+IF SATLGW-JOB = ' '
+  SATLGW-JOB := #LASTPROG
+END-IF
+IF SATLGW-JOB-ID = ' ' OR = '0'
+  PRG. FOR #IX = 1 TO #PROGRAMS-MAX
+    IF #PROGRAMS(#IX) = SCAN(#LASTPROG)
+      SATLGW-JOB-ID  := #MODULES(#IX)
+      ESCAPE BOTTOM (PRG.)
+    END-IF
+  END-FOR
+END-IF
+IF +G-L-OBJECT-NAME NE ' '
+  SATLGW-NOM-OBJECT-NAME := +G-L-OBJECT-NAME
+  RESET +G-L-OBJECT-NAME
+ELSE
+  SATLGW-NOM-OBJECT-NAME:= LG-OBJECT-NAME
+END-IF
+DECIDE FOR EVERY CONDITION
+  WHEN ( (#FUNCTION = 'W' OR=' '
+  OR (#FUNCTION ='T' AND (+DEVICE NE 'BATCH' OR *SERVER-TYPE NE ' ')))/*
+  OR (+TRACE-WRAP > 0 AND #FUNCTION='T'))/*NOMALL-77 in(+brackets above)
+    IF #FUNCTION = 'T' /* If trace write directly
+      SATLF-FUNCTION        := 'GET'
+      SATLF-LFILE           := 206
+      CALLNAT 'SATLF02N' SATLF-SATVERS SATLF-PARMS (*)
+      SATLGW-SYS1-DBID := SATLF-DBID-N5
+      SATLGW-SYS1-FNR  := SATLF-FNR-N5
+      PERFORM SATTIMST-GET-TIME 'Z' 1X
+        LOG-MICROSECONDS LOG-MICROSECONDS-INV #TIMX #TIMX-INV
+        1X LOG-TIME-ZONE
+      LOG-TIME              := #TIMX
+      LOG-NOM-TIME-INV      := #TIMX-INV
+      LOG-PRODUCT-CODE      := SATLGW-PRODUCT-CODE
+      LOG-ENVIRONMENT       := SATLGW-ENVIRONMENT
+      LOG-KEY-3             := SATLGW-KEY-3
+      LOG-STATUS            := SATLGW-STATUS
+      LOG-MESSAGE           := SATLGW-MESSAGE
+      LOG-TASK-ID           := SATLGW-TASK-ID
+      LOG-JOB               := SATLGW-JOB
+      LOG-JOB-ID            := SATLGW-JOB-ID
+      LOG-EXEC-NODE         := SATLGW-EXEC-NODE
+      LOG-EXEC-USERID       := SATLGW-EXEC-USERID
+      LOG-JOB-TYPE          := SATLGW-JOB-TYPE
+      LOG-USER-DATA (1:20)  := SATLGW-USER-DATA(1:20)
+      LOG-NOM-TYPE          := SATLGW-NOM-TYPE
+      LOG-NOM-OBJECT-NAME   := SATLGW-NOM-OBJECT-NAME
+      DECIDE FOR EVERY CONDITION
+        WHEN LOG-USER-DATA (1) = ' ' AND LOG-MESSAGE NE ' '
+          LOG-USER-DATA (1) := LOG-MESSAGE
+        WHEN LOG-MESSAGE  = ' ' AND LOG-USER-DATA (1) NE ' '
+          LOG-MESSAGE       := LOG-USER-DATA (1)
+        WHEN LOG-MESSAGE NE ' '
+          IF LOG-MICROSECONDS = 0 /*SU7
+            LOG-MICROSECONDS := 1
+          END-IF
+          IF LOG-MICROSECONDS-INV = 0 /*SU7
+            LOG-MICROSECONDS-INV := 99999
+          END-IF
+          STORELOG. STORE SAT-LOG
+        WHEN NONE
+          IGNORE
+      END-DECIDE
+    ELSE
+      CALLNAT 'SATLGW4N' SATLGW-PARMS SATLGW-MESSAGE
+      IF SATLGW-RC NE 0
+        WRITE NOHDR *PROGRAM 'Error:' SATLGW-RC 'writing to SAT log'
+      END-IF
+    END-IF
+  WHEN ((#FUNCTION = 'W' OR #FUNCTION = 'T')
+  AND +DEVICE = 'BATCH' AND *SERVER-TYPE = ' ')                       /*
+  AND (+TRACE-WRAP =0 OR #FUNCTION NE 'T') /*NOMALL-77 in(+brack. above)
+    EXAMINE SATLGW-USER-DATA (1) FOR ' ' GIVING LENGTH IN #LEN
+    IF SATLGW-USER-DATA (2:20) NE ' ' /*SU6 OR #LEN > 97
+      #LINE := #LASTPROG
+      MOVE '?' TO SUBSTR(#LINE,9) /* NOMALL-1454 was '&'
+      COMPRESS #LINE *DAT4I TO #LINE LEAVING NO
+      COMPRESS #LINE *TIME TO  #LINE
+      IF SATLGW-TASK-ID NE ' '
+        COMPRESS #LINE '/ User:' SATLGW-TASK-ID  TO #LINE
+      END-IF
+      IF SATLGW-NOM-TYPE NE ' '
+        COMPRESS #LINE '/ Type:' SATLGW-NOM-TYPE TO #LINE
+      END-IF
+      IF #FUNCTION NE ' '
+        COMPRESS #LINE '/ Log-fct:' #FUNCTION    TO #LINE
+      END-IF
+      IF SATLGW-JOB NE ' ' AND SATLGW-JOB NE #LASTPROG
+        COMPRESS #LINE '/ Job:' SATLGW-JOB       TO #LINE
+      END-IF
+      EXAMINE #LINE FOR '?' REPLACE FIRST WITH ' ' /* NOMALL-1454 was &
+      WRITE NOTITLE NOHDR #LINE
+      FOR #I = 1 TO 20
+        IF SATLGW-USER-DATA (#I) NE ' '
+          #LINE := SATLGW-USER-DATA (#I)
+          PERFORM GETMSG
+          PRINT NOTITLE NOHDR 8T #LINE /*SU5 (AL=128) SU6 was 36T
+        END-IF
+      END-FOR
+    ELSE
+      #LINE := SATLGW-USER-DATA (1)
+      PERFORM GETMSG
+      PRINT NOTITLE NOHDR #LASTPROG *TIMX (EM=YYYY-MM-DD' 'HH:II:SS.T)
+        #LINE /*SU5 (AL=97)
+    END-IF
+  WHEN #FUNCTION = 'T' AND *MACHINE-CLASS = 'MAINFRAME'
+  AND NOT(#LASTPROG ='RMRDCDSP' OR= 'RMCHKDWN')                       /*
+    CALL 'CMRDC' 'U' SATLGW-USER-DATA (1)
+  WHEN NONE
+    IGNORE
+END-DECIDE
+RESET SATLGW-USER-DATA (*) SATLGW-MESSAGE
+*
+END-SUBROUTINE /* CALL-SATLOG
+*
+************************************************************************
+DEFINE SUBROUTINE GETMSG
+************************************************************************
+RESET #ERN #ERC
+SEPARATE #LINE INTO #ERC REMAINDER #STRING WITH DELIMITER ' '
+DECIDE FOR FIRST CONDITION
+  WHEN   #ERC IS (N4)
+    #ERN := VAL(#ERC)
+  WHEN #LINE = MASK ('NOM'NNNN' ')
+    #ERC    := SUBSTR(#LINE,4,4)
+    #ERN    := VAL(#ERC)
+    #STRING := SUBSTR(#LINE,9)
+  WHEN NONE
+    IGNORE
+END-DECIDE
+IF #ERN NE 0
+  #XX-ERROR-TYPE := 'U'
+  #XX-ERROR-CODE := #ERN
+  SEPARATE #STRING INTO #XX-MSG-DYNA (1:8) REMAINDER #XX-MSG-DYNA (9)
+  CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+  #LINE := #XX-SHORT-TEXT
+END-IF
+*
+END-SUBROUTINE /* GETMSG
+*
+END

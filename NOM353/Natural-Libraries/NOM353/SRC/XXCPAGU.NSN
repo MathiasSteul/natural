@@ -1,0 +1,447 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ----------------------------------------------------------------------
+* Version   3.5
+* Function  Encode string with special char into named char
+*           for OPO and NPR Unix. Version with Unicode variables
+*
+* Encodes a string with special characters of a given codepage into
+* *CODEPAGE and replaces the special characters with HTML named char
+* of format "&named-char;" and vice versa. Converts linefeeds of
+* Windows, Unix and MAC-OS X into Unix Linefeeds H'0A'.
+* Function 'T' does not allow a target codepage.
+* Routine ignores single characters that cannot be converted (NAT3413)
+*
+* Maintenance
+* -----------
+* uuuuuu  yyyy-mm-dd iTrac       Remark
+* fhi     2018-09-03             created from XXCPAGE
+* fhi     2018-09-06             Backported from NOM 3.5 replacing
+*                                XXCPAGE
+* fhi     2018-09-26 NOMALL-2125 Handle null bytes
+* fhi     2018-10-05 NOMALL-2125 Extend trace (no tags)
+* fhi     2019-02-22 NOMALL-2240 Handle html chars NPR compliant
+* fhi     2019-02-27 NOMALL-2240 '&' missing in table
+* SU1     2022-11-15 NOMALL-2593 set trace at start + restruct+ON ERROR
+* SU2     2023-01-10 NOMALL-???? avoid NAT err. / uqac with above
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 FUNCTION    (A1) BY VALUE
+  /* 'E' Encode for OPO
+  /* 'D' Decode for OPO
+  /* 'T' Encode for NPR (trigraphs)
+  /* 'U' Decode for NPR (trigraphs)
+1 STRING      (A) DYNAMIC BY VALUE RESULT
+1 ERC         (I4) BY VALUE RESULT
+  /* return code:
+  /* 0=OK,
+  /* 1=Invalid function
+  /* n=Encoding error
+1 ERT         (A) DYNAMIC BY VALUE RESULT
+1 SRC-CP      (A) DYNAMIC BY VALUE OPTIONAL /* Source-Codepage.
+  /* Convert to *CODEPAGE before execution
+1 TAR-CP      (A) DYNAMIC BY VALUE OPTIONAL /* Target-Codepage.
+  /* Convert to CODEPAGE after execution
+1 TRACE       (L) BY VALUE OPTIONAL
+1 USTRING     (U) DYNAMIC OPTIONAL
+  /* If specified: Use it instead of STRING for input
+************************************************************************
+INDEPENDENT
+1 +NOM-USE-TRIGRAPH-HTML   (L) /*SU1
+************************************************************************
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RLOG-L
+LOCAL
+1 #I            (I4)
+1 #I2           (I4)
+1 #CP           (A64)  /* CODEPAGE FOR XXCPAGC
+1 #HTML-ENC-MAX (I2) CONST <35>
+/* Table for function 'E'
+1 #HTML-ENC-SRC (U10/#HTML-ENC-MAX) INIT <
+  U'&',UH'0009',UH'000D000A',UH'000A',UH'000D',UH'000C',
+  UH'005C',UH'005E',UH'007C',UH'0040',UH'00C4',UH'00D6',
+  UH'00DC',UH'00E4',UH'00F6',UH'00FC',UH'00DF',
+  UH'00B0',UH'00A7',UH'007B',UH'007D',
+  UH'005B',UH'005D',U'<',U'>',U'''',U'"',UH'20AC',
+  UH'00B5',U'%',UH'00A6',U'Ü',UH'00B2',UH'00B3',UH'00B4' >
+1 #HTML-ENC-REP (U10/#HTML-ENC-MAX) CONST <
+  U'&amp;',U'&tab;',U'&lf;',U'&lf;',U'&lf;',U'&ff;',
+  U'&bsol;',U'&circ;',U'&verbar;',U'&at;',U'&Auml;',U'&Ouml;',
+  U'&Uuml;',U'&auml;',U'&ouml;',U'&uuml;',U'&szlig;',
+  U'&deg;',U'&sect;',U'&lbrace;',U'&rbrace;',
+  U'&lbrack;',U'&rbrack;',U'&lt;',U'&gt;',U'&apos;',U'&quot;',U'&euro;',
+  U'&micro;',U'&percnt;',U'&verbar;',U'&excl;',U'&sup2;',U'&sup3;',
+  U'&acute;' >
+1 #HTML-ENC-HTML(L/#HTML-ENC-MAX) CONST <
+  TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,
+  FALSE,FALSE,FALSE,FALSE,TRUE,TRUE,
+  TRUE,TRUE,TRUE,TRUE,TRUE,
+  TRUE,TRUE,FALSE,FALSE,
+  FALSE,FALSE,TRUE,TRUE,TRUE,TRUE,TRUE,
+  TRUE,FALSE,TRUE,FALSE,TRUE,TRUE,TRUE >
+1 #HTML-DEC-MAX (I2) CONST <37>
+/* Table for function 'D':
+1 #HTML-DEC-SRC (U10/#HTML-DEC-MAX) INIT <
+  U'&',UH'0009',UH'000A',UH'000D',UH'000C',UH'005C',
+  UH'007C',UH'0040',UH'00C4',UH'00D6',UH'00DC',
+  UH'00E4',UH'00F6',UH'00FC',UH'00DF',UH'20AC',
+  UH'00B0',UH'00A7',UH'007B',UH'007D',UH'005B',UH'005D',
+  U'<',U'>',U'"',UH'005E',U'''',UH'00B5',UH'00B5',U'%',U'%',
+  UH'007C',UH'007C',U'Ü',UH'00B2',UH'00B3',UH'00B4' >
+1 #HTML-DEC-REP(U10/#HTML-DEC-MAX) CONST <
+  U'&amp;',U'&tab;',U'&lf;',U'&cr;',U'&ff;',U'&bsol;',
+  U'&brvbar;',U'&at;',U'&Auml;',U'&Ouml;',U'&Uuml;',
+  U'&auml;',U'&ouml;', U'&uuml;',U'&szlig;',U'&euro;',
+  U'&deg;',U'&sect;', U'&lbrace;',U'&rbrace;',U'&lbrack;',U'&rbrack;',
+  U'&lt;',U'&gt;',U'&quot;',U'&circ;',U'&apos;',U'&mu;', U'&micro;',
+  U'&percnt;',U'&percent;',
+  U'&verbar;',U'&vert;',U'&excl;',U'&sup2;',U'&sup3;',U'&acute;' >
+*
+1 #NPR-MAX      (I2) CONST <21>
+/* Use trigraphs and unicode codes one-byte characters only.
+/* Table for function 'T'
+1 #NPR-SRC      (U10/#NPR-MAX) INIT <
+  U'Ü', UH'0009',UH'000C',UH'005C',UH'005E',UH'007C',
+  UH'0040',UH'007B',UH'007D',UH'005B',UH'005D',
+  UH'00C4',UH'00D6',UH'00DC',UH'00E4',UH'00F6',UH'00FC',UH'00DF',
+  UH'0009',UH'000A',UH'00A9' >
+1 #NPR-REP      (U10/#NPR-MAX) CONST <
+  U'??:',U'??&',U'??+',U'??/',U'??''',U'??_',U'??%',
+  U'??<',U'??>',U'??(',U'??)',
+  U'&Auml;',U'&Ouml;',U'&Uuml;',U'&auml;',U'&ouml;',
+  U'&uuml;',U'&szlig;',
+  U'&Tab;',U'&NewLine;',U'&copy;' >
+1 #NPR-UTF-MAX  (I2) CONST <21>
+/* Use trigraphs and unicode codes with multi-byte characters
+/* if UTF-8 is used on the target environment. Table for function 'T'.
+1 #NPR-UTF-SRC  (U10/#NPR-UTF-MAX) INIT <
+  U'Ü',UH'007E',
+  UH'0009',UH'000C',UH'005C',UH'005E',UH'007C',
+  UH'0040',UH'007B',UH'007D',UH'005B',UH'005D',
+  UH'00C4',UH'00D6',UH'00DC',UH'00E4',UH'00F6',
+  UH'00FC',UH'00DF',UH'20AC',UH'003F' >
+1 #NPR-UTF-REP  (U10/#NPR-UTF-MAX) CONST <
+  U'??:',U'??-',
+  U'??&',U'??+',U'??/',U'??''',U'??_',
+  U'??%',U'??<',U'??>',U'??(',U'??)',
+  U'&Auml;',U'&Ouml;',U'&Uuml;',U'&auml;',U'&ouml;',
+  U'&uuml;',U'&szlig;',U'&#x20ac;',U'??*' >
+1 #NPR-DEC-MAX  (I2) CONST <35>
+/* Use trigraphs and unicode codes with multi-byte characters.
+/* Table for function 'U'. If present, they will be decoded.
+1 #NPR-DEC-SRC  (U10/#NPR-DEC-MAX) INIT <
+  U'Ü',U'Ü',U'"',UH'00A7',UH'00B5',U'(',U')',UH'007E',U'''',
+  UH'0009',UH'000C',UH'005C',UH'005E',UH'007C',
+  UH'0040',UH'007B',UH'007D',UH'005B',UH'005D',
+  UH'00C4',UH'00D6',UH'00DC',UH'00E4',UH'00F6',UH'00FC',UH'00DF',
+  UH'20AC',UH'0009',
+  UH'000A',U'?',UH'0060',UH'007E',
+  UH'0009',UH'000A',UH'00A9' >
+1 #NPR-DEC-REP  (U10/#NPR-DEC-MAX) CONST <
+  U'??:',U'&x21;',U'&#x22;',U'&sect;',U'&#xb5;',
+  U'&#x28;',U'&#x29;',U'&#x7e;',U'&#x27;',
+  U'??&',U'??+',U'??/',U'??''',U'??_',U'??%',
+  U'??<',U'??>',U'??(',U'??)',
+  U'&Auml;',U'&Ouml;',U'&Uuml;',U'&auml;',U'&ouml;',
+  U'&uuml;',U'&szlig;',U'&euro;',U'&tab;',U'&lf;',
+  U'??*',U'??;',U'??-', U'&Tab;',U'&NewLine;',U'&copy;' >
+1 #CLEANUP-MAX  (I2) CONST <4>
+/* Simplify html coding
+1 #CLEANUP-SRC  (U10/#CLEANUP-MAX) CONST <
+  U'&amp;amp;',U'&#x0000',U'&#x00',U';amp;amp;' >
+1 #CLEANUP-REP  (U10/#CLEANUP-MAX) CONST <
+  U'&amp;',U'&#x',U'&#x',U';amp;' >
+1 #SRC          (A10)
+1 #REP          (U20)
+1 #LEN          (I4)
+1 #ENC-ERC      (I4)
+1 #ENC-ERT      (A250)
+1 #CODEPAGE     (A64)
+1 #UNI-HEX      (A) DYNAMIC
+1 #UNI-HEX-U    (U) DYNAMIC
+1 #STRING       (U) DYNAMIC
+1 #UNI-CHAR     (U1)
+1 REDEFINE #UNI-CHAR
+  2 #UNI-CHAR-B (B2)
+1 REDEFINE #UNI-CHAR
+  2 #UNI-CHAR-A (A2)
+1 REDEFINE #UNI-CHAR
+  2 #UNI-CHAR-I (I2)
+1 #UNI-SEARCH   (U1)
+1 #POS          (I4)
+1 #POS2         (I4)
+1 #POS3         (I4)
+1 #SEARCH       (U8)
+1 #TRACE-MSG    (A250)
+1 #TRACING      (L)
+1 #INPUT-DATA   (A75)
+1 #INPUT-DATA-U (U75)
+1 #HEXHIGH      (A75)
+1 #HEXLOW       (A75)
+1 #RULER        (A75)
+1 #RULER-OFFSET (I4)
+1 #LINE         (I4)
+1 #CATDATE      (A19)
+1 #A250         (A250) /*SU1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+OPTIONS TQMARK=OFF
+*
+RESET ERC ERT
+IF TRACE SPECIFIED /*SU1 moved at start
+  #TRACING := TRACE
+END-IF
+IF #TRACING
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS *PROGRAM 'started. Cataloged at' #CATDATE TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+IF USTRING SPECIFIED /*SU1 ->
+  COMPRESS 'ustr: (' *LENGTH(USTRING) ')' USTRING TO #A250 LEAVING NO
+ELSE
+  COMPRESS 'str: (' *LENGTH(STRING) ')'  STRING TO #A250 LEAVING NO
+END-IF /*SU1 <-
+*
+* Handle codepages and functions
+*
+REDUCE DYNAMIC #STRING TO 0
+IF USTRING SPECIFIED
+  IF #TRACING
+    COMPRESS 'USTRING specified:' USTRING TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+  #STRING := USTRING
+ELSE
+  IF SRC-CP SPECIFIED AND SRC-CP NE ' '
+    #CODEPAGE := SRC-CP
+  ELSE
+    #CODEPAGE := *CODEPAGE
+  END-IF
+  IF #TRACING
+    COMPRESS '#CODEPAGE:' #CODEPAGE TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    COMPRESS 'STRING before function' FUNCTION ':' TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    REP. REPEAT
+      PERFORM XXHEXPRT #INPUT-DATA #HEXHIGH #HEXLOW #RULER
+        #RULER-OFFSET TRUE STRING 75
+      IF #RULER-OFFSET = -1
+        ESCAPE BOTTOM (REP.)
+      END-IF
+      PERFORM XXRLOG-WRITE-LOG 'T' #INPUT-DATA
+      PERFORM XXRLOG-WRITE-LOG 'T' #HEXHIGH
+      PERFORM XXRLOG-WRITE-LOG 'T' #HEXLOW
+      PERFORM XXRLOG-WRITE-LOG 'T' #RULER
+    END-REPEAT
+  END-IF
+  CALLNAT 'XXMVENC' STRING 1X #CODEPAGE
+    1X #STRING 1X #ENC-ERC #ENC-ERT
+  IF #TRACING
+    COMPRESS '#STRING contents after XXMVENC:' #STRING TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+  #LINE := *LINE
+  PERFORM LOG-ENC-ERROR
+END-IF
+*
+DECIDE ON FIRST VALUE OF FUNCTION
+  VALUE 'E'
+    PERFORM CLEANUP
+    FOR #I = 1 TO #HTML-ENC-MAX
+      #I2 := 1
+      REPEAT
+        EXAMINE #STRING FROM #I2 FOR #HTML-ENC-SRC(#I)
+          GIVING POSITION IN #POS2
+        IF #POS2 NE 0
+          EXAMINE #STRING STARTING FROM #POS2 FOR #HTML-ENC-SRC(#I)
+            REPLACE FIRST WITH #HTML-ENC-REP(#I)
+          IF NOT #HTML-ENC-HTML(#I) /* no html standard
+            COMPRESS '&amp;' SUBSTR(#HTML-ENC-REP(#I),2) TO #REP LEAVING NO
+            EXAMINE #STRING STARTING FROM #POS2 FOR #HTML-ENC-REP(#I)
+              REPLACE FIRST WITH #REP
+          END-IF
+        END-IF
+        #I2 := #POS2 + 1
+        UNTIL #POS2 = 0 OR #I2 > *LENGTH(#STRING)
+      END-REPEAT
+    END-FOR
+    PERFORM ENCODE-UNICODE
+    PERFORM CLEANUP
+    EXAMINE #STRING FOR '&amp;cr;&amp;lf;' REPLACE WITH '&amp;lf;'
+  VALUE 'D'
+    PERFORM CLEANUP
+    FOR #I = 1 TO #HTML-DEC-MAX
+      EXAMINE #STRING FOR #HTML-DEC-REP(#I) REPLACE WITH #HTML-DEC-SRC(#I)
+    END-FOR
+    PERFORM DECODE-UNICODE
+    PERFORM CLEANUP
+  VALUE 'T'
+    PERFORM CLEANUP
+    IF TAR-CP SPECIFIED AND TAR-CP = SCAN ('UTF')
+      FOR #I = 1 TO #NPR-UTF-MAX
+        EXAMINE #STRING FOR #NPR-UTF-SRC(#I)
+          REPLACE WITH #NPR-UTF-REP(#I)
+      END-FOR
+    ELSE
+      FOR #I = 1 TO #NPR-MAX
+        EXAMINE #STRING FOR #NPR-SRC(#I) REPLACE WITH #NPR-REP(#I)
+      END-FOR
+    END-IF
+    PERFORM ENCODE-UNICODE
+    PERFORM CLEANUP
+  VALUE 'U'
+    PERFORM CLEANUP
+    EXAMINE #STRING FOR U'&amp;' REPLACE WITH U'&'
+    FOR #I = 1 TO #NPR-DEC-MAX
+      EXAMINE #STRING FOR #NPR-DEC-REP(#I) REPLACE WITH #NPR-DEC-SRC(#I)
+    END-FOR
+    FOR #I = 1 TO #HTML-DEC-MAX
+      EXAMINE #STRING FOR #HTML-DEC-REP(#I) REPLACE WITH #HTML-DEC-SRC(#I)
+    END-FOR
+    PERFORM DECODE-UNICODE
+    PERFORM CLEANUP
+  NONE
+    ERC := 1
+    COMPRESS 'Invalid function code' FUNCTION TO ERT
+    ESCAPE MODULE IMMEDIATE /*SU1
+END-DECIDE
+IF TAR-CP SPECIFIED AND TAR-CP NE ' ' AND FUNCTION NE 'T'
+  #CODEPAGE := TAR-CP
+ELSE
+  #CODEPAGE := *CODEPAGE
+END-IF
+CALLNAT 'XXMVENC' 1X #STRING 1X STRING 1X #CODEPAGE #ENC-ERC #ENC-ERT
+#CP := SUBSTR(#ENC-ERT,6) /* codepage name in error
+PERFORM LOG-ENC-ERROR
+IF #TRACING
+  COMPRESS 'STRING after function' FUNCTION ':' TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  REP2. REPEAT
+    PERFORM XXHEXPRT #INPUT-DATA #HEXHIGH #HEXLOW #RULER
+      #RULER-OFFSET TRUE STRING 75
+    IF #RULER-OFFSET = -1
+      ESCAPE BOTTOM (REP2.)
+    END-IF
+    PERFORM XXRLOG-WRITE-LOG 'T' #INPUT-DATA
+    PERFORM XXRLOG-WRITE-LOG 'T' #HEXHIGH
+    PERFORM XXRLOG-WRITE-LOG 'T' #HEXLOW
+    PERFORM XXRLOG-WRITE-LOG 'T' #RULER
+  END-REPEAT
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CLEANUP
+************************************************************************
+FOR #I = 1 TO #CLEANUP-MAX
+  EXAMINE #STRING FOR #CLEANUP-SRC(#I) REPLACE WITH #CLEANUP-REP(#I)
+END-FOR
+EXAMINE #STRING FOR U'&#x;'  AND DELETE /* omit null bytes
+EXAMINE #STRING FOR H'00' GIVING POSITION IN #POS3
+DECIDE FOR FIRST CONDITION
+  WHEN #POS3 > 1
+    #POS3   := #POS3 - 1
+    #STRING := SUBSTR(#STRING,1,#POS3) /* null byte is end of string
+  WHEN #POS = 1
+    RESET #STRING
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CLEANUP
+*
+************************************************************************
+DEFINE SUBROUTINE ENCODE-UNICODE
+************************************************************************
+REDUCE DYNAMIC #UNI-HEX TO 0
+FORENC. FOR #I = 1 TO *LENGTH(#STRING)
+  #UNI-CHAR   := #UNI-SEARCH := SUBSTR(#STRING,#I,1)
+  #UNI-CHAR-B := #UNI-CHAR-I /* Swap bytes if low endian
+  IF (#UNI-CHAR-B > 127 OR #UNI-CHAR-B < 32 )
+  AND #UNI-CHAR-B NE 10 AND #UNI-CHAR-B NE 0                          /*
+    MOVE EDITED #UNI-CHAR-B (EM=HH) TO #UNI-HEX
+    COMPRESS '&#x' #UNI-HEX ';' TO #UNI-HEX LEAVING NO
+    EXAMINE #STRING FOR #UNI-SEARCH REPLACE WITH #UNI-HEX
+    #I := #I + *LENGTH(#UNI-HEX) - 1
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* ENCODE-UNICODE
+*
+************************************************************************
+DEFINE SUBROUTINE DECODE-UNICODE
+************************************************************************
+EXAMINE #STRING FOR U'&#x'   REPLACE WITH U'&#X'
+COMPRESS '(' *LENGTH(#STRING) ')'  #A250 TO #A250 LEAVING NO /*SU1
+REPDEC. REPEAT
+  EXAMINE #STRING FOR U'&#X' GIVING POSITION IN #POS
+  IF #POS = 0
+    ESCAPE BOTTOM (REPDEC.)
+  END-IF
+  #I := #POS + 3
+  IF #I > *LENGTH(#STRING) /*avoid NAT err SU2
+    ESCAPE BOTTOM /*otherwise loop
+  END-IF
+  #UNI-HEX-U := SUBSTR(#STRING,#I)
+  EXAMINE #UNI-HEX-U TRANSLATE INTO UPPER
+  DECIDE FOR FIRST CONDITION
+    WHEN SUBSTR(#UNI-HEX-U,3,1) = ';' AND SUBSTR(#UNI-HEX-U,1,2)=MASK(H)
+      #UNI-HEX-U := SUBSTR(#UNI-HEX-U,1,2)
+      REDUCE DYNAMIC #UNI-HEX-U TO 2
+      #LEN := 6
+      COMPRESS '00' #UNI-HEX-U TO #UNI-HEX-U LEAVING NO
+      MOVE EDITED #UNI-HEX-U TO #UNI-CHAR-B (EM=HH)
+      #UNI-CHAR-B := #UNI-CHAR-I /* Swap bytes if low endian
+    WHEN SUBSTR(#UNI-HEX-U,1,4) = MASK(HH)
+      #UNI-HEX-U := SUBSTR(#UNI-HEX-U,1,4)
+      REDUCE DYNAMIC #UNI-HEX-U TO 4
+      #LEN := 8
+      MOVE EDITED #UNI-HEX-U TO #UNI-CHAR-B (EM=HH)
+      #UNI-CHAR-B := #UNI-CHAR-I /* Swap bytes if low endian
+    WHEN NONE
+      #UNI-CHAR := U'?'
+  END-DECIDE
+  IF #POS = 0 OR #LEN = 0 /*avoid NAT err SU2
+    ESCAPE BOTTOM /*otherwise loop
+  END-IF
+  #SEARCH := SUBSTR(#STRING,#POS,#LEN)
+  EXAMINE #STRING FOR #SEARCH REPLACE WITH #UNI-CHAR
+END-REPEAT
+*
+END-SUBROUTINE /* DECODE-UNICODE
+*
+************************************************************************
+ON ERROR /*just show error and some info SU1
+************************************************************************
+  PRINT NOTITLE NOHDR (AD=L) *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'fct:' FUNCTION 'err:' *ERROR-NR 'line:' *ERROR-LINE / #A250
+  #A250 := +NOM-USE-TRIGRAPH-HTML
+  COMPRESS '+use-tri-html:' #A250 TO #A250
+  IF SRC-CP SPECIFIED
+    COMPRESS #A250 'src-cp:' SRC-CP TO #A250
+  END-IF
+  IF TAR-CP SPECIFIED
+    COMPRESS #A250 'tar-cp:' TAR-CP TO #A250
+  END-IF
+  COMPRESS #A250 '#i:' #I '#pos:' #POS TO #A250
+  PRINT #A250
+* /*NO escape - continue with std error handling
+END-ERROR
+*
+INCLUDE XXCPAGC /* logging routine 'LOG-ENC-ERROR'
+*
+END

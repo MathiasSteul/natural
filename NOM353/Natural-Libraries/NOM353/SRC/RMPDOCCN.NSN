@@ -1,0 +1,129 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMPDOCCN
+* Funktion  Create Print-job-control part of the PRINT-DOCUMENT command
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* gw      1996-06-11 s(999999) created
+* mwi     1997-05-27 p(162605) text for PRINT-JOB-NAME must be embedded  in
+*                        quotes
+* mwi     1997-06-20 p(163135) PRINT-JOB-CLASS=0 not allowed
+* fhi     2000-08-24 QA03      Use NAT23006 for error values
+* xsetggr 2007-05-14 NOM3201   Convert node number to 5 digit format
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-05-05 p(304350) restow due to changes in RMSPL--L
+* fhi     2009-06-24 N3463     Extend metadata for OPO
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-10-08 NOMALL-97 Use dynamic memory handling
+* ---------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 RMPDOCCN-SPOOL-ATTRIBUTES     (A250)
+* 1 RMPDOCCN-SPOOL-ATTRIBUTES-ADD     (A250/1:3)
+* fhi     2010-10-08 NOMALL-97 line above out, next line in
+1 RMPDOCCN-SPOOL-ATTRIBUTES-ADD (A750)
+1 RMPDOCCN-CMD                  (16)
+  2 RMPDOCCN-CMD-LINE           (A72)
+  2 REDEFINE RMPDOCCN-CMD-LINE
+    3 RMPDOCCN-FILLER           (A71)
+    3 RMPDOCCN-CONTINUATION     (A1)
+  2 REDEFINE RMPDOCCN-CMD-LINE
+    3 RMPDOCCN-C                (A1/1:72)
+1 RMPDOCCN-CMD-OCC              (I4)
+1 RMPDOCCN-ERROR-CODE           (N4)
+1 RMPDOCCN-ERROR-TEXT           (A250)
+************************************************************************
+LOCAL USING RMSPL--L
+LOCAL USING RMSPLA-L
+*
+LOCAL
+1 #LENGTH                       (I2)
+1 #LINE-LENGTH                  (I2)
+1 #TLEN                         (I2)
+1 #TOKEN                        (A250)
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=81
+*
+RESET RMPDOCCN-ERROR-CODE RMPDOCCN-ERROR-TEXT
+*
+IF RMPDOCCN-CMD-OCC = 0
+  RMPDOCCN-CMD-OCC := 1
+END-IF
+*
+EXAMINE RMPDOCCN-CMD-LINE (RMPDOCCN-CMD-OCC) FOR 'x'
+  GIVING LENGTH #LINE-LENGTH
+*
+#SPOOL-ATTRIBUTES := RMPDOCCN-SPOOL-ATTRIBUTES
+CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+#SPOOL-ATTRIBUTES-EXT := RMPDOCCN-SPOOL-ATTRIBUTES-ADD
+#TOKEN := ',PRINT-JOB-CONTROL=*PARAMETERS('
+PERFORM TOKEN-TO-COMMAND
+*
+IF #SPOOL-BS2-JOB-NAME NE ' '
+  COMPRESS ',PRINT-JOB-NAME=''' #SPOOL-BS2-JOB-NAME ''''
+    TO #TOKEN LEAVING NO
+  PERFORM TOKEN-TO-COMMAND
+END-IF
+*
+IF #SPOOL-BS2-PRIORITY NE 0
+  COMPRESS ',PRINT-JOB-PRIORITY=' #SPOOL-BS2-PRIORITY
+    TO #TOKEN LEAVING NO
+  PERFORM TOKEN-TO-COMMAND
+END-IF
+*
+IF #SPOOL-BS2-CLASS IS (N6) AND VAL (#SPOOL-BS2-CLASS) NE 0
+  COMPRESS ',PRINT-JOB-CLASS=' #SPOOL-BS2-CLASS TO #TOKEN LEAVING NO
+  PERFORM TOKEN-TO-COMMAND
+END-IF
+*
+COMPRESS #TOKEN ')' INTO #TOKEN LEAVING NO
+PERFORM TOKEN-TO-COMMAND
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE TOKEN-TO-COMMAND
+************************************************************************
+IF #TOKEN = ' '
+  ESCAPE ROUTINE
+END-IF
+EXAMINE #TOKEN FOR 'x' GIVING LENGTH IN #TLEN
+#LENGTH := #LINE-LENGTH + #TLEN
+IF #LENGTH > 71
+  RMPDOCCN-CONTINUATION (RMPDOCCN-CMD-OCC) := '-'
+  ADD 1 TO RMPDOCCN-CMD-OCC
+  #LINE-LENGTH := 2
+END-IF
+IF #LINE-LENGTH > 2
+  COMPRESS RMPDOCCN-CMD-LINE(RMPDOCCN-CMD-OCC) #TOKEN
+    TO RMPDOCCN-CMD-LINE(RMPDOCCN-CMD-OCC) LEAVING NO
+ELSE
+  COMPRESS '/' #TOKEN TO RMPDOCCN-CMD-LINE(RMPDOCCN-CMD-OCC)
+END-IF
+*
+ADD #TLEN TO #LINE-LENGTH
+*
+RESET #TOKEN
+*
+END-SUBROUTINE /* TOKEN-TO-COMMAND
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  CALLNAT 'C-NATERN' RMPDOCCN-ERROR-TEXT
+  RMPDOCCN-ERROR-CODE := 21
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

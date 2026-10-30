@@ -1,0 +1,145 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* INTNOM - Sets flag in control Record (NAT22 only)
+*
+* Maintenance
+* uuu yy-mm-dd s(999999)  ...
+* gw  94-01-12 s(999999)  set version to 132
+* gw  94-06-15 s(999999)  set version to 133
+* gw  94-10-26 s(999999)  set version to 1331
+* gw  95-02-05 s(999999)  set version to 1332
+* mrs 95-08-03 s(999999)  set version to 134
+* gw  95-12-08 s(999999)  set version to 135
+* gw  96-09-25 s(999999)  set version to 1352
+* gw  96-11-22 s(999999)  set version to 1353
+* jwo 97-07-15 s(999999)  set version to 1354
+* jwo 97-07-31 s(999999)  set version to 141
+* jwo 97-07-31 s(999999)  set version to 141
+* jwo 97-09-17 p(164220)  Install for NAT23
+* jvd 98-02-08 p(179013)  Install for NAT31
+* fhi 99-11-24 p(189156)  Install for NAT31 correction
+* fhi 00-01-27 s(191368)  set version to 211
+* jwo 00-11-07 s(......)  use standard lda and code cleanup
+* fhi 03-04-30 NGC111     Add usage for NGC111
+* fhi 03-06-04 fhi        Copy SATINFO to PRODINFO to be unique to NOM211
+* fhi 03-09-02 p(244446)  Honour steplib mode (User, utility, system)
+* fhi 03-09-11 fhi01      Backout p(244446), call subroutine INITIALIZE
+*                         from copy code NOINIT-C instead of NOINIT-P
+*                         to avoid steplib setting.
+* XSETHZ 05-02-04         #SERVER-LIB = 'NOM31'
+* fhi 05-02-11 fhi02      Since Nat611PL12, avoid INITIALIZE routine
+* fhi 05-06-23 p(266530)  Monitor must be NPR Mainframe independent
+* fhi 09-03-30 P315875    Call MIGEND if minor version change
+* fhi 09-04-07 P315875    Set correct steplibs
+* bli 09-04-21 P315875    Comment before changes. INPL needs no SYSFILE.
+* bli 12-09-19 NOMALL-94  2 digit prod info
+* SU1 2013-10-10 remove harcoded version 3406 (use CC PRODINFO)
+* SU2 2016-08-11 NOM 3.5: remove unused code
+* SU3 2017-03-07 NOM 3.5: remove unused code
+* ----------------------------------------------------------------------
+* INTSUB2 Interface (93-03-23)
+* FUNCTION      (A01) -> "L"   List current Product ID's
+*                        "R"   Read information about Product
+*                        "N"   New Product information
+*                        "D"   Set Status "Deleted Product"
+*                        "X"   Delete Product (undocumented function)
+*                        "S"   Set Status "Sleeping product"
+*                        "A"   Activate "Sleeping product"
+*                        "E"   Extent direct read access
+* RETURN-CODE   (N04) -> 0000  No Error
+*                        0001  Invalid Function Request
+*                         -
+*                        9999  Unexpected Error
+* ERROR-TEXT    (A72) -> OUT
+* PROD-ID       (A03) -> IN
+* PROD-ACTIVE   (A01) -> A/S/D (Active/Sleeping/Deleted)
+* PROD-EXTENT   (I02) -> Extent Number for this Product ID
+* PROD-VERSION  (I01) -> Version
+* PROD-RELEASE  (I01) -> Release Number
+* PROD-SMLEVEL  (I01) -> System Maintenance Level
+* PROD-UPDLEVEL (I01) -> Update Level
+* PROD-DATE     (N08) -> *DATN for this information
+* PROD-TIME     (N07) -> *TIMN for this information
+* PROD-USER     (A08) -> OUT
+* PROD-REMARKS  (A16) -> IN-OUT
+* PROD-SAGSIS (I4/20) -> IN-OUT
+* PRODUCTS  (A03/100) -> IN-OUT
+* ----------------------------------------------------------------------
+*
+* Remarks:
+* Since NAT225 (93-03-23) the following Product ID's are available
+*          ESY - Entire System Server
+*          EOR - Entire Operations
+*          EEM - Entire Event Management
+*          EOM - Entire Output Management
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL USING INTSAT-L
+LOCAL
+1 #VERSION           (A8)
+1 OLD-PRODUCTNAME    (A3)   INIT <'NOM'>
+1 NEW-PRODUCTNAME    (A3)   INIT <'EOM'>
+1 #MSG               (A78)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *MACHINE-CLASS = 'PC'
+  OLD-PRODUCTNAME := NEW-PRODUCTNAME := 'NGC'
+END-IF
+INCLUDE PRODINFO 'NEW-PRODUCTNAME' 'INT-VERSION' 'INT-RELEASE'
+  'INT-SMLEVEL' 'INT-IUPDLEVEL'
+COMPRESS INT-VERSION '.' INT-RELEASE '.' INT-SMLEVEL
+  TO #VERSION LEAVING NO
+*
+PERFORM NEW-INSTALLATION
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE NEW-INSTALLATION
+************************************************************************
+INT-FUNCTION    := 'N'                      /* Vers/SM Change
+INT-PRODUCTNAME := NEW-PRODUCTNAME
+*
+PERFORM CALL-INTSUB2
+*
+IF INT-RESP NE  0
+  SET CONTROL 'N'
+  WRITE 'Installation ERROR' INT-RESP INT-FUNCTION / INT-TEXT
+  ESCAPE ROUTINE
+END-IF
+*
+RESET INITIAL INT-PARAMETER
+INT-FUNCTION    := 'X'                      /* undocumented delete
+INT-PRODUCTNAME := OLD-PRODUCTNAME
+*
+PERFORM CALL-INTSUB2
+*
+COMPRESS NEW-PRODUCTNAME #VERSION 'loaded sucessfully' INTO #MSG
+IF *MACHINE-CLASS NE 'PC'
+  WRITE #MSG
+END-IF
+*
+END-SUBROUTINE /* NEW-INSTALLATION
+*
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-INTSUB2
+************************************************************************
+CALLNAT 'INTSUB2' INT-FUNCTION INT-RESP INT-TEXT INT-PRODUCTNAME
+  INT-ACTIVE INT-EXTENT INT-VERSION INT-RELEASE INT-SMLEVEL
+  INT-IUPDLEVEL INT-DATE INT-TIME INT-USER INT-REM INT-SAG (*)
+  INT-PRODS (*)
+*
+END-SUBROUTINE /* CALL-INTSUB2
+*
+END

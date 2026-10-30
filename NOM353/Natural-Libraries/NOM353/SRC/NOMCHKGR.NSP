@@ -1,0 +1,162 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMCHKGR - check consistency of Folder grants (see NOMCHKFO too)
+*
+* Maintenance
+* uuuuuuu yyyy-mm-dd Issue
+* SU      2023-05-02 NOMALL-2630 Created
+* SU1     2023-05-03             check for Distribution List
+************************************************************************
+DEFINE DATA LOCAL
+1 GR VIEW OF NRM-GRANTS
+* GR-TYPE-OBJ-USER (A34):
+  2 GR-OBJECT-TYPE  (A1)
+  2 GR-OBJECT-NAME  (A25)
+  2 GR-USERID       (A8)
+* 2 C*GR-OPTION
+1 US VIEW OF NRM-USERS
+1 FO VIEW OF NRM-FOLDER
+1 DI VIEW OF NRM-DISTRIBUTION-LIST
+*
+1 #ERR           (L)
+1 #CNT           (I2)
+1 #USER          (A8)
+1 #FO-ID_A10     (A10)
+1 REDEFINE #FO-ID_A10
+  2 #FO-ID_N5    (N5)
+1 #FO-USER-FO-ID (A10)
+1 REDEFINE #FO-USER-FO-ID
+  2 #FO-USER-ID  (A8)
+  2 #FO-ID       (B2)
+1 #I             (I2)
+1 #LEN           (I2)
+1 #INV           (I2)
+1 #MSG           (A72)
+1 #ACTION        (A72)
+1 #TITLE         (A55)
+1 #US-EXIST      (I2)
+1 #ACT-SAG       (A35) CONST <'Correct data - contact Software AG'>
+1 #T             (A10) /*type:U=user/D=dist.List
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT SG=OFF
+*
+SET KEY ALL
+WRITE TITLE LEFT *TIME(AL=8) #TITLE (AD=I)
+  72T *DATI / 72T 'Page:' *PAGE-NUMBER(NL=2 AD=R)
+COMPRESS *PROGRAM ': check consistency of Folder Grants' TO #TITLE
+* *****
+#GR. READ GR BY GR-TYPE-OBJ-USER ='F' /*Folder
+  IF GR-OBJECT-TYPE NE 'F'
+    ESCAPE BOTTOM
+  END-IF
+  ADD 1 TO #CNT
+* *****
+* Does linked user exist (before display - #T)
+* *****
+  RESET #ERR
+  #US-EXIST := 1 /*user exist
+  #T := 'not def.'
+  IF GR-USERID = 'PUBLIC' /*spec. user - must not exist
+    #T := 'all Users'
+  ELSE
+    #US. FIND NUMBER US WITH USER-ID = GR-USERID
+    IF *NUMBER (#US.) = 0
+      #US-EXIST := 0 /*user not exist
+      #DI. FIND NUMBER DI WITH D-LIST-NAME = GR-USERID
+      IF *NUMBER (#DI.) = 0
+        #US-EXIST := 2 /*msg given
+        #MSG := F#GETMSG (<2, GR-USERID>) /*User Id not defined
+        COMPRESS #MSG '(and no Distribution List)' TO #MSG
+        #ACTION := 'Create user or Distribution List - manually'
+        #ERR := TRUE /*write msg after DISPLAY
+      ELSE
+        #T := 'Dist. List'
+      END-IF
+    ELSE
+      #T := 'User'
+    END-IF
+  END-IF
+* *****
+  DISPLAY ' ' #CNT(NL=4) 'User+Folder ID' GR-OBJECT-NAME
+    'User' GR-USERID 'T' #T
+  IF #ERR
+    PERFORM ERR
+  END-IF
+* *****
+* Check GR-OBJECT-NAME: user (1-8) + ID (N5) -> min=6 / max=13
+* *****
+  EXAMINE GR-OBJECT-NAME FOR ' ' GIVING LENGTH #LEN
+  IF NOT (#LEN =6 THRU 13) /*
+    COMPRESS 'Invalid object name (User+Folder): length=' #LEN ':'
+      ' Format: <user(A8)><id(N5)>' TO #MSG LEAVING NO
+    #ACTION := #ACT-SAG  /* contact SAG'
+    PERFORM ERR
+    ESCAPE TOP
+  END-IF
+* Folder ID (last 5 bytes):
+**GR-OBJECT-NAME := 'SU01001' /*???????????????????
+  #I := #LEN - 4
+  #FO-ID_A10 := SUBSTR(GR-OBJECT-NAME,#I)
+**PRINT '=' #FO-ID_A10 '=' GR-OBJECT-NAME '=' #I
+  IF #FO-ID_A10 NE MASK(99999'     ')
+    COMPRESS 'Invalid folder ID (N5):' #FO-ID_A10 TO #MSG
+    #ACTION := #ACT-SAG  /* contact SAG'
+    PERFORM ERR
+    ESCAPE TOP
+  END-IF
+* User ID:
+  #I := #LEN - 5
+  #USER := SUBSTR(GR-OBJECT-NAME,1,#I)
+**PRINT '=' GR-OBJECT-NAME '=' #USER /*????????????
+  IF #USER NE GR-USERID OR #US-EXIST = 0 /*msg only once
+    #US1. FIND NUMBER US WITH USER-ID = #USER
+    IF *NUMBER (#US1.) = 0
+      #MSG := F#GETMSG (<2, #USER>) /*User Id not defined
+      #ACTION := 'Create user - manually'
+      PERFORM ERR
+    ELSE
+      #US-EXIST := 1 /*user exist
+    END-IF
+  END-IF
+  IF #US-EXIST = 1 /*user exist
+    ADD 1 TO #I
+    #FO-USER-ID := #USER
+    #FO-ID      := #FO-ID_N5
+    #FO. FIND NUMBER FO WITH FO-USER-FO-ID = #FO-USER-FO-ID
+    IF *NUMBER (#FO.) = 0
+      COMPRESS 'Folder does not exist:' #USER '/' #FO-ID_A10 TO #MSG
+      #ACTION := #ACT-SAG  /* contact SAG'
+      PERFORM ERR
+    END-IF
+  END-IF
+END-READ
+*
+PRINT / 'Summary: folders checked:'(I) #CNT 'invalid:' #INV
+  / '*** End of Report ***'
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE ERR
+************************************************************************
+ADD 1 TO #INV
+PRINT '>>>' #MSG
+IF #ACTION NE ' '
+  PRINT 4X #ACTION
+  RESET #ACTION
+END-IF
+*
+END-SUBROUTINE /* ERR
+*
+END

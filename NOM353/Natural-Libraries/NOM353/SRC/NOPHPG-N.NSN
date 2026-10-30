@@ -1,0 +1,156 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ----------------------------------------------------------------
+* Subprogram  NOPHPG-N
+* Version    3.2
+* Function   NOM API Maintenance of Physical Printers
+*            Functions start and stop printers for printer group
+*            Input keys :
+*           ES-KEY-PARM(1) number of printers in the case of multiselect
+*           ES-NEWNAME         new printer name for copy
+* Maintenance:
+* XSETGGR 2008-01-25 NOM32 created
+* XSETHZ  2008-01-28 modified
+* XSETGGR 2008-02-17 P(301953) change parms for rhanph-n
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* -------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOPHPG-A
+************************************************************************
+LOCAL
+1 LOGICAL-PRINTERS VIEW OF NRM-PRINTERS
+1 PHYSICAL-PRINTER VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-VTAMID
+  2 PH-STATUS
+1 #ES-MSG-PREF             (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM            (A3)
+  2 #ES-MSG-NR             (N4)
+1 #COUNT                   (I4)
+1 #NAME                    (A8)
+1 #NAME-F                  (A8)
+1 #NAME-T                  (A8)
+1 #I                       (I4)
+1 #J                       (I4)
+1 #K                       (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-MSG-NR ES-MSG-FIELD ES-MSG-TXT
+#COUNT := ES-NUMBER
+IF NOPHPG-NAME (0,0) = SCAN '*'
+  #NAME := NOPHPG-NAME(0,0)
+  PERFORM READ-SELECTED-PRINTERS
+END-IF
+*
+RESET #I
+MAIN. REPEAT
+  DIVIDE 25 INTO #I GIVING #J REMAINDER #K
+  ADD 1 TO #I
+  IF #I > #COUNT
+    ESCAPE BOTTOM(MAIN.)
+  END-IF
+  DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+    VALUE 'PS'
+      PERFORM START-PRINTER
+    VALUE 'PO'
+      PERFORM STOP-PRINTER
+    ANY VALUE
+      IF ES-MSG-NR NE 0
+        BACKOUT TRANSACTION
+      ELSE
+        END TRANSACTION
+        PERFORM OPTION
+      END-IF
+    NONE VALUE IGNORE
+  END-DECIDE
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SELECTED-PRINTERS
+************************************************************************
+RESET NOPHPG (*)
+EXAMINE #NAME FOR '*' DELETE
+#NAME-F := #NAME
+COMPRESS #NAME H'FF' TO #NAME-T LEAVING NO
+READ PHYSICAL-PRINTER BY PH-VTAMID STARTING FROM #NAME-F
+    ENDING AT #NAME-T
+  IF ES-EXTEND-FUNCTION = 'PS' AND PH-STATUS = 'S'
+  OR ES-EXTEND-FUNCTION = 'PO' AND PH-STATUS = ' '                    /*
+    DIVIDE 25 INTO #I GIVING #J REMAINDER #K
+    NOPHPG-NAME(#J,#K) := PH-VTAMID
+    ADD 1 TO #I
+  END-IF
+END-READ
+#COUNT := #I
+ES-NUMBER := #COUNT
+*
+END-SUBROUTINE /* READ-SELECTED-PRINTERS
+*
+************************************************************************
+DEFINE SUBROUTINE START-PRINTER
+************************************************************************
+FNDS. FIND NUMBER PHYSICAL-PRINTER WITH PH-VTAMID = NOPHPG-NAME(#J,#K)
+IF *NUMBER(FNDS.) = 0
+  NOPHPG-OPTION(#J,#K) := '1'  /* physical printer not defined
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'RHANPH-N' NOPHPG-NAME(#J,#K) 'S' ES-USER #ES-MSG-NR
+IF #ES-MSG-NR NE 0
+  NOPHPG-OPTION(#J,#K) := '1'
+  ESCAPE ROUTINE
+END-IF
+RESET PH-STATUS
+*
+END-SUBROUTINE /* START-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE STOP-PRINTER
+************************************************************************
+FNDC. FIND NUMBER PHYSICAL-PRINTER WITH PH-VTAMID = NOPHPG-NAME(#J,#K)
+IF *NUMBER(FNDC.) = 0
+  #ES-MSG-NR := 0119   /* physical printer not defined
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'RHANPH-N' NOPHPG-NAME(#J,#K) 'C' ES-USER #ES-MSG-NR
+IF #ES-MSG-NR NE 0
+  NOPHPG-OPTION(#J,#K) := '1'  /* physical printer not defined
+  ESCAPE ROUTINE
+END-IF
+PH-STATUS := 'S'
+*
+END-SUBROUTINE /* STOP-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE OPTION
+************************************************************************
+RESET NOPHPG-OPTION(#J,#K)
+LP. FIND NUMBER LOGICAL-PRINTERS WITH P-PHYSICAL-NAME=NOPHPG-NAME(#J,#K)
+IF *NUMBER(LP.) > 0 /*SU1 in
+  NOPHPG-OPTION(#J,#K) := 'DL'
+END-IF
+*
+END-SUBROUTINE /* OPTION
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

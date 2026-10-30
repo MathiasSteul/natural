@@ -1,0 +1,285 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMLOGR - Print log messages to logical printer(1) in reverse order
+*           (new to old) (from NOMLOG)
+*
+* Maintenance
+* fhi     2018-01-26             Created from NOMLOG
+* fhi     2019-05-13 NOMALL-2272 Correct evaluation of time inverted
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL USING  SATLGV1P
+LOCAL USING  SATLF02P
+LOCAL USING  CONST-L
+* *****
+LOCAL
+1 SAT-LOG VIEW OF SAT-LOG-FILE35
+  2 LOG-ENV-TIMEINV
+  2 LOG-TIME
+  2 LOG-TIME-ZONE
+  2 LOG-MESSAGE
+  2 LOG-JOB
+  2 LOG-JOB-ID
+  2 LOG-EXEC-USERID
+  2 LOG-USER-DATA (1:20)
+  2 LOG-NOM-TYPE
+1 #SATKEY-FROM                 (A20)
+1 REDEFINE #SATKEY-FROM
+  2 #ENV-DBID-FROM             (N5)
+  2 #ENV-FNR-FROM              (N5)
+  2 #ENV-TIME-FROM             (P12)
+  2 #ENV-MICROINV-FROM         (P5)
+*
+1 #SATKEY-TO                   (A20)
+1 REDEFINE #SATKEY-TO
+  2 #ENV-DBID-TO               (N5)
+  2 #ENV-FNR-TO                (N5)
+  2 #ENV-TIME-TO               (P12)
+  2 #ENV-MICROINV-TO           (P5)
+*
+1 #FROM-D                      (A12)
+1 REDEFINE #FROM-D
+  2 #FROM-DATE                 (A8)
+  2 #FROM-TIME                 (A4)
+  2 REDEFINE #FROM-TIME
+    3 #FROM-HH                 (A2)
+    3 #FROM-II                 (A2)
+1 #TO-D                        (A12)
+1 REDEFINE #TO-D
+  2 #TO-DATE                   (A8)
+  2 #TO-TIME                   (A4)
+  2 REDEFINE #TO-TIME
+    3 #TO-HH                   (A2)
+    3 #TO-II                   (A2)
+1 #FROM                        (T)
+1 REDEFINE #FROM
+  2 #FROM-P                    (P12)
+1 #TO                          (T)
+1 REDEFINE #TO
+  2 #TO-P                      (P12)
+1 ERROR-OCCURRED               (L)
+1 #ERROR-TEXT                  (A80)
+1 #MESSAGE-TEXT                (A250)
+1 #LANGUAGE                    (N2)
+1 #OLD-LANGUAGE                (N2)
+*
+1 I                            (I2)
+1 #I                           (I2)
+1 #MESSAGE-ARRAY               (A94/*)
+1 #L-MSG-ALL                   (A)     DYNAMIC
+1 #L-MSG-ALL-UPPER             (A)     DYNAMIC
+1 #RC                          (N4)
+1 #TEXT                        (A132)
+1 #POS                         (I4)
+1 #YESNO                       (A1)
+1 #TRACE                       (A1)
+************************************************************************
+1 #ERN                                 (N4)   /* NOMALL-1454 fhi in
+1 #ERC                                 (A250)
+1 #STRING                              (A250)
+1 #MODULE                              (A30)  /* NOMALL-1579 fhi in
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT (01) PS=60 LS=133
+FORMAT      LS=133
+*
+CALLNAT 'NOMGSTEP' 'F' #RC
+RESET #ERROR-TEXT
+#OLD-LANGUAGE := *LANGUAGE
+AT TOP OF PAGE (1)
+  IF #YESNO = 'Y'     /* NOMALL-1404
+    WRITE (01) '-' (132)
+     / 48T 'N O M L O G - NOM Monitor Log Output' 125T *PAGE-NUMBER (01)
+  END-IF
+END-TOPPAGE
+SATLF-FUNCTION := 'GET'
+SATLF-LFILE    := 206
+CALLNAT 'SATLF02N' SATLF-SATVERS SATLF-PARMS (*)
+#ENV-DBID-FROM := #ENV-DBID-TO := SATLF-DBID-N5
+#ENV-FNR-FROM  := #ENV-FNR-TO  := SATLF-FNR-N5
+*
+DECIDE FOR EVERY CONDITION
+  WHEN NOT ERROR-OCCURRED
+    PERFORM INPUT-PARAMETER
+  WHEN NOT ERROR-OCCURRED
+    PERFORM PRINT-MESSAGES
+  WHEN ERROR-OCCURRED
+    WRITE (01) NOTITLE NOHDR
+      *USER *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II) *PROGRAM
+      #ERROR-TEXT
+    TERMINATE 4
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+*LANGUAGE := #OLD-LANGUAGE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INPUT-PARAMETER
+************************************************************************
+INPUT (AD=MIT)
+  // 'From date (YYYYMMDD) .......' #FROM-DATE
+  /  'From time (HHII) ...........' #FROM-TIME
+  // 'To date (YYYYMMDD) .........' #TO-DATE
+  /  'To time (HHII) .............' #TO-TIME
+  // 'Language (1,2) .............' #LANGUAGE
+  // 'Log (L),Trace (T),both (B)?.' #TRACE
+  // 'Title?   (Y/N) .......' #YESNO
+  // 'Fulltext search.......' #TEXT
+*
+DECIDE FOR FIRST CONDITION
+  WHEN #FROM-DATE NE MASK (YYYYMMDD)
+    #ERROR-TEXT := 'Invalid FROM-DATE format'
+  WHEN NOT (#FROM-HH = '00' THRU '23' AND #FROM-II = '00' THRU '59')
+    #ERROR-TEXT := 'Invalid FROM-TIME format'
+  WHEN #TO-DATE NE MASK (YYYYMMDD)
+    #ERROR-TEXT := 'Invalid TO-DATE format'
+  WHEN NOT (#TO-HH = '00' THRU '23' AND #TO-II = '00' THRU '59')
+    #ERROR-TEXT := 'Invalid TO-TIME format'
+  WHEN NONE
+    MOVE EDITED #FROM-D    TO #FROM (EM=YYYYMMDDHHII)
+    MOVE EDITED #TO-D      TO #TO   (EM=YYYYMMDDHHII)
+    IF #TO <= #FROM
+      #ERROR-TEXT := 'TO-TIME must be greater FROM-TIME'
+    ELSE
+      ADD 599 TO #TO-P
+      WRITE (01)  NOTITLE NOHDR
+        'From:' #FROM (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+        / 'To:  ' #TO (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+        / 'Log type:' #TRACE / '-' (132)
+    END-IF
+END-DECIDE
+IF #ERROR-TEXT NE ' '
+  ERROR-OCCURRED := TRUE
+ELSE
+  IF #TEXT NE ' '
+    WRITE (01) NOTITLE NOHDR
+      / 'Fulltext search (case insensitive):' / #TEXT
+      / '-' (132)
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* INPUT-PARAMETER
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-MESSAGES
+************************************************************************
+CALLNAT 'SATLGFVN' SATLGV-PARMS
+IF SATLGV-RC NE 0
+  WRITE *PROGRAM SATLGV-ERROR-TEXT
+  #ERROR-TEXT:= SATLGV-ERROR-TEXT
+  IF SATLGV-LOG-DBID NE 0 OR SATLGV-LOG-FNR NE 0
+    WRITE *PROGRAM 'Dbid:' SATLGV-LOG-DBID 'Fnr:' SATLGV-LOG-FNR
+    COMPRESS #ERROR-TEXT SATLGV-LOG-DBID SATLGV-LOG-FNR TO #ERROR-TEXT
+  END-IF
+  ERROR-OCCURRED := TRUE
+  ESCAPE ROUTINE
+END-IF
+* #ENV-TIME-FROM        := 999999999999 - #FROM-P
+#ENV-TIME-FROM        := #CONST-INV-TIME - #FROM-P
+#ENV-TIME-TO          := #CONST-INV-TIME - #TO-P
+#ENV-MICROINV-FROM    := 99999
+#ENV-MICROINV-TO      := 0
+READ SAT-LOG BY LOG-ENV-TIMEINV = #SATKEY-TO THRU #SATKEY-FROM
+  DECIDE ON FIRST VALUE OF #TRACE
+    VALUE 'T'
+      IF LOG-NOM-TYPE NE 'TR'
+        ESCAPE TOP
+      END-IF
+    VALUE 'L'
+      IF LOG-NOM-TYPE  = 'TR'
+        ESCAPE TOP
+      END-IF
+    NONE
+      IGNORE
+  END-DECIDE
+  IF LOG-USER-DATA (1) = ' ' AND LOG-MESSAGE NE ' '
+    LOG-USER-DATA (1) := LOG-MESSAGE /* old stuff ...
+  END-IF
+  REDUCE DYNAMIC #L-MSG-ALL TO 0
+  REDUCE DYNAMIC #L-MSG-ALL-UPPER TO 0
+  FOR I = 1 TO 20
+    IF LOG-USER-DATA (I) = ' '
+      ESCAPE BOTTOM
+    END-IF
+    PERFORM PREPARE-MESSAGE
+    COMPRESS #L-MSG-ALL #MESSAGE-TEXT TO #L-MSG-ALL
+  END-FOR
+  IF #TEXT NE ' ' /* something to be searched
+    #L-MSG-ALL-UPPER := #L-MSG-ALL
+    EXAMINE #L-MSG-ALL-UPPER TRANSLATE INTO UPPER
+    EXAMINE #L-MSG-ALL-UPPER FOR #TEXT GIVING POSITION IN #POS
+    IF #POS = 0
+      ESCAPE TOP
+    END-IF
+  END-IF
+  IF LOG-JOB-ID = ' ' OR = '0'
+    RESET #MODULE LOG-JOB-ID
+  ELSE
+    IF LOG-JOB-ID IS (N9)
+      COMPRESS 'with Number' LOG-JOB-ID TO #MODULE
+    ELSE
+      COMPRESS 'of Module' LOG-JOB-ID TO #MODULE
+    END-IF
+  END-IF
+  PERFORM XXWRAP-WORD-WRAP 'L' #L-MSG-ALL #MESSAGE-ARRAY (*) 94
+  I := 1                        /* no sat-log secondary records
+  IF LOG-JOB = ' ' AND LOG-JOB-ID = ' '
+    WRITE (01) NOTITLE NOHDR LOG-EXEC-USERID (AL=8)
+      LOG-TIME (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      LOG-TIME-ZONE
+      38T #MESSAGE-ARRAY (1) (DY=<I> AL=94)
+  ELSE
+    WRITE (01) NOTITLE NOHDR LOG-EXEC-USERID (AL=8)
+      LOG-TIME (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      LOG-TIME-ZONE
+      38T LOG-JOB #MODULE /
+      38T #MESSAGE-ARRAY (1) (DY=<I> AL=94)
+  END-IF
+  FOR #I = 2 TO *OCC (#MESSAGE-ARRAY)
+    IF #MESSAGE-ARRAY (#I) NE ' '
+      WRITE (01) NOTITLE NOHDR
+        38T #MESSAGE-ARRAY (#I) (DY=<I> AL=94)
+    END-IF
+  END-FOR
+END-READ                       /* NOMALL-1454 was END-REPEAT
+*
+END-SUBROUTINE /* PRINT-MESSAGES
+*
+************************************************************************
+DEFINE SUBROUTINE PREPARE-MESSAGE
+************************************************************************
+IF I = 1
+  RESET #ERN
+  SEPARATE LOG-USER-DATA (1) INTO #ERC
+    REMAINDER #STRING WITH DELIMITER ' '
+  DECIDE FOR FIRST CONDITION
+    WHEN #ERC IS (N4)
+      #ERN := VAL(#ERC)
+      MOVE EDITED #ERN (EM=9999) TO #ERC
+    WHEN LOG-USER-DATA (1) = MASK ('NOM'NNNN' ')
+      #ERC := SUBSTR(LOG-USER-DATA(1),4,4)
+      #ERN := VAL(#ERC)
+      LOG-USER-DATA (1) := SUBSTR(LOG-USER-DATA(1),4)
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-IF
+*
+#MESSAGE-TEXT := LOG-USER-DATA (I)
+CALLNAT 'RSUBMSGN' #MESSAGE-TEXT
+*
+END-SUBROUTINE /* PREPARE-MESSAGE
+*
+END

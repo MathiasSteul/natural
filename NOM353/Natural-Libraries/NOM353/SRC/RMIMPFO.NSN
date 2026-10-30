@@ -1,0 +1,223 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+***********************************************************#************
+* RMIMPFO - Import FOlder of user
+*   ATTENTION: FOlder handled as separate object, but it belongs
+*              to USer - at least check if user exist.(SU7)
+*
+* Maintenance
+* User  yyyy-mm-dd Issue       Remark
+* ----- ---------------------- -----------------------------------------
+*       2019-02-22 generated   Created for RMIMPORT from RMXML2LD
+* fhi   2019-02-20 NOMALL-2215 Add object type MF Node: NO /rewritten
+* SU3   2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU4   2021-01-08 NOMALL-2443 avoid dup. entries
+* SU5   2021-03-25 NOMALL-2443 avoid dup. folders uqaed with NOMALL-2444
+* SU6   2021-04-22 NOMALL-2460 show actions
+* SU7   2021-08-18 NOMALL-2467 use folder name instead ID
+* SU8   2022-04-27 NOMALL-2546 correct msg (no hex)/itrac for uqac
+* SU9   2023-03-30 NOMALL-2630 avoid #Inbasket + #Listeneingang
+************************************************************************
+DEFINE DATA
+PARAMETER USING RMIMP-A
+PARAMETER
+1 FO-FILL
+  2 FO-ID               (B2)
+  2 FO-NAME             (A16)
+  2 FO-USER-ID          (A8)
+  2 FO-DESC             (A50)
+  2 FO-MAP-LAYOUT       (B2)
+  2 FO-LINKED-FO-ID     (A10)
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER-ID (A8)
+    3 FO-LINKED-ID      (B2)
+  2 FO-DEFAULT-LOCATION (A1)
+  2 FO-OBJECT-TYPE      (A10)
+  2 FO-OBJECT-TIME      (T)
+  2 FO-LINKED-NAME      (A16) /*SU7
+/***********************************************************************
+LOCAL USING RMIMP-L /*SU6
+LOCAL USING RMBAS64P
+/*SU7 LOCAL USING RMIMPFOL
+LOCAL
+1 FO VIEW OF NRM-FOLDER /*SU7 was RMIMPFOL
+  2 FO-OBJECT-TYPE      (A10)
+  2 FO-OBJECT-TIME      (T)
+  2 FO-ID               (B2)
+  2 FO-NAME             (A16)
+  2 FO-USER-ID          (A8)
+  2 FO-DESC             (A50)
+  2 FO-MAP-LAYOUT       (B2)
+  2 FO-LINKED-FO-ID     (A10)
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER-ID (A8)
+    3 FO-LINKED-ID      (B2)
+  2 FO-DEFAULT-LOCATION (A1)
+1 US VIEW OF NRM-USERS
+*
+1 #FO-ID                (I4)
+1 #FO-MAP-LAYOUT        (I4)
+1 #FO-LINKED-ID         (I4)
+1 ##FO-USER-NAME        (A24) /*SU7 reactivate
+1 REDEFINE ##FO-USER-NAME
+  2 ##FO-USER-ID        (A8)
+  2 ##FO-NAME           (A16)
+1 ##FO-USER-FO-ID       (A10) /*SU9
+1 REDEFINE ##FO-USER-FO-ID
+  2 ##FO-USER-ID2       (A8)
+  2 ##FO-ID             (B2)
+1 #A40                  (A40/1)
+1 #I                    (I2)
+1 #USER-ID              (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT AD=L /*for PRINT SU7
+IF *OCC(B64-TEXT-ARRAY) = 0
+  EXPAND ARRAY B64-TEXT-ARRAY TO (1:5)
+END-IF
+IF NOT #SAVE
+  IF #TAG-CURRENT = #TAG-OLD
+    ADD 1 TO #IND
+  ELSE
+    #IND := 1
+  END-IF
+  IF #VALUE-CURRENT = ' '
+    ESCAPE MODULE
+  END-IF
+  DECIDE ON FIRST VALUE OF #TAG-CURRENT
+    VALUE 'FO-OBJECT-TYPE'
+      FO-FILL.FO-OBJECT-TYPE := #VALUE-CURRENT
+    VALUE 'FO-OBJECT-TIME'
+      MOVE EDITED #VALUE-CURRENT TO FO-FILL.FO-OBJECT-TIME
+        (EM=YYYY'-'MM'-'DD'-'HH':'II':'SS'.'T)
+    VALUE 'FO-ID'
+      IF #VALUE-CURRENT IS (I4)
+        #FO-ID := VAL (#VALUE-CURRENT)
+        FO-FILL.FO-ID := #FO-ID
+      ELSE
+        #MSG := 'FO-ID'
+        PERFORM FIELD-IGNORED /*RMIMP-C1
+      END-IF
+    VALUE 'FO-NAME'
+      FO-FILL.FO-NAME := #VALUE-CURRENT
+    VALUE 'FO-USER-ID'
+      FO-FILL.FO-USER-ID := #VALUE-CURRENT
+    VALUE 'FO-DESC'
+      FO-FILL.FO-DESC := #VALUE-CURRENT
+    VALUE 'FO-MAP-LAYOUT'
+      IF #VALUE-CURRENT IS (I4)
+        #FO-MAP-LAYOUT := VAL (#VALUE-CURRENT)
+        FO-FILL.FO-MAP-LAYOUT := #FO-MAP-LAYOUT
+      ELSE
+        #MSG := 'FO-MAP-LAYOUT'
+        PERFORM FIELD-IGNORED /*RMIMP-C1
+      END-IF
+    VALUE 'FO-LINKED-USER-ID'
+      FO-FILL.FO-LINKED-USER-ID := #VALUE-CURRENT
+    VALUE 'FO-LINKED-ID'
+      IF #VALUE-CURRENT IS (I4)
+        #FO-LINKED-ID := VAL (#VALUE-CURRENT)
+        FO-FILL.FO-LINKED-ID := #FO-LINKED-ID
+      ELSE
+        #MSG := 'FO-LINKED-ID'
+        PERFORM FIELD-IGNORED /*RMIMP-C1
+      END-IF
+    VALUE 'FO-DEFAULT-LOCATION'
+      FO-FILL.FO-DEFAULT-LOCATION := #VALUE-CURRENT
+    VALUE 'FO-LINKED-NAME'
+      FO-FILL.FO-LINKED-NAME := #VALUE-CURRENT
+    NONE IGNORE
+  END-DECIDE
+ELSE
+  COMPRESS FO-FILL.FO-USER-ID '/' FO-FILL.FO-NAME TO #OBJ-NAME
+  IF FO-FILL.FO-LINKED-USER-ID NE ' ' /*check linked US
+    PERFORM HANDLE-LINKED-FOLDER
+  END-IF
+  ##FO-USER-ID := FO-FILL.FO-USER-ID /*SU5
+  ##FO-NAME    := FO-FILL.FO-NAME /*SU7 react.
+  IF FO-FILL.FO-ID = 1 /*Inbasket:get name of it SU9 ->
+    ##FO-USER-ID2 := FO-FILL.FO-USER-ID
+    ##FO-ID      := 1
+    IN. FIND FO WITH FO-USER-FO-ID = ##FO-USER-FO-ID
+      IF ##FO-NAME NE FO.FO-NAME
+        PRINT (AD=L) 'NOM0005 Import: FO' ##FO-USER-ID '/' ##FO-NAME
+          'loaded into' FO.FO-NAME
+        ##FO-NAME := FO.FO-NAME
+      END-IF
+    END-FIND
+  END-IF /*SU9 <-
+/*SU7 ##FO-ID      := FO-FILL.FO-ID /*SU5
+/*SU5 ##FO-USER-ID := FO-FILL.FO-ID
+  OBJ. FIND (1) FO WITH FO-USER-NAME = ##FO-USER-NAME /*SU7 react.
+/*SU7  OBJ. FIND (1) FO WITH FO-USER-FO-ID = ##FO-USER-FO-ID /*SU5
+* SU4   2021-01-08 NOMALL-2443 avoid dup. entries
+    IF NO RECORDS FOUND /*FO name not exist -> add as new with new ID:
+      IF FO-FILL.FO-ID GE 100 /*user FO->get new nr: SU7
+        FO-FILL.FO-ID := F#GETFOL (<FO-FILL.FO-USER-ID>)
+      END-IF
+      IF FO-FILL.FO-ID = 1 /*Inbasket SU9
+        FO-FILL.FO-ID := F#GETFOL (<FO-FILL.FO-USER-ID>)
+      END-IF
+      MOVE BY NAME FO-FILL TO FO
+      STORE FO
+      PERFORM ADD-LOADED
+      ESCAPE BOTTOM (OBJ.)
+    END-NOREC
+    MOVE BY NAME FO-FILL TO FO
+    IF #REPL = 'Y'
+      UPDATE (OBJ.)
+      PERFORM ADD-REPLACED
+    ELSE
+/*SU5 COMPRESS ##FO-USER-NAME 'not replaced for FO' TO #MSG /*SU4:#KEY
+      #MSG := FO-FILL.FO-ID /*SU5
+      COMPRESS 'FO not replaced:' FO-FILL.FO-NAME '(' #MSG ')'
+        'US:' FO-FILL.FO-USER-ID TO #MSG
+/*SU8   'US:' FO-FILL.FO-ID TO #MSG
+      PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+      PERFORM ADD-NOT-REPLACED
+    END-IF
+  END-FIND
+  END TRANSACTION
+END-IF
+*
+INCLUDE RMIMP-C1
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-LINKED-FOLDER /*SU7
+************************************************************************
+#USER-ID := FO-FILL.FO-LINKED-USER-ID
+#US. FIND NUMBER US WITH USER-ID = #USER-ID
+IF *NUMBER (#US.) = 0 /*USer required, but unloaded later than FO Ü
+  COMPRESS 'Linked user' #USER-ID TO #A40 (1)
+  #MSG := F#GETMSG (<34, #A40 (*)>) /*NOM0034 :1: does not exist.
+  COMPRESS #MSG 'But folder loaded anyway:' TO #MSG
+  PRINT #MSG
+END-IF
+##FO-USER-ID := FO-FILL.FO-LINKED-USER-ID
+##FO-NAME    := FO-FILL.FO-LINKED-NAME
+OBJ1. FIND (1) FO WITH FO-USER-NAME = ##FO-USER-NAME
+  FO-FILL.FO-LINKED-ID := FO.FO-ID /*use this ID(same name=same FO)
+END-FIND
+IF *NUMBER(OBJ1.) = 0
+  COMPRESS 'Linked folder' ##FO-NAME TO #A40 (1)
+  #MSG := F#GETMSG (<34, #A40 (*)>) /*NOM0034 :1: does not exist.
+  COMPRESS #MSG 'User:' ##FO-USER-ID TO #MSG
+  PRINT #MSG
+  WRITE 8X 'But folder loaded anyway.' /*hopefully the IDs fit ???
+END-IF
+*
+END-SUBROUTINE /*HANDLE-LINKED-FOLDER
+*
+END

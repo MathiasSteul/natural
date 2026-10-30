@@ -1,0 +1,179 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    EOMPOMPN
+* Version   3.1
+* Function  DB Interface EOM Object Printout  (Printer attributes)
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* xsetggr 2007-05-30 p(294790) created
+* xsetggr 2007-06-27 NOM3201   support 5 byte node numbers and 11 byte
+*                              run numbers - restow due changes eompom-p
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2010-11-15 NOMALL-865 restow due to changes in EMPHTYE
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2016-01-19 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2017-04-07 NOMALL-1961 Omit field PO-MONITOR
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 EOM-FUNCTION                         (I2)
+PARAMETER USING EOMPOM-P
+PARAMETER USING EOMMSG-P
+* -----------------------------LDAs-------------------------------------
+LOCAL USING EOM----E
+LOCAL USING EOMPHTYE
+* -----------------------------Views------------------------------------
+LOCAL
+1 PRINTER VIEW OF NRM-PRINTERS
+  2 P-NAME
+1 PHYSICAL-PRINTER VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-LOCATION
+  2 PH-PRINTER-TYPE
+1 PRINTOUT VIEW OF NRM-PRINTOUTS
+  2 PO-ID
+  2 PO-ESCAPE-CHAR
+  2 PO-EXITLIB
+  2 PO-EXITMEM
+  2 PO-HOLD
+  2 PO-JCL-SKELETON
+  2 PO-JOBCARD (3)
+  2 PO-JOBNAME
+  2 PO-JOBNO
+  2 PO-LOGICAL
+* 2 PO-MONITOR
+* fhi     2017-04-07 NOMALL-1961 line above out
+  2 PO-NODE
+  2 PO-PHYSICAL-NAME
+  2 PO-PRINT-PGM
+  2 PO-PRINTER-TYPE
+/*SU2 2 PO-OBJECT-TYPE /*SU1
+/*SU2 2 PO-OBJECT-TIME /*SU1
+1 #I                                   (I2)
+*
+END-DEFINE
+* --------------------------------------- main -------------------------
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-READ, EOM-READ-NEXT
+    PERFORM READ-PRINTER-ATTRIBUTES
+  VALUE EOM-READHOLD, EOM-READHOLD-NEXT
+    PERFORM READ-PRINTER-ATTRIBUTES
+  VALUE EOM-MODIFY
+    PERFORM MODIFY-PRINTER-ATTRIBUTES
+  NONE  IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-PRINTER-ATTRIBUTES
+************************************************************************
+RESET EOMPOM-ATTR-PRINTER EOMPOM-ATTR-GENERAL
+FNDPO. FIND PRINTOUT WITH PO-ID = EOMPOM-I-ID
+*
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0108
+    ESCAPE BOTTOM (FNDPO.)
+  END-NOREC
+*
+  EOMPOM-LOGICAL       := PO-LOGICAL
+  PERFORM ASSIGN-EOMPOM-LOGICAL-DESC
+  EOMPOM-PHYSICAL-NAME := PO-PHYSICAL-NAME
+  PERFORM ASSIGN-EOMPOM-LOCATION
+  EOMPOM-PRINTER-TYPE  := PO-PRINTER-TYPE
+  EOMPOM-EXITLIB       := PO-EXITLIB
+  EOMPOM-EXITMEM       := PO-EXITMEM
+  EOMPOM-JCL-SKELETON  := PO-JCL-SKELETON
+  EOMPOM-ESCAPE-CHAR   := PO-ESCAPE-CHAR
+  EOMPOM-JOBCARD   (*) := PO-JOBCARD  (*)
+  EOMPOM-HOLD          := PO-HOLD
+  EOMPOM-JOBNAME       := PO-JOBNAME
+  EOMPOM-JOBNO         := PO-JOBNO
+* EOMPOM-MONITOR       := PO-MONITOR
+* fhi     2017-04-07 NOMALL-1961 line above out
+  EOMPOM-NODE          := PO-NODE
+  EOMPOM-PRINT-PGM     := PO-PRINT-PGM
+*
+  IF EOM-FUNCTION = EOM-READHOLD OR = EOM-READHOLD-NEXT
+    UPD. GET PRINTOUT *ISN (FNDPO.)
+    IF PO-ID NE PO-ID
+      UPDATE (UPD.)
+    END-IF
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* READ-PRINTER-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-PRINTER-ATTRIBUTES
+************************************************************************
+FNDMOD. FIND PRINTOUT WITH PO-ID = EOMPOM-I-ID
+*
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0108
+    ESCAPE BOTTOM (FNDMOD.)
+  END-NOREC
+  PERFORM TRANSLATE-JOBCARDS-UPPER    /* xsetggr 2008-04-29 P(300028) in
+  PO-ESCAPE-CHAR   := EOMPOM-ESCAPE-CHAR
+  PO-EXITLIB       := EOMPOM-EXITLIB
+  PO-EXITMEM       := EOMPOM-EXITMEM
+  PO-HOLD          := EOMPOM-HOLD
+  PO-JCL-SKELETON  := EOMPOM-JCL-SKELETON
+  PO-JOBCARD   (*) := EOMPOM-JOBCARD    (*)
+  PO-JOBNAME       := EOMPOM-JOBNAME
+  PO-JOBNO         := EOMPOM-JOBNO
+  PO-LOGICAL       := EOMPOM-LOGICAL
+* PO-MONITOR       := EOMPOM-MONITOR
+* fhi     2017-04-07 NOMALL-1961 line above out
+  PO-NODE          := EOMPOM-NODE
+  PO-PHYSICAL-NAME := EOMPOM-PHYSICAL-NAME
+  PO-PRINT-PGM     := EOMPOM-PRINT-PGM
+  PO-PRINTER-TYPE  := EOMPOM-PRINTER-TYPE
+/*SU2 PO-OBJECT-TYPE   := 'PO' /*SU1
+/*SU2 PO-OBJECT-TIME   := *TIMX /*SU1
+*
+  UPDATE (FNDMOD.)
+*
+END-FIND
+*
+END-SUBROUTINE /* MODIFY-PRINTER-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE TRANSLATE-JOBCARDS-UPPER
+************************************************************************
+RESET #I
+FIND (1) PHYSICAL-PRINTER WITH PH-VTAMID = EOMPOM-PHYSICAL-NAME
+  EXAMINE ##PHYS-TYPES (*) FOR PH-PRINTER-TYPE GIVING INDEX #I
+  IF NOT ##PHYS-TYPE-LOWER (#I)
+    EXAMINE EOMPOM-JOBCARD (*) TRANSLATE INTO UPPER
+  END-IF
+END-FIND
+*
+END-SUBROUTINE                      /* xsetggr 2008-04-29 P(300028) end
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-EOMPOM-LOCATION
+************************************************************************
+FIND (1) PHYSICAL-PRINTER WITH PH-VTAMID = EOMPOM-PHYSICAL-NAME
+  EOMPOM-LOCATION := PH-LOCATION
+END-FIND
+*
+END-SUBROUTINE /* ASSIGN-EOMPOM-LOCATION
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-EOMPOM-LOGICAL-DESC
+************************************************************************
+FIND (1) PRINTER WITH P-ID = EOMPOM-LOGICAL
+  EOMPOM-LOGICAL-DESC := P-NAME
+END-FIND
+*
+END-SUBROUTINE /* ASSIGN-EOMPOM-LOGICAL-DESC
+* --------------------------------------- on error ---------------------
+INCLUDE C-EOMERR
+*
+END

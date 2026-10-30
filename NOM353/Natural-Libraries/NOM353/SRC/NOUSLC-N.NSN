@@ -1,0 +1,274 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ---------------------------------------------------------------------
+* Subprogram  NOUSLC-N
+* Version    3.4.3
+* Function   NOM API User Profile Maintenance
+*                    for individual list column layout
+*
+* Parameter:
+*   ES-EXTEND-FUNCTION (A3)
+*                         'GET'  Searchs for and returns the list
+*                                column layout for the list key,
+*                                given in ES-KEY-PARM(2)
+*                         'SET'  Updates the list column layout for
+*                                list key, given in ES-KEY-PARM(2)
+*                         'DEL'  - Deletes the entire list column
+*                                  layouts for all list keys, if
+*                                  list key ES-KEY-PARM(2) empty
+*                                - Deletes the list key column part,
+*                                  if list key given in ES-KEY-PARM(2)
+*   ES-KEY-PARM(1) (A8)   Contains the User ID for which the individual
+*                         List column layout is to be retrieved
+*   ES-KEY-PARM(2) (A8)   Contains the list key of the requested list
+*
+* Maintenance:
+* CF      2015-03-31 NOMALL-1599  created
+* CF1     2017-04-10 NOMALL-2014  Provide data integrity in 1st occ.
+*
+/* --------------------------------------------------------------------
+/*
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOUSUP-A
+LOCAL USING VUSERNGL
+LOCAL
+1 #MAX-LEN              (I4) CONST<1250>
+1 #NGC-BUFFER           (A1250)
+1 REDEFINE #NGC-BUFFER
+  2 #NGC-DATA           (A250/5)
+1 #LIST-BUFFER (A50)
+1 REDEFINE #LIST-BUFFER
+  2 #LIST-BUFFER-KEY    (A8)
+  2 #LIST-BUFFER-DATA   (A42)
+  2 REDEFINE #LIST-BUFFER-DATA
+    3 #LBD-COUNT        (A2)
+    3 #LBD-COLS         (A2/20)
+1 #FOUND-DATA           (A42)
+1 #REMOVE-DATA          (A51)
+1 #COUNT                (I4)
+1 #SPOS                 (I4)
+1 #EPOS                 (I4)
+1 #LEN                  (I4)
+1 #NLEN                 (I4)
+1 #FLEN                 (I4)
+1 #LLEN                 (I4)
+END-DEFINE
+/*
+/**********************************************************************
+/* Main line
+/**********************************************************************
+/*
+ES-RC := 1
+/*
+IF ES-FUNCTION NE 'LC'
+  ES-MSG-NR := 6901
+  COMPRESS 'Invalid ES-FUNCTION:' ES-FUNCTION INTO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+/*
+IF ES-EXTEND-FUNCTION = 'GET' OR= 'SET' AND ES-KEY-PARM(2) = ' '
+  ES-MSG-NR := 6902
+  COMPRESS 'The list buffer key ( ES-KEY-PARM(2) ) may not be empty'
+      INTO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+/*
+DECIDE ON FIRST ES-EXTEND-FUNCTION
+  VALUE 'GET'
+    PERFORM READ-LIST-DATA-BUFFER
+  VALUE 'SET'
+    PERFORM UPDATE-LIST-DATA-BUFFER
+  VALUE 'DEL'
+    IF ES-KEY-PARM(2) = ' '
+      PERFORM DELETE-LIST-DATA-BUFFER
+    ELSE
+      PERFORM DELETE-LIST-KEY-DATA-BUFFER
+    END-IF
+  NONE
+    ES-MSG-NR := 6903
+    COMPRESS 'Invalid ES-EXTEND-FUNCTION:' ES-EXTEND-FUNCTION
+        INTO ES-MSG-TXT
+END-DECIDE
+/*
+/**********************************************************************
+/* Internal subroutines:
+/*
+/**********************************************************************
+DEFINE SUBROUTINE READ-LIST-DATA-BUFFER
+/**********************************************************************
+/*
+PERFORM READ-RECORD
+/*
+IF ES-RC = 0
+  /* Search requested list type in DB field and retrieve
+  RESET NOUSP-PARMS
+  #LIST-BUFFER-KEY := ES-KEY-PARM(2)
+  MOVE ALL '0' TO #LIST-BUFFER-DATA
+  EXAMINE #NGC-BUFFER FOR FULL #LIST-BUFFER-KEY GIVING POSITION #SPOS
+  ADD 8 TO #SPOS
+  EXAMINE #NGC-BUFFER FROM #SPOS FOR H'FF' GIVING POSITION #EPOS
+  IF #SPOS GT 8 AND #EPOS GT #SPOS
+    #LEN := #EPOS - #SPOS
+    MOVE SUBSTR(#NGC-BUFFER,#SPOS,#LEN)
+      TO SUBSTR(#LIST-BUFFER-DATA,1,#LEN)
+  ELSE
+    ES-RC := 2  /* Requested list column settings not found
+    ES-MSG-NR := 6907
+    COMPRESS 'No list column settings found for key:'
+             #LIST-BUFFER-KEY INTO ES-MSG-TXT
+  END-IF
+  NOUSP-PROFILE := #LIST-BUFFER-DATA
+END-IF
+/*
+END-SUBROUTINE /* READ-LIST-DATA-BUFFER
+/*
+/**********************************************************************
+DEFINE SUBROUTINE UPDATE-LIST-DATA-BUFFER
+/**********************************************************************
+/*
+PERFORM READ-RECORD
+/*
+IF ES-RC = 0
+  /* Copy input data to structured buffer parts
+  #LIST-BUFFER-KEY := ES-KEY-PARM(2)
+  #LIST-BUFFER-DATA   := NOUSP-PROFILE
+  /* Limit list buffer to required range, if possible
+  IF #LBD-COUNT IS (N2) AND #LBD-COUNT NE '00'
+    #COUNT := VAL(#LBD-COUNT)
+    IF #COUNT = 1 THRU 19
+      RESET #LBD-COLS(#COUNT + 1 : 20)
+    END-IF
+  END-IF
+  /* Update list type if already stored, else add the list type
+  EXAMINE #NGC-BUFFER FOR FULL #LIST-BUFFER-KEY GIVING POSITION #SPOS
+  ADD 8 TO #SPOS
+  EXAMINE #NGC-BUFFER FROM #SPOS FOR H'FF' GIVING POSITION #EPOS
+  IF #SPOS GT 8 AND #EPOS GT #SPOS
+    #LEN := #EPOS - #SPOS
+    MOVE SUBSTR(#NGC-BUFFER,#SPOS,#LEN) TO #FOUND-DATA
+    /* Check if new list buffer length fits into the DB field
+    EXAMINE #FOUND-DATA FOR ' ' GIVING LENGTH #FLEN
+    EXAMINE #LIST-BUFFER-DATA FOR ' ' GIVING LENGTH #LLEN
+    EXAMINE #NGC-BUFFER FOR ' ' GIVING LENGTH #NLEN
+    IF (#NLEN + #LLEN - #FLEN) GT #MAX-LEN
+      ES-RC := 3  /* List data buffer overflow
+      ES-MSG-NR := 6908
+      ES-MSG-TXT := 'List data buffer overflow'
+    ELSE
+      /*
+      EXAMINE #NGC-BUFFER FROM #SPOS FOR #FOUND-DATA
+              REPLACE FIRST #LIST-BUFFER-DATA
+      /*
+    END-IF
+  ELSE
+    EXAMINE #LIST-BUFFER FOR ' ' GIVING LENGTH #LLEN
+    EXAMINE #NGC-BUFFER FOR ' ' GIVING LENGTH #NLEN
+    IF (#NLEN + #LLEN + 1) GT #MAX-LEN
+      ES-RC := 3  /* List data buffer overflow
+      ES-MSG-NR := 6908
+      ES-MSG-TXT := 'List data buffer overflow'
+    ELSE
+      /*
+      COMPRESS #NGC-BUFFER #LIST-BUFFER H'FF'
+          INTO #NGC-BUFFER LEAVING NO
+      /*
+    END-IF
+  END-IF
+  /*
+  IF ES-RC = 0
+    PERFORM UPDATE-RECORD
+  END-IF
+END-IF
+/*
+END-SUBROUTINE /* UPDATE-LIST-DATA-BUFFER
+/*
+/**********************************************************************
+DEFINE SUBROUTINE DELETE-LIST-KEY-DATA-BUFFER
+/**********************************************************************
+/*
+PERFORM READ-RECORD
+/*
+IF ES-RC = 0
+  /* Delete list type buffer part from data buffer
+  #LIST-BUFFER-KEY := ES-KEY-PARM(2)
+  EXAMINE #NGC-BUFFER FOR FULL #LIST-BUFFER-KEY GIVING POSITION #SPOS
+  ES-RC := 2  /* IF... REQUESTED LIST COLUMN SETTINGS NOT FOUND
+  IF #SPOS GT 0
+    EXAMINE #NGC-BUFFER FROM #SPOS FOR H'FF' GIVING POSITION #EPOS
+    IF #EPOS GT #SPOS
+      #LEN := #EPOS - #SPOS + 1
+      MOVE SUBSTR(#NGC-BUFFER,#SPOS,#LEN) TO #REMOVE-DATA
+      /*
+      EXAMINE #NGC-BUFFER FOR #REMOVE-DATA DELETE FIRST
+      RESET ES-RC
+      /*
+    END-IF
+  END-IF
+  /*
+  IF ES-RC = 0
+    PERFORM UPDATE-RECORD
+  ELSE
+    ES-MSG-NR := 6907
+    COMPRESS 'No list column settings found for key:'
+             #LIST-BUFFER-KEY INTO ES-MSG-TXT
+  END-IF
+END-IF
+/*
+END-SUBROUTINE /* DELETE-LIST-KEY-DATA-BUFFER
+/*
+/**********************************************************************
+DEFINE SUBROUTINE DELETE-LIST-DATA-BUFFER
+/**********************************************************************
+/*
+PERFORM READ-RECORD
+/*
+IF ES-RC = 0
+  /* Delete the entire list data buffer
+  RESET #NGC-BUFFER
+  /*
+  IF ES-RC = 0
+    PERFORM UPDATE-RECORD
+  END-IF
+END-IF
+/*
+END-SUBROUTINE /* DELETE-LIST-DATA-BUFFER
+/*
+/**********************************************************************
+DEFINE SUBROUTINE READ-RECORD
+/**********************************************************************
+/*
+FNDR. FIND USERS WITH USER-ID = ES-KEY-PARM(1)
+  IF NO RECORDS FOUND
+    ES-MSG-NR := 6906
+    COMPRESS 'User' ES-KEY-PARM(1) 'not found' INTO ES-MSG-TXT
+    ESCAPE ROUTINE
+  END-NOREC
+  #NGC-DATA(1:5) := NGC-DATA (2:6)
+  RESET ES-RC
+END-FIND
+/*
+END-SUBROUTINE /* READ-RECORD
+/*
+/**********************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+/**********************************************************************
+/*
+GETU. GET USERS *ISN(FNDR.)
+/*                                                         /* CF1 +
+/* Provide data integrity with 1st occ., used for interval setting
+IF NGC-DATA (1) = ' '
+  NGC-DATA (1) := 'X' /* Set placeholder for 1st occurrence
+END-IF
+/*                                                         /* CF1 -
+NGC-DATA (2:6) := #NGC-DATA(1:5)
+UPDATE (GETU.)
+END TRANSACTION
+/*
+END-SUBROUTINE /* UPDATE-RECORD
+/*
+END

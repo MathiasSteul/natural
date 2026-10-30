@@ -1,0 +1,379 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMMMC-N - Close of NOM Monitor Main Task or Monitor Subtask
+* Input KeyS: ES-KEY-PARM(1) - task number for monitor tasks
+*             ES-KEY-PARM(1) - confirmation of closing print tasks
+*                              for monitor main task
+*           * ==========================================================
+*           * NOTE:   (2018-09-17, CF)   ...replace note if work done...
+*           * This routine is currently not working properly. The
+*           * adaption to the new node/task structure is not
+*           * completely worked out.
+*           * A new set of subprograms is planned to do the shutdown
+*           * on a central place for NOM, NGC and external APIs.
+*           * A separate NOMALL- iTrac will be created to follow up
+*           * with the status of the central subprograms.
+*           * ==========================================================
+*
+* Maintenance:
+* XSETGGR 2004-12-02 created
+* XSETGGR 2005-08-11 changes
+* fhi     2005-06-23 p(266530) Monitor  NPR Mainframe independent
+* XSETGGR 2005-09-09 can not close just one subtask
+* fhi     2005-11-15 P272724   End Transaction for Unix Eventing
+* XSETGGR 2007-03-22 replace call of ES...-N to direct call of module
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2010-08-18 NOMALL-853 Monitor multitasking for Unix
+* fhi     2010-08-23 NOMALL-853 Monitor multitasking for Unix
+* fhi     2010-11-05 NOMALL-97  Extend tracing for Unix
+* fhi     2010-12-02 NOMALL-929 END TRANSACTION for Unix layer RMSTX--N
+* fhi     2011-06-17 NOMALL-1002 Wrong printer task closing.
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2015-02-09 NOMALL-1450 'ST'->'SI'
+* SU3     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-11-11 NOMALL-1961 Duplicate monitor copy task
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* SU4     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU5     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER
+1 TRACE-LEVEL                (I2)  OPTIONAL
+************************************************************************
+LOCAL USING VSUBT-L
+LOCAL USING NOMODE-A
+LOCAL USING RLOG-L
+LOCAL USING NOMMTS-A
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RMSTX--P
+LOCAL USING RMTASK-P
+* *****
+LOCAL
+1 MONITOR VIEW OF NRM-MONITOR
+  2 M-STATUS
+  2 M-LAST-ACTIVE
+/*SU4  2 M-MONITOR-NODE
+1 NATURAL-SUB-TASK VIEW OF NATURAL-SUB-TASK
+  2 NAT-USER
+  2 REDEFINE NAT-USER
+    3 NAT-USER-PREFIX       (A3)
+    3 NAT-USER-TASK         (A2)
+    3 REDEFINE NAT-USER-TASK
+      4 NAT-USER-TASK-NUM   (N2)
+    3 NAT-USER-SUFFIX       (A1)
+    3 NAT-USER-DBID         (N5)
+    3 NAT-USER-FNR          (N5)
+  2 NAT-STATUS
+  2 ERROR-CODE
+* *****
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-CONTROL               (A250)
+1 #ES-INPUT-AREA            (A253/1:3)
+1 #MAX-TASKS                (N2) CONST <59> /* max number of tasks
+1 #TASKNR                   (N3)
+1 #SHUTDOWN                 (L)
+1 #NUM-A2                   (A2)
+1 REDEFINE #NUM-A2
+  2 #NUM-N2                 (N2)
+1 #I                        (I2)
+1 #PRINT-COUNT              (N3)
+1 #PRINTER-TASK-NAME        (A16/20)
+1 #STATUS                   (A24)
+1 #MAIN-TASK-NUM            (N2)
+1 #STX-TASK-NAME            (A70)
+1 #USER-LIB                 (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+NOMOD-PARMS       := ES-SELECT
+#ES-CONTROL       := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+IF ES-KEY-PARM(1) > ' '
+  RMTASK-P.FUNCTION       := 'S'
+  RMTASK-P.SUBTASK-NUMBER := VAL(ES-KEY-PARM(1))
+  CALLNAT 'RMTASKID' RMTASK-P
+END-IF
+***
+COMPRESS '###' RMTASK-P.SUBTASK-NUMBER TO ES-LINE    /* CF test ######
+***
+IF RMTASK-P.SUBTASK-NUMBER > 1                   /* close task
+  PERFORM CLOSE-TASK
+  #NUM-N2 := RMTASK-P.SUBTASK-NUMBER
+ELSE                  /* close main monitor
+  IF ES-EXTEND-FUNCTION = ' '
+    PERFORM CHECK-PRINT-TASKS
+    IF ES-RC = 3
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+  PERFORM CLOSE-PRINT-TASKS
+  PERFORM CLOSE-MAIN-TASK
+  RESET #NUM-A2
+END-IF
+***
+COMPRESS ES-LINE ',' #ES-MSG-NR TO ES-LINE           /* CF test ######
+***
+IF #ES-MSG-NR = 0
+  IF ES-KEY-PARM(1) = ' '
+    RMTASK-P.SUBTASK-NUMBER := 1
+    CALLNAT 'RMTASKID' RMTASK-P
+  END-IF
+  PERFORM GET-STATUS
+  IF ES-RC = 0
+    #STATUS := NOMM-STATUS (SUBTASK-NUMBER)
+  END-IF
+  PERFORM WRITE-LOG-RECORD
+  END TRANSACTION
+  PERFORM WAKE-TASK
+END-IF
+***
+COMPRESS ES-LINE '###' TO ES-LINE                    /* CF test ######
+***
+ES-CONTROL       := #ES-CONTROL
+* ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)                /* CF test ######
+ES-SELECT        := #STATUS
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-STATUS
+************************************************************************
+RESET NOMM-PARMS
+ES-APPLICATION := 'NO'
+ES-OBJECT      := 'MM'
+ES-FUNCTION    := 'TS'
+CALLNAT 'NOMMTS-N' ES-CONTROL ES-INPUT-AREA(*) NOMM-PARMS
+*
+END-SUBROUTINE /* GET-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-TASK
+************************************************************************
+COMPRESS ES-LINE ',CT' RMTASK-P.TASK-ID TO ES-LINE   /* CF test ######
+FNDSBT. FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = RMTASK-P.TASK-ID
+  COMPRESS ES-LINE '-D' TO ES-LINE LEAVING NO          /* CF test ######
+  ST-STATUS      := 'D'
+  ST-LAST-ACTIVE := *TIMX
+  UPDATE(FNDSBT.)
+END-FIND
+PERFORM SET-STATUS
+*
+END-SUBROUTINE /* CLOSE-TASK
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-MAIN-TASK
+************************************************************************
+* RMTASK-P.TASK-ID := F#MONITOR-TASK-USER-ID-LOG1 (<>) /* CF test ######
+RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)            /* CF test ######
+***
+COMPRESS ES-LINE ',CMT' RMTASK-P.TASK-ID TO ES-LINE  /* CF test ######
+FNDMO. FIND MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 1516             /* Monitor not installed correctly
+    ESCAPE BOTTOM(FNDMO.)
+  END-NOREC
+  GETMO. GET MONITOR *ISN(FNDMO.)
+  MONITOR.M-STATUS      := 'D'
+  MONITOR.M-LAST-ACTIVE := *TIMX
+  UPDATE(GETMO.)
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ES-RC := 1
+  ESCAPE ROUTINE
+END-IF
+/* close all subtasks
+#MAIN-TASK-NUM := RMTASK-P.SUBTASK-NUMBER
+* FOR #I = 2 TO #MAX-TASKS                             /* CF test ######
+FOR #I = 21 TO 21 /*#MAX-TASKS                         /* CF test ######
+  RMTASK-P.FUNCTION := 'S'                             /* CF test ######
+  RMTASK-P.SUBTASK-NUMBER := #I
+  CALLNAT 'RMTASKID' RMTASK-P
+  PERFORM CLOSE-TASK
+END-FOR
+RMTASK-P.FUNCTION := 'S'                               /* CF test ######
+RMTASK-P.SUBTASK-NUMBER := #MAIN-TASK-NUM
+CALLNAT 'RMTASKID' RMTASK-P
+*
+PERFORM SET-STATUS
+*
+END-SUBROUTINE /* CLOSE-MAIN-TASK
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-PRINT-TASKS
+************************************************************************
+IF *MACHINE-CLASS = 'MAINFRAME'
+  RESET #PRINT-COUNT
+  FIND NATURAL-SUB-TASK WITH NODE = NOMOD-MONITOR-NODE
+      AND FUNCTION = 'LIST' AND NAT-STATUS = 'ACTIVE'
+    IF ERROR-CODE NE 0
+      ESCAPE BOTTOM
+    END-IF
+    IF NAT-USER = MASK('PRT')
+      ADD 1 TO #PRINT-COUNT
+      #PRINTER-TASK-NAME(#PRINT-COUNT):= NAT-USER
+    END-IF
+  END-FIND
+ELSE
+  RESET #PRINT-COUNT STX-ERROR-CODE STX-TASK-STATUS
+  STX-TASK-NUMBER  := 0
+  STX-TASK-NAME    := 'PRT' /* all printer tasks
+  REPSTX2. REPEAT UNTIL STX-ERROR-CODE NE 0 OR STX-TASK-STATUS NE 0
+    STX-FUNCTION := 'LIST'
+    IF TRACE-LEVEL SPECIFIED
+      CALLNAT 'RMSTX--N' STX-PARMS TRACE-LEVEL
+    ELSE
+      CALLNAT 'RMSTX--N' STX-PARMS
+    END-IF
+    END TRANSACTION
+    IF STX-TASK-NAME NE MASK ('PRT')
+      ESCAPE BOTTOM (REPSTX2.)
+    END-IF
+    IF STX-ERROR-CODE  = 0 AND STX-TASK-STATUS = 0
+      ADD 1 TO #PRINT-COUNT
+      #PRINTER-TASK-NAME(#PRINT-COUNT):= STX-TASK-NAME
+    END-IF
+  END-REPEAT
+END-IF
+IF #PRINT-COUNT > 0
+  ES-RC := 3
+END-IF
+*
+END-SUBROUTINE /* CHECK-PRINT-TASKS
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-PRINT-TASKS
+************************************************************************
+IF #PRINT-COUNT > 0 AND ES-EXTEND-FUNCTION NE ' '
+  IF *MACHINE-CLASS = 'MAINFRAME'
+    REPEAT UNTIL #PRINT-COUNT LT 1
+      FIND (1) NATURAL-SUB-TASK WITH NODE = NOMOD-MONITOR-NODE
+      AND NAT-USER=#PRINTER-TASK-NAME(#PRINT-COUNT) AND FUNCTION='CLOSE'
+      END-FIND
+      #PRINT-COUNT := #PRINT-COUNT - 1
+    END-REPEAT
+  ELSE
+    STX-TASK-NUMBER := 0
+    STX-FUNCTION    := 'LIST'
+    STX-TASK-NAME   := 'PRT' /* All printer tasks
+    RESET STX-ERROR-CODE STX-TASK-STATUS
+    REPSTX. REPEAT
+      UNTIL STX-ERROR-CODE  NE 0 OR    STX-TASK-STATUS NE 0
+      IF TRACE-LEVEL SPECIFIED
+        CALLNAT 'RMSTX--N' STX-PARMS TRACE-LEVEL
+      ELSE
+        CALLNAT 'RMSTX--N' STX-PARMS
+      END-IF
+      END TRANSACTION
+      IF STX-TASK-NAME   NE MASK ('PRT')
+        ESCAPE BOTTOM (REPSTX.)
+      END-IF
+      IF STX-ERROR-CODE  = 0 AND STX-TASK-STATUS = 0
+        STX-FUNCTION     := 'KILL'
+        #STX-TASK-NAME   := STX-TASK-NAME
+        IF TRACE-LEVEL SPECIFIED
+          CALLNAT 'RMSTX--N' STX-PARMS TRACE-LEVEL
+        ELSE
+          CALLNAT 'RMSTX--N' STX-PARMS
+        END-IF
+        END TRANSACTION
+        RESET STX-TASK-STATUS /* will be '1' after KILL command
+      END-IF
+    END-REPEAT
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CLOSE-PRINT-TASKS
+*
+************************************************************************
+DEFINE SUBROUTINE SET-STATUS
+************************************************************************
+COMPRESS ES-LINE ',SET' RMTASK-P.SUBTASK-NUMBER TO ES-LINE /*CF test ######
+IF RMTASK-P.SUBTASK-NUMBER > 0
+  #TASKNR := RMTASK-P.SUBTASK-NUMBER
+ELSE
+  #TASKNR := 1              /* for  main task
+END-IF
+CALLNAT 'RMSETSTN' 'D' NOMOD-MONITOR-NODE NOMOD-NATRPT-DBID
+  NOMOD-NATRPT-FNR #SHUTDOWN #TASKNR
+END TRANSACTION
+IF #SHUTDOWN
+  COMPRESS ES-LINE '-DWN' TO ES-LINE LEAVING NO        /* CF test ######
+ELSE
+  COMPRESS ES-LINE '-.N.' TO ES-LINE LEAVING NO        /* CF test ######
+END-IF
+***
+*
+END-SUBROUTINE /* SET-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+LG-USERID := ES-USER
+LG-CODE := 'MO'
+LG-MSG := '1514'
+CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+END TRANSACTION
+ES-RC := 2
+RESET #ES-MSG-NR
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND    := 'U'
+NADA2000.ERROR-NUMBER   := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+NADA2000.LIBRARY        := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE WAKE-TASK
+************************************************************************
+ES-APPLICATION := 'NO'
+ES-OBJECT      := 'MM'
+ES-FUNCTION    := 'WM'
+ES-KEY-PARM(1) := #NUM-A2
+CALLNAT 'NOMMWM-N' ES-CONTROL ES-INPUT-AREA(*)
+*
+END-SUBROUTINE /* WAKE-TASK
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

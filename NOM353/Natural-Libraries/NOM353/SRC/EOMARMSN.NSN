@@ -1,0 +1,120 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    EOMARMSN
+* Version   1.3
+* Function  DB Interface EOM Object Active Report (spool attributes)
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-06-28 s(999999) created
+* mrs 95-11-28 s(999999) extended spool attributes
+* mrs 97-05-27 p(162705) recompiled (changes in eomarm-p)
+* mrs 97-05-27 p(162737) recompiled (changes in eomarm-p)
+* gw  98-10-31 s(999999) NAF dbid / fnr compatibility
+* gw  98-11-03 s(300070) spool-jes-dsno  N5 instead of N3
+* jvd 99-11-19 p(189066) Error when used with BS2000 spool
+*                        removed all comments pre 1997
+* xsethz  2000-07-27 (CE7461)  Extend Report and Bundle Names
+* fhi     2000-08-24 QA03      Use NAT23006 for error values
+* fhi     2005-04-21 NOM3107   Support 7-byte job numbers
+* xsetggr 2007-05-03 NOM32-01  Support P11 format run numbers
+* xsetggr 2007-06-06 p(294775) add functions read-next,readhold-next
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-05-05 p(304350) restow due changes in EOMARM-P
+* XSETHZ  2008-11-03 p(304019) NAT = NAF
+* fhi     2009-05-19 N3463     Extend metadata for OPO
+* fhi     2013-08-29 FHI285    Enhance error message 406
+* SU1     2013-11-22 NOMALL-1288 correct FHI285 for msg 406
+* fhi     2017-01-20 NOMALL-1620 Process REMODE-CODEPAGE
+* fhi     2018-10-10 NOMALL-2154 Show local codepage for AR
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER USING EOM----P
+PARAMETER USING EOMARM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL     USING EOM----E
+LOCAL     USING RMSR---E
+LOCAL
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-SPOOL-ATTRIBUTES
+  2 REDEFINE AR-SPOOL-ATTRIBUTES
+    3 AR-SPOOL-TYPE        (I2)
+    3 AR-SPOOL-ATTR        (A248)
+  2 AR-SPOOL-ATTR-EXTENDED (1:120)
+  2 AR-REMOTE-CODEPAGE            /* NOMALL-1620 fhi in
+  2 AR-LOCAL-CODEPAGE             /* NOMALL-2154 fhi in
+*
+1 #AR-REPORT-RNB           (A31)
+1 REDEFINE #AR-REPORT-RNB
+  2 #AR-REPORT             (A25)
+  2 #AR-REPRNB             (P11)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#AR-REPORT := EOMARM-I-NAME
+#AR-REPRNB := EOMARM-I-RNB
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-READ, EOM-READHOLD, EOM-READ-NEXT, EOM-READHOLD-NEXT
+    PERFORM READ-SPOOL-ATTRIBUTES
+  NONE  IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SPOOL-ATTRIBUTES
+************************************************************************
+RESET EOMARM-SPOOL-ATTRIBUTES
+*
+FNDAR. FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REPORT-RNB
+*
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0406
+    COMPRESS #AR-REPORT ' (' *PROGRAM ',' *LINE ')'
+      TO EOMMSG-TOKEN(1) LEAVING NO
+    ESCAPE BOTTOM (FNDAR.)
+  END-NOREC
+*
+  EOMARM-SPOOL-TYPE      := AR-SPOOL-TYPE
+  EOMARM-SPOOL           := AR-SPOOL-ATTR
+  EOMARM-REMOTE-CODEPAGE := AR-REMOTE-CODEPAGE /* NOMALL-1620 fhi in
+  EOMARM-LOCAL-CP        := AR-LOCAL-CODEPAGE  /* NOMALL-2154 fhi in
+  CALLNAT 'EOMARM7N' EOMARM-SPOOL EOMARM-SPOOL-TYPE
+  IF (EOMARM-SPOOL-TYPE = NAF OR = NAT)
+  AND EOMARM-SPOOL-NAF-DBID-OLD NE 0  AND  EOMARM-SPOOL-NAF-FNR-OLD NE 0
+    EOMARM-SPOOL-NAF-DBID := EOMARM-SPOOL-NAF-DBID-OLD
+    EOMARM-SPOOL-NAF-FNR  := EOMARM-SPOOL-NAF-FNR-OLD
+  END-IF
+  IF EOMARM-SPOOL-TYPE = JES2 OR EOMARM-SPOOL-TYPE = JES3
+    IF EOMARM-SPOOL-JES-DSNO = 0
+      EOMARM-SPOOL-JES-DSNO := EOMARM-SPOOL-JES-DSNO-OLD
+    END-IF
+  END-IF
+  EOMARM-SPOOL-ATTR-EXTENDED (*) := AR-SPOOL-ATTR-EXTENDED (*)
+  IF EOM-FUNCTION = EOM-READHOLD OR = EOM-READHOLD-NEXT
+    UPD. GET ACTIVE-REPORT *ISN (FNDAR.)
+    IF AR-REPNAME NE AR-REPNAME
+      UPDATE (UPD.)
+    END-IF
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* READ-SPOOL-ATTRIBUTES
+* --------------------------------------- on error ---------------------
+INCLUDE C-EOMERR
+*
+END

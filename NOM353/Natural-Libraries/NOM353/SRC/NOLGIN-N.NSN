@@ -1,0 +1,285 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOLGIN-N - NOM API Log information (Info function)
+*             This new subprogram version requires only
+*             a date/time key with microseconds to identify
+*             the requested log record.
+*
+*             The key parameter is ES-KEY-PARM(1) with
+*             data format (A20) : YYYYMMDDHHIISST99999
+*
+* Maintenance:
+* XSETGGR 2002-10-11 created
+* XSETHZ  2002-11-05 modified
+* XSETGGR 2002-11-07 modified
+* XSETGGR 2002-12-17 change date/time format (receiving from list)
+* HH 040825 FORMATTING T CHANGED;                /* HH 040825
+* XSETGGR 2005-01-27 nom 3.1 add ifo for monitro task log list
+* XSETGGR 3005-04-15 NOM3107 support 7 bytes job number (recat)
+* XSETGGR 2005-05-25 correct HH changes
+* xsetggr 2007-07-04 NOM3201 Support P11 format run number
+* xsetggr 2008-05-03 p(303852) use SATLGR2P/N
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* XSETHZ  2011-02-15 NOMALL-97 FOR #J = 1 TO 1
+* XSETHZ  2011-02-15 NOMALL-951
+* xsetggr 2012-02-02 NOMALL-1020 add NOM prefix to err msgs if missing
+* xsetggr 2012-07-28 NOMALL-1167 increase length of info message
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* RAYA    2013-06-19 NOMALL-1259 USE SATLGR3P/N
+* SU2     2015-01-26 NOMALL-1388 avoid S0C7/(SAT-288:SATLGR3P changed)
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-01-04 NOMALL-1913 Use microseconds for logging
+* -----------------------   Rebuilt   ----------------------------------
+* CF1     2018-05-14 NOMALL-2107 Provide time zone and microseconds
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOLGIN-A
+************************************************************************
+LOCAL     USING SATLGR4P
+LOCAL     USING SATLG01E
+LOCAL     USING XXSUBS-A
+LOCAL     USING XXBLNK-A
+LOCAL     USING NADA2000
+LOCAL     USING NAD-MSG
+LOCAL     USING NAD-FLD
+LOCAL
+1 USER VIEW OF NRM-USERS
+  2 LAST-NAME
+  2 FIRST-NAME
+/*
+1 #K                    (I4)
+1 #TT                   (T)
+1 #TIME-F               (T)
+1 #TEXT-ARRAY           (A250/1:10)
+1 #MESSAGE              (A250)
+1 #DATE-A8              (A8)
+/*
+1 #DATE-TIME-EXT        (A20)
+1 REDEFINE #DATE-TIME-EXT
+  2 #DX-TIME            (A15)
+  2 #DX-EXT             (A5)
+/*
+1 #ES-MSG-PREF          (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM         (A3)
+  2 #ES-MSG-NR-A        (A4)
+  2 REDEFINE #ES-MSG-NR-A
+    3 #ES-MSG-NR        (N4)
+1 #ERR                  (L)
+1  #PREFIX-ERC          (A7) INIT <'NOM'>
+1  REDEFINE #PREFIX-ERC
+  2 #PREFIX             (A3)
+  2 #ERC                (A4)
+  2 REDEFINE #ERC
+    3 #ERC-N            (N4)
+/*
+END-DEFINE
+/*
+************************************************************************
+* Main line
+************************************************************************
+/*
+RESET ES-RC #TT #ERR
+/*
+/* Search for the Date/Time/Microseconds string
+/*   ( Depending on the log list type, the search key
+/*     must be in one of the first three key parameters )
+DECIDE FOR FIRST CONDITION
+  WHEN ES-KEY-PARM(1) = MASK(YYYYMMDD00-2300-5900-59NNNNNN)
+    #DATE-TIME-EXT := ES-KEY-PARM(1)
+  WHEN ES-KEY-PARM(2) = MASK(YYYYMMDD00-2300-5900-59NNNNNN)
+    #DATE-TIME-EXT := ES-KEY-PARM(2)
+  WHEN ES-KEY-PARM(3) = MASK(YYYYMMDD00-2300-5900-59NNNNNN)
+    #DATE-TIME-EXT := ES-KEY-PARM(3)
+  WHEN ANY
+    /*
+    MOVE EDITED #DX-TIME TO #TIME-F (EM=YYYYMMDDHHIISST)
+    /*
+  WHEN NONE
+    #ES-MSG-NR := 4204       /* Invalid parameter or parameter value.
+    #ERR := TRUE
+    PERFORM GET-MSG-TXT
+    ESCAPE ROUTINE
+END-DECIDE
+/*
+/* Set parameters for getting the Log record
+SATLGR-SEARCH-KEY        := SATLG-ENV-TIME
+SATLGR-START-TIME        := #TIME-F
+SATLGR-END-TIME          := #TIME-F
+SATLGR-START-MICROSEC2   := VAL(#DX-EXT)
+SATLGR-END-MICROSEC2     := VAL(#DX-EXT)
+SATLGR-PRODUCT           := 'NOM'
+SATLGR-LANGUAGE          := ES-LANGUAGE
+SATLGR-ACCESS-TYPE       := SATLG-READ
+SATLGR-NUMBER-OF-RECORDS := 1
+RESET SATLGR-START-ISN SATLGR-START-ENV4 SATLGR-START-ENV6
+/*
+/* Read always one Log record with
+/* completely qualified key : Date / Time / Microsec
+/*
+CALLNAT 'SATLGR4N' SATLGR-PARMS
+/*
+IF SATLGR-RC = 0
+  IF SATLGR-RECORDS-FOUND = 0
+    #ES-MSG-NR := 2116       /* Log record not found
+    #ERR := TRUE
+    PERFORM GET-MSG-TXT
+    ESCAPE ROUTINE
+  END-IF
+  /*
+  IF SATLGR-USER-DATA(1) = ' ' AND SATLGR-MESSAGE(1) NE ' '
+    SATLGR-USER-DATA(1) := SATLGR-MESSAGE(1)
+  END-IF
+  /*
+  IF SATLGR-USER-DATA(1) = ' '
+    #ES-MSG-NR := 2116       /* Log record is empty
+    #ERR := TRUE
+    PERFORM GET-MSG-TXT
+    ESCAPE ROUTINE
+  END-IF
+  /*
+  DECIDE FOR FIRST CONDITION
+    WHEN SATLGR-USER-DATA(1) = MASK('NOM'NNNN' ') AND
+         SATLGR-USER-DATA(1) NE MASK ('NOM0005')
+      #PREFIX-ERC := SATLGR-USER-DATA(1)
+    WHEN SATLGR-USER-DATA(1) = MASK(NNNN' ')
+      #ERC := SATLGR-USER-DATA(1)
+    WHEN ANY
+      PERFORM SUBSTITUTE
+    WHEN NONE
+      #MESSAGE := SATLGR-USER-DATA(1)
+  END-DECIDE
+  /*
+  PERFORM DATA-TO-PDA
+  /*
+ELSE
+  ES-RC := 1
+  COMPRESS 'Error reading LOG file' SATLGR-ERROR-FIELD TO ES-MSG-TXT
+  ES-MSG-NR  := SATLGR-RC
+END-IF
+/*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-TO-PDA
+************************************************************************
+/*
+IF SATLGR-TIME(1) NE #TT
+  MOVE EDITED SATLGR-TIME(1) (EM=HH':'II':'SS'.'T) TO NOLGIN-TIME
+  MOVE EDITED SATLGR-TIME(1) (EM=YYYYMMDD) TO #DATE-A8
+  CALLNAT 'NODATF-N' #DATE-A8 NOLGIN-DATE ES-DATE-FORMAT
+ELSE
+  RESET NOLGIN-DATE NOLGIN-TIME
+END-IF
+MOVE EDITED SATLGR-MICROSEC(1) (EM=99999) TO NOLGIN-MICROSEC
+NOLGIN-TIME-ZONE := SATLGR-TIME-ZONE(1)
+NOLGIN-BUNDLE    := SATLGR-NOM-BUNDLE(1)
+NOLGIN-BUNDRNB   := SATLGR-NOM-BUNDRNB(1)
+NOLGIN-JOBNAME   := SATLGR-JOB(1)
+NOLGIN-OBJECT    := SATLGR-NOM-OBJECT-NAME(1)
+NOLGIN-PRINTER   := SATLGR-NOM-PRINTER(1)
+NOLGIN-REPORT    := SATLGR-NOM-REPNAME(1)
+NOLGIN-REPRNB    := SATLGR-NOM-REPRNB(1)
+NOLGIN-TYPE      := SATLGR-NOM-TYPE(1)
+NOLGIN-USERID    := SATLGR-EXEC-USERID(1)
+/*
+IF SATLGR-JOB-ID(1) IS (N5)
+  NOLGIN-JOBNO   := VAL(SATLGR-JOB-ID(1))
+ELSE
+  RESET NOLGIN-JOBNO
+END-IF
+/*
+FIND (1) USER WITH USER-ID = NOLGIN-USERID
+  COMPRESS LAST-NAME ',' FIRST-NAME TO NOLGIN-USER-NAME LEAVING NO
+END-FIND
+/*
+FOR #K = 2 TO 20
+  IF SATLGR-USER-DATA(#K) = ' '
+    ESCAPE BOTTOM
+  END-IF
+  /* Collect the message and set line break indicator
+  COMPRESS #MESSAGE ':$:' SATLGR-USER-DATA(#K)
+        TO #MESSAGE LEAVING NO
+END-FOR
+/*
+NOLGIN-MESSAGE      := #MESSAGE
+NOLGIN-LONG-MESSAGE := SUBSTR(#MESSAGE,71)
+/*
+END-SUBROUTINE /* DATA-TO-PDA
+/*
+************************************************************************
+DEFINE SUBROUTINE SUBSTITUTE
+************************************************************************
+/*
+SEPARATE SATLGR-USER-DATA(1) INTO #TEXT-ARRAY (1:9)
+         REMAINDER #TEXT-ARRAY(10) WITH DELIMITER ' '
+/*
+IF #ERC IS (N4)
+  #ES-MSG-NR := VAL(#ERC)
+  IF #ES-MSG-NR NE 5
+    RESET #ERR
+    PERFORM GET-MSG-TXT
+    #XX-SUBS-PARMS.#XX-SHORT-TEXT     := SHORT-MSG
+    #XX-SUBS-PARMS.#XX-MSG-DYNA (1:9) := #TEXT-ARRAY (2:10)
+    CALLNAT 'XXSUBS-N' #XX-SUBS-PARMS
+    #XX-BLNK-STRING := #XX-SUBS-PARMS.#XX-SHORT-TEXT
+    CALLNAT 'XXBLNK-N' #XX-BLNK-PARMS
+    IF #XX-BLNK-STRING = SCAN 'text not found'
+      COMPRESS 'NOM' #ES-MSG-NR-A TO #MESSAGE LEAVING NO
+      COMPRESS #MESSAGE #XX-BLNK-STRING TO #MESSAGE
+    ELSE
+      #MESSAGE := #XX-BLNK-STRING
+      IF #MESSAGE NE  MASK('NOM'NNNN' ') AND #ES-MSG-NR > 0
+        #ERC-N := #ES-MSG-NR
+        COMPRESS #PREFIX-ERC #MESSAGE TO #MESSAGE
+      END-IF
+    END-IF
+  ELSE
+    COMPRESS #PREFIX SATLGR-USER-DATA(1) TO #MESSAGE LEAVING NO
+  END-IF
+END-IF
+/*
+END-SUBROUTINE /* SUBSTITUTE
+/*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+/*
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND  := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+IF #ERR
+  ES-MSG-NR    := #ES-MSG-NR
+  ES-MSG-TXT   := SHORT-MSG
+  EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+  ES-MSG-FIELD := ' '
+  ES-RC := 1
+END-IF
+/*
+END-SUBROUTINE /* GET-MSG-TXT
+/*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-MSG-NR  := *ERROR-NR
+  ES-MSG-TXT := *ERROR-LINE
+  ES-RC      := 1
+  ESCAPE ROUTINE
+END-ERROR
+/*
+************************************************************************
+/*
+END

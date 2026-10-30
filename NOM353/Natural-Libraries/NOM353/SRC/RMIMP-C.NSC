@@ -1,0 +1,119 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMIMP-C Copycode
+* Function  Common code for import routines RMIMPINS,RMIMPORT,RMIMPPCC
+*
+* Maintenance
+* uuu     yyyy-mm-dd iTrac        Comment
+* SU1     2020-12-01 NOMALL-2440 created
+* SU2     2021-04-22 NOMALL-2460 show actions
+* SU3     2021-08-18 NOMALL-2467 load folder - check if user exist
+* SU4     2021-09-27 NOMALL-2495 add consistency check for folder
+* ----------------------------------------------------------------------
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-IT
+************************************************************************
+IF #TRACING
+  IF NOT #SAVE
+    COMPRESS 'Calling:' #IMPORT-PROG 'using field' #TAG-CURRENT
+      'index' #IND 'value' #VALUE-CURRENT TO #MSG
+  ELSE /* #SAVE
+    COMPRESS 'Saving view:' #XML-VIEW 'with key' #KEY TO #MSG
+  END-IF
+  PERFORM XXRLOG-WRITE-LOG 'T' #MSG
+  END TRANSACTION
+  RESET #MSG
+END-IF
+IF NOT #SAVE AND #IMPORT-PROG = ' ' OR #XML-VIEW = ' '
+  #MSG := 'Tag for NOM DDM not found. Exiting.'
+  ESCAPE BOTTOM /* (PARSE.)
+END-IF
+DECIDE ON FIRST VALUE OF #IMPORT-PROG /*to get XREF and check parms:
+  VALUE 'RMIMPBR' CALLNAT 'RMIMPBR' #IMPORT BR-FILL
+  VALUE 'RMIMPBU' CALLNAT 'RMIMPBU' #IMPORT BU-FILL
+  VALUE 'RMIMPCA' CALLNAT 'RMIMPCA' #IMPORT CA-FILL
+  VALUE 'RMIMPDL' CALLNAT 'RMIMPDL' #IMPORT DL-FILL
+  VALUE 'RMIMPFO' CALLNAT 'RMIMPFO' #IMPORT FO-FILL
+  VALUE 'RMIMPGR' CALLNAT 'RMIMPGR' #IMPORT GR-FILL
+  VALUE 'RMIMPPH' CALLNAT 'RMIMPPH' #IMPORT PH-FILL
+  VALUE 'RMIMPPR' CALLNAT 'RMIMPPR' #IMPORT PR-FILL
+  VALUE 'RMIMPRP' CALLNAT 'RMIMPRP' #IMPORT RP-FILL
+  VALUE 'RMIMPUS' CALLNAT 'RMIMPUS' #IMPORT US-FILL
+  VALUE 'RMIMPUX' CALLNAT 'RMIMPUX' #IMPORT UX-FILL
+  VALUE 'RMIMPNO' CALLNAT 'RMIMPNO' #IMPORT NO-FILL
+  NONE
+    #ERROR := TRUE
+    COMPRESS '0005 Invalid object type:' #IMPORT-PROG TO #MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+    END TRANSACTION
+END-DECIDE
+IF #SAVE
+  RESET #VALUE-CURRENT #IMPORT-PROG #XML-VIEW #PORTION
+    BR-FILL BU-FILL CA-FILL DL-FILL FO-FILL GR-FILL NO-FILL
+    PH-FILL PR-FILL RP-FILL US-FILL UX-FILL
+END-IF
+*
+END-SUBROUTINE /*CALL-IT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-SUMMARY /*SU2
+************************************************************************
+PRINT 'NOM0005 Import Summary:'
+FOR #I1 = 1 TO *OCC(#CNT-TYPE)
+  IF #I1 > 1 AND #CNT-LOADED (#I1) = 0 /*show always 1. entry
+  AND #CNT-REPLACED (#I1) = 0 AND #CNT-NOT-REPLACED (#I1) = 0         /*
+    ESCAPE TOP
+  END-IF
+  PRINT (AD=L) #CNT-TYPE (#I1) ': loaded:' #CNT-LOADED (#I1)
+    'not loaded:' #CNT-NOT-LOADED (#I1) /*SU3
+    'replaced:' #CNT-REPLACED (#I1)
+    'not replaced:' #CNT-NOT-REPLACED (#I1)
+END-FOR
+PERFORM FOLDER-CONSISTENCY /*SU4
+*
+END-SUBROUTINE /* WRITE-SUMMARY
+*
+************************************************************************
+DEFINE SUBROUTINE FOLDER-CONSISTENCY /*from RMIMPFO SU4
+************************************************************************
+PRINT 'NOM0005 Import: check folder consistency.'
+EXPAND ARRAY #US-TAB TO (1:50)
+FO-ALL. READ FO BY FO-USER-NAME /*read all folders
+  EXAMINE #USERID(*) FOR FO.FO-USER-ID GIVING INDEX #FO-IND
+  IF #FO-IND = 0 /*not in table, check US
+    ADD 1 TO #US-IND
+    IF #US-IND > *OCC(#USERID)
+      #FO-IND := #US-IND + 50
+      EXPAND ARRAY #US-TAB TO (1:#FO-IND)
+    END-IF
+    #FO-IND := #US-IND
+    #USERID (#FO-IND) := FO.FO-USER-ID
+    #US. FIND NUMBER US WITH USER-ID = FO.FO-USER-ID
+    IF *NUMBER (#US.) = 0
+      RESET #EXIST (#FO-IND)
+      PRINT F#GETMSG (<2, FO.FO-USER-ID>) /*User Id :1: is not defined.
+    ELSE
+      #EXIST (#FO-IND) := TRUE
+    END-IF
+  END-IF
+  IF NOT #EXIST (#FO-IND) /*user does not exist
+    PRINT 8X 'Folder Name:' FO.FO-NAME 'ID:' FO.FO-ID
+    ESCAPE TOP
+  END-IF
+  IF FO.FO-LINKED-FO-ID NE ' '
+    #US-L. FIND NUMBER FO WITH FO-USER-FO-ID = FO.FO-LINKED-FO-ID
+    IF *NUMBER (#US-L.) = 0 /*linked folder does not exist
+      PRINT F#GETMSG (<349>) /*Linked Folder not found.
+        'User ID:' FO.FO-USER-ID 'Folder:' FO.FO-NAME /*'ID:' FO-ID
+      PRINT 8X 'Linked Folder: User ID:' FO.FO-USER-ID
+      'Folder ID:' FO.FO-LINKED-ID
+    END-IF
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* FOLDER-CONSISTENCY
+** End of Copycode RMIMP-C *********************************************

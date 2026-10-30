@@ -1,0 +1,166 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMPOID-N
+* Function
+*   ' '     Issue unique Print-Order Id for Dialog
+*   'M'     Issue unique Print-Order Id for Monitor
+*           ET is done by caller
+*   'A'     Synchronize Order Ids in data and control record
+* Version   1.3
+*
+* Maintenance
+* jwo     1997-09-22 p(165064) created
+* xsetggr 2007-09-04 NOM3201   Support P11 format run numbers
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* ---------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 P-ID                        (N7)
+1 P-ERC                       (N4)
+1 P-ERT                       (A250)
+1 P-FUNC                      (A1)
+* *****
+LOCAL
+1 NRM-PO VIEW OF NRM-PRINTOUTS
+  2 PO-ID
+  2 PO-ID-INV
+  2 PO-REPRNB
+  2 REDEFINE PO-REPRNB
+    3 PO-LAST-ID              (P11)
+  2 PO-OBJECT-TYPE /*SU1
+  2 PO-OBJECT-TIME /*SU1
+1 #SAG-TRACE                  (L)
+1 #MAX-POID                   (N7)
+1 #CONTROL-KEY                (N7) CONST <9999999>
+1 #MAX-KEY                    (N7) CONST <9999998>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST VALUE OF P-FUNC
+  VALUE ' '
+    PERFORM GET-NEXT-PO-NUMBER
+    END TRANSACTION
+  VALUE 'M'
+    PERFORM GET-NEXT-PO-NUMBER
+  VALUE 'A'
+    PERFORM ADJUST-PO-NUMBERS
+  NONE
+    P-ERC := 5
+    COMPRESS *PROGRAM 'invalid function: ' P-FUNC TO P-ERT
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NEXT-PO-NUMBER
+************************************************************************
+FNDPO. FIND (1) NRM-PO WITH PO-ID = #CONTROL-KEY
+*
+  IF NO RECORDS FOUND
+    PERFORM GET-LAST-STORED-PO
+    PO-ID := #CONTROL-KEY
+    RESET  PO-ID-INV
+    PO-LAST-ID := #MAX-POID
+  END-NOREC
+*
+  PO-LAST-ID := PO-LAST-ID + 1
+  IF PO-LAST-ID GE #MAX-KEY
+    PO-LAST-ID := 1
+  END-IF
+  P-ID                      := PO-LAST-ID
+  IF #SAG-TRACE
+    PRINT *PROGRAM 'new po-id  :' P-ID
+  END-IF
+*
+  IF *NUMBER (FNDPO.) = 0
+    PO-OBJECT-TYPE := 'PO' /*SU1 SU2 moved to STORE
+    PO-OBJECT-TIME := *TIMX /*SU1 SU2 move to STORE
+    STORE NRM-PO
+  ELSE
+    UPDATE
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* GET-NEXT-PO-NUMBER
+*
+************************************************************************
+DEFINE SUBROUTINE ADJUST-PO-NUMBERS
+************************************************************************
+PERFORM GET-LAST-STORED-PO
+FIND (1) NRM-PO WITH PO-ID = #CONTROL-KEY
+*
+  IF NO RECORDS FOUND
+    PO-ID := #CONTROL-KEY
+    RESET PO-ID-INV
+    PO-LAST-ID := #MAX-POID
+    PO-OBJECT-TYPE := 'PO' /*SU1
+    PO-OBJECT-TIME := *TIMX /*SU1
+    STORE NRM-PO
+    END TRANSACTION
+    ESCAPE BOTTOM
+  END-NOREC
+*
+  PO-LAST-ID := PO-LAST-ID + 1
+  IF PO-LAST-ID GT #MAX-POID    /* several have been deleted
+    PO-LAST-ID := #MAX-POID
+/*SU2 PO-OBJECT-TYPE := 'PO' /*SU1
+/*SU2 PO-OBJECT-TIME := *TIMX /*SU1
+    UPDATE
+    END TRANSACTION
+    IF #SAG-TRACE
+      PRINT *PROGRAM 'adjusted to:' #MAX-POID
+    END-IF
+  ELSE
+    BACKOUT TRANSACTION
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* ADJUST-PO-NUMBERS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-LAST-STORED-PO
+************************************************************************
+READ (1) NRM-PO    BY PO-ID-INV
+  #MAX-POID := PO-ID
+  IF PO-ID NE PO-ID
+/*SU2 PO-OBJECT-TYPE := 'PO' /*SU1
+/*SU2 PO-OBJECT-TIME := *TIMX /*SU1
+    UPDATE
+  END-IF
+END-READ
+IF #SAG-TRACE
+  PRINT *PROGRAM 'last po found:' #MAX-POID
+END-IF
+*
+END-SUBROUTINE /* GET-LAST-STORED-PO
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF *ERROR-NR = 3145
+    IF P-FUNC EQ ' '   /* called from online programs
+      P-ERC := *ERROR-NR
+    ELSE               /* invoked by monitor
+      RETRY
+    END-IF
+  ELSE
+    P-ERC := 0021
+    COMPRESS *ERROR-NR '/' *PROGRAM '/' *ERROR-LINE TO P-ERT LEAVING NO
+  END-IF
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

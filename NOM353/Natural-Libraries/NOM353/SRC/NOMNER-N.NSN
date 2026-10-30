@@ -1,0 +1,221 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ---------------------------------------------------------------------
+* Subprogram  NOMNER-N
+* Version     3.5.0
+*
+* Function    Maintenance routine for the Results of CHECK, CAT, STOW
+*             on a Natural Member (Natural types TXT and PGM)
+*
+*
+* ---------------------------------------------------------------------
+* Modifications:
+* CF     2018-07-23  NOMALL-2089  Created (basing on OPMNED-N of EOR)
+*
+* ---------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING NADA2000
+LOCAL USING RMCTOD-P    /* new Monitor Command Handler
+LOCAL USING RLOG-L
+LOCAL
+/*
+1 #SX-LIBRARY                (A8)
+1 #SX-MEMBER                 (A8)
+/*
+1 #TOKEN                     (A50/5)
+1 #STRING                    (A253)
+END-DEFINE
+/*
+************************************************************************
+* Main line
+************************************************************************
+/*
+RESET ES-RC ES-MSG-NR ES-MSG-TXT
+/*
+*LANGUAGE   := ES-LANGUAGE
+#SX-LIBRARY := ES-KEY-PARM(1)
+#SX-MEMBER  := ES-KEY-PARM(2)
+/*
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+  VALUE 'CBS'
+    PERFORM CB-CMD-STATUS
+*   VALUE 'CBC'
+*     PERFORM CB-CMD-CANCEL
+*   VALUE 'SYN'
+*     PERFORM DO-MF-CAT-SYN
+    /*
+  NONE VALUE
+    ES-RC     := 2
+    ES-MSG-NR := 9998
+    COMPRESS *PROGRAM *LINE '### Extended function'
+             ES-EXTEND-FUNCTION 'invalid ###' INTO ES-MSG-TXT
+END-DECIDE
+/*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+/*
+************************************************************************
+DEFINE SUBROUTINE CB-CMD-STATUS
+************************************************************************
+/*
+/* Get the status of the asynchronous started command task
+/*
+RMCTOD-COMMAND    := '#GET'
+RMCTOD-SHORTMSG   := TRUE
+RMCTOD-LIBRARY    := #SX-LIBRARY
+RMCTOD-PROGRAM    := #SX-MEMBER
+/*
+IF ES-KEY-PARM(3) IS (N10)
+  RMCTOD-ORDER-ID   := VAL(ES-KEY-PARM(3))
+ELSE
+  ES-RC      := 2
+  ES-MSG-NR  := 9988
+  COMPRESS *PROGRAM *LINE '### Order number invalid:'
+           ES-KEY-PARM(3) '###' INTO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+* RMCTOD-TRACING    := TRUE   /* Trace to log file - on demand
+/*
+CALLNAT 'RMCTOD-N' RMCTOD
+/*
+/* Analyse return code
+/*
+DECIDE ON FIRST VALUE RMCTOD-ERROR-CODE
+    /* ----------------------------------------------------
+  VALUE   -1            /* Waiting for result
+    ES-RC      := 4
+    ES-MSG-NR  := 0
+    ES-MSG-TXT := RMCTOD-ERROR-TEXT
+    /* ----------------------------------------------------
+  VALUE 1601,           /* Natural command executed successfully
+        1602            /* Natural command failed
+    ES-RC      := 0
+    ES-MSG-NR  := RMCTOD-ERROR-CODE
+    ES-SELECT  := RMCTOD-ERROR-TEXT
+    IF ES-MSG-NR = 1602 /* Get NAT error text
+      PERFORM CREATE-MSG-TXT
+    END-IF
+    PERFORM LOG-AFTER-EDIT
+    /* ----------------------------------------------------
+  NONE                  /* -2 = Order number not found
+                        /* -3 = Wrong function
+                        /* or other errors from RMCTOD-N
+    ES-RC      := 2
+    IF RMCTOD-ERROR-CODE GE 0
+      ES-MSG-NR  := RMCTOD-ERROR-CODE
+    ELSE
+      ES-MSG-NR  := 9988
+    END-IF
+    IF RMCTOD-ERROR-TEXT = ' '
+      PERFORM GET-MSG-TXT
+    ELSE
+      ES-MSG-TXT := RMCTOD-ERROR-TEXT
+    END-IF
+    IF ES-MSG-NR = 9988
+      COMPRESS '<' RMCTOD-ERROR-CODE '>' ES-MSG-TXT INTO ES-MSG-TXT
+    END-IF
+    /* ----------------------------------------------------
+END-DECIDE
+/*
+END-SUBROUTINE /* CB-CMD-STATUS
+/*
+************************************************************************
+DEFINE SUBROUTINE LOG-AFTER-EDIT
+************************************************************************
+/*
+DECIDE ON FIRST ES-MSG-NR
+  VALUE 1601
+    SEPARATE RMCTOD-ERROR-TEXT INTO #TOKEN(*) REMAINDER #STRING
+             WITH INPUT DELIMITER
+    COMPRESS '4604' #TOKEN(2) TO LG-MSG
+  VALUE 1602
+    COMPRESS 'NAT' #TOKEN(3) INTO #STRING LEAVING NO
+    COMPRESS '4605' #STRING ES-MSG-TXT TO LG-MSG
+  ANY
+     PERFORM DO-LOG
+  NONE IGNORE
+END-DECIDE
+/*
+END-SUBROUTINE /* LOG-AFTER-EDIT
+/*
+************************************************************************
+DEFINE SUBROUTINE DO-LOG
+************************************************************************
+/*
+/* Call logging routine of NOM
+LG-USERID      := ES-USER
+LG-CODE        := 'UM'
+LG-OBJECT-NAME := #SX-MEMBER
+/*
+CALLNAT 'NOLG---N' PL-PARMS #SX-LIBRARY
+/*
+END TRANSACTION
+/*
+END-SUBROUTINE /* DO-LOG
+/*
+************************************************************************
+DEFINE SUBROUTINE CREATE-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+/*
+SEPARATE RMCTOD-ERROR-TEXT INTO #TOKEN(*) REMAINDER #STRING
+         WITH INPUT DELIMITER
+IF #TOKEN(3) IS (N4)
+  NADA2000.ERROR-NUMBER := VAL(#TOKEN(3))
+ELSE
+  ES-RC     := 2
+  ES-MSG-NR := 9988
+  COMPRESS *PROGRAM *LINE '### Invalid error number :'
+           #TOKEN(3) '###' INTO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+/*
+/* Read Natural System Error Message
+NADA2000.OBJECT-KIND    := 'N'
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+/* VERSION = 0
+/*
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+/*
+IF SHORT-MSG = ' ' AND ES-LANGUAGE NE 1
+  NADA2000.OPT-LANGUAGE := 1
+  CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+END-IF
+IF SHORT-MSG = ' '
+  COMPRESS '### No message text found for error number'
+           NADA2000.ERROR-NUMBER '###'
+      INTO SHORT-MSG
+END-IF
+/*
+ES-MSG-TXT   := SHORT-MSG
+/*
+END-SUBROUTINE /* CREATE-MSG-TXT
+/*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+/*
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-KEY-PARM(1)
+/* VERSION := 0
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-TXT   := SHORT-MSG
+/*
+END-SUBROUTINE /* GET-MSG-TXT
+/*
+END

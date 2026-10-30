@@ -1,0 +1,331 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOPRFF-N - EOM API Printers Masintrenance - Functions: delete, rename
+*
+* Maintenance:
+* XSETGGR 2002-08-08    created
+* XSETGGR 2002-11-14    use new parameter ES-APP-SERVER-LIBRARY
+* fhi     05-12-14 P272732   cataloged, because VPRINT-L was changed.
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2007-10-25 NRT2185   default values for UNIXLP printers
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2011-01-24           improve error messge
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-20 NOMALL-901 correct writing delete operations in log
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* xsetggr 2013-05-14 NOMALL-89  add option 'authorization', when copy
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* SU3     2021-01-08 NOMALL-2443 attr. "with Sep.Pages"(NOMALL-2085
+* HEB1    2022-07-12 NOMALL-2558 copy: last update user+date
+* ------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING NOMODE-A
+LOCAL USING RLOG-L
+LOCAL USING VPRINT-L
+* *****
+LOCAL
+1 GR VIEW OF NRM-GRANTS
+  2 GR-USERID
+  2 GR-OBJECT-TYPE
+  2 GR-OBJECT-NAME
+  2 GR-OPTION               (6)
+1 RP VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 C*R-PRINTERS
+  2 R-PRINTERS              (1:20)
+  2 REDEFINE R-PRINTERS
+    3 R-PRNT                (1:20)
+      4 R-PRINTER           (A8)
+      4 R-COP               (A3)
+      4 R-SEP-PAGES         (A1) /*SU3
+1 BN VIEW OF NRM-BUNDLES
+  2 B-BUNDLE
+  2 C*B-PRINT-LIST
+  2 B-PRINT-LIST            (1:20)
+  2 REDEFINE B-PRINT-LIST
+    3 B-PRNT                (1:20)
+      4 B-PRINTER           (A8)
+      4 B-COP               (A3)
+1 AB VIEW OF NRM-ACTIVE-BUNDLES
+  2 AB-BUNDLE
+  2 C*AB-PRINT-LIST
+  2 AB-PRINT-LIST           (1:20)
+  2 REDEFINE AB-PRINT-LIST
+    3 AB-PRNT               (1:20)
+      4 AB-PRINTER          (A8)
+      4 AB-COP              (A3)
+1 PO VIEW OF NRM-PRINTOUTS
+  2 PO-LOGICAL
+* *****
+1 #ES-CONTROL               (A250)
+1 #ES-INPUT-AREA            (A253/1:3)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+1 #I                        (I4)
+1 #C100                     (I4)
+1 #OLD-NAME                 (A8)
+1 #GR-TYPE-NAME             (A26)
+1 REDEFINE #GR-TYPE-NAME
+  2 #GR-TYPE                (A1)
+  2 #GR-NAME                (A25)
+1 #PRINTER-FROM             (A11)
+1 REDEFINE #PRINTER-FROM
+  2 #PRINTER-F              (A8)
+  2 #COPIES-F               (A3)
+1 #PRINTER-TO               (A11)
+1 #P-ID-E                   (A8)
+1 #P-ID                     (A8) INIT <'DEFAULT'>
+1 REDEFINE #P-ID
+  2 #P-ID-1                 (A7)
+  2 #P-ID-2                 (A1)
+1 #USER-LIB                 (A8)
+1 #GR-PRINTER               (A25)
+1 #GR-USER                  (A8)
+1 #GRANTS                   (A1/6)
+1 #ES-SELECT                (A6)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC #ES-MSG-NR
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+NOMOD-PARMS := ES-SELECT
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+#OLD-NAME := ES-KEY-PARM(1)
+#P-ID-2 := 'Z'
+#P-ID-E := #P-ID
+#P-ID-2 := 'A'
+*
+FPR. FIND PRINTERS WITH P-ID = #OLD-NAME
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0108
+    #ES-MSG-FIELD-NAME := 'NAME'
+    PERFORM GET-MSG-TXT
+    ESCAPE ROUTINE
+  END-NOREC
+  DECIDE ON EVERY VALUE OF ES-ORIG-FUNCTION
+    VALUE 'RN', 'CP', 'DL'
+      IF P-ID = #P-ID THRU #P-ID-E
+        #ES-MSG-NR := 0165
+        #ES-MSG-FIELD-NAME := 'NAME'
+        ESCAPE BOTTOM (FPR.)
+      END-IF
+    VALUE 'RN','CP'
+      IF ES-NEWNAME = ' '
+        #ES-MSG-NR := 0106
+        #ES-MSG-FIELD-NAME := 'NEWNAME'
+        PERFORM GET-MSG-TXT
+        ESCAPE ROUTINE
+      END-IF
+      FNN. FIND NUMBER PRINTERS WITH P-ID = ES-NEWNAME
+      IF *NUMBER(FNN.) > 0
+        #ES-MSG-NR :=  0033
+        #ES-MSG-FIELD-NAME := 'NEWNAME'
+        PERFORM GET-MSG-TXT
+        ESCAPE ROUTINE
+      END-IF
+    VALUE 'RN'
+      GPRRN. GET PRINTERS *ISN(FPR.)
+      P-ID := ES-NEWNAME
+      UPDATE (GPRRN.)
+      PERFORM UPDATE-GRANTS
+      #PRINTER-F := #OLD-NAME
+      #COPIES-F := H'FF'
+      #PRINTER-TO := #PRINTER-FROM
+      #COPIES-F := H'00'
+      FRP. FIND RP WITH R-PRINTERS = #PRINTER-FROM THRU #PRINTER-TO
+        FOR #I = 1 TO C*R-PRINTERS
+          IF R-PRINTER(#I) = #OLD-NAME
+            GRP. GET RP *ISN(FRP.)
+            R-PRINTER(#I) := ES-NEWNAME
+            UPDATE(GRP.)
+            PERFORM END-TRANSACTION
+          END-IF
+        END-FOR
+      END-FIND
+      FBN. FIND BN WITH B-PRINT-LIST = #PRINTER-FROM THRU #PRINTER-TO
+        FOR #I = 1 TO C*B-PRINT-LIST
+          IF B-PRINTER(#I) = #OLD-NAME
+            GBN. GET RP *ISN(FBN.)
+            B-PRINTER(#I) := ES-NEWNAME
+            UPDATE(GBN.)
+            PERFORM END-TRANSACTION
+          END-IF
+        END-FOR
+      END-FIND
+      FAB. FIND AB WITH AB-PRINT-LIST = #PRINTER-FROM THRU #PRINTER-TO
+        FOR #I = 1 TO C*AB-PRINT-LIST
+          IF AB-PRINTER(#I) = #OLD-NAME
+            GAB. GET RP *ISN(FAB.)
+            AB-PRINTER(#I) := ES-NEWNAME
+            UPDATE(GAB.)
+            PERFORM END-TRANSACTION
+          END-IF
+        END-FOR
+      END-FIND
+      FIND PO WITH PO-LOGICAL = #OLD-NAME
+        PO-LOGICAL := ES-NEWNAME
+        UPDATE
+        PERFORM END-TRANSACTION
+      END-FIND
+    VALUE 'CP'
+      P-ID := ES-NEWNAME
+      P-LAST-UPDATE      := *TIMX                       /* HEB1
+      P-LAST-UPDATE-USER := ES-USER                     /* HEB1
+      STORE PRINTERS
+      IF ES-KEY-PARM(2) = 'Y'
+        IF ES-USER-TYPE NE 'A'
+          #GR-PRINTER := ES-KEY-PARM(1)
+          CALLNAT 'NOGROU-N' 'P' #GR-PRINTER ES-USER #GR-USER #GRANTS(*)
+          IF #GRANTS(1) NE 'Y' AND #GRANTS(3) NE 'Y'
+            #ES-SELECT := 'DL'
+          END-IF
+        END-IF
+        PERFORM UPDATE-GRANTS
+      ELSE
+        GR-USERID := ES-USER
+        GR-OBJECT-NAME := ES-NEWNAME
+        GR-OBJECT-TYPE := 'P'
+        GR-OPTION(1:6) := 'Y'
+        STORE GR
+      END-IF
+      ES-SELECT := #ES-SELECT
+*
+    VALUE 'DL'
+      GPRDL. GET PRINTERS *ISN(FPR.)
+      DELETE (GPRDL.)
+      PERFORM UPDATE-GRANTS
+    NONE VALUE IGNORE
+  END-DECIDE
+END-FIND
+PERFORM WRITE-LOG-RECORD
+END TRANSACTION
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-GRANTS
+************************************************************************
+#GR-TYPE-NAME.#GR-TYPE := 'P'
+#GR-TYPE-NAME.#GR-NAME := #OLD-NAME
+FGR. FIND GR WITH GR-TYPE-NAME = #GR-TYPE-NAME
+  DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+    VALUE 'DL'
+      GGRD. GET GR *ISN(FGR.)
+      DELETE (GGRD.)
+    VALUE 'RN'
+      GGRR. GET GR *ISN(FGR.)
+      GR-OBJECT-NAME := ES-NEWNAME
+      UPDATE (GGRR.)
+    VALUE 'CP'
+      GR-OBJECT-NAME := ES-NEWNAME
+      GR-USERID := ES-USER
+      STORE GR
+    ANY VALUE
+      PERFORM END-TRANSACTION
+    NONE VALUE IGNORE
+  END-DECIDE
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-GRANTS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+IF ES-MSG-NR = 33
+  EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ES-NEWNAME
+END-IF
+ES-MSG-FIELD := #ES-MSG-FIELD
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+LG-USERID := ES-USER
+IF ES-ORIG-FUNCTION = 'DL'
+  COMPRESS '0075' P-ID 'LOG-PRINTER' TO LG-MSG
+  LG-CODE     := 'MO'
+  LG-FUNCTION := 'W'
+  CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+END-IF
+IF NOMOD-LOG-TYPES (*) = 'P'
+  LG-CODE := 'PM'
+  DECIDE ON FIRST ES-ORIG-FUNCTION
+    VALUE 'DL'
+      COMPRESS '2512' #OLD-NAME TO LG-MSG
+      LG-OBJECT-NAME := #OLD-NAME
+      CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+    VALUE 'RN'
+      COMPRESS '2513' #OLD-NAME ES-NEWNAME TO LG-MSG
+      LG-OBJECT-NAME := ES-NEWNAME
+      CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+    VALUE 'CP'
+      COMPRESS '2514' #OLD-NAME ES-NEWNAME TO LG-MSG
+      LG-OBJECT-NAME := ES-NEWNAME
+      CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+    NONE VALUE IGNORE
+  END-DECIDE
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE END-TRANSACTION
+************************************************************************
+ADD 1 TO #C100
+IF #C100 >= 100
+  END TRANSACTION
+  RESET #C100
+END-IF
+*
+END-SUBROUTINE /* END-TRANSACTION
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-MSG-NR := *ERROR-NR
+  COMPRESS 'Error' *ERROR-NR 'in' *PROGRAM 'line' *ERROR-LINE
+    TO ES-MSG-TXT
+  ES-RC := 1
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

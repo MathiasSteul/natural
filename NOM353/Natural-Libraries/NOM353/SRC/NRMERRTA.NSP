@@ -1,0 +1,92 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NRMERRTA
+* Version   1.3
+* Function  NOM Online error transaction
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-12-07 s(999999) support of model 5 screens
+* SU1     2015-09-17 NOMALL-1726 show full message
+* fhi     2016-04-15 NOMALL-1837 Introduce +DEVICE for testing
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+GLOBAL USING NRM-GL
+* fhi      2016-04-15 NOMALL-1837 start insertion
+INDEPENDENT
+1 +DEVICE              (A8)
+* fhi      2016-04-15 NOMALL-1837 end   insertion
+LOCAL USING XXGMSG-A
+LOCAL USING RLOG-L /*SU1
+LOCAL
+1 #ERR-NR           (N5)
+1 #ERR-LINE         (N4)
+1 #ERR-TYPE         (A1)
+1 #ERR-PROGRAM      (A8)
+1 #ERR-LEVEL        (N2)
+1 #ERR-TEXT         (A200) /*SU1 ->
+1 REDEFINE #ERR-TEXT
+  2 ERR_A50         (A50/1:4)
+1 #DYN              (A) DYNAMIC
+1 #DYN-TAB          (A/1:*) DYNAMIC
+1 #LEN              (I2) /*SU1 <-
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE WINDOW #ERR SIZE 7*55 BASE 12/9 /*SU1
+  TITLE '- Error occurred -' CONTROL WINDOW
+*
+IF *DATA > 0
+  INPUT #ERR-NR #ERR-LINE #ERR-TYPE #ERR-PROGRAM #ERR-LEVEL
+END-IF
+BACKOUT TRANSACTION
+RESET G-COMMIT
+IF #ERR-NR = 3145 OR=3009
+  G-NATRP-ERC := #ERR-NR
+  RELEASE STACK
+  FETCH 'RMENU'
+END-IF
+* Get error message:
+#XX-ERROR-TYPE := 'N'
+#XX-ERROR-CODE := #ERR-NR
+CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+COMPRESS #ERR-PROGRAM '/' #ERR-LINE TO G-NATRP-ERT LEAVING NO
+LG-OBJECT-NAME := G-NATRP-ERT
+LG-MSG := #XX-SHORT-TEXT
+COMPRESS G-NATRP-ERT '-' #XX-SHORT-TEXT TO G-NATRP-ERT
+* Message to long -> show it in window: SU1
+EXAMINE G-NATRP-ERT FOR ' ' GIVING LENGTH #LEN
+IF #LEN > 79 AND +DEVICE NE 'BATCH' /* NOMALL-1837 +DEVICE
+  #LEN := 50 /*wrap len
+  #DYN := G-NATRP-ERT
+  PERFORM XXWRAP-WORD-WRAP 'J' #DYN #DYN-TAB (*) #LEN
+  FOR #LEN = 1 TO *OCC(#DYN-TAB)
+    IF #LEN > *OCC(ERR_A50)
+      ESCAPE BOTTOM
+    END-IF
+    ERR_A50 (#LEN) := #DYN-TAB (#LEN)
+  END-FOR
+  INPUT WINDOW='#ERR' ERR_A50 (*) (AD=IO IP=OFF)
+END-IF
+* Write log1:
+G-NATRP-ERC := 25 /*??SU1
+#ERR-TEXT := #XX-SHORT-TEXT
+FETCH RETURN 'RLOGERR' #ERR-NR #ERR-LINE #ERR-PROGRAM #ERR-TEXT
+* Write message to user log: SU1
+LG-USERID := G-USERID
+LG-CODE := 'UI' /*'UI'oe
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+*
+RELEASE STACK
+FETCH 'RMENU'
+*
+END

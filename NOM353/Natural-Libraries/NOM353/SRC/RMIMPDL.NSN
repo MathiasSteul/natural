@@ -1,0 +1,110 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+************************************************************************
+* RMIMPDL - Import Distribution List
+*
+* Maintenance
+* User  yyyy-mm-dd Issue       Remark
+* ----- ---------------------- -----------------------------------------
+*       2019-02-22 generated   Created for RMIMPORT from RMXML2LD
+* fhi   2019-02-20 NOMALL-2215 Add object type MF Node: NO /rewritten
+* SU3   2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU4   2021-01-08 NOMALL-2443 avoid dup. entries
+* SU5   2021-04-22 NOMALL-2460 show actions
+* SU6   2021-08-18 NOMALL-2467 recat (RMIMP-A/RMIMP-C/RMIMP-C1)+RMIMPDLL
+/************************************* data ***********************************
+DEFINE DATA
+PARAMETER USING RMIMP-A
+PARAMETER
+1 DL-FILL
+  2 D-LIST-NAME         (A8)
+  2 D-LIST-DESC         (A50)
+  2 D-USER-LIST         (A8/1:191) /*SU6: 191 ??
+  2 D-DESCRIPTION       (A60/1:1)
+  2 D-LAST-UPDATE       (T)
+  2 D-LAST-UPDATE-USER  (A16)
+  2 D-OBJECT-TYPE       (A10)
+  2 D-OBJECT-TIME       (T)
+/***********************************************************************
+LOCAL USING RMIMP-L /*SU5
+LOCAL USING RMBAS64P
+/*SU6 LOCAL USING RMIMPDLL
+*
+LOCAL
+1 DL VIEW OF NRM-DISTRIBUTION-LIST /*SU6 was RMIMPDLL
+  2 D-OBJECT-TYPE        (A10)
+  2 D-OBJECT-TIME        (T)
+  2 D-LIST-NAME          (A8)
+  2 D-LIST-DESC          (A50)
+  2 D-USER-LIST          (A8/1:191) /*SU6: 191 ??
+  2 D-DESCRIPTION        (A60/1:1)
+  2 D-LAST-UPDATE        (T)
+  2 D-LAST-UPDATE-USER   (A16)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *OCC(B64-TEXT-ARRAY) = 0
+  EXPAND ARRAY B64-TEXT-ARRAY TO (1:5)
+END-IF
+IF NOT #SAVE
+  IF #TAG-CURRENT = #TAG-OLD
+    ADD 1 TO #IND
+  ELSE
+    #IND := 1
+  END-IF
+  IF #VALUE-CURRENT = ' '
+    ESCAPE MODULE
+  END-IF
+  DECIDE ON FIRST VALUE OF #TAG-CURRENT
+    VALUE 'D-OBJECT-TYPE'
+      DL-FILL.D-OBJECT-TYPE := #VALUE-CURRENT
+    VALUE 'D-OBJECT-TIME'
+      MOVE EDITED #VALUE-CURRENT TO DL-FILL.D-OBJECT-TIME
+        (EM=YYYY'-'MM'-'DD'-'HH':'II':'SS'.'T)
+    VALUE 'D-LIST-NAME'
+      DL-FILL.D-LIST-NAME := #VALUE-CURRENT
+    VALUE 'D-LIST-DESC'
+      DL-FILL.D-LIST-DESC := #VALUE-CURRENT
+    VALUE 'D-USER-LIST'
+      DL-FILL.D-USER-LIST (#IND) := #VALUE-CURRENT
+    VALUE 'D-DESCRIPTION'
+      DL-FILL.D-DESCRIPTION (#IND) := #VALUE-CURRENT
+    VALUE 'D-LAST-UPDATE'
+      MOVE EDITED #VALUE-CURRENT TO DL-FILL.D-LAST-UPDATE
+        (EM=YYYY'-'MM'-'DD'-'HH':'II':'SS'.'T)
+    VALUE 'D-LAST-UPDATE-USER'
+      DL-FILL.D-LAST-UPDATE-USER := #VALUE-CURRENT
+    NONE IGNORE
+  END-DECIDE
+ELSE
+  #OBJ-NAME := DL-FILL.D-LIST-NAME
+  OBJ. FIND (1) DL WITH D-LIST-NAME = DL-FILL.D-LIST-NAME /*SU4 was #KEY
+    IF NO RECORDS FOUND
+      MOVE BY NAME DL-FILL TO DL
+      STORE DL
+      PERFORM ADD-LOADED
+      ESCAPE BOTTOM (OBJ.)
+    END-NOREC
+    MOVE BY NAME DL-FILL TO DL
+    IF #REPL = 'Y'
+      UPDATE (OBJ.)
+      PERFORM ADD-REPLACED
+    ELSE
+      COMPRESS DL-FILL.D-LIST-NAME 'not replaced for DL' TO #MSG /*SU4
+      PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+      PERFORM ADD-NOT-REPLACED
+    END-IF
+  END-FIND
+  END TRANSACTION
+END-IF
+*
+INCLUDE RMIMP-C1
+*
+END

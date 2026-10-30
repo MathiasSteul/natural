@@ -1,0 +1,121 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMCHK91N - Check if Lfile 91 contains records that should only be
+*            present in Lfile 206
+*   Explanation: If this routine returns error 1544 a monitor record
+*     has been found in Lfile 91 which should only contain active data.
+*     This means that the migration program MIGDEF has not been executed
+*     properly at time of splitting the NOM System file into two files,
+*     or an Lfile definition of Lfile 206 points
+*     to the physical file that should contain active data only.
+*
+*     However, if only the 3rd and/or 4th digit of the version has
+*     changed, this routine will execute MIGEND and return with RC 0.
+*
+* Maintenance
+* uuu     yyyy-mm-dd P999999     ...
+* fhi     2010-05-25 P326018     Created.                               ONTENTS
+* fhi     2010-06-25 NOMALL-812  Rewritten                              ONTENTS
+* fhi     2012-03-12 NOMALL-812  Rewritten                              ONTENTS
+* bli     2012-09-19 NOMALL-94   Introduce 2 digit versions
+* fhi     2013-05-08 NOMALL-1214 Check for migration
+* BLI     2015-11-23 NOMALL-1572 RMINIT check of LFILE91 fails
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 #TASK-ID                         (A16)
+1 P-ERC                            (N4)
+1 P-ERT                            (A250)
+************************************************************************
+LOCAL USING RACTLF-A
+LOCAL USING NOMVI-2A
+LOCAL
+1 MONITOR VIEW OF NRM-MONITOR
+  2 M-MONITOR-ID
+  2 M-NATRPT-DBID-N5
+  2 M-NATRPT-FNR-N5
+1 MONVERS VIEW OF NRM-MONITOR
+  2 M-MONITOR-ID
+  2 M-VERSION
+  2 REDEFINE M-VERSION
+    3 #VERSION-N             (N2)
+    3 #RELEASE-N             (N2)
+    3 #SP-N                  (N2)
+    3 #CF-N                  (N4)
+    3 #MIGRATION-IN-PROGRESS (A1) /* NOMALL-1214 was (L)
+    3 #VERSION-DATE          (A8)
+1 #NO-91                             (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-ERC P-ERT              /* BLI NOMALL-1572
+CALLNAT 'NOMVI-2N' NOMVI
+/*
+/* Check if the Nom System File is split
+/*
+RACTLF-LFILE-1 := 91
+CALLNAT 'RACTLF-N' RACTLF-PARMS
+IF RACTLF-ERROR-CODE = 0              /* LFILE 91 exists
+/*
+/* Now check for monitor record
+/*
+  RESET MONITOR MONVERS
+  GETFIL91. FIND MONITOR WITH M-MONITOR-ID = 'FILE91'
+    IF NO RECORDS FOUND
+      #NO-91 := TRUE
+      ESCAPE BOTTOM (GETFIL91.)
+    END-NOREC
+    IF M-NATRPT-DBID-N5 NE RACTLF-DBID-1
+        OR M-NATRPT-FNR-N5  NE RACTLF-FNR-1
+      P-ERC := 1544
+      COMPRESS                 /* '1544&' /* BLI NOMALL-1572 comment
+        M-NATRPT-DBID-N5 '/' M-NATRPT-FNR-N5 '&'
+        RACTLF-DBID-1    '/' RACTLF-FNR-1 TO P-ERT LEAVING NO
+      EXAMINE P-ERT FOR '&' REPLACE ' '
+    END-IF
+  END-FIND
+END-IF
+IF P-ERC EQ 0                 /* BLI NOMALL-1572
+  GETVERS. FIND MONVERS WITH M-MONITOR-ID = #TASK-ID
+    DECIDE FOR FIRST CONDITION
+      WHEN #NO-91
+        IF #VERSION-N      = NOMVI-N-VERSION
+            AND #RELEASE-N = NOMVI-N-RELEASE
+            AND #MIGRATION-IN-PROGRESS NE 'Y' /* NOMALL-1214 was 'NOT'
+          FETCH RETURN 'MIGEND'
+          RESET P-ERC P-ERT
+          ESCAPE BOTTOM (GETVERS.)
+        END-IF
+      WHEN #VERSION-N    = NOMVI-N-VERSION
+          AND #RELEASE-N = NOMVI-N-RELEASE
+          AND (#SP-N     NE NOMVI-N-SP OR   #CF-N     NE NOMVI-N-CF)
+          AND #MIGRATION-IN-PROGRESS NE 'Y'   /* NOMALL-1214 was 'NOT'
+        FETCH RETURN 'MIGEND'
+        RESET P-ERC P-ERT
+      WHEN #VERSION-N    NE NOMVI-N-VERSION
+          OR #RELEASE-N  NE NOMVI-N-RELEASE
+        P-ERC            := 1538
+*       P-ERT            := M-VERSION /* BLI NOMALL-1572
+        COMPRESS                      /* BLI NOMALL-1572
+          #VERSION-N '.'              /* BLI NOMALL-1572
+          #RELEASE-N '.'              /* BLI NOMALL-1572
+          #SP-N TO P-ERT LEAVING NO   /* BLI NOMALL-1572
+* fhi     2013-05-08 NOMALL-1214 start insertion
+      WHEN #MIGRATION-IN-PROGRESS = 'Y'
+        P-ERC            := 1571
+* fhi     2013-05-08 NOMALL-1214 end insertion
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+  END-FIND
+END-IF                                 /* BLI NOMALL-1572
+*
+END

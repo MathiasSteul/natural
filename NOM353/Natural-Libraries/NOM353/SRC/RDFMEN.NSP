@@ -1,0 +1,210 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDFMEN - Default Definition Menu
+*
+* Maintenance
+* uuu yyyy-mm-dd s(999999)   ...
+* gw  1994-11-17 s(999999)   cleaned up, old version saved in NOM133O
+* gw  1994-11-17 s(214318)   SAP-Spool defaults added
+* gw  1994-12-06 s(214320)   User-Spool interface
+* gw  1997-02-05 s(259702)   fetch father-prog if not allowed
+* wcd 2000-04-01 CE 7267     New PFkey for addit printers in RPFK---L
+* fhi 2000-08-29 s(196560)   Support Unix files
+* sju 2002-04-16 NOM221      Allow display mode
+* Splildav 2010-11-03        NOMALL-31 add line 'Vtam Options'
+* Splildav 2011-02-01        NOMALL-31 changes backed-out (8.1.14)
+*                            Applied to RADMIN (8.11)
+* fhi 2015-04-30 NOMALL-1478 Add MF Node Defition
+* SU1 2016-11-30 NOMALL-1932(NOM3.5) unix nodes -> nodes
+* fhi 2017-01-27 NOMALL-1620 Allow 3 digit menu, e.g. '8.1.2'
+* SU2 2017-07-18 NOMALL-1823 NOMALL-2034 NOM 3.5: SAP -> codepage
+* SU3 2018-11-12 NOMALL-2174 avoid Mainframe definitions on LUW
+* ----------------------------------------------------------------------
+DEFINE DATA
+GLOBAL USING  NRM-GL
+INDEPENDENT
+1 +SUBMENU                   (A2) /* NOMALL-1620 fhi in
+LOCAL USING RPFK---L
+LOCAL USING RMT----L
+LOCAL USING PROF-LOC
+LOCAL
+1 #MENU-ENTRY                    (14)
+  2 #MENU-LINE                   (A70)
+  2 #MENU-IDENT                  (I2)
+  2 #OPTIONS                     (L)
+1 #PF-KEY                        (A4)
+1 #LINE                          (A60/17)
+1 I                              (N3)
+1 J                              (N3)
+1 #L                             (N3)
+1 #TLINE                         (A60)
+1 REDEFINE    #TLINE
+  2 #TFIL1                       (A2)
+  2 #TNUM                        (A2)
+  2 #TFIL2                       (A1)
+  2 #TTEXT                       (A55)
+1 L-HEADER                       (A78)
+1 #FATHER-PROG                   (A8) INIT <'RADMIN'>
+1 #LANGUAGE                      (I1)
+1 #CONST-MENU-ITEMS              (I4) CONST <14> /* NOMALL-1478 was 13
+1 #ALLOWED                       (L) INIT <TRUE>
+1 #MF                            (L) /*SU3
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET CONTROL 'L'
+RESET G-LINECOM(*)
+IF G-FLIP-STATUS = 'L'
+  G-FLIP-STATUS := 'P'
+END-IF
+IF *MACHINE-CLASS = 'MAINFRAME' /*SU3
+  #MF := TRUE
+END-IF
+*
+INCLUDE C-INDIC
+PROFILE-STRING := G-USER-PROFILE
+IF PROF-DEFAULTS = ' '
+  #ALLOWED := FALSE
+  INCLUDE C-NALLOW
+END-IF
+#OPTIONS(1:4) := TRUE
+*
+REPEAT
+*
+  IF #LANGUAGE NE *LANGUAGE
+    #LANGUAGE := *LANGUAGE
+    PERFORM INIT-PFKEYS
+    PERFORM SET-PFKEYS
+    PERFORM INIT-MENU-TEXT
+    PERFORM MOVE-TEXT-TO-SCREEN
+  END-IF
+*
+  RESET G-LINECOM (*) G-FLIPLINES (*)
+*
+  SET CONTROL 'WB'
+  PERFORM FLIP-DISPLAY
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDFMENM&'
+  IF G-NATRP-ERC = 0
+    G-NATRP-ERC := 10
+  END-IF
+*
+  IF +SUBMENU NE MASK(N) AND +SUBMENU NE MASK(NN) /* NOMALL-1620 fhi in
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'RDFMENM&'
+  ELSE /*fhi     2017-01-27 NOMALL-1620 start insertion
+    G-DIRECT-COMMAND := +SUBMENU
+    RESET +SUBMENU
+  END-IF /* fhi     2017-01-27 NOMALL-1620 end   insertion
+  RESET G-NATRP-ERC G-NATRP-ERT
+  MOVE LEFT G-DIRECT-COMMAND TO G-DIRECT-COMMAND
+  G-C-FUNC := PROF-DEFAULTS
+*
+  DECIDE ON FIRST VALUE OF G-DIRECT-COMMAND
+    VALUE  '1' FETCH RETURN 'RDEFSY'  /*System defaults
+    VALUE  '2' FETCH RETURN 'RDEFMO'  /*Monitor defaults
+    VALUE  '3' FETCH RETURN 'RDFLRP'  /*Report processing defaults
+    VALUE  '4' FETCH RETURN 'RDFLBU'  /*Bundle processing defaults
+    VALUE  '5' FETCH RETURN 'RDEFAV'  /*Automatic archiving defaults
+    VALUE  '6' FETCH RETURN 'RDEFRV'  /*Automatic reviving defaults
+    VALUE  '7' FETCH RETURN 'RDEFCL'  /*Automatic cleanup Defaults
+    VALUE  '8' IF #MF FETCH RETURN 'RDEFCMA' END-IF /*CA Spool defaults
+    VALUE  '9' FETCH RETURN 'RDEFNAF' /*NAF defaults
+    VALUE '10' FETCH RETURN 'RDEFAPI' /*Container File and User-Exits
+    VALUE '11' FETCH RETURN 'RDEFCP'  /*Default code pages
+    VALUE '12' IF #MF FETCH RETURN 'RLISUSR' END-IF /*3GL interfaces
+    VALUE '13' FETCH RETURN 'RLISNO'  /*Node definitions
+    VALUE '14' FETCH RETURN 'RLISEM'  /*Email Message Definitions
+    ANY VALUE
+      RESET G-DIRECT-COMMAND
+      ESCAPE TOP
+    NONE IGNORE
+  END-DECIDE
+*
+  INCLUDE C-DIRECT
+  #PF-KEY := *PF-KEY
+  DECIDE ON FIRST VALUE OF #PF-KEY
+    VALUE 'PF1','PF13'
+      REINPUT USING HELP
+    VALUE 'PF3','PF15'
+      INCLUDE C-ESCAPE
+    VALUE 'PF12','PF24'
+      INCLUDE C-MENU
+    VALUE 'PF4','PF16'
+      PERFORM FLIP-HANDLE
+      ESCAPE TOP
+    NONE IGNORE
+  END-DECIDE
+*
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-MENU-TEXT
+************************************************************************
+#MENU-IDENT (01) := ##MTN-SYSTEM-DEFAULTS   /*System defaults
+#MENU-IDENT (02) := ##MTN-MONITOR-DEFAULTS  /*Monitor defaults
+#MENU-IDENT (03) := ##MTN-REPORT-DEFAULTS   /*Report processing defaults
+#MENU-IDENT (04) := ##MTN-BUNDLE-DEFAULTS   /*Bundle processing defaults
+#MENU-IDENT (05) := ##MTN-ARCHIVE-DEFAULTS  /*Automatic archiving defaul
+#MENU-IDENT (06) := ##MTN-REVIVE-DEFAULTS   /*Automatic reviving default
+#MENU-IDENT (07) := ##MTN-CLEANUP-DEFAULTS  /*Automatic cleanup Defaults
+#MENU-IDENT (08) := ##MTN-CMASPOOL-DEFAULTS /*CA Spool defaults
+#MENU-IDENT (09) := ##MTN-NAF-DEFAULTS      /*NAF defaults
+#MENU-IDENT (10) := ##MTN-TRIGGER-DEFAULTS  /*Container File and User-Ex
+#MENU-IDENT (11) := ##MTN-CODEPAGE-DEFAULTS /*Default code pages
+#MENU-IDENT (12) := ##MTN-USRSPOOL-DEFAULTS /*3GL interfaces
+#MENU-IDENT (13) := ##MTN-NODE-DEFINITIONS  /*Node definitions
+#MENU-IDENT (14) := ##MTN-EVENT-DEFINITIONS /*Email Message Definitions
+*
+FOR J = 1 TO #CONST-MENU-ITEMS
+  IF #MENU-IDENT (J) NE 0
+    CALLNAT 'RLTINI-N' #MENU-IDENT (J) #MENU-LINE  (J) G-TXB
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* INIT-MENU-TEXT
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE MOVE-TEXT-TO-SCREEN
+************************************************************************
+RESET #L #LINE(*)
+FOR I = 1 TO #CONST-MENU-ITEMS
+  IF I = 1 OR = 5 OR = 8
+    ADD 2 TO #L
+  ELSE
+    ADD 1 TO #L
+  END-IF
+  IF NOT #MF
+  AND #MENU-IDENT (I)=##MTN-CMASPOOL-DEFAULTS OR=##MTN-USRSPOOL-DEFAULTS
+    SUBTRACT 1 FROM #L
+    ESCAPE TOP /*3GL interfaces/CA Spool defaults
+  END-IF
+  #TFIL1 := '< '
+  #TFIL2 := '>'
+  MOVE RIGHT I TO #TNUM
+  #TTEXT := #MENU-LINE(I)
+  #LINE(#L) := #TLINE
+END-FOR
+*
+END-SUBROUTINE /* MOVE-TEXT-TO-SCREEN
+*
+INCLUDE RPFSET-C
+*
+END

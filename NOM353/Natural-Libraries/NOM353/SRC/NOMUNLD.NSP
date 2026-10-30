@@ -1,0 +1,126 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMUNLD
+* Function  Unload Natural Modules from NOM to PC File
+*
+* Maintenance
+* uuu yyyy-mm-dd iTrac       Comment
+* fhi 2013-09-17 NOMALL-86   Created.
+* ----------------------------------------------------------------------
+DEFINE DATA LOCAL
+1 #OBJH-COMMAND (A250)
+1 #MEMBERS      (A18/3,5)
+1 #FMLIB        (A8/3)
+1 #TOLIB        (A8/3)
+1 #NATTYPE      (A1/3)
+1 #OBJT         (A1/3)
+1 #SC           (A1/3)
+1 #FMNUM        (N4/3)
+1 #TONUM        (N4/3)
+1 #I            (I4)
+1 #J            (I4)
+1 #FIRST        (L)     INIT <TRUE>
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY ALL
+REPEAT
+  INPUT USING MAP 'NOMUNLM1'
+  IF *PF-KEY NE 'ENTR' AND *PF-KEY NE 'PF5'
+    ESCAPE ROUTINE
+  END-IF
+  FOR #I = 1 TO 3
+    DECIDE FOR EVERY CONDITION
+      WHEN #FMNUM (#I)   = 0 AND #OBJT (#I) = 'E'
+        REINPUT 'From error number must be entered.' MARK *#FMNUM (#I)
+      WHEN #TONUM (#I)   = 0 AND #OBJT (#I) = 'E'
+        REINPUT 'To error number must be entered.' MARK *#TONUM (#I)
+      WHEN #FMLIB(#I)=' ' AND(#MEMBERS (#I,*) NE ' ' OR #FMNUM(#I) NE 0)
+        REINPUT 'From library must be entered.' MARK *#FMLIB (#I)
+      WHEN   (#MEMBERS (#I,*) NE ' ' AND #FMNUM (#I) NE 0)
+        REINPUT 'Enter either prefix or error number range'
+      WHEN #TOLIB (#I)   = ' ' AND #MEMBERS (#I,*) NE ' '
+        #TOLIB (#I)     := #FMLIB (#I)
+      WHEN #NATTYPE (#I) = ' '
+          AND (#MEMBERS (#I,*) NE ' ' OR #FMNUM (#I) NE 0)
+        #NATTYPE (#I)   := '*'
+      WHEN #OBJT (#I)=' ' AND (#MEMBERS(#I,*) NE ' ' OR #FMNUM(#I) NE 0)
+        #OBJT (#I)      := 'N'
+      WHEN #SC (#I)=' ' AND (#MEMBERS(#I,*) NE ' ' OR #FMNUM(#I) NE 0)
+        #SC (#I)        := 'C'
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+  END-FOR
+  UNTIL *PF-KEY = 'PF5'
+END-REPEAT
+RELEASE STACK
+FOR #I = 1 TO 3
+  IF #MEMBERS (#I,*) NE ' ' AND #OBJT (#I) NE 'E'
+  OR #FMNUM (#I)     NE 0   AND #OBJT (#I) =  'E'                     /*
+    IGNORE
+  ELSE
+    ESCAPE TOP
+  END-IF
+  DECIDE ON FIRST VALUE OF #OBJT (#I)
+    VALUE 'D'
+      FOR #J = 1 TO 5
+        IF #MEMBERS (#I,#J) = ' '
+          ESCAPE TOP
+        END-IF
+        IF #FIRST
+          RESET #FIRST
+          COMPRESS 'SYSOBJH' 'UNLOAD' #MEMBERS (#I,#J) 'LIB' #FMLIB (#I)
+            'OBJT' #OBJT (#I) 'WITH NEWL' #TOLIB (#I) 'WHERE PC'
+            TO #OBJH-COMMAND
+          STACK COMMAND #OBJH-COMMAND
+        ELSE
+          COMPRESS 'UNLOAD' #MEMBERS (#I,#J) 'LIB' #FMLIB (#I)
+            'OBJT' #OBJT (#I) 'WITH NEWL' #TOLIB (#I) 'WHERE PC'
+            TO #OBJH-COMMAND
+          STACK DATA #OBJH-COMMAND
+        END-IF
+      END-FOR
+    VALUE 'E'
+      IF #FIRST
+        RESET #FIRST
+        COMPRESS 'SYSOBJH' 'UNLOAD * LIB' #FMLIB (#I) 'SC' #SC (#I)
+          'OBJT' #OBJT (#I) 'FMNUM' #FMNUM (#I) 'TONUM' #TONUM (#I)
+          'WITH NEWL' #TOLIB (#I) 'WHERE PC' TO #OBJH-COMMAND
+        STACK COMMAND #OBJH-COMMAND
+      ELSE
+        COMPRESS 'UNLOAD * LIB' #FMLIB (#I) 'SC' #SC (#I) 'OBJT'
+          #OBJT (#I) 'FMNUM' #FMNUM (#I) 'TONUM' #TONUM (#I)
+          'WITH NEWL' #TOLIB (#I) 'WHERE PC' TO #OBJH-COMMAND
+        STACK DATA #OBJH-COMMAND
+      END-IF
+    NONE
+      FOR #J = 1 TO 5
+        IF #MEMBERS (#I,#J) = ' '
+          ESCAPE TOP
+        END-IF
+        IF #FIRST
+          RESET #FIRST
+          COMPRESS 'SYSOBJH' 'UNLOAD' #MEMBERS (#I,#J) 'LIB' #FMLIB (#I)
+            'SC' #SC (#I) 'OBJT' #OBJT (#I) 'WITH NEWL' #TOLIB (#I)
+            'WHERE PC' TO #OBJH-COMMAND
+          STACK COMMAND #OBJH-COMMAND
+        ELSE
+          COMPRESS 'UNLOAD' #MEMBERS (#I,#J) 'LIB' #FMLIB (#I)
+            'SC' #SC (#I) 'OBJT' #OBJT (#I) 'WITH NEWL' #TOLIB (#I)
+            'WHERE PC' TO #OBJH-COMMAND
+          STACK DATA #OBJH-COMMAND
+        END-IF
+      END-FOR
+  END-DECIDE
+END-FOR
+STACK DATA '.'
+STOP
+* ----------------------------------------------------------------------
+END

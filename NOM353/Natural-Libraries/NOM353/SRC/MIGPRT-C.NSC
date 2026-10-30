@@ -1,0 +1,83 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* MIGPRT-C - Copy code to implement similar operations of MIGPRT                   >
+*   INCLUDE MIGPRT-C '#JES' '#JES'  /*&1& &2&
+*
+* Maintenance
+* uuuuuuu yyyy-mm-dd Issue
+* fhi     2010-07-21 NOMALL-838  Created
+* xsetggr 2012-02-21 NOMALL-1110 correct migrating of WRTSPOOL printers
+* SU1     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+RESET #SEARCH (*)
+IF PH-PRINTER-TYPE = ##PHYS-WRTSPOOL
+/*SU1  IF *OPSYS = MASK('VSE') #VARS := 20 ELSE
+  #VARS := 10
+/*SU1  END-IF
+ELSE
+  #VARS := &1&-VARS
+END-IF
+*
+FOR #I = 1 TO &1&-VARS
+  IF PH-PRINTER-TYPE = ##PHYS-WRTSPOOL
+/*SU1 IF *OPSYS = MASK('VSE') IF #I = 1 THRU 5 ESCAPE TOP END-IF ELSE
+    IF #I > 10
+      ESCAPE BOTTOM
+    END-IF
+/*SU1 END-IF
+  END-IF
+  #SEARCH (#I) := SUBSTR(&2&-L-P-V (#I),7)
+END-FOR
+EXAMINE #SEARCH (*) AND TRANSLATE INTO UPPER
+*
+/* Delete parameters no more needed or renamed
+#L := &1&-VARS - 1
+FOR #I = 1 TO #L
+  #J := #I + 1
+  IF #PH-ATTR-VAR (#I) = " "
+    ESCAPE BOTTOM
+  END-IF
+  EXAMINE FULL #SEARCH (*) FOR FULL #PH-ATTR-VAR (#I)
+    GIVING INDEX IN #K
+  IF #K = 0
+    PH-ATTRIBUTES (#I:24) := PH-ATTRIBUTES (#J:25)
+    RESET PH-ATTRIBUTES (25)
+    #PH-ATTR-VAR (*)      := PH-ATTR-VAR (*)
+    EXAMINE #PH-ATTR-VAR (*) AND TRANSLATE INTO UPPER
+    #I                    := #I - 1
+    #CHANGED              := TRUE
+  END-IF
+END-FOR
+*
+/* Add new parameters or parameters renamed
+FOR #I = 1 TO #VARS
+  EXAMINE FULL #PH-ATTR-VAR (*) FOR FULL #SEARCH (#I)
+    GIVING INDEX IN #J
+  IF #J = 0                            /* parameter not found
+    FOR #K = 1 TO 25
+      IF PH-ATTR-IDENT (#K) = 0 OR = 32 OR = 64 /* blank
+        ESCAPE BOTTOM
+      END-IF
+    END-FOR
+    IF #K > 25
+      ESCAPE TOP
+    END-IF
+    #CHANGED := TRUE
+    PH-ATTR-IDENT  (#K) := #K
+    PH-ATTR-L-P-V  (#K) := &2&-L-P-V (#I)
+    RESET PH-ATTR-DEFAULT (#K)
+    #PH-ATTR-VAR (*) := PH-ATTR-VAR (*)
+    EXAMINE #PH-ATTR-VAR (*) AND TRANSLATE INTO UPPER
+  ELSE
+    IF SUBSTR (PH-ATTR-L-P-V (#J),1,6) NE SUBSTR(&2&-L-P-V (#I),1,6)
+      #CHANGED := TRUE
+      MOVE SUBSTR(&2&-L-P-V (#I),1,6) TO SUBSTR (PH-ATTR-L-P-V (#J),1,6)
+      #PH-ATTR-VAR (*) := PH-ATTR-VAR (*)
+      EXAMINE #PH-ATTR-VAR (*) AND TRANSLATE INTO UPPER
+    END-IF
+  END-IF
+END-FOR
+** End of CC MIGPRT-C **************************************************

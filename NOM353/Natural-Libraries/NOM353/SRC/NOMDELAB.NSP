@@ -1,0 +1,93 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMDELAB
+* Function  Delete active bundle and it's contents if no reports found
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* fhi 02-07-10 r(372763) created from RDELAB and RLISAB
+* jwo 02-07-26 r(372763) corrected because of NAT3047 hold queue
+*                        overflow
+* fhi 08-07-04 P306468   Newly copied from NOM211M as special program.
+*                        Remains an undocumented feature.
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2016-01-21 NOMALL-1802 react - VABUND-L changed
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL USING VABUND-L
+LOCAL USING SUPER-L
+* *****
+LOCAL
+1 BUNDLE-CONTENTS VIEW OF NRM-BUNDLE-CONTENTS
+1 #BC-SUPER                (A41)
+1 REDEFINE  #BC-SUPER
+  2 #BC-BUNDLE             (A25)
+  2 #BC-BUNDRNB            (P11)
+  2 #BC-GROUP              (A8)
+  2 #BC-SEQNO              (P3)
+1 #BC-SUPER-END            (A41)
+1 REDEFINE  #BC-SUPER-END
+  2 #BC-BUNDLE-E           (A25)
+  2 #BC-BUNDRNB-E          (P11)
+  2 #BC-GROUP-E            (A8)
+  2 #BC-SEQNO-E            (P3)
+1 #NEWVAL                  (B2) /* in
+1 #OLDVAL                  (B2) /* out
+1 #MODE                    (A7) INIT <'DISPLAY'>
+1 #UPD-COUNT               (N2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY ALL
+WRITE TITLE LEFT 'NOMDELAB: DELETE ACTIVE BUNDLES WITH NO REPORTS' /
+  '-----------------------------------------------' / /
+INPUT (AD=MILT'_')
+  'NOMDELAB: DELETE ACTIVE BUNDLES WITH NO REPORTS' /
+  '-----------------------------------------------' / /
+  'Please enter ''DISPLAY'' to show the action only' /
+  'without deletion or ''DELETE'' to execute deletion.' /
+  'PF3 or ''.'' exits.....: ' #MODE
+IF *PF-KEY = 'PF3' OR #MODE = '.'
+  ESCAPE ROUTINE
+END-IF
+IF #MODE NE 'DISPLAY' AND #MODE NE 'DELETE'
+  REINPUT 'Please enter valid function, ''.'' or PF3 exits.'
+END-IF
+RESET #AB-BUNDLE #BC-BUNDLE #AB-BUNDRNB #BC-BUNDRNB
+*
+#NEWVAL := 0
+CALLNAT 'SETMADIO' #NEWVAL #OLDVAL
+READ-AB. READ ACTIVE-BUNDLES BY AB-BUNDLE-RNB
+  #BC-BUNDLE := #BC-BUNDLE-E := AB-BUNDLE
+  #BC-BUNDRNB := #BC-BUNDRNB-E := AB-BUNDRNB
+  MOVE ALL H'FF' TO #BC-GROUP-E
+  #BC-SEQNO-E := 999
+  RESET #BC-GROUP #BC-SEQNO
+  FIND-BC. FIND NUMBER BUNDLE-CONTENTS
+    WITH BC-BUNDLE-RNB-GROUP-SEQNO = #BC-SUPER THRU #BC-SUPER-END
+  IF *NUMBER (FIND-BC.) = 0
+    IF #MODE = 'DELETE'
+      GET. GET ACTIVE-BUNDLES *ISN (READ-AB.)
+      DELETE RECORD (GET.)
+      #UPD-COUNT := #UPD-COUNT + 1
+      IF #UPD-COUNT GE 50
+        END TRANSACTION
+        RESET #UPD-COUNT
+      END-IF
+    ELSE
+      DISPLAY AB-BUNDLE AB-BUNDRNB
+    END-IF
+  END-IF
+END-READ
+#NEWVAL := #OLDVAL
+CALLNAT 'SETMADIO' #NEWVAL #OLDVAL
+END TRANSACTION
+*
+END

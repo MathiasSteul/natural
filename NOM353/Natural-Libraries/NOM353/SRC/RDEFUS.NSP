@@ -1,0 +1,281 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RDEFUS
+* Version   1.3
+* Function  User Maintenance
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-08-10 s(999999) clean up                                       ts
+* mrs 93-11-23 s(999999) editor profile implemented
+* mrs 94-03-10 s(999999) external user
+* JWO 97-06-02 P(162787) avoid 3144
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsisgg 00-07-28 CE7461 New filed in user profile to extend report
+*                        report and bundle names
+* xsetggr 01-06-13 p(208463) reset values before add user
+* sju 03-03-04 QE        add user xyx loses xyz
+* xsetggr 2003-08-20 p(240465) checnge selection subprogramm
+* xsetggr 2005-10-26 P(270950) ISN fields must be P10, not P8
+* xsetggr 2012-02-01 NOMALL-1100 write language independant msgs to log
+* xsetggr 2012-10-01 NOMALL-89 add authorization for user default folder
+* xsetggr 2013-04-25 ES-104    implement new profile value for NGC
+* SU1     2013-09-16 NOMALL-1281 last update user+date
+* SU2     2013-10-22 NOMALL-1281 last update user+date for update
+* SU3     2014-03-05 NOMALL-1281 show last update user+date
+* fhi     2014-07-10 NOMALL-1440 Change default for filter setting
+* SU4     2018-12-03 NOMALL-2182 Reject reserved names 'ADMIN'+'PUBLIC'
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  NRM-GL
+LOCAL USING RPFK---L
+LOCAL USING RTXT---L
+LOCAL USING VUSERS-L
+LOCAL USING RLOG-L
+LOCAL USING VGRANT-L    /* xsetggr 2012-10-01 NOMALL-89 in
+* ----------------------------------------------------------------------
+LOCAL
+1 FOLDER VIEW OF NRM-FOLDER
+  2 FO-ID
+  2 FO-USER-ID
+  2 FO-NAME
+*
+1 #FATHER-PROG                         (A8) INIT <'RLISUS'>
+1 #USERID                              (A8)
+1 REDEFINE    #USERID
+  2 #USERID-1                          (A1)
+1 CV-USER                              (C)
+1 CV-MAP                               (C) INIT < (AD=I CD=NE)>
+1 L-HEADER                             (A78)
+1 #HEADER-2                            (A15)
+1 L-USERISN                            (N10)
+1 #ADD                                 (L) /*TRUE WHEN ADDING A NEW USER
+1 #ALLOWED                             (L)
+1 #EXIST                               (L)
+1 #FUNC                                (A1)
+1 #LANGUAGE                            (I1)
+1 #FOLDER-NAME                         (A70)
+1 #FO-USER-FO-ID                       (A10)
+1 REDEFINE #FO-USER-FO-ID
+  2 #FO-USER                           (A8)
+  2 #FO-ID                             (B2)
+* xsetggr 2012-10-01 NOMALL-89 insert next 3 lines
+1 #FO-ID-N                             (N5)
+1 REDEFINE #FO-ID-N
+  2 #FO-ID-A                           (A5)
+1 #LAST-MOD                            (A40) /*SU3
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET G-COMMIT G-LINECOM (*)
+*
+#FUNC := G-C-FUNC
+#USERID := G-C-USERID
+*
+IF #USERID = SCAN '*'    /* F(493)
+  CALLNAT 'RSELUS1N' #USERID
+  IF #USERID = G-C-USERID
+    INCLUDE C-ESCAPE
+  ELSE
+    G-C-USERID := #USERID
+  END-IF
+END-IF
+*
+MAIN-LOOP. REPEAT
+  FIND-LOOP. FIND USERS WITH USER-ID = #USERID
+    IF NO RECORDS FOUND
+      IF #FUNC = 'M' OR = 'D' OR = 'P'
+        G-NATRP-ERC := 0602
+        INCLUDE C-ESCAPE
+      END-IF
+    END-NOREC
+*
+    L-USERISN := *ISN
+    CALLNAT 'N-HEAD2' US-LAST-UPDATE-USER US-LAST-UPDATE /*SU3
+      #LAST-MOD G-DATE-FORMAT /*SU3
+    DECIDE ON EVERY VALUE OF #FUNC
+      VALUE 'A','M'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'MUS' #ALLOWED
+        INCLUDE C-NALLOW
+      VALUE 'A'
+        RESET USERS CV-USER CV-MAP
+        #ADD := TRUE
+        #HEADER-2 := '  Add A User   '
+      VALUE 'P'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'PUS' #ALLOWED
+        INCLUDE C-NALLOW
+        CALLNAT 'RDELUS' #USERID G-USERID G-CONFIRM G-NATRP-ERC
+        INCLUDE C-ESCAPE
+      VALUE 'M' /*MODIFY
+        #HEADER-2 := '  Modify User  '
+        CV-USER := (AD=P)
+        GETREC. GET USERS L-USERISN
+      VALUE 'D' /*DISPLAY
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'DUS' #ALLOWED
+        INCLUDE C-NALLOW
+        #HEADER-2 := 'Display User '
+        CV-MAP := (AD=P)
+        CV-USER := (AD=P)
+        SET KEY PF5 NAMED OFF
+        SET KEY PF6 NAMED OFF
+      NONE VALUE
+        IGNORE
+    END-DECIDE
+*
+    G-C-OBJTYPE := 'USERS'
+    SCREEN-LOOP. REPEAT
+      IF #LANGUAGE NE *LANGUAGE
+        #LANGUAGE := *LANGUAGE
+        PERFORM INIT-PFKEYS
+      END-IF
+      PERFORM SET-PFKEYS
+*
+      PERFORM FLIP-DISPLAY
+      CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDEFUSM1'
+      RESET G-MAP-MODIFIED
+      SET CONTROL 'WB' /* F(130)
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+        USING MAP 'RDEFUSM&'
+      RESET G-NATRP-ERC G-NATRP-ERT
+*
+      INCLUDE RPFKVA-C
+      INCLUDE C-DIRECT
+      INCLUDE RPFKED-C
+*
+      IF G-PF-FUNC = 'PROFILE'
+        PERFORM COMMIT-WORK
+        FETCH RETURN 'RDEFUP'
+        ESCAPE BOTTOM (FIND-LOOP.)
+      END-IF
+*
+      DECIDE FOR FIRST CONDITION
+        WHEN #USERID=' '       REINPUT *0614 MARK *#USERID ALARM
+        WHEN #USERID='ADMIN'   REINPUT *0517 MARK *#USERID ALARM /*SU4
+        WHEN #USERID='PUBLIC'  REINPUT *0518 MARK *#USERID ALARM /*SU4
+        WHEN #USERID-1 NE MASK (A) AND #USERID-1 NE MASK (0-9)
+          REINPUT *0022 MARK *#USERID ALARM
+        WHEN USERS.FIRST-NAME =' '
+          REINPUT *0615 MARK *USERS.FIRST-NAME ALARM
+        WHEN USERS.LAST-NAME =' '
+          REINPUT *0616 MARK *USERS.LAST-NAME ALARM
+        WHEN NONE IGNORE
+      END-DECIDE
+*
+      IF CV-MAP MODIFIED  OR G-MAP-MODIFIED
+        DECIDE ON FIRST VALUE OF #FUNC
+          VALUE 'A'
+            CALLNAT 'RCHKDST' #USERID #EXIST
+            IF #EXIST
+              REINPUT *0611,#USERID MARK *#USERID ALARM
+            END-IF
+            USERS.USER-ID := G-C-USERID := #USERID
+            IF USER-PROFILE = ' '
+              PROF-REPORTS    := PROF-BUNDLES := 'P'
+              PROF-PRINTERS   := PROF-DEFAULTS := 'D'
+              PROF-AREPS      := PROF-ABUNDS := PROF-PRINTOUTS := 'M'
+              PROF-FLUSH      := 'N'
+              PROF-LISTS      := 'P'
+              PROF-CALENDARS  := PROF-PHYSICAL := 'D'
+              PROF-TYPE       := 'G'
+              PROF-ARCHIVE-ADMIN := PROF-STARTUP := PROF-SHUTDOWN := 'N'
+              PROF-AUTOCOMMIT := 'E'
+              PROF-LANGUAGE   := *LANGUAGE
+              PROF-CONFIRM    := PROF-EDT-PREFIX := PROF-EDT-KEYS := 'Y'
+              PROF-EXTERNAL   := PROF-ARCHIVE := PROF-REVIVE := 'Y'
+              PROF-AR-FILTER-SUBSTR := 'N'
+              IF G-SUPPORT-LONG-NAMES
+                PROF-DISPLAY-LONG-NAMES := 'Y'
+              ELSE
+                PROF-DISPLAY-LONG-NAMES := 'N'
+              END-IF
+            END-IF
+            PERFORM ADD-FOLDER
+            US-LAST-UPDATE      := *TIMX /*SU1 in
+            US-LAST-UPDATE-USER := G-USERID /*SU1 in
+            STORE1. STORE USERS
+            G-NATRP-ERC := 31
+            #FUNC := 'M'
+*
+            LG-CODE := 'UM'
+            LG-USERID := G-USERID
+            LG-OBJECT-NAME := USERS.USER-ID
+            COMPRESS '0765' USERS.USER-ID TO LG-MSG
+            CALLNAT 'RLOG' PL-PARMS
+            INCLUDE C-COMMIT
+            INCLUDE REXDO--C
+            ESCAPE BOTTOM (FIND-LOOP.)
+          VALUE 'M'
+            US-LAST-UPDATE      := *TIMX /*SU2 in
+            US-LAST-UPDATE-USER := G-USERID /*SU2 in
+            UPDATE(GETREC.)
+            G-NATRP-ERC := 32
+            LG-CODE := 'UM'
+            LG-USERID := G-USERID
+            LG-OBJECT-NAME := USERS.USER-ID
+            COMPRESS '0766' USERS.USER-ID TO LG-MSG
+            CALLNAT 'RLOG' PL-PARMS
+            INCLUDE C-COMMIT
+          NONE VALUE IGNORE
+        END-DECIDE
+      END-IF
+*
+      INCLUDE REXDO--C
+      IF G-PF-FUNC = ##PFK-PROFILE
+        PERFORM COMMIT-WORK
+        FETCH RETURN 'RDEFUP'
+        ESCAPE TOP
+      END-IF
+    END-REPEAT
+  END-FIND
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-FOLDER
+************************************************************************
+CALLNAT 'RLTINI-N' ##TXT-INBASKET #FOLDER-NAME G-TXB
+*
+#FO-USER := #USERID
+#FO-ID   := 1
+*
+FNDFO. FIND FOLDER WITH FO-USER-FO-ID = #FO-USER-FO-ID
+  IF NO RECORDS FOUND
+    FO-USER-ID := #USERID
+    FO-ID      := 1
+    FO-NAME    := #FOLDER-NAME
+    STORE FOLDER
+    GRANTS.GR-OBJECT-TYPE := 'F'
+    GRANTS.GR-USERID      := FO-USER-ID
+    #FO-ID-N              := FO-ID
+    COMPRESS FO-USER-ID #FO-ID-A TO GRANTS.GR-OBJECT-NAME LEAVING NO
+    GRANTS.GR-OPTION(*)   := 'Y'
+    STORE GRANTS                    /* xsetggr 2012-10-01 NOMALL-89 end
+  END-NOREC
+*
+END-FIND
+*
+END-SUBROUTINE /* ADD-FOLDER
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFADD-C
+INCLUDE RPFCOM-C
+INCLUDE RPFUPF-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE
+* --------------------------------------- set pfkeys -------------------
+INCLUDE RPFSET-C
+*
+END

@@ -1,0 +1,581 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ARCREPAR - Read archived reports in a range of archive dates and
+*            copy the data from a restored Active Data File into the
+*            Active Report of the current Lfile91. Set the report to be
+*            archived.
+* This special utility repairs damaged archive files by re-executing
+* the NOM archiving from restored Container Files. To achieve this
+* the following tasks have to be done:
+* - Restore NOM's Active Data File and the corresponding Trigger
+*   Container File (as defined in menu 8.1.10) to different DB/FNRs
+* - Take that Adabas Backup which has been done directly before the
+*   Archive run which created the damaged archive.
+* - Run this utility
+*
+* The following processes will be done by ARCREPAR:
+* - Enter DB/FNRs of the Active Data File and the Container File which
+*   were restored
+* - Enter the range of date to select the Active Reports which were
+*   archived using the archive date
+* - ARCREPAR will access the restored Active Data File as Lfile 204
+*   and the restored Container File as Lfile 204 (switching)
+* - It will read all Active Reports with AR-ARCHIVE='*' from Lfile 91
+*   which have been archived in a range of dates
+* - It will then read the corresponding Active Report of the restored
+*   Lfile 204 and fill the fields of the current Active Report with
+*   the following fields of the restored Active Report:
+*   AR-SOURCE-ID and AR-EXPIRATION
+*   AR-ARCHIVE will be set to 'A' to force new archive processing
+* - The corresponding source ID will be restored from LFILE 204 to
+*   LFILE 91 (NRM-FILED-SYSOUTS)
+* - The corresponding ST-ID from the restored Container File
+*   will be copied to the current Trigger Container File
+*
+* After successful execution of ARCREPAR the cu has to start the
+* NOM Archiver.
+*
+* All subsequent archive processing will create a new archive which
+* contains the desired data completely.
+*
+* Maintenance
+* uuuuuuuu yyyy-mm-dd iTrac       Remark
+* fhi      2015-07-16 NOMALL-1677 Created.
+* fhi      2015-09-10 NOMALL-1677 If Archive flag set, reset revive flag
+* fhi      2015-10-29 NOMALL-1750 Overwrite destinations correctly
+* SU1      2016-01-22 NOMALL-1802 do not update Adabas Vista fields -
+*               this is a very special program-do not fill Vista fields.
+* fhi      2016-04-18 NOMALL-1750 Detect location correctly.
+*                                 Label chngd: "FND-xx."  "FND-ARC-xx."
+*                                              "READ-xx." "READ-ARC-xx."
+* fhi      2016-07-08 NOMALL-1750 Correct restore to Container,
+* fhi      2016-07-11 NOMALL-1750 same, tags deleted
+* fhi      2016-07-22 NOMALL-1750 add trace statements, no tags
+* fhi      2016-07-27 NOMALL-1750 rewritten. No tags.
+* SU2      2018-04-27 NOMALL-1823 remove SAP - nothing to do here
+* SU3     2020-06-19 NOMALL-2349  show full msg
+* SU4     2024-01-24 NOMALL-????  3.6 remove: Power-nothing to do here
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+LOCAL USING RMSR---L
+LOCAL USING RMSRARCL
+LOCAL USING RMSPL--L
+LOCAL USING RMSR---E
+LOCAL
+1 MO VIEW OF NRM-MONITOR
+  2 M-MONITOR-ID
+  2 M-NATRPT-DBID-N5
+  2 M-NATRPT-FNR-N5
+1 SR VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-RELATED-ID
+  2 SR-CONTROL-FLAG
+  2 SR-TYPE
+  2 SR-ATTRIBUTES-IDENT
+  2 REDEFINE SR-ATTRIBUTES-IDENT
+    3 #FILLER                (A16)
+    3 #ID                    (P11)
+  2 SR-SPOOL-ATTRIBUTES
+  2 SR-SPOOL-ATTR-EXTENDED   (1:120)
+  2 SR-CC-TYPE
+  2 SR-RECORD-LENGTH
+  2 SR-NUMBER-OF-LINES
+1 ARC-SR VIEW OF NRM-ARCREPAR-SOURCE
+  2 SR-ID
+  2 SR-RELATED-ID
+  2 SR-CONTROL-FLAG
+  2 SR-TYPE
+  2 SR-MONITOR-ID
+  2 SR-ATTRIBUTES-IDENT
+  2 REDEFINE SR-ATTRIBUTES-IDENT
+    3 #FILLER                (A16)
+    3 #ID                    (P11)
+  2 SR-SPOOL-ATTRIBUTES
+  2 SR-SPOOL-ATTR-EXTENDED   (1:120)
+  2 SR-CC-TYPE
+  2 SR-RECORD-LENGTH
+  2 SR-NUMBER-OF-LINES
+1 ST VIEW OF NRM-SOURCE-TEXT
+  2 ST-ID
+  2 ST-IDENT
+  2 ST-TYPE
+  2 ST-LINE-START
+  2 ST-LINE-END
+  2 ST-TEXT                  (1:66)
+1 ARC-ST VIEW OF NRM-ARCREPAR-SOURCE-TEXT
+  2 ST-ID
+  2 ST-IDENT
+  2 ST-TYPE
+  2 ST-LINE-START
+  2 ST-LINE-END
+  2 ST-TEXT                  (1:66)
+1 F-TEXT VIEW OF NRM-FILED-SYSOUTS
+  2 F-REPNAME
+  2 F-REPRNB
+  2 F-SEQ
+  2 F-TEXT                   (1:66)
+1 ARC-F  VIEW OF NRM-ARCREPAR-FILED-SYSOUTS
+  2 F-REPNAME
+  2 F-REPRNB
+  2 F-SEQ
+  2 F-TEXT                   (1:66)
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-CURRENT-LOCATION
+  2 AR-SOURCE-ID
+  2 AR-ARCHIVE
+  2 AR-REVIVE
+  2 AR-ARCHIVE-DATE
+  2 AR-ARCHIVE-DATA-SET
+  2 AR-LAST-UPDATE
+  2 AR-LAST-UPDATE-USER
+1 ARC-AR VIEW OF NRM-ARCREPAR-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-EXPIRATION
+  2 AR-CURRENT-LOCATION
+  2 AR-SOURCE-ID
+  2 AR-ARCHIVE
+  2 AR-ARCHIVE-DATE
+  2 AR-ARCHIVE-DATA-SET
+  2 AR-LAST-UPDATE
+  2 AR-LAST-UPDATE-USER
+*
+1 #LFILE-NAME                (A31)
+1 #AR-REPORT-RNB             (A31)
+1 REDEFINE #AR-REPORT-RNB
+  2 #AR-REPNAME              (A25)
+  2 #AR-REPRNB               (P11)
+1 #F-REPNAME-RNB-SEQ         (A35)
+1 REDEFINE #F-REPNAME-RNB-SEQ
+  2 #F-REPNAME               (A25)
+  2 #F-REPRNB                (P11)
+  2 #F-SEQ                   (B4)
+1 #ST-ID-LINE                (B10)
+1 REDEFINE #ST-ID-LINE
+  2 #ST-ID                   (P10)
+  2 #ST-LINE                 (B4)
+1 #ST-PARMS
+  2 #ST-ID                   (P10)
+  2 #ST-RC                   (N4)
+  2 #ST-ERRTXT               (A250)
+1 ADF-DBID                   (N5)    /* ADF = Active Data File
+1 ADF-FNR                    (N5)
+1 TCF-DBID                   (N5)    /* TCF = Trigger Container File
+1 TCF-FNR                    (N5)
+1 TIME-FROM                  (T)
+1 TIME-TO                    (T)
+1 #VERBOSE                   (L)
+1 #SPOOL-TYPE-TEXTS          (A20/17) CONST <
+  'JES2',
+  'JES3',
+  'POWER',    /*SU4 must stay to be upward compatible
+  'NOM-DATA-BASE',
+  'SEQUENTIAL-FILE-MVS',
+  'SEQUENTIAL-FILE-VSE',
+  'SEQUENTIAL-FILE-BS2',
+  'LMS',
+  'EPS',
+  'NAT',
+  'NAF',
+  'JES2-QUEUE-ENTRY',
+  'JES3-QUEUE-ENTRY',
+  'CMASPOOL',
+  'SAPSPOOL', /*SU2 must stay to be upward compatible
+  'SEQUENTIAL-FILE-UNIX',
+  'DIRECT-INPUT' >
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+INPUT USING MAP 'ARCREPM&'
+WRITE
+  / '*' (69)
+  / 'Start of Program' *PROGRAM 'at'
+  *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+  / '*' (69) /
+*
+IF ADF-DBID = 0 OR ADF-FNR  = 0 OR TCF-DBID = 0 OR TCF-FNR  = 0
+  WRITE 30T 'All parameters must be filled. Now exiting.' /
+  TERMINATE 50
+END-IF
+IF TIME-FROM >= TIME-TO
+  WRITE '''Time from'' must be less than ''time to''. Exiting.' /
+  TERMINATE 50
+END-IF
+*
+/* Set Lfile 91 to current Active Data File
+*
+FIND MO WITH M-MONITOR-ID = 'FILE91'
+  IF NO RECORDS FOUND
+    WRITE 'No entry for Active Data File found. Exiting.'
+    TERMINATE 50
+  END-NOREC
+  SATLF-LFILE   := 91
+  SATLF-DBID-N5 := M-NATRPT-DBID-N5
+  SATLF-FNR-N5  := M-NATRPT-FNR-N5
+  #LFILE-NAME   := 'current Active Data File'
+  PERFORM SET-LFILE
+END-FIND
+*
+/* Set Lfile 158 to current Trigger Container File
+*
+FIND MO WITH M-MONITOR-ID = 'API-DEFS'
+  IF NO RECORDS FOUND
+    WRITE 'No entry for Trigger Container File found. Exiting.'
+    TERMINATE 50
+  END-NOREC
+  SATLF-LFILE   := 158
+  SATLF-DBID-N5 := M-NATRPT-DBID-N5
+  SATLF-FNR-N5  := M-NATRPT-FNR-N5
+  #LFILE-NAME   := 'current Trigger Container File'
+  PERFORM SET-LFILE
+END-FIND
+*
+/* Set Lfile 204 to restored Active Data File
+*
+SATLF-LFILE   := 204
+SATLF-DBID-N5 := ADF-DBID
+SATLF-FNR-N5  := ADF-FNR
+#LFILE-NAME   := 'restored Active Data File'
+PERFORM SET-LFILE
+*
+/* Now process the Active Reports:
+*
+READ-AR. READ AR BY AR-ARCHIVE STARTING FROM '*' ENDING AT '*'
+  IF NOT(AR.AR-ARCHIVE-DATE = TIME-FROM THRU TIME-TO)
+    ESCAPE TOP
+  END-IF
+  #AR-REPNAME := #F-REPNAME := AR.AR-REPNAME
+  #AR-REPRNB  := #F-REPRNB  := AR.AR-REPRNB
+  IF #VERBOSE
+    WRITE '--> Read report' #AR-REPNAME #AR-REPRNB
+  END-IF
+  RESET #F-SEQ
+  FND-ARC-AR. FIND ARC-AR WITH AR-REPORT-RNB = #AR-REPORT-RNB
+    IF ARC-AR.AR-ARCHIVE = '*'
+      IF #VERBOSE
+        WRITE '--> Already archived on restored system files. Skipping.'
+      END-IF
+      ESCAPE BOTTOM (FND-ARC-AR.) /* Restored report already archived.
+    END-IF
+    IF #VERBOSE
+      WRITE '--> Getting ARC source pointer' ARC-AR.AR-SOURCE-ID
+    END-IF
+    GET-ARC-SR. FIND ARC-SR WITH SR-ID = ARC-AR.AR-SOURCE-ID
+      IF NO RECORDS FOUND
+        WRITE / '*' (69)
+          / *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+          'No source record for source ID' ARC-AR.AR-SOURCE-ID
+          / 30T 'in report' ARC-AR.AR-REPNAME '/' ARC-AR.AR-REPRNB
+          / 30T 'Skipping this report.'
+          / '*' (69) /
+        ESCAPE BOTTOM (FND-ARC-AR.)
+      END-NOREC
+      #SPOOL-ATTRIBUTES := ARC-SR.SR-SPOOL-ATTRIBUTES
+      IF NOT(#SPOOL-TYPE =NOM-DATA-BASE OR=DIRECT-INPUT
+      OR=SEQUENTIAL-FILE-UNIX)                                        /*
+        IF #VERBOSE
+          WRITE '--> Spool type' #SPOOL-TYPE-TEXTS(#SPOOL-TYPE)
+            'cannot be restored.'
+        END-IF
+        ESCAPE BOTTOM (FND-ARC-AR.) /* Report contents not in Container
+      END-IF
+      IF ARC-AR.AR-CURRENT-LOCATION = 'S'
+        PERFORM GET-SOURCE-TEXT-ID
+        IF #ST-PARMS.#ST-ID = 0 /* error getting text id
+          ESCAPE BOTTOM (FND-ARC-AR.)
+        END-IF
+      END-IF
+      IF #VERBOSE
+        WRITE '--> Updating source pointer with restored one'
+      END-IF
+      UPD-SR. FIND SR WITH SR-ID = ARC-AR.AR-SOURCE-ID
+        IF NO RECORDS FOUND
+          MOVE BY NAME ARC-SR TO SR
+          PERFORM PUT-SOURCE-TEXT-ID
+          STORE SR
+          ESCAPE BOTTOM (UPD-SR.)
+        END-NOREC
+        MOVE BY NAME ARC-SR TO SR
+        PERFORM PUT-SOURCE-TEXT-ID
+        UPDATE
+      END-FIND /* (UPD-SR.)
+    END-FIND   /* (GET-ARC-SR.)
+    DECIDE ON EVERY VALUE OF AR.AR-CURRENT-LOCATION
+      VALUE 'A'
+        IF AR.AR-REVIVE = 'D'
+          AR.AR-CURRENT-LOCATION := AR.AR-REVIVE
+          IF #VERBOSE
+            WRITE '--> Revive flag set, changing location to '
+              AR.AR-REVIVE
+          END-IF
+        END-IF
+      VALUE 'D'
+        IF #VERBOSE
+          WRITE '--> Deleting report contents on Active Data File.'
+        END-IF
+        DEL-F. READ F-TEXT BY F-REPNAME-RNB-SEQ = #F-REPNAME-RNB-SEQ
+          IF F-REPNAME NE #F-REPNAME OR F-REPRNB  NE #F-REPRNB
+            ESCAPE BOTTOM (DEL-F.)
+          END-IF
+          IF #VERBOSE
+            PRINT '--> Deleting:' / F-TEXT.F-TEXT(*) /
+          END-IF
+          DELETE
+          IF *COUNTER (DEL-F.) > 25
+            END TRANSACTION
+            RESET *COUNTER (DEL-F.)
+          END-IF
+        END-READ
+      VALUE 'S'
+        SATLF-LFILE   := 204
+        SATLF-DBID-N5 := TCF-DBID
+        SATLF-FNR-N5  := TCF-FNR
+        #LFILE-NAME   := 'restored Trigger Container File'
+        PERFORM SET-LFILE
+        IF #VERBOSE
+          WRITE '--> Getting source pointer' ARC-AR.AR-SOURCE-ID
+        END-IF
+        #SOURCE-ATTRIBUTES := SR.SR-ATTRIBUTES-IDENT
+        DECIDE ON FIRST VALUE OF #SPOOL-TYPE
+          VALUE NOM-DATA-BASE
+            IF #VERBOSE
+              WRITE '--> Got spool type NOM-DATA-BASE'
+            END-IF
+            #ST-ID-LINE.#ST-ID := #SOURCE-ATTRIBUTES.#NOMDB-ID
+          VALUES DIRECT-INPUT,SEQUENTIAL-FILE-UNIX
+            IF #VERBOSE
+              WRITE '--> Got spool type DIRECT-INPUT or SEQUENTIAL FILE'
+                'UNIX'
+            END-IF
+            #ST-ID-LINE.#ST-ID := SR.#ID
+          NONE
+            IF #VERBOSE
+              WRITE '--> Report contents not in Container File.'
+            END-IF
+         ESCAPE BOTTOM (FND-ARC-AR.) /* Report contents not in Container
+        END-DECIDE
+        RESET #ST-LINE
+        IF #VERBOSE
+          WRITE '--> Deleting report from current Container File.'
+        END-IF
+        DEL-ST. READ ST BY ST-ID-LINE = #ST-ID-LINE
+          IF ST-ID NE #ST-ID-LINE.#ST-ID
+            ESCAPE BOTTOM
+          END-IF
+          IF #VERBOSE
+            PRINT '--> Deleting:' / ST.ST-TEXT(*) /
+          END-IF
+          DELETE
+          IF *COUNTER (DEL-ST.) > 25
+            END TRANSACTION
+            RESET *COUNTER (DEL-ST.)
+          END-IF
+        END-READ
+        RESET #ST-LINE
+      NONE
+        WRITE / '*' (69)
+          / *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+          'Unknown location detected'
+          / 30T 'in report' ARC-AR.AR-REPNAME '/' ARC-AR.AR-REPRNB
+          / 30T 'Skipping this report.'
+          / '*' (69) /
+        ESCAPE BOTTOM (FND-ARC-AR.)
+    END-DECIDE
+    END TRANSACTION
+    DECIDE ON FIRST VALUE OF ARC-AR.AR-CURRENT-LOCATION
+      VALUE 'D'
+        IF #VERBOSE
+          WRITE '--> Copying report contents from restored'
+            'Active Data File.'
+        END-IF
+        READ-ARC-F. READ ARC-F BY F-REPNAME-RNB-SEQ = #F-REPNAME-RNB-SEQ
+          IF F-REPNAME NE #F-REPNAME OR F-REPRNB  NE #F-REPRNB
+            ESCAPE BOTTOM (READ-ARC-F.)
+          END-IF
+          MOVE BY NAME ARC-F TO F-TEXT
+          IF #VERBOSE
+            PRINT '--> Copying:' / ARC-F.F-TEXT(*) /
+          END-IF
+          STORE F-TEXT
+          IF *COUNTER (READ-ARC-F.) > 25
+            END TRANSACTION
+            RESET *COUNTER (READ-ARC-F.)
+          END-IF
+        END-READ
+        WRITE *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+          'Report contents for report' ARC-AR.AR-REPNAME
+          '/' ARC-AR.AR-REPRNB / 30T 'restored to NOM-DB.'
+      VALUE 'S'
+        SATLF-LFILE   := 204
+        SATLF-DBID-N5 := TCF-DBID
+        SATLF-FNR-N5  := TCF-FNR
+        #LFILE-NAME   := 'restored Trigger Container File'
+        PERFORM SET-LFILE
+        #ARC-SOURCE-ATTRIBUTES := ARC-SR.SR-ATTRIBUTES-IDENT
+        DECIDE ON FIRST VALUE OF #SPOOL-TYPE
+          VALUE NOM-DATA-BASE
+            IF #VERBOSE
+              WRITE '--> Got spool type NOM-DATA-BASE'
+            END-IF
+            #ST-ID-LINE.#ST-ID := #ARC-SOURCE-ATTRIBUTES.#NOMDB-ID
+          VALUES DIRECT-INPUT,SEQUENTIAL-FILE-UNIX
+            IF #VERBOSE
+              WRITE '--> Got spool type DIRECT-INPUT or'
+                'SEQUENTIAL FILE UNIX'
+            END-IF
+            #ST-ID-LINE.#ST-ID := ARC-SR.#ID
+          NONE
+            IF #VERBOSE
+              WRITE '--> Report contents not in Container File.'
+            END-IF
+            ESCAPE BOTTOM (FND-ARC-AR.) /*Report contents not in Cont.
+        END-DECIDE
+        RESET #ST-LINE
+        IF #VERBOSE
+          WRITE '--> Copying report from restored Container File.'
+        END-IF
+        READ-ARC-ST. READ ARC-ST BY ST-ID-LINE = #ST-ID-LINE
+          IF ARC-ST.ST-ID NE #ARC-SOURCE-ATTRIBUTES.#NOMDB-ID
+            ESCAPE BOTTOM (READ-ARC-ST.)
+          END-IF
+          MOVE BY NAME ARC-ST TO ST
+          IF #VERBOSE
+            PRINT '--> Copying:' / ARC-ST.ST-TEXT(*) /
+          END-IF
+          ST.ST-ID := #ST-PARMS.#ST-ID
+          STORE ST
+          IF *COUNTER (READ-ARC-ST.) > 25
+            END TRANSACTION
+            RESET *COUNTER (READ-ARC-ST.)
+          END-IF
+        END-READ
+        WRITE *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+          'Report contents for report' ARC-AR.AR-REPNAME
+          '/' ARC-AR.AR-REPRNB
+          / 30T 'restored to Container File.'
+        SATLF-LFILE   := 204
+        SATLF-DBID-N5 := ADF-DBID
+        SATLF-FNR-N5  := ADF-FNR
+        #LFILE-NAME   := 'restored Active Data File'
+        PERFORM SET-LFILE
+      NONE
+        WRITE / '*' (69)
+          / *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+          'Unknown location detected'
+          / 30T 'in report' ARC-AR.AR-REPNAME '/' ARC-AR.AR-REPRNB
+          / 30T 'Skipping this report.'
+          / '*' (69) /
+        ESCAPE BOTTOM (FND-ARC-AR.)
+    END-DECIDE
+    IF #VERBOSE
+      WRITE '--> Updating report archive flags.'
+    END-IF
+    GET-AR.
+    GET AR *ISN(READ-AR.)
+    MOVE BY NAME ARC-AR TO AR
+    AR.AR-ARCHIVE          := 'A'
+    AR.AR-REVIVE           := ' '
+    AR.AR-CURRENT-LOCATION := ARC-AR.AR-CURRENT-LOCATION
+    AR.AR-LAST-UPDATE      := *TIMX
+    AR.AR-LAST-UPDATE-USER := *PROGRAM
+    UPDATE (GET-AR.)
+    WRITE *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+      'Active report' ARC-AR.AR-REPNAME '/' ARC-AR.AR-REPRNB
+      30T 'restored to Active Data File.'
+    IF *COUNTER (READ-AR.) > 25
+      END TRANSACTION
+      RESET *COUNTER (READ-AR.)
+    END-IF
+  END-FIND  /* (FND-ARC-AR.)
+END-READ    /* (READ-AR.)
+END TRANSACTION
+WRITE / '*' (69)
+  / 'Program' *PROGRAM 'finished at'
+  *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+  / '*' (69) /
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+SATLF-FUNCTION := 'SET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+IF SATLF-ERROR-CODE NE 0
+  WRITE / '*' (69)
+    / *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+    'Lfile' SATLF-LFILE 'setting for' #LFILE-NAME
+    SATLF-DBID-N5 '/' SATLF-FNR-N5
+    / 30T 'failed with msg:' / 30T SATLF-ERROR-TEXT
+    / 30T 'Exiting.'
+    / '*' (69) /
+  TERMINATE 50
+END-IF
+WRITE
+  / '*' (69)
+  / *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+  'Lfile' SATLF-LFILE 'for' #LFILE-NAME
+  'connected to file' SATLF-DBID-N5 '/' SATLF-FNR-N5
+  / '*' (69) /
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SOURCE-TEXT-ID
+************************************************************************
+CALLNAT 'RMSTID-N' #ST-PARMS
+IF #ST-RC NE 0
+  WRITE / '*' (69)
+    / *PROGRAM *TIMX (EM=DD'.'MM'.'YYYY' 'HH':'II':'SS)
+    'Unable to get Source Text ID:'
+  PRINT #ST-RC #ST-ERRTXT /*SU3 (AL=70)
+    / '*' (69) /
+  TERMINATE 50
+END-IF
+*
+END-SUBROUTINE /* GET-SOURCE-TEXT-ID
+*
+************************************************************************
+DEFINE SUBROUTINE PUT-SOURCE-TEXT-ID
+************************************************************************
+IF ARC-AR.AR-CURRENT-LOCATION NE 'S'
+  ESCAPE ROUTINE
+END-IF
+#SOURCE-ATTRIBUTES := SR.SR-ATTRIBUTES-IDENT
+DECIDE ON FIRST VALUE OF #SPOOL-TYPE
+  VALUE NOM-DATA-BASE
+    IF #VERBOSE
+      WRITE '--> Got spool type NOM-DATA-BASE'
+    END-IF
+    #SOURCE-ATTRIBUTES.#NOMDB-ID := #ST-PARMS.#ST-ID
+  VALUES DIRECT-INPUT,SEQUENTIAL-FILE-UNIX
+    IF #VERBOSE
+      WRITE '--> Got spool type DIRECT-INPUT or SEQUENTIAL FILE UNIX'
+    END-IF
+    SR.#ID := #ST-PARMS.#ST-ID
+    #SOURCE-ATTRIBUTES.#NOMDB-ID := #ST-PARMS.#ST-ID
+  NONE
+    IF #VERBOSE
+      WRITE '--> Report contents not in Container File.'
+    END-IF
+    RESET #ST-PARMS.#ST-ID
+    ESCAPE ROUTINE
+END-DECIDE
+SR.SR-ATTRIBUTES-IDENT := #SOURCE-ATTRIBUTES
+*
+END-SUBROUTINE /* PUT-SOURCE-TEXT-ID
+*
+END

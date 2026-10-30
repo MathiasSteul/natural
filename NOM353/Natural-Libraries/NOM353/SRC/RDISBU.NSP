@@ -1,0 +1,119 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDISBU
+* FUNCTION  : DISPLAY REPORTS CONTAINED IN A BUNDLE
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* ----------------------------------------------------
+DEFINE DATA
+GLOBAL USING NRM-GL
+LOCAL
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-DESC
+* *****
+1 #BUNDLE           (A25)
+1 L-SCREEN
+  2 L-NAME          (A25/12)
+  2 L-DESC          (A50/12)
+  2 #BOTLINE        (A78)
+  2 REDEFINE #BOTLINE
+    3 #BOT-1        (A31)
+    3 #BOT-2        (A16)
+    3 #BOT-3        (A31)
+  2 REDEFINE #BOTLINE
+    3 #MORE-1       (A34)
+    3 #MORE-2       (A10)
+    3 #MORE-3       (A34)
+1 I                 (N5)
+1 #TOP              (N5) INIT <1>
+1 #MAXREC           (N5)
+1 #PF-KEY           (A4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY CLR
+  PF1  NAMED 'Help'
+  PF2  NAMED OFF
+  PF3  NAMED 'End'
+  PF5  NAMED OFF
+  PF6  NAMED OFF
+  PF7  NAMED 'Up'
+  PF8  NAMED 'Down'
+  PF9  NAMED OFF
+  PF10 NAMED OFF
+  PF11 NAMED OFF
+  PF12 NAMED 'Menu'
+*
+INPUT #BUNDLE
+FIND-SET. FIND REPORTS WITH R-BUNDLE=#BUNDLE RETAIN AS 'BUNDLE-SET'
+  MOVE *NUMBER(FIND-SET.) TO #MAXREC
+END-FIND
+*
+REPEAT
+  PERFORM GET-RECORDS
+  IF G-DISPLAY-LONG-NAMES
+    SET CONTROL 'WC23L79B2/1F'
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'RDISBUL&'
+  ELSE
+    SET CONTROL 'WC23L68B2/5F'
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'RDISBUM&'
+  END-IF
+  MOVE *PF-KEY TO #PF-KEY
+  RESET G-NATRP-ERC G-NATRP-ERT
+  DECIDE ON FIRST VALUE OF #PF-KEY
+    VALUE 'PF1'  REINPUT USING HELP
+    VALUE 'PF3'
+      IF *LEVEL = 1
+        FETCH 'RLISBU'
+      END-IF
+      ESCAPE ROUTINE
+    VALUE 'PF7'  SUBTRACT 12 FROM #TOP
+    VALUE 'PF8'  ADD 12 TO #TOP
+    VALUE 'PF12' RELEASE STACK FETCH 'RMENU'
+    NONE VALUE IGNORE
+  END-DECIDE
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-RECORDS
+************************************************************************
+IF #TOP > #MAXREC
+  #TOP := #MAXREC - 2
+END-IF
+IF #TOP < 1
+  #TOP := 1
+END-IF
+RESET L-SCREEN I
+*
+FIND REPORTS WITH 'BUNDLE-SET'
+  ACCEPT IF *COUNTER >=#TOP
+  ADD 1 TO I
+  IF I > 12
+    MOVE ALL '*' TO #MORE-1
+    MOVE ALL '*' TO #MORE-3
+    #MORE-2 := ' M O R E '
+    ESCAPE BOTTOM
+  END-IF
+  L-NAME(I) := R-REPNAME
+  L-DESC(I) := R-DESC
+END-FIND
+IF I <= 12
+  MOVE ALL '*' TO #BOT-1
+  MOVE ALL '*' TO #BOT-3
+  #BOT-2 := ' Bottom of Data '
+END-IF
+*
+END-SUBROUTINE /* GET-RECORDS
+*
+END

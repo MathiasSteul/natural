@@ -1,0 +1,222 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RSELPH-N - Select a Phisical Printer from a List
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* xsetoba 01-08-31 created
+* xsetggr 2008-04-20 p(304135) refresh location field of list
+* xsetggr 2008-11-27 p(307982) resfresh pf-key line after selection
+* xsetggr 2009-09-04 P314431   allow UNIXLP printers only for mainframe,
+*                 but only NATUNIX,DISKUNIX printers for unix systems
+* xsetggr 2010-11-03 NOMALL-865 restow due to changes in EOMPHTYE
+* xsetggr 2012-09-06 NOMALL-89 do not use grants for phys printers more
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2019-11-14 NOMALL-2253 +G-USE-AS-START-VALUE -> param
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #PRINTER             (A8)
+1 #USER-TYPE           (A1) /*not used
+1 #USER-ID             (A8) /*not used
+************************************************************************
+/*SU2 INDEPENDENT 1 +G-USE-AS-START-VALUE (L)
+* *****
+LOCAL USING VPHPR-L
+LOCAL USING EOMPHTYE
+LOCAL
+1 #I                    (P2)
+1 #J                    (P2)
+1 #NOFLINES             (I2)   CONST <10>
+1 L-MARK                (A1/1:#NOFLINES)
+1 L-ID                  (A8/1:#NOFLINES)
+1 L-LOCATION            (A30/1:#NOFLINES)
+1 CV-MARK               (C/1:#NOFLINES)
+1 END-OF-PROCESSING     (L)
+1 END-OF-DISPLAY        (L)
+1 END-OF-DATA           (L)
+1 NEW-SEARCH            (L)
+1 #ERC                  (N4)
+1 #PAGE                 (P3)  INIT <1>
+1 #NOFPAGES             (I2)  CONST <20>
+1 #PID                  (A26/1:#NOFPAGES)
+1 CV-LINE               (C/1:#NOFLINES)
+1 HIGHLIGHT             (L)
+1 #S-PRINTER            (A25)
+1 #PRINTER-F            (A25)
+1 #PRINTER-T            (A25)
+1 #LEN                  (N3)
+1 #OLD-PRINTER          (A25)
+1 #COUNTER              (P10)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM PF-KEYS
+#S-PRINTER := #PRINTER
+RESET #PRINTER
+PERFORM INIT-SELECTION-KEYS
+*
+MAIN. REPEAT UNTIL END-OF-PROCESSING
+  RESET #I #COUNTER
+  RESET INITIAL END-OF-DATA NEW-SEARCH
+  REA. READ PHYSICAL-PRINTERS BY PH-VTAMID = #PID(#PAGE)
+    IF PH-VTAMID > #PRINTER-T
+      ESCAPE BOTTOM (REA.)
+    END-IF
+    IF *MACHINE-CLASS = 'MAINFRAME'
+      IF PH-PRINTER-TYPE = ##PHYS-NATUNIX
+        ESCAPE TOP
+      END-IF
+    ELSE
+      IF NOT(PH-PRINTER-TYPE = ##PHYS-NATUNIX OR = ##PHYS-DISKUNIX)
+        ESCAPE TOP
+      END-IF
+    END-IF
+*
+    IF #I = #NOFLINES
+      PERFORM SCREEN-IO
+      IF END-OF-PROCESSING OR NEW-SEARCH
+        END-OF-DATA := TRUE
+        ESCAPE BOTTOM (REA.)
+      END-IF
+    END-IF
+*
+    RESET HIGHLIGHT
+    ADD 1 TO #I
+    ADD 1 TO #COUNTER
+    PERFORM PRINTER-TO-SCREEN
+  END-READ
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN #I > 0 OR #COUNTER = 0
+      END-OF-DATA := TRUE
+    WHEN ANY
+      PERFORM SCREEN-IO
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+IF #I < #NOFLINES
+  CV-MARK (#I+1:#NOFLINES) := (AD=DP)
+END-IF
+*
+RESET END-OF-DISPLAY
+*
+REPEAT
+  DECIDE FOR FIRST CONDITION
+    WHEN #ERC NE 0
+      IGNORE
+    WHEN END-OF-DATA AND #PAGE > 1
+      #ERC := 12                   /* bottom of data
+    WHEN END-OF-DATA AND #PAGE = 1
+      #ERC := 14                   /* all
+    WHEN NOT END-OF-DATA AND #PAGE = 1
+      #ERC := 11                   /* top of data
+    WHEN NONE
+      #ERC := 13                   /* more
+  END-DECIDE
+  SET CONTROL 'Y41'
+  SET CONTROL 'WC23L51B1/25F'
+  INPUT WITH TEXT *#ERC USING MAP 'RSELPHM&'
+  SET CONTROL 'WB'
+  SET CONTROL 'M21'
+  SET CONTROL 'YB'
+  RESET #ERC
+  PERFORM COMMAND-PF-KEY
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+RESET #I L-ID (*) L-LOCATION(*)
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE PRINTER-TO-SCREEN
+************************************************************************
+L-ID(#I) := PHYSICAL-PRINTERS.PH-VTAMID
+L-LOCATION(#I) := PHYSICAL-PRINTERS.PH-LOCATION
+CV-MARK (#I) := (AD=I)
+IF HIGHLIGHT
+  CV-LINE (#I) := (AD=I)
+ELSE
+  CV-LINE (#I) := (AD=D)
+END-IF
+*
+END-SUBROUTINE /* PRINTER-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+FOR #J = 1 TO #I
+  IF L-MARK (#J) NE ' ' AND *PF-KEY NE 'PF3'
+    #PRINTER := L-ID (#J)
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+    ESCAPE ROUTINE
+  END-IF
+END-FOR
+*
+DECIDE ON FIRST *PF-KEY
+  VALUE 'PF3'
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+  VALUE 'PF7'
+    IF #PAGE > 1
+      SUBTRACT 1 FROM #PAGE
+      END-OF-DATA := FALSE
+      END-OF-DISPLAY := NEW-SEARCH := TRUE
+    END-IF
+  VALUE 'PF8'
+    IF NOT END-OF-DATA
+      ADD 1 TO #PAGE
+      IF #PAGE > #NOFPAGES
+        #PAGE := #NOFPAGES
+        #PID (1:19) := #PID (2:20)
+      END-IF
+      #PID (#PAGE) := PHYSICAL-PRINTERS.PH-VTAMID
+      END-OF-DISPLAY := TRUE
+    END-IF
+  NONE          IGNORE
+END-DECIDE
+IF #S-PRINTER NE #OLD-PRINTER
+  RESET INITIAL #PAGE
+  RESET #PID (*)
+  PERFORM INIT-SELECTION-KEYS
+  NEW-SEARCH := TRUE
+  END-OF-DISPLAY := TRUE
+END-IF
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-SELECTION-KEYS
+************************************************************************
+/*SU2 #LEN := 8
+/*SU2 +G-USE-AS-START-VALUE := TRUE
+CALLNAT 'SELALPHA' #S-PRINTER #PRINTER-F #PRINTER-T #LEN TRUE /*SU2
+/*SU2 +G-USE-AS-START-VALUE := FALSE
+#PID (1) := #PRINTER-F
+#OLD-PRINTER := #S-PRINTER
+*
+END-SUBROUTINE /* INIT-SELECTION-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+*
+END-SUBROUTINE /* PF-KEYS
+*
+END

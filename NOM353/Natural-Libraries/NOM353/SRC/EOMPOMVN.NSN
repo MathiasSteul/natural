@@ -1,0 +1,160 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMPOMVN - DB Interface EOM Object Printout (delete, hold, release,
+*            restart)
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* xsetggr 2007-05-29 p(294790) created
+* xsetggr 2007-06-27 NOM3201   support 5 byte node numbers and 11 byte
+*                              run numbers - restow due changes eompom-p
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-12 NOMALL-1058 Log delete from NOM API
+* fhi     2011-09-14 NOMALL-901 Add printer name to logging
+* xsetggr 2011-09-28 NOMALL-901 add report/bundle name + rnb to logging
+* xsetggr 2011-11-02 NOMALL-970 implement report flag 'print once'
+* raya    2012-01-31 NOMALL-1096 error-text a250 in NOMWK--P stow only
+* xsetggr 2013-01-22 NOMALL-970 implementation cancelled
+* SU1     2014-11-12 NOMALL-1527 getting rid of coding for old versions-
+*                                only restruct
+* SU2     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU3     2016-01-19 NOMALL-1802 do not update Adabas Vista fields
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING EOM----P
+PARAMETER USING EOMPOM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL USING EOM----E
+LOCAL USING NOMWK--P
+LOCAL USING NOMFNC-E
+LOCAL USING RMTASK-E
+*
+LOCAL
+1 PRINTOUTS VIEW OF NRM-PRINTOUTS
+  2 PO-STATUS
+  2 PO-JOBNAME
+  2 PO-JOBNO
+  2 PO-JOBID
+  2 PO-MSG
+  2 PO-PRINTED
+  2 PO-LAST-PRINTED-RECNO
+  2 PO-NUMBER-OF-RETRIES
+  2 PO-DESTINATION
+  2 PO-SCHEDULED
+  2 PO-REPNAME
+  2 PO-REPRNB
+  2 PO-BUNDLE
+  2 PO-BUNDRNB
+* ------------------------ Local variables -----------------------
+1 #OBJ                       (A50)
+1 #USER                      (A8)
+1 #APPL                      (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET EOMMSG-NR EOMMSG-TEXT
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-DELETE        PERFORM DELETE-PRINTOUT
+  VALUE EOM-HOLD-PRINT    PERFORM HOLD-PRINT
+  VALUE EOM-RELEASE       PERFORM RELEASE-PRINT
+  VALUE EOM-RESTART-PRINT PERFORM RESTART-PRINT
+  NONE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-PRINTOUT
+************************************************************************
+DPO. FIND PRINTOUTS WITH PO-ID = EOMPOM-I-ID
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 2115                 /* Printout not exist
+    EOMMSG-FIELD-NAME := 'EOMPOM-I-ID'
+    ESCAPE BOTTOM (DPO.)
+  END-NOREC
+  DELETE RECORD(DPO.)
+  IF PO-REPNAME > ' '
+    COMPRESS PO-REPNAME '/' PO-REPRNB TO #OBJ LEAVING NO
+  ELSE
+    COMPRESS PO-BUNDLE '/' PO-BUNDRNB TO #OBJ LEAVING NO
+  END-IF
+  COMPRESS #OBJ '/' EOMPOM-LOGICAL '/' EOMPOM-I-ID TO #OBJ LEAVING NO
+  #USER := EOM-USER
+  #APPL := EOM-LIBRARY
+  PERFORM RMLOGDEL #OBJ 'PRINTOUT' #USER #APPL
+END-FIND
+*
+END-SUBROUTINE /* DELETE-PRINTOUT
+*
+************************************************************************
+DEFINE SUBROUTINE HOLD-PRINT
+************************************************************************
+FNDPO1. FIND PRINTOUTS WITH PO-ID = EOMPOM-I-ID
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 2115                       /* Printout not exist
+    EOMMSG-FIELD-NAME := 'EOMPOM-I-ID'
+    ESCAPE BOTTOM(FNDPO1.)
+  END-NOREC
+  PO-STATUS := 'H'
+  RESET PO-NUMBER-OF-RETRIES PO-LAST-PRINTED-RECNO PO-DESTINATION
+  UPDATE (FNDPO1.)
+END-FIND
+*
+END-SUBROUTINE /* HOLD-PRINT
+*
+************************************************************************
+DEFINE SUBROUTINE RELEASE-PRINT
+************************************************************************
+FNDPO2. FIND PRINTOUTS WITH PO-ID = EOMPOM-I-ID
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 2115                       /* Printout not exist
+    EOMMSG-FIELD-NAME := 'EOMPOM-I-ID'
+    ESCAPE BOTTOM(FNDPO2.)
+  END-NOREC
+  PRINTOUTS.PO-STATUS := 'R'
+  CALLNAT 'EOMPOTWN' EOMPOM-PARMS
+  PO-SCHEDULED := EOMPOM-SCHEDULED
+  RESET  PRINTOUTS.PO-NUMBER-OF-RETRIES PO-PRINTED PO-LAST-PRINTED-RECNO
+    PO-MSG PO-JOBNAME PO-JOBNO PO-JOBID
+  UPDATE (FNDPO2.)
+END-FIND
+NOMWK-TASK-TYPE:= EQU-MANAGE-PRINTOUTS
+CALLNAT NOM-WAKE-MONITOR NOMWK-NOMVERS NOMWK-PARMS (*)
+*
+END-SUBROUTINE /* RELEASE-PRINT
+*
+************************************************************************
+DEFINE SUBROUTINE RESTART-PRINT
+************************************************************************
+FNDPO3. FIND PRINTOUTS WITH PO-ID = EOMPOM-I-ID
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 2115                       /* Printout not exist
+    EOMMSG-FIELD-NAME := 'EOMPOM-I-ID'
+    ESCAPE BOTTOM(FNDPO3.)
+  END-NOREC
+  PRINTOUTS.PO-STATUS := 'R'
+  CALLNAT 'EOMPOTWN' EOMPOM-PARMS
+  PO-SCHEDULED := EOMPOM-SCHEDULED
+  RESET PO-PRINTED PO-MSG PO-JOBNAME PO-JOBNO PO-JOBID
+    PO-NUMBER-OF-RETRIES
+  UPDATE (FNDPO3.)
+END-FIND
+NOMWK-TASK-TYPE:= EQU-MANAGE-PRINTOUTS
+CALLNAT NOM-WAKE-MONITOR NOMWK-NOMVERS NOMWK-PARMS (*)
+*
+END-SUBROUTINE /* RESTART-PRINT
+*
+INCLUDE C-EOMERR
+*
+END

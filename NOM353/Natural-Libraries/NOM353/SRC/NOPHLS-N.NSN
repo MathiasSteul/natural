@@ -1,0 +1,220 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOPHLS-N - NOM API Physical Printers
+*
+* Maintenance:
+* XSETHZ  2002-08-17 created
+* XSETGGR 2004-07-21 NOM3.1 modified
+* XSETGGR 2004-09-27 add selection and fill options
+* xsetggr 2005-05-10 correct selection
+* xsetggr 2006-03-06 pass es-language as parameter to NATA2000
+* xsetggr 2007-10-25 NRT2185 default values for UNIXLP printers
+* xsetggr 2007-11-30 NRT2771 start/stop physical printers
+* XSETHZ  2007-12-11 NRT2771 Status added
+* XSETHZ  2008-01-20 NRT2771 line count = 7
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* XSETGGR 2008-11-28 P311915  prevent missing delete option
+* XSETHZ  2009-09-17 P314431  types NATUNIX or UNIXLP
+* xsetggr 2010-11-03 NOMALL-865 restow due to changes in EOMPHTYE
+* CF1     2015-06-02 NOMALL-1638 Enhance Phys.Printer lists
+* fhi     2017-04-07 NOMALL-1961 Omit field PO-MONITOR
+* CF2     2018-01-10 NOMALL-1961 Additional changes
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOPHLS-A
+************************************************************************
+LOCAL USING NOPHSL-A
+LOCAL USING ESMCONSL
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING EOMPHTYE
+LOCAL
+1 PHYSICAL-PRINTERS VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-VTAMID
+  2 PH-LOCATION
+  2 PH-STATUS
+  2 PH-PRINTER-TYPE
+  2 PH-PRINT-PGM
+  2 PH-JCL-SKELETON
+*     2 PH-MONITOR-ID /* fhi 2017-04-07 NOMALL-1961 line out
+1 PRINTERS VIEW OF NRM-PRINTERS
+  2 P-ID
+  2 P-PHYSICAL-NAME
+1 #I2             (I4)
+1 #IMAX           (I4)
+1 #START-ID       (A8)
+1 #END-ID         (A8)
+1 #OPTIONS        (A2/10)
+1 #HEADER-NR      (N4) CONST <6119>
+1 #P-ID           (A8) INIT <'DEFAULT'>
+1 REDEFINE #P-ID
+  2 #P-ID-1       (A7)
+  2 #SUFFIX       (A1)
+1 #P-ID-E         (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-NUMBER ES-SORTKEY ES-SORTORDER ES-STARTINDEX
+ES-OPTION-COUNT := 10
+IF ES-EXPAND = 'E'
+  #IMAX := 903
+  ES-FIELD-COUNT := 1
+  NOPHEX-FIELD-LENGTH(1) := 8
+ELSE
+  DECIDE ON FIRST VALUE OF ES-FUNCTION
+    VALUE 'LS1'
+      #IMAX := 3162
+      ES-FIELD-COUNT := 1
+      ES-OPTION-COUNT := 0
+      NOPHL1-FIELD-LENGTH(1) := 8
+    VALUE 'LS2'     /* List with Name and Location         /* CF1 ->
+      #IMAX := 648
+      ES-FIELD-COUNT := 3
+      ES-OPTION-COUNT := 0
+      NOPHLS2-FIELD-LENGTH(1) := 8
+      NOPHLS2-FIELD-LENGTH(2) := 30
+      NOPHLS2-FIELD-LENGTH(3) := 1                          /* CF1 <-
+    VALUE 'LS'
+      #IMAX := 277
+      /*ES-FIELD-COUNT := 7                      /* CF2 ->
+      /*NOPHLS-FIELD-LENGTH(1:7) := 8
+      ES-FIELD-COUNT := 6
+      NOPHLS-FIELD-LENGTH(1:6) := 8              /* CF2 <-
+      NOPHLS-FIELD-LENGTH(3) := 30
+      NOPHLS-FIELD-LENGTH(4) := 1
+    NONE VALUE IGNORE
+  END-DECIDE
+END-IF
+ES-EOF := 'X'
+#NOPHSL := ES-SELECT
+EXAMINE #NOPHSL.#NAME FOR '*' DELETE
+COMPRESS #NOPHSL.#NAME H'FF' TO #END-ID LEAVING NO
+IF ES-NEXT-KEY-PARM(1) > #NOPHSL.#NAME
+  #START-ID := ES-NEXT-KEY-PARM(1)
+ELSE
+  #START-ID := #NOPHSL.#NAME
+  IF ES-EXPAND NE 'E' AND ES-FUNCTION = 'LS'
+    ES-STARTINDEX := 2
+    #I2 := 1
+    RESET NOPHLS-HEADER
+    NADA2000.ERROR-NUMBER := #HEADER-NR
+    PERFORM GET-MSG-TXT
+    COMPRESS LONG-MSG(1) C-HEADER-DELIMITER
+      LONG-MSG(2) C-HEADER-DELIMITER LONG-MSG(3) C-HEADER-DELIMITER
+      LONG-MSG(4) C-HEADER-DELIMITER LONG-MSG(5) C-HEADER-DELIMITER
+      /*LONG-MSG(6) C-HEADER-DELIMITER           /* CF2
+      /*LONG-MSG(7) TO NOPHLS-HEADER LEAVING NO  /* CF2
+      LONG-MSG(6) TO NOPHLS-HEADER LEAVING NO    /* CF2
+  END-IF
+END-IF
+RD. READ PHYSICAL-PRINTERS BY PH-VTAMID STARTING FROM #START-ID
+  IF PH-VTAMID > #END-ID
+    ESCAPE BOTTOM (RD.)
+  END-IF
+  ADD 1 TO #I2
+  IF #I2 > #IMAX
+    ES-NEXT-KEY-PARM(1) := PH-VTAMID
+    ES-NUMBER := #IMAX
+    RESET ES-EOF
+    ESCAPE BOTTOM
+  END-IF
+  IF ES-EXPAND = 'E'
+    NOPHEX-NAME(#I2) := PH-VTAMID
+    PERFORM OPTIONS
+    NOPHEX-OPTIONS(#I2,*) := #OPTIONS(*)
+  ELSE
+    DECIDE ON FIRST VALUE OF ES-FUNCTION
+      VALUE 'LS1'
+        IF *MACHINE-CLASS = 'MAINFRAME' AND
+            PH-PRINTER-TYPE NE ##PHYS-NATUNIX OR
+            *MACHINE-CLASS NE 'MAINFRAME' AND
+            (PH-PRINTER-TYPE = ##PHYS-NATUNIX OR = ##PHYS-DISKUNIX)
+          NOPHL1-NAME(#I2) := PH-VTAMID
+        ELSE
+          SUBTRACT 1 FROM #I2
+        END-IF
+      VALUE 'LS2'                                        /* CF1 ->
+        IF *MACHINE-CLASS = 'MAINFRAME' AND
+            PH-PRINTER-TYPE NE ##PHYS-NATUNIX OR
+            *MACHINE-CLASS NE 'MAINFRAME' AND
+            (PH-PRINTER-TYPE = ##PHYS-NATUNIX OR = ##PHYS-DISKUNIX)
+          NOPHLS2-NAME(#I2)     := PH-VTAMID
+          NOPHLS2-LOCATION(#I2) := PH-LOCATION
+          /* Cumulate criteria for JOBCARDS enabled or not
+          IF PH-JCL-SKELETON = ' '
+              AND NOT (PH-PRINTER-TYPE = 'UNIXLP' OR= 'NATUNIX'
+              OR= 'DISKUNIX' OR= 'WRTSPOOL')
+            NOPHLS2-JOBCARDFLAG(#I2) := ' '
+          ELSE
+            NOPHLS2-JOBCARDFLAG(#I2) := 'X'
+          END-IF
+        ELSE
+          SUBTRACT 1 FROM #I2
+        END-IF                                           /* CF1 <-
+      VALUE 'LS'
+        NOPHLS-NAME(#I2)       := PH-VTAMID
+        NOPHLS-TYPE (#I2)      := PH-PRINTER-TYPE
+        NOPHLS-LOCATION(#I2)   := PH-LOCATION
+        NOPHLS-STATUS(#I2)     := PH-STATUS
+        NOPHLS-PROGRAM (#I2)   := PH-PRINT-PGM
+        NOPHLS-SKELETON(#I2)   := PH-JCL-SKELETON
+*         NOPHLS-MONITOR-ID(#I2) := PH-MONITOR-ID
+* fhi     2017-04-07 NOMALL-1961 line above out
+        PERFORM OPTIONS
+        NOPHLS-OPTIONS(#I2,*)  := #OPTIONS(*)
+      NONE VALUE IGNORE
+    END-DECIDE
+  END-IF
+  ES-NUMBER := #I2
+END-READ
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE OPTIONS
+************************************************************************
+RESET #OPTIONS(*)
+* get delete option
+#SUFFIX := 'Z'
+#P-ID-E := #P-ID
+#SUFFIX := 'A'
+FNUM. FIND PRINTERS WITH P-PHYSICAL-NAME = PHYSICAL-PRINTERS.PH-VTAMID
+  IF NOT (P-ID = #P-ID THRU #P-ID-E)
+    #OPTIONS(1) := 'DL'
+  END-IF
+END-FIND
+IF PH-STATUS = 'S'
+  #OPTIONS (2) := 'PO'
+ELSE
+  #OPTIONS (2) := 'PS'
+END-IF
+*
+END-SUBROUTINE /* OPTIONS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION                 := 0
+NADA2000.OBJECT-KIND    := 'U'
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+NADA2000.LIBRARY        := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+END

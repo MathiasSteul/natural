@@ -1,0 +1,609 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDEFUX - Define a Unix Node (Template:RDEFCA)
+*
+* Maintenance
+* uuuuuu yyyy-mm-dd s(999999) Comment
+* fhi    2000-08-29 s(196560) created
+* XSETHZ 2003-11-04 s(205836) NAT3113 The specified ISN was invalid
+* fhi    2003-07-31 s(210399) Password not cleared
+* fhi    2004-06-09 nom31     Support deactivated nodes (status 'D')
+* fhi    2004-12-06 NOM3101   Make passwords case-sensitive
+* fhi    2005-07-01 p(266530)  Make mointor NPR mainframe independent
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* fhi     2008-10-21 P305753   PF5 before ENTR ignores entered data
+* XSETHZ  2008-12-08 P312501  MAP changed, correct message for L-SUSPEND
+* XSETHZ  2008-12-08 P305753   PF5 before ENTR for update
+* XSETHZ  2008-12-08 P312501  make correct get/update logic
+* fhi     2009-01-15 FHI258    wrong password used
+* XSETHZ  2009-03-17 P312501   NODE-SUSPEND only displayed (Status)
+* fhi     2009-03-26 P312501   backouted display-only because of misunderstanding
+* fhi     2009-03-27 P312501   Window introduced if node not reachable
+* xsetggr 2009-04-02 P312501   restow due to changes in RDEFUXM&
+* XSETHZ  2009-04-07 P312501   CONFIRM=N : ignore modification L-SUSPEND
+* fhi     2009-07-14 N3463     REINPUT without INPUT in 3990
+* fhi     2009-07-14 P318964   REINPUT only if node active
+* XSETHZ  2009-07-23 P309612   Status 'E nnnn' ---> 'error'
+* fhi     2009-09-07 P320060   Empty lines not allowed
+* xsetggr 2010-03-17 P307403   side effects with parameter handling
+* fhi     2010-11-01 NOMALL-97 #P-SESSION-ID --> #P-SESSION-ID-INT
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* fhi     2012-04-17 NOMALL-1245 Change suspend field to new values.
+* SU1     2014-06-23 NOMALL-1281 show last update user+date
+* fhi     2014-08-29 NOMALL-1454 Recataloged due to changes of XXUX---P
+* fhi     2014-09-23 NOMALL-1396 NAT3144 in 3790 (update lab2.)
+* SU2     2015-11-23 NOMALL-1784 avoid NAT1301 (P10->B4/I4 - big ISNs)
+* SU3     2017-10-19 NOM 3.5: check for dup.name in mf node too
+* SU4     2018-02-26 NOM 3.5: remove PF9/add CP/remove Status M+L
+* SU5     2018-03-20 NOM 3.5: show better msg window in error case
+* fhi     2018-04-25 NOMALL-1918 Severe errors: Set suspend to 'E'
+* bli     2018-07-19 NOMALL-2088 error handling
+* fhi     2018-10-29 NOMALL-2125 Delete code page entry from node
+* BLI     2018-11-19 NOMALL-2176 dbid, fnr number: up to 65535
+* fhi     2019-01-24 NOMALL-2212 Honour first installation
+* BLI     2019-01-28 NOMALL-2219 Don't set status 'S' for UNIX nodes
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU6     2020-12-01 NOMALL-2440 del. UX-EMAIL-RECIPIENTS
+* SU7/BLI 2021-07-12 NOMALL-2470 do a logon/out for user/group/password
+* BLI     2022-03-28 NOMALL-2538 minor changes about 'M' (Monitor node)
+* BLI1    2022-08-18 NOMALL-2505 inform about status time
+* SU8     2022-12-21 NOMALL-2601 susp. msg NOM2071 after x min.
+* SU9     2022-12-21 NOMALL-2600 status changed: msg 2072 -> log
+*                    HINT: there is no INCLUDE C-COMMIT / C-COMMI2 ÜÜ
+* SU10    2023-03-22 NOMALL-2629 Password:SY-TST-N->SATTS01N +not modif.
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+*
+INDEPENDENT
+1 +P-SESSION-ID             (N10)
+*
+LOCAL USING RPFK---L
+LOCAL USING VUXDEF-L
+LOCAL USING XXUX---P
+LOCAL USING XXGMSG-A
+LOCAL USING RLOG-L /*SU9
+*
+LOCAL
+1 MF-NODES VIEW OF NRM-MF-NODES /*SU6 was NRM-MONITOR
+1 L-HEADER                  (A78)
+1 L-NODE-ISN                (P10)
+1 L-SCREEN
+  2 L-NODE-NAME             (A16)
+  2 L-TEMPDIR               (A70)
+  2 L-DESCRIPTION           (A50)
+  2 L-USERID                (A8)
+  2 L-PASSWORD              (A16)
+  2 L-PASSWORD-CONF         (A16)
+  2 L-GROUP                 (A8)
+  2 L-STATUS                (A8)
+  2 L-SUSPEND               (A1)
+  2 L-TIMEOUT               (N2)
+  2 L-NODE-ACCESS           (10)
+    3 L-PATH                (A70)
+    3 L-DB                  (N5)
+    3 L-FNR                 (N5)
+  2 L-SUSP-TIME-INT         (N4) /*SU8
+1 #L-PATH                   (A70)
+1 REDEFINE #L-PATH
+  2 #L-PATH-A               (A1/70)
+1 CV-MAP                    (C) INIT <(AD=I CD=NE)>
+1 CV-NODE-NAME              (C) INIT <(AD=I CD=NE)>
+1 CV-PASSWORD               (C) INIT <(AD=N CD=NE)>
+1 CV-SUSP-TIME              (C) INIT <(AD=I CD=NE)> /*SU8
+1 #PF-KEY                   (A4) /* FOR *PF-KEY
+1 #MODE                     (A1) /* D)isplay, M)odify, A(dd
+1 #FATHER-PROG              (A8) INIT <'RLISUX'>
+1 #NODE-NAME                (A16)
+1 #I                        (P5)
+1 #J                        (P5)
+1 #FIRST-UPDATE             (L) INIT <TRUE>
+1 #P-SESSION-ID-INT         (N10)
+1 #YESNO                    (A1)
+1 #CONFIRM                  (A50)
+/*SU7 1 #L-SUSPEND                (A1)
+1 #OLD-STATUS               (A1) /*SU9
+1 #UPD-MODE                 (L)
+1 #LAST-MOD                 (A40) /*SU1
+1 #LAST-SUSP                (A22) /*BLI1
+1 #MONITOR-ID               (A20) INIT <'R-'>
+1 REDEFINE #MONITOR-ID
+  2 FILLER                  2X
+  2 #NODE                   (A16)
+/*SU6 1 #OLD-CP                   (A64)
+1 #POS                      (I4)
+1 #MF                       (L)
+1 #IS-MONITOR               (L)
+1 #MON-FORCE                (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE WINDOW YESNO SIZE 7*75 CONTROL SCREEN
+*
+IF *MACHINE-CLASS = 'MAINFRAME'
+  #MF := TRUE
+END-IF
+PERFORM INIT-PFKEYS
+PERFORM SET-PFKEYS
+*
+INPUT G-C-FUNC / #NODE-NAME
+*
+IF #NODE-NAME = 'ÜFORCEÜ' /* has been called from INSTALL
+  RESET #NODE-NAME
+  #MON-FORCE := TRUE
+END-IF
+RESET L-NODE-ISN G-NATRP-ERC G-COMMIT
+*
+#MODE := G-C-FUNC
+FIND-LOOP. REPEAT
+  RESET CV-MAP CV-NODE-NAME CV-PASSWORD CV-SUSP-TIME
+  DECIDE ON EVERY VALUE OF #MODE
+    VALUE 'D','M'
+      IF L-NODE-ISN = 0
+        FIND UX-NODES WITH UX-NODE-NAME = #NODE-NAME
+          IF NO RECORDS FOUND
+            G-NATRP-ERC := 2024
+            INCLUDE C-ESCAPE
+          END-NOREC
+          L-NODE-ISN := *ISN
+        END-FIND
+      END-IF
+    VALUE 'M'
+      CV-NODE-NAME := (AD=IP)
+      CV-PASSWORD := (AD=N)
+      PERFORM UPDATE-NODE
+    VALUE 'D'
+      CV-MAP := CV-NODE-NAME := CV-SUSP-TIME := (AD=IP)
+      CV-PASSWORD := (AD=NP)
+      PERFORM INPUT-NODE
+    VALUE 'A'
+      CV-PASSWORD := (AD=N)
+      #FIRST-UPDATE := FALSE
+      PERFORM NEW-NODE
+    NONE VALUE
+      INCLUDE C-ESCAPE
+  END-DECIDE
+  DECIDE ON FIRST VALUE OF #PF-KEY
+    VALUE 'PF5'
+      IF G-PF-FUNC = 'DO' AND G-COMMIT
+        RESET G-MAP-MODIFIED
+        END TRANSACTION
+        RESET G-COMMIT G-HOLD-TIME
+        G-NATRP-ERC := 15
+      END-IF
+    VALUE 'PF6'
+      BACKOUT TRANSACTION
+      G-NATRP-ERC := 16
+      RESET G-MAP-MODIFIED G-COMMIT G-HOLD-TIME L-NODE-ISN UX-NODES
+    VALUE 'ENTR'
+      IGNORE
+    NONE
+      INCLUDE C-ESCAPE
+  END-DECIDE
+*
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-NODE
+************************************************************************
+PERFORM INPUT-NODE
+IF (#PF-KEY = 'ENTR' OR = 'PF5') AND CV-MAP MODIFIED
+  G-NATRP-ERC := 32
+  G-COMMIT := TRUE
+END-IF
+*
+END-SUBROUTINE /* UPDATE-NODE
+*
+************************************************************************
+DEFINE SUBROUTINE NEW-NODE
+************************************************************************
+PERFORM INPUT-NODE
+FIND-NUM. FIND NUMBER UX-NODES WITH UX-NODE-NAME = #NODE-NAME
+#NODE := #NODE-NAME
+FIND-MF. FIND NUMBER MF-NODES WITH MF-MONITOR-ID = #MONITOR-ID
+*
+DECIDE FOR EVERY CONDITION
+  WHEN *NUMBER(FIND-NUM.) NE 0 OR *NUMBER(FIND-MF.) NE 0
+    G-NATRP-ERC :=  2022
+  WHEN #PF-KEY = 'PF3' OR CV-MAP NOT MODIFIED
+    IGNORE
+  WHEN ANY
+    RESET L-NODE-ISN
+  WHEN NONE
+    PERFORM SET-TIMES       /* BLI1
+    STORE1. STORE UX-NODES
+    L-NODE-ISN := *ISN (STORE1.)
+    G-NATRP-ERC := 31
+    #MODE := 'M'
+    G-COMMIT := TRUE
+END-DECIDE
+*
+END-SUBROUTINE /* NEW-NODE
+*
+************************************************************************
+DEFINE SUBROUTINE INPUT-NODE
+************************************************************************
+CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDEFUXM&'
+*
+SET CONTROL 'L'
+IF #FIRST-UPDATE
+  L-NODE-NAME   := UX-NODES.UX-NODE-NAME
+  L-DESCRIPTION := UX-NODES.UX-NODE-DESCRIPTION
+  L-TEMPDIR     := UX-NODES.UX-NODE-TEMPDIR
+  L-USERID      := UX-NODES.UX-NODE-USERID
+  L-GROUP       := UX-NODES.UX-NODE-GROUP
+  L-SUSPEND     := #OLD-STATUS := UX-NODES.UX-NODE-SUSPEND /*SU9
+  L-TIMEOUT     := UX-NODES.UX-NODE-TIMEOUT
+  L-PATH    (*) := UX-NODES.UX-NODE-PATH (*)
+  L-DB      (*) := UX-NODES.UX-NODE-CONTAINER-DB  (*)
+  L-FNR     (*) := UX-NODES.UX-NODE-CONTAINER-FNR (*)
+/*SU10  CALLNAT 'SATTS01N' 'U' L-PASSWORD UX-NODES.UX-NODE-PASSWORD
+/*SU10  L-PASSWORD-CONF := L-PASSWORD
+  IF NOT (UX-NODE-SUSP-TIME-INT_A4 IS (N4)) /*SU8 ->
+    RESET UX-NODE-SUSP-TIME-INT
+  END-IF
+  L-SUSP-TIME-INT := UX-NODE-SUSP-TIME-INT /*SU8 <-
+  #UPD-MODE := FALSE
+  PERFORM SHOW-STATUS
+  #FIRST-UPDATE := FALSE
+END-IF
+IF L-SUSPEND ='L' OR='M' OR #MON-FORCE
+  #IS-MONITOR := TRUE
+END-IF
+*
+#REP. REPEAT
+  CALLNAT 'N-HEAD2' UX-NODES.UX-LAST-UPDATE-USER UX-LAST-UPDATE /*SU1
+    #LAST-MOD G-DATE-FORMAT /*SU1
+  CALLNAT 'N-HEAD3' UX-NODES.UX-NODE-SUSPENDED  /* BLI1
+    #LAST-SUSP G-DATE-FORMAT
+  IF #POS = 0
+    #POS := POS(G-DIRECT-COMMAND)
+  END-IF
+  IF L-SUSPEND ='L' OR='M' /*SU8
+    CV-SUSP-TIME := (AD=IP)
+  END-IF
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK #POS
+    USING MAP 'RDEFUXM&'
+*
+  RESET G-NATRP-ERC #POS
+  #PF-KEY := *PF-KEY
+  DECIDE ON FIRST VALUE OF #PF-KEY
+    VALUE 'PF1'
+      REINPUT USING HELP
+    VALUE 'PF3','PF6'
+      ESCAPE ROUTINE
+    NONE IGNORE
+  END-DECIDE
+  INCLUDE C-DIRECT
+  INCLUDE RPFKVA-C
+*
+  IF #MODE = 'D'
+    ESCAPE ROUTINE
+  END-IF
+*
+* Field Validations
+*
+  IF L-NODE-NAME= ' '
+    G-NATRP-ERC := 2020
+    #POS := POS(L-NODE-NAME)
+    ESCAPE TOP
+  END-IF
+  IF L-TEMPDIR = ' ' AND NOT (UX-NODES.UX-NODE-SUSPEND ='M' OR='L')
+    G-NATRP-ERC := 2020
+    #POS := POS(L-TEMPDIR)
+    ESCAPE TOP
+  END-IF
+  IF L-SUSP-TIME-INT < 0
+    G-NATRP-ERC := 675 /*not numeric
+    #POS := POS(L-SUSP-TIME-INT)
+    ESCAPE TOP
+  END-IF
+  #L-PATH := L-TEMPDIR
+  FOR #J = 1 TO 70
+    IF #L-PATH-A (#J) NE MASK (C)
+        AND #L-PATH-A (#J) NE '/' /* Path
+        AND #L-PATH-A (#J) NE '-' /* special character
+        AND #L-PATH-A (#J) NE '_' /* special character
+        AND #L-PATH-A (#J) NE ':' /* Windows drive
+        AND #L-PATH-A (#J) NE '.' /* Windows extension
+        AND #L-PATH-A (#J) NE '$' /* Unix environment var.
+        AND #L-PATH-A (#J) NE '%' /* Windows environm. var.
+      G-NATRP-ERC := 2042
+      #POS := POS(L-TEMPDIR)
+      ESCAPE TOP
+    END-IF
+  END-FOR
+  IF L-TEMPDIR NE MASK (*'/'/)                 /* path must end with '/'
+      AND L-TEMPDIR NE ' '
+    COMPRESS L-TEMPDIR '/' TO L-TEMPDIR LEAVING NO
+  END-IF
+  FOR #I = 1 TO 10
+    IF L-PATH (#I) = L-TEMPDIR AND NOT (L-SUSPEND = 'M' OR= 'L')
+      G-NATRP-ERC := 2045
+      #POS := POS(L-PATH (#I))
+      ESCAPE BOTTOM
+    END-IF
+  END-FOR
+  IF G-NATRP-ERC NE 0
+    ESCAPE TOP
+  END-IF
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN (#IS-MONITOR AND NOT(L-SUSPEND ='M' OR='L'))
+      G-NATRP-ERC := 2148 /*Valid Unix Monitor node status: M and L.
+      #POS := POS(L-SUSPEND)
+* BLI 2019-01-28 NOMALL-2219 don't allow setting 'S' start
+**  WHEN NOT(L-SUSPEND ='A' OR='S' OR='D' OR='M' OR='L')
+    WHEN NOT(L-SUSPEND ='A' OR='D' OR='M' OR='L')
+    OR (L-SUSPEND ='M' OR='L' AND NOT #IS-MONITOR)                    /*
+**    G-NATRP-ERC := 2127 /*Valid Unix node status:A,S,D.On Unix M+L too
+      G-NATRP-ERC := 9213 /*Please enter 'A'(act)or'D' (deact)
+* BLI 2019-01-28 NOMALL-2219 don't allow setting 'S' end
+      #POS := POS(L-SUSPEND)
+    WHEN L-USERID= ' '
+      G-NATRP-ERC := 2020 /*Please enter field.
+      #POS := POS(L-USERID)
+    WHEN L-PASSWORD NE L-PASSWORD-CONF
+      RESET L-PASSWORD L-PASSWORD-CONF
+      G-NATRP-ERC := 2025 /*Please enter same password in confirm field.
+      #POS := POS(L-PASSWORD)
+    WHEN NOT(L-SUSPEND ='M' OR='L') AND NOT(L-PATH (*) NE ' ')
+      G-NATRP-ERC := 2023 /*Please enter a path.
+      #POS := POS(L-PATH (1))
+    WHEN ANY ESCAPE TOP
+    WHEN NONE IGNORE
+  END-DECIDE
+*
+  PERFORM CHECK-PATH
+  IF G-NATRP-ERC NE 0
+    ESCAPE TOP
+  END-IF
+*
+  RESET XXUX---P
+  IF L-SUSPEND = 'M'   /* monitor via SATvs.
+    P-NODE-NAME    := L-NODE-NAME /*STATUS is Active
+    P-USERID       := L-USERID
+    P-PASSWORD     := L-PASSWORD
+    P-GROUP        := L-GROUP
+    P-NODE-SUSPEND := UX-NODES.UX-NODE-SUSPEND
+    RESET P-ERC
+    #P-SESSION-ID-INT := +P-SESSION-ID
+    RESET +P-SESSION-ID
+    P-FUNCTION := 'INFO'
+    CALLNAT 'XXUX---N' XXUX---P
+    +P-SESSION-ID := #P-SESSION-ID-INT
+    IF NOT (P-ERC =0 OR
+        (P-ERC =5 AND P-ERT=SCAN 'SAT1115')) /* NOMALL-2088
+      G-NATRP-ERC := P-ERC
+      G-NATRP-ERT := P-ERT
+      ESCAPE TOP
+    END-IF
+  END-IF
+  IF #MODE = 'M' OR = 'A'
+/*SU7 #L-SUSPEND := UX-NODES.UX-NODE-SUSPEND
+    UX-NODES.UX-NODE-NAME := #NODE-NAME := L-NODE-NAME
+    UX-NODES.UX-NODE-DESCRIPTION        := L-DESCRIPTION
+    UX-NODES.UX-NODE-TEMPDIR            := L-TEMPDIR
+    UX-NODES.UX-NODE-USERID             := L-USERID
+    UX-NODES.UX-NODE-GROUP              := L-GROUP
+    UX-NODES.UX-NODE-SUSPEND            := L-SUSPEND
+    UX-NODES.UX-NODE-SUSP-TIME-INT      := L-SUSP-TIME-INT /*SU8
+    #UPD-MODE := TRUE
+    PERFORM SHOW-STATUS
+    IF #MODE = 'M'
+      LAB2. GET UX-NODES L-NODE-ISN
+      UX-NODES.UX-NODE-NAME := #NODE-NAME := L-NODE-NAME
+      UX-NODES.UX-NODE-DESCRIPTION        := L-DESCRIPTION
+      UX-NODES.UX-NODE-TEMPDIR            := L-TEMPDIR
+      UX-NODES.UX-NODE-USERID             := L-USERID
+      UX-NODES.UX-NODE-GROUP              := L-GROUP
+      UX-NODES.UX-NODE-SUSPEND            := L-SUSPEND
+      UX-NODES.UX-NODE-SUSP-TIME-INT      := L-SUSP-TIME-INT /*SU8
+    END-IF
+    UX-NODES.UX-NODE-TIMEOUT           := L-TIMEOUT
+    UX-NODES.UX-NODE-PATH (*)          := L-PATH (*)
+    UX-NODES.UX-NODE-CONTAINER-DB (*)  := L-DB   (*)
+    UX-NODES.UX-NODE-CONTAINER-FNR (*) := L-FNR  (*)
+    PERFORM SET-TIMES /* BLI1
+    IF CV-PASSWORD MODIFIED AND L-PASSWORD NE ' ' /*SU10 ->
+      CALLNAT 'SATTS01N' 'S' L-PASSWORD UX-NODES.UX-NODE-PASSWORD
+      RESET L-PASSWORD L-PASSWORD-CONF
+    END-IF /*SU10 <-
+*
+    IF #MODE = 'M'
+      UPDATE (LAB2.)
+      IF #OLD-STATUS NE L-SUSPEND /*SU9
+        COMPRESS '2072' L-NODE-NAME #OLD-STATUS L-SUSPEND TO LG-MSG
+        #OLD-STATUS := L-SUSPEND
+        /*status changed
+        LG-CODE     := 'MO'
+        LG-USERID   := G-USERID
+        CALLNAT 'RLOG' PL-PARMS /*ET/BT will be done here Ü
+      END-IF
+    END-IF
+  END-IF
+*
+  UNTIL G-NATRP-ERC = 0
+END-REPEAT
+*
+END-SUBROUTINE /* INPUT-NODE
+*
+************************************************************************
+DEFINE SUBROUTINE SHOW-STATUS
+************************************************************************
+DECIDE ON FIRST VALUE OF UX-NODES.UX-NODE-SUSPEND
+  VALUES 'N','A'
+    P-NODE-NAME := UX-NODES.UX-NODE-NAME
+    P-USERID := UX-NODES.UX-NODE-USERID
+    P-CIPHER-PASSWORD := UX-NODES.UX-NODE-PASSWORD
+    RESET P-PASSWORD
+    P-GROUP := UX-NODES.UX-NODE-GROUP
+    P-NODE-SUSPEND := UX-NODES.UX-NODE-SUSPEND
+    RESET P-ERC G-NATRP-ERC G-NATRP-ERT
+    #P-SESSION-ID-INT := +P-SESSION-ID         /* NOMALL-2470 start
+    RESET +P-SESSION-ID
+    P-FUNCTION := 'INFO'                       /* general info and OPSYS
+    CALLNAT 'XXUX---N' XXUX---P
+    IF P-ERC = 0
+      L-STATUS := P-OPSYS /* node active
+      IF #UPD-MODE
+        P-FUNCTION := 'LOGON'                  /* check user for Add/Mod
+        CALLNAT 'XXUX---N' XXUX---P
+        IF P-ERC = 0
+          P-FUNCTION := 'LOGOUT'
+          CALLNAT 'XXUX---N' XXUX---P
+        END-IF
+      END-IF
+    END-IF
+    +P-SESSION-ID := #P-SESSION-ID-INT         /* NOMALL-2470 end
+    RESET #XX-ERROR-CODE
+    DECIDE FOR FIRST CONDITION
+      WHEN P-ERC =5 AND P-ERT=SCAN 'SAT1115'   /* NOMALL-2088 start
+        #XX-ERROR-CODE := 2031                 /* node inactive
+        CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+        L-STATUS := #XX-SHORT-TEXT             /* Inactive
+      WHEN P-ERC NE 0
+        G-NATRP-ERC := P-ERC
+        G-NATRP-ERT := P-ERT                   /* NOMALL-2088 end
+        L-STATUS := F#GETMSG (<2051>)          /* error SU7 ->
+        IF #UPD-MODE
+          UX-NODES.UX-NODE-SUSPEND := L-SUSPEND := 'D' /* Error to 'D'
+/*        #XX-ERROR-CODE := 8814 /*Confirmation required
+/*        CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+/*        IF *LANGUAGE = 1 /*SU5 ->
+/*          COMPRESS #XX-SHORT-TEXT 'for activation of node' TO #CONFIRM
+/*        ELSE
+/*          COMPRESS #XX-SHORT-TEXT 'zur Knotenaktivierung' TO #CONFIRM
+/*        END-IF
+/*        #CONFIRM := 'Due to error status set to D' /*?????
+/*        COMPRESS 'NOM0005' P-ERT TO P-ERT
+/*        INPUT WINDOW = 'YESNO' (AD=OL IP=OFF) WITH TEXT *5,P-ERT
+/*          / #CONFIRM #YESNO (AD=MILT'_') '(Y/N)'
+/*        DECIDE FOR FIRST CONDITION
+/*          WHEN NOT(#YESNO ='Y' OR='N')
+/*            REINPUT *9206 /*Please enter 'Y' (yes) or 'N' (no). SU5 <-
+/*          WHEN #YESNO = 'Y'
+/*            RESET G-NATRP-ERC G-NATRP-ERT P-ERC P-ERT
+/*            #XX-ERROR-CODE := 2051 /*error
+/*            CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+/*            L-STATUS := #XX-SHORT-TEXT
+/*          WHEN NONE
+/*            UX-NODES.UX-NODE-SUSPEND := #L-SUSPEND
+/*            L-SUSPEND := #L-SUSPEND
+/*        END-DECIDE
+/*      ELSE
+/*        #XX-ERROR-CODE := 2051 /*error
+/*        CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+/*SU7 <-  L-STATUS := #XX-SHORT-TEXT
+        END-IF
+      WHEN NONE IGNORE
+    END-DECIDE
+  VALUES 'Y','S'
+    #XX-ERROR-CODE := 2032                    /* Suspend
+    CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+    L-STATUS := #XX-SHORT-TEXT
+  VALUE 'M', 'L'
+    #XX-ERROR-CODE := 2049                    /* Monitor
+    CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+    L-STATUS := #XX-SHORT-TEXT
+  VALUE 'E'
+    #XX-ERROR-CODE := 2051                    /* error
+    CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+    L-STATUS := #XX-SHORT-TEXT
+  NONE VALUE
+    UX-NODES.UX-NODE-SUSPEND := L-SUSPEND := 'D'
+    #XX-ERROR-CODE := 2047                    /* Deactive
+    CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+    L-STATUS := #XX-SHORT-TEXT
+END-DECIDE
+*
+END-SUBROUTINE /* SHOW-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE SET-TIMES /* BLI1
+************************************************************************
+UX-NODES.UX-LAST-UPDATE      := *TIMX /*SU1
+UX-NODES.UX-LAST-UPDATE-USER := G-USERID /*SU1
+IF UX-NODES.UX-NODE-SUSPEND ='M' OR='L'
+  ESCAPE ROUTINE
+END-IF
+IF UX-NODE-SUSPEND NE UX-NODE-TIME-STORED
+  UX-NODE-TIME-STORED := UX-NODE-SUSPEND
+  UX-NODE-SUSPENDED := *TIMX
+  RESET UX-NODE-SUSP-MAX-MSG
+END-IF
+END-SUBROUTINE /* SET-TIMES
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-PATH
+************************************************************************
+#FOR1. FOR #I = 1 TO 10
+  IF L-PATH (#I) = ' '
+    IF L-DB (#I) NE 0 OR L-FNR (#I) NE 0
+      G-NATRP-ERC := 2023
+      #POS := POS(L-PATH (#I))
+      ESCAPE BOTTOM (#FOR1.)
+    END-IF
+    IF #I < 10 /*compress
+      #J := #I + 1
+      L-PATH (#I:9) := L-PATH (#J:10)
+      L-DB   (#I:9) := L-DB   (#J:10)
+      L-FNR  (#I:9) := L-FNR  (#J:10)
+      RESET L-PATH (10) L-DB (10) L-FNR (10)
+      IF L-PATH (#I:10) NE ' '
+        SUBTRACT 1 FROM #I
+      END-IF
+    END-IF
+    ESCAPE TOP
+  END-IF
+* filled
+  IF NOT(L-DB (#I) = 1 THRU 65535) OR L-DB  (#I) = 255       /* BLI
+      OR NOT(L-FNR(#I) = 1 THRU 65535) OR L-FNR (#I) = 255   /* BLI
+    G-NATRP-ERC := 2021
+    #POS := POS(L-DB (#I))
+    ESCAPE BOTTOM (#FOR1.)
+  END-IF
+  #L-PATH := L-PATH (#I)
+  FOR #J = 1 TO 70
+    IF #L-PATH-A (#J) NE MASK (C)
+        AND #L-PATH-A (#J) NE '/' /* Path
+        AND #L-PATH-A (#J) NE '-' /* special character
+        AND #L-PATH-A (#J) NE '_' /* special character
+        AND #L-PATH-A (#J) NE ':' /* Windows drive
+        AND #L-PATH-A (#J) NE '.' /* Windows extension
+        AND #L-PATH-A (#J) NE '$' /* Unix environment var.
+        AND #L-PATH-A (#J) NE '%' /* Windows environm. var.
+      G-NATRP-ERC := 2042
+      #POS := POS(L-PATH (#I))
+      ESCAPE BOTTOM (#FOR1.)
+    END-IF
+  END-FOR
+  IF L-PATH (#I) NE MASK (*'/'/) /* path must end with '/'
+    COMPRESS L-PATH (#I) '/' TO L-PATH (#I) LEAVING NO
+  END-IF
+END-FOR /*(#FOR1.)
+*
+END-SUBROUTINE /* CHECK-PATH
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFCOM-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+* --------------------------------------- set pfekys -------------------
+INCLUDE RPFSET-C
+*
+END

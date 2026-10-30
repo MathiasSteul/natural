@@ -1,0 +1,288 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMARMGN - DB Interface EOM Object Active Report (general attributes)
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-06-28 s(999999) created
+* mrs 94-05-11 s(999999) BS2000
+* mrs 95-04-28 s(224236) NOM2005 while modifying general attributes
+* mrs 97-05-27 p(162705) recompiled (changes in eomarm-p)
+* mrs 97-05-27 p(162737) recompiled (changes in eomarm-p)
+* jvd 97-07-08 p(163579) Separator page truncation
+* xsethz  2000-07-27 (CE7461) Extend Report and Bundle Names
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* sju     2002-10-08 nom221   Stylesheet URL
+* sju     2002-10-31 NOM221   Long records (Jes2 only)
+* xsetggr 2007-05-03 NOM3201  Support P11 format run numbers
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-01-17 NRT2768   add cc-type = binary
+* xsetggr 2008-02-20 p(294775) add readhold, readhold-next funxtions
+* xsetggr 2008-05-05 p(304350) restow due changes in EOMARM-P
+* fhi     2009-05-20 N3463     Extend metadata
+* fhi     2011-02-10 NOMALL-926 Correct Separator Linesize
+* fhi     2011-02-17 NOMALL-926 Correct Separator Linesize
+* raya    2012-08-16 NOMALL-78  disable long records
+* fhi     2013-08-29 FHI285    Enhance error message 406
+* SU1     2013-11-22 NOMALL-1288 correct FHI285 for msg 406
+* SU2     2014-07-02 NOMALL-1279 fill fields for Adabas Vista
+* fhi     2014-10-21 NOMALL-79   Introduce long filenames
+* SU3     2015-08-11 NOMALL-1690 XXHASH restructure
+* SU5     2016-01-15 NOMALL-1802 do not update Adabas Vista fields
+* SU6     2016-02-29 NOMALL-1722 support long path names
+* fhi     2018-10-01 NOMALL-2154 Show codepage on General Attr screen
+* fhi     2018-10-10 NOMALL-2154 Introduce new field
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER USING EOM----P
+PARAMETER USING EOMARM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL USING EOM----E
+LOCAL USING RCCTYP-E
+LOCAL USING XXHASH-P
+LOCAL USING RMSR---E
+LOCAL USING RMSPL--L
+*
+LOCAL
+1 REPORT VIEW OF NRM-REPORTS-NEW
+  2 R-DESC
+  2 R-SEPLENG
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-DESC
+  2 AR-USERID
+  2 AR-CURRENT-LOCATION
+  2 AR-KEYWORDS          (1:3)
+  2 AR-EXPIRATION
+  2 AR-RETENTION-PERIOD
+  2 REDEFINE AR-RETENTION-PERIOD
+    3 AR-RET-NUMBER      (N3)
+    3 AR-RET-FACTOR      (A1)
+    3 AR-RET-CALENDAR    (A8)
+  2 AR-RETENTION-ACTION
+  2 AR-NUMBER-OF-LINES
+  2 AR-CC-TYPE
+  2 AR-RECORD-LENGTH
+  2 AR-STYLESHEET-URL
+  2 AR-REP-FORMAT
+  2 AR-SEPMEM
+  2 REDEFINE    AR-SEPMEM
+    3 AR-SEP-START       (A8)
+    3 AR-SEP-END         (A8)
+  2 AR-SEPNO
+  2 AR-REMOTE-CODEPAGE   (A64)
+  2 AR-LOCAL-CODEPAGE    (A64)
+*
+1 #AR-REPORT-RNB         (A31)
+1 REDEFINE #AR-REPORT-RNB
+  2 #AR-REPORT           (A25)
+  2 #AR-REPRNB           (P11)
+*
+1 #DATE-IN               (D)
+1 #DATE-OUT              (D)
+1 #DATE-A8               (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#AR-REPORT := EOMARM-I-NAME
+#AR-REPRNB := EOMARM-I-RNB
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-READ, EOM-READ-NEXT
+    PERFORM READ-GENERAL-ATTRIBUTES
+  VALUE EOM-READHOLD, EOM-READHOLD-NEXT
+    PERFORM READ-GENERAL-ATTRIBUTES
+  VALUE EOM-MODIFY
+    PERFORM MODIFY-GENERAL-ATTRIBUTES
+  NONE  IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-GENERAL-ATTRIBUTES
+************************************************************************
+RESET EOMARM-GENERAL-ATTRIBUTES
+*
+FNDAR. FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REPORT-RNB
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0406
+    COMPRESS #AR-REPORT ' (' *PROGRAM ',' *LINE ')'
+      TO EOMMSG-TOKEN(1) LEAVING NO
+    ESCAPE BOTTOM (FNDAR.)
+  END-NOREC
+*
+  PERFORM READ-REPORT
+  IF AR-DESC = ' '
+    EOMARM-DESCRIPTION := REPORT.R-DESC
+  ELSE
+    EOMARM-DESCRIPTION := AR-DESC
+  END-IF
+  EOMARM-MASTER-OWNER     := AR-USERID
+  EOMARM-CURRENT-LOCATION := AR-CURRENT-LOCATION
+  EOMARM-KEYWORDS (1:3)   := AR-KEYWORDS (1:3)
+*
+  EOMARM-RET-NUMBER       := AR-RET-NUMBER
+  EOMARM-RET-FACTOR       := AR-RET-FACTOR
+  EOMARM-RET-CALENDAR     := AR-RET-CALENDAR
+  EOMARM-RET-ACTION       := AR-RETENTION-ACTION
+*
+  EOMARM-NUMBER-OF-LINES  := AR-NUMBER-OF-LINES
+  EOMARM-RECORD-LENGTH    := AR-RECORD-LENGTH
+  EOMARM-STYLESHEET-URL   := AR-STYLESHEET-URL
+  EOMARM-LOCAL-CP         := AR-LOCAL-CODEPAGE
+  EOMARM-REP-FORMAT       := AR-REP-FORMAT
+  IF AR-RECORD-LENGTH < REPORT.R-SEPLENG
+    EOMARM-RECORD-LENGTH := REPORT.R-SEPLENG
+  END-IF
+  IF REPORT.R-SEPLENG = 0 AND AR-RECORD-LENGTH < 132 AND  AR-SEPNO NE 0
+      AND
+      NOT (AR-SEP-START = 'NONE' OR = 'KEIN'
+      AND  AR-SEP-END   = 'NONE' OR = 'KEIN')
+    EOMARM-RECORD-LENGTH := 132
+  END-IF
+*
+  DECIDE ON FIRST AR-CC-TYPE
+    VALUE ASA-CODE     EOMARM-CC-TYPE := 'asa'
+    VALUE BS2000-CC    EOMARM-CC-TYPE := 'ebcdic'
+    VALUE MACHINE-CODE EOMARM-CC-TYPE := 'machine'
+    VALUE BINARY       EOMARM-CC-TYPE := 'binary'
+    NONE VALUE RESET   EOMARM-CC-TYPE
+  END-DECIDE
+*
+  CALLNAT 'IODATE-N' 'M' 'L' AR-EXPIRATION EOMARM-EXPIRATION-DATE
+    EOM-DATE-FORMAT EOMMSG-NR EOMMSG-TEXT
+  IF EOMMSG-NR NE 0
+    EOMMSG-TOKEN (1) := EOMMSG-TEXT
+    RESET  EOMMSG-TEXT
+  END-IF
+  IF EOM-FUNCTION = EOM-READHOLD OR  = EOM-READHOLD-NEXT
+    UPD. GET ACTIVE-REPORT *ISN (FNDAR.)
+    IF 1 NE 1 /*never, set record in hold NOMALL-79 What???
+      UPDATE (UPD.)
+    END-IF
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* READ-GENERAL-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-GENERAL-ATTRIBUTES
+************************************************************************
+FNDMOD. FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REPORT-RNB
+*
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0406
+    COMPRESS #AR-REPORT ' (' *PROGRAM ',' *LINE ')' TO EOMMSG-TOKEN(1)
+    ESCAPE BOTTOM (FNDMOD.)
+  END-NOREC
+*
+  IF AR-USERID NE EOMARM-MASTER-OWNER
+      AND AR-USERID NE EOM-USER AND EOM-USER-TYPE NE 'A'
+    EOMMSG-NR := 2005
+    EOMMSG-FIELD-NAME := 'EOMARM-MASTER-OWNER'
+    ESCAPE BOTTOM (FNDMOD.)
+  END-IF
+*
+  AR-USERID         := EOMARM-MASTER-OWNER
+  AR-KEYWORDS (1:3) := EOMARM-KEYWORDS (1:3)
+*
+  IF EOMARM-RET-NUMBER = 0 AND EOMARM-RET-FACTOR = ' '
+      AND EOMARM-RET-CALENDAR = ' '
+    RESET AR-RETENTION-PERIOD
+  ELSE
+    AR-RET-NUMBER   := EOMARM-RET-NUMBER
+    AR-RET-FACTOR   := EOMARM-RET-FACTOR
+    AR-RET-CALENDAR := EOMARM-RET-CALENDAR
+  END-IF
+  AR-RETENTION-ACTION := EOMARM-RET-ACTION
+*
+  IF EOMARM-EXPIRATION-DATE = ' '
+    IF EOMARM-RET-ACTION = ' '
+      RESET AR-EXPIRATION
+    ELSE
+      IF AR-RETENTION-PERIOD = ' '
+        AR-RETENTION-PERIOD := '010A'
+      END-IF
+      IF AR-RET-NUMBER = 0
+        AR-RET-NUMBER := 10
+      END-IF
+      #DATE-IN := *DATX
+      CALLNAT 'RCOMED-N' #DATE-IN AR-RETENTION-PERIOD #DATE-OUT
+      MOVE EDITED #DATE-OUT (EM=YYYYMMDD) TO #DATE-A8
+      IF #DATE-A8 NE '00000102'
+        AR-EXPIRATION := #DATE-A8
+        CALLNAT 'IODATE-N' 'M' 'L' AR-EXPIRATION EOMARM-EXPIRATION-DATE
+          EOM-DATE-FORMAT EOMMSG-NR EOMMSG-TEXT
+      END-IF
+    END-IF
+  ELSE
+    CALLNAT 'IODATE-N' 'V' 'L' AR-EXPIRATION EOMARM-EXPIRATION-DATE
+      EOM-DATE-FORMAT EOMMSG-NR EOMMSG-TEXT
+  END-IF
+  AR-STYLESHEET-URL := EOMARM-STYLESHEET-URL
+*
+  IF EOMMSG-NR = 0
+    UPDATE (FNDMOD.)
+    PERFORM UPD-FILE-NAME-TABLE
+    PERFORM UPD-PATH-NAME-TABLE
+  ELSE
+    EOMMSG-TOKEN (1) := EOMMSG-TEXT
+    RESET  EOMMSG-TEXT
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* MODIFY-GENERAL-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-REPORT
+************************************************************************
+FIND REPORT WITH R-REPNAME = ACTIVE-REPORT.AR-REPNAME
+END-FIND
+*
+END-SUBROUTINE /* READ-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE UPD-FILE-NAME-TABLE
+************************************************************************
+DECIDE ON EVERY VALUE OF #SPOOL-TYPE
+  VALUE SEQUENTIAL-FILE-UNIX
+    XXHASH-PARMS.P-SHORT-NAME := #SPOOL-UNIX-FILE-NAME
+  VALUE DIRECT-INPUT
+    XXHASH-PARMS.P-SHORT-NAME := #SPOOL-DI-FILENAME
+  ANY
+    XXHASH-PARMS.P-FUNCTION   := 'U' /*update rep. data
+    COMPRESS AR-REPNAME '/' AR-REPRNB TO XXHASH-PARMS.P-REPRNB LEAVING NO
+    PERFORM XXHASH XXHASH-PARMS
+  NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* UPD-FILE-NAME-TABLE
+*
+************************************************************************
+DEFINE SUBROUTINE UPD-PATH-NAME-TABLE
+************************************************************************
+IF #SPOOL-TYPE = DIRECT-INPUT
+  XXHASH-PARMS.P-SHORT-NAME := #SPOOL-DI-PATH
+  XXHASH-PARMS.P-FUNCTION   := 'U' /*update rep. data
+  COMPRESS AR-REPNAME '/' AR-REPRNB TO XXHASH-PARMS.P-REPRNB LEAVING NO
+  PERFORM XXHASH XXHASH-PARMS
+END-IF
+*
+END-SUBROUTINE /* UPD-PATH-NAME-TABLE
+*
+INCLUDE C-EOMERR /*ON ERROR
+*
+END

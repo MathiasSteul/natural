@@ -1,0 +1,443 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* REXBRNDB - Browse an Active Report with Location 'DB'
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* mrs 93-05-26 s(999999) clean up
+* mrs 94-07-12 s(999999) header lines in Layout corrected
+* gw  96-01-10 s(239299) window during scan every 5000 records
+* gw  95-01-19 s(239920) NAT1301
+* jwo 96-12-03 s(245491) correct scan command
+* jvd 97-08-01 p(164220) Replace Call 'CMULT' with Examine Translate
+* fhi 99-11-08 s(188378) Prevent NAT967 on large find operations
+* fhi 02-10-30 fhi101    switch on optimizer compiler
+* HH  04-08-10 HH CHANGE H'40' TO ' ' BECAUSE OF UNIX ENVIRONMENTS
+* LP  05-02-23 ADAPT TO UNIX ENVIRONMENTS    /* LP-2005-02-23
+*              THE PGM CMQ IS NOT AVAILABLE IN UNIX ENVIRONMENTS.
+*              CALL THE EDITOR INSTEAD WITH FUNCTION "ADDL"
+* fhi 07-06-01 FHI232    NAT 1305 in 4020: ADD 1 to I
+* xsetggr 2009-05-11 P313558 do not truncate lines of length 251 if
+*                            no control char
+* XSETGGR 2009-06-16 P318277 CORRECT CHANGES OF P313557
+* fhi     2009-07-28 P319282 Binary files on Linux corrupted
+* fhi     2009-09-15 P320367 Use NOMCOMPR for compression
+* xsetggr 2012-03-28 NOMALL-972 save and return editor error for unix
+* SPLILDAV 2012-06-27 NOMALL-1078 SUPPORT COMPRESSION 16K BYTE RECORDS
+* SU1     2015-02-27 NOMALL-1569 restructured
+* SU2     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* SU3     2021-05-31 NOMALL-2454 recat for EXIT-CB
+* SU4     2023-10-30 NOMALL-2489 HEX on MF
+* ----------------------------------------------------------------------
+*        REXBRNDB
+*        --------
+*  This routine is used for browsing an NRM report located on the NRM
+*  DATABASE .
+*
+*  It gets 3 parameters
+*            1. exit control block
+*            2. work area - the content is saved and returned each call
+*            3. data area
+*
+*  It has the following functions:
+*
+*    S - Scan SU4 document
+*    O - OPEN
+*        INPUT:     EX-FILE   - file id
+*
+*        RETURN:    EX-RCODE  - error code
+*                   EX-UDATA  - error text
+*                   EX-RLEN   - record length
+*
+*    C - CLOSE
+*        INPUT:     EX-FILE   - file id
+*
+*        RETURN:    EX-RCODE  - error code
+*                   EX-UDATA  - error text
+*
+*    G - GET LINES
+*        INPUT:     EX-FILE   - file id
+*                   EX-RTOP   - # of top record
+*                   EX-BNUM   - # of wanted records
+*                   EX-RLEN   - record length
+*                   EX-RMAX   - scan limit (for EX-STYPE ne ' ')
+*                   EX-STYPE  - scan type  A - absolute  N - normal
+*                   EX-SLEN   - length of string (for scan type A)
+*                   EX-SFROM  - start column (for scan type A)
+*                   EX-STO    - end column  (for scan type A)
+*                   EX-UDATA  - string to scan
+*
+*        RETURN:    EX-RCODE  - error code
+*                   EX-UDATA  - error text
+*                   EX-BNUM   - # of records gotted
+*                   EX-RNUM   - total # of records in the file
+*                   EX-RMAX   - total # of records so far (if # of
+*                               records is going to be changed)
+*                   EX-STYPE  - S - string found, L - limit reached
+************************************************************************
+DEFINE DATA
+PARAMETER
+1 P1                           (A250)
+1 P2                           (B64)
+1 P3                           (A64)
+************************************************************************
+LOCAL USING EXIT-CB
+LOCAL USING VFSYS-L
+LOCAL USING SUPER-L
+LOCAL USING RCCTYP-E
+LOCAL USING EDIT-CB
+LOCAL
+1 EDIT-PREF
+  2 L-PREFIX                   (A6/1:10)
+1 EDIT-DATA /*field used in CALL 'EDITOR'
+  2 ED-DATA                    (A251/1:20)
+  2 REDEFINE ED-DATA
+    3 ED-DATA1 (1:20)
+      4 #LINE-FEED             (A1)
+      4 L-DATA                 (A250)
+1 EDIT-ALIN                    (A32)
+1 REDEFINE EDIT-ALIN
+  2 CB-ALIN-V                  (N1/32)
+1 EDIT-ADAT                    (A32)
+1 REDEFINE EDIT-ADAT
+  2 CB-ADAT-V                  (N1/32)
+1 #P2                          (A64)
+1 REDEFINE #P2
+  2 SAV-TOP                    (B4)
+  2 NPR-VER                    (A8)
+  2 FIRST-CALL                 (A1)
+1 #N                           (P3)
+1 I                            (P11)
+1 W                            (P8)
+1 K                            (P8)
+1 L                            (P8)
+1 R-LEN                        (B4)
+1 R-DISP                       (B4)
+1 #SEQN                        (P9)
+1 #OFFSET                      (P9)
+1 #EX-RTOP                     (P9)
+1 #EX-SCOL                     (I2)
+1 O-RECORD                     (A251)
+1 REDEFINE O-RECORD
+  2 O-RECORD-V                 (A1/251)
+1 I-RECORD                     (A251)
+1 REDEFINE I-RECORD
+  2 I-RECORD-V                 (A1/251)
+1 #OPOS                        (P3) INIT <2>
+1 #LEN                         (P3)
+1 #LEN1                        (P3)
+1 #REPFOUND                    (L)
+1 COMPCB                       (B40)
+1 REDEFINE    COMPCB
+  2 COMPCB-OP                  (A1)
+  2 COMPCB-CHAR                (B1)
+  2 COMPCB-ILEN-OLD            (B1)
+  2 COMPCB-OLEN-OLD            (B1)
+  2 COMPCB-ILEN                (B2)
+  2 COMPCB-OLEN                (B2)
+1 #ILEN                        (N5)
+1 #HEADNO                      (I4)
+1 #FROM-COL                    (P3)
+1 #TO-COL                      (P3)
+1 SW-NP                        (L)
+1 #STRING-FOUND                (L)
+1 #RECORD-NUMBER               (N8)
+1 #EX-RMAX-R                   (N8)
+1 #NUM                         (P3)
+1 #SCAN-STRING-DECOMPRESSED    (A64)
+1 #SCAN-STRING-COMPRESSED      (A64)
+1 #COUNTER                     (I4)
+1 #MF                          (L) /*SU4
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *MACHINE-CLASS = 'MAINFRAME'
+  #MF := TRUE
+END-IF
+COMPCB-CHAR := 'N'                  /* 'N' - New parm list
+COMPCB-OP := 'D'
+*
+EXIT-CB := P1
+#F-SEQ := EX-RTOP
+*
+#P2 := P2
+*
+R-LEN := EX-RLEN
+R-DISP := 0
+#F-REPNAME := EX-NRM-REPNAME
+#F-REPRNB := EX-NRM-REPRNB
+#EX-SCOL := EX-SCOL
+*
+IF #EX-SCOL = 0
+  #EX-SCOL := 1
+END-IF
+ED-SESNUM := EX-SES
+ED-REQUEST := 'ADDL'
+*
+DECIDE ON EVERY VALUE OF  EX-REQ
+  VALUE 'O' /*Open
+    SAV-TOP := 0
+    RESET #F-SEQ
+    READ-OPEN. READ (1) REPORT-TEXT BY F-REPNAME-RNB-SEQ =#F-REP-RNB-SEQ
+      IF F-REPNAME NE #F-REPNAME OR F-REPRNB NE #F-REPRNB
+        ESCAPE BOTTOM
+      END-IF
+      #REPFOUND := TRUE
+      ESCAPE BOTTOM
+    END-READ
+    IF NOT #REPFOUND
+      EX-ECODE := 1
+      EX-UDATA := 'REPORT NOT FOUND'
+      ESCAPE ROUTINE
+    END-IF
+*
+    EX-RNUM := EX-NRM-MAXREC
+    EX-RMAX := EX-NRM-MAXREC
+    EX-RLEN := EX-NRM-LRECL
+  VALUE 'C' /*Close
+    EX-RNUM := 0
+    EX-RMAX := 0
+  VALUE 'S' /*Scan
+    IF NOT(EX-STYPE = 'A' OR = 'N')
+      EX-REQ := 'G' /*  decide on value modified
+      RESET EX-STYPE                /*  here !!!
+    END-IF
+  VALUE 'S' /*Scan
+    IF EX-RMAX = 0
+      ESCAPE ROUTINE
+    END-IF
+    EX-RNUM := EX-NRM-MAXREC
+    EX-RMAX := EX-NRM-MAXREC
+    #EX-RMAX-R := EX-RMAX
+    EXAMINE  EX-UDATA FOR H'00' REPLACE ' '
+    MOVE LEFT JUSTIFIED EX-UDATA TO #SCAN-STRING-DECOMPRESSED
+    EXAMINE #SCAN-STRING-DECOMPRESSED FOR 'X' GIVING LENGTH #ILEN
+    RESET #SCAN-STRING-COMPRESSED
+    COMPCB-ILEN := #ILEN
+    COMPCB-ILEN-OLD := #ILEN /* For compat
+    COMPCB-OP := 'C'
+    CALLNAT 'R-NRMCMP' COMPCB #SCAN-STRING-DECOMPRESSED
+      #SCAN-STRING-COMPRESSED EX-ECODE EX-UDATA
+    RESET COMPCB-OLEN       /* Zero output length
+    IF EX-ECODE NE 0
+      ESCAPE ROUTINE
+    END-IF
+    COMPCB-OP := 'D'
+    I := 0
+    #EX-RTOP := EX-RTOP
+    #RECORD-NUMBER := #EX-RTOP - 1
+    #F-SEQ := #EX-RTOP
+    READ-SCAN. READ REPORT-TEXT BY F-REPNAME-RNB-SEQ = #F-REP-RNB-SEQ
+      IF F-REPNAME NE #F-REPNAME OR F-REPRNB NE #F-REPRNB
+        ESCAPE BOTTOM
+      END-IF
+      #SEQN := F-SEQ
+      IF *COUNTER = 1 AND #SEQN >= #EX-RTOP  /* MB
+        #OFFSET := C*F-TEXT - (#SEQN - #EX-RTOP)
+      ELSE
+        #OFFSET := 1
+      END-IF
+      IF #OFFSET < 1
+        #OFFSET := 1
+      END-IF
+      FOR W #OFFSET TO C*F-TEXT
+        ADD 1 TO #RECORD-NUMBER
+        IF #MF
+          ADD 1 TO #COUNTER
+          IF #COUNTER = 5000
+            RESET #COUNTER
+            CALL 'CMROLL'
+          END-IF
+        END-IF
+*
+        O-RECORD := F-TEXT(W)
+        EXAMINE O-RECORD TRANSLATE INTO UPPER CASE
+        EXAMINE O-RECORD FOR #SCAN-STRING-COMPRESSED
+          GIVING POSITION #NUM
+        IF #NUM > 0
+          IF F-TEXT(W) NE ' '
+            EXAMINE O-RECORD  FOR 'X' GIVING LENGTH IN #ILEN
+            RESET O-RECORD
+            COMPCB-ILEN := #ILEN
+            COMPCB-ILEN-OLD := #ILEN /* For compat
+            CALLNAT 'R-NRMCMP' COMPCB F-TEXT(W) O-RECORD EX-ECODE
+              EX-UDATA
+            RESET COMPCB-OLEN       /* Zero output length
+            IF EX-ECODE NE 0
+              ESCAPE ROUTINE
+            END-IF
+            O-RECORD := F-TEXT(W)
+          END-IF
+          EXAMINE O-RECORD TRANSLATE INTO UPPER CASE
+          EXAMINE O-RECORD FOR EX-UDATA GIVING POSITION #NUM
+        END-IF
+        IF #NUM > 0
+          EX-RTOP := #RECORD-NUMBER
+          EX-STYPE := 'S'
+          #STRING-FOUND := TRUE
+          PERFORM #DO-IT
+          ESCAPE BOTTOM (READ-SCAN.)
+        END-IF
+        IF #RECORD-NUMBER >= #EX-RMAX-R
+          EX-STYPE := 'L'
+          ESCAPE BOTTOM (READ-SCAN.)
+        END-IF
+        ESCAPE TOP
+      END-FOR
+    END-READ
+    IF NOT #STRING-FOUND
+      RESET EX-RMAX EX-RTOP
+      EX-STYPE := ' '
+    END-IF
+    P1 := EXIT-CB
+    P2 := #P2
+    ESCAPE ROUTINE
+  VALUE 'G' /*Get
+    I := 0
+    #EX-RTOP := EX-RTOP
+    #F-SEQ := #EX-RTOP
+    READ-LOOP. READ REPORT-TEXT BY F-REPNAME-RNB-SEQ = #F-REP-RNB-SEQ
+      IF F-REPNAME NE #F-REPNAME OR F-REPRNB NE #F-REPRNB
+        ESCAPE BOTTOM
+      END-IF
+*
+      #SEQN := F-SEQ
+      IF *COUNTER = 1 AND #SEQN >= #EX-RTOP  /* MB
+        #OFFSET := C*F-TEXT - (#SEQN - #EX-RTOP)
+      ELSE
+        #OFFSET := 1
+      END-IF
+      IF #OFFSET < 1
+        #OFFSET := 1
+      END-IF
+      FOR W #OFFSET TO C*F-TEXT
+        IF F-TEXT(W) NE ' '
+          O-RECORD := F-TEXT(W)
+          EXAMINE O-RECORD  FOR 'X' GIVING LENGTH IN #ILEN
+          RESET O-RECORD
+          COMPCB-ILEN := #ILEN
+          COMPCB-ILEN-OLD := #ILEN /* For compat
+          CALLNAT 'R-NRMCMP' COMPCB F-TEXT(W) O-RECORD EX-ECODE
+            EX-UDATA
+          RESET COMPCB-OLEN       /* Zero output length
+          IF EX-ECODE NE 0
+            ESCAPE ROUTINE
+          END-IF
+        ELSE
+          O-RECORD := F-TEXT(W)
+        END-IF
+*
+        ADD 1 TO I
+        PERFORM #DO-IT
+        IF I >= EX-BNUM
+          ESCAPE BOTTOM(READ-LOOP.)
+        END-IF
+      END-FOR
+    END-READ
+    K := EX-RTOP
+    ADD I TO K
+    SAV-TOP := K
+    EX-BNUM := I
+    EX-RNUM := EX-NRM-MAXREC
+    RESET EX-RMAX
+  NONE VALUE
+    IGNORE
+END-DECIDE
+*
+P1 := EXIT-CB
+P2 := #P2
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE BUILD-RECORD
+************************************************************************
+#LEN1 := 251 - #EX-SCOL + 1
+IF (O-RECORD-V (1) = '1'   AND EX-NRM-SOURCE-CC-TYPE = ASA-CODE)
+OR (O-RECORD-V (1) = H'89' AND EX-NRM-SOURCE-CC-TYPE = MACHINE-CODE)  /*
+OR (O-RECORD-V (1) = H'8B' AND EX-NRM-SOURCE-CC-TYPE = MACHINE-CODE)  /*
+OR (O-RECORD-V (1) = H'81' AND EX-NRM-SOURCE-CC-TYPE = BS2000-CC)     /*
+OR (O-RECORD-V (1) = 'A'   AND EX-NRM-SOURCE-CC-TYPE = BS2000-CC)     /*
+  #HEADNO := 1
+  SW-NP := TRUE
+ELSE
+  IF SW-NP
+    ADD 1 TO #HEADNO
+  END-IF
+END-IF
+*
+IF EX-NRM-ASA-CODE-ON = 'N'
+  RESET O-RECORD-V(1)
+END-IF
+*
+IF EX-NRM-FCOL(1) = H'00' OR
+    (EX-NRM-HEAD NE 0 AND #HEADNO = 1 THRU EX-NRM-HEAD)
+  IF EX-NRM-ASA-CODE-ON NE 'F' OR EX-NRM-SOURCE-CC-TYPE = NO-CC
+    I-RECORD := O-RECORD
+  ELSE
+    I-RECORD-V (2:251) := O-RECORD-V (1:250)
+    RESET I-RECORD-V(1)
+  END-IF
+  RESET O-RECORD
+  O-RECORD-V(1 : #LEN1) := I-RECORD-V(#EX-SCOL : 251)
+  ESCAPE ROUTINE
+END-IF
+IF EX-NRM-SOURCE-CC-TYPE = NO-CC
+  #OPOS := 1
+ELSE
+  #OPOS := 2
+END-IF
+IF EX-NRM-ASA-CODE-ON NE 'F'
+  I-RECORD-V (1:250) := O-RECORD-V (2:251)
+  RESET I-RECORD-V (251) O-RECORD-V (2:251)
+ELSE
+  I-RECORD := O-RECORD
+  RESET O-RECORD
+END-IF
+FOR #N 1 TO 10
+  IF EX-NRM-FCOL(#N) = H'00'
+    ESCAPE BOTTOM
+  END-IF
+  #FROM-COL := EX-NRM-FCOL(#N)
+  #TO-COL := EX-NRM-TCOL(#N)
+  #LEN:= #TO-COL - #FROM-COL
+  O-RECORD-V(#OPOS : #OPOS + #LEN) := I-RECORD-V(#FROM-COL  : #TO-COL)
+  #OPOS := #OPOS + #LEN + 2
+END-FOR
+I-RECORD := O-RECORD
+RESET O-RECORD
+O-RECORD-V(1 : #LEN1) := I-RECORD-V(#EX-SCOL : 251)
+*
+END-SUBROUTINE /* BUILD-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE #DO-IT
+************************************************************************
+PERFORM BUILD-RECORD
+/*SU4 IF #MF CALL 'CMQ' 'MVDS' O-RECORD P3 R-LEN R-DISP ELSE
+ED-SCRNUM := 1
+ED-RECTOP := I
+CALL 'EDITOR' EDIT-CB EDIT-ALIN EDIT-PREF EDIT-ADAT O-RECORD
+IF ED-ERRNUM NE 0
+  EX-ECODE := 3
+  EX-UDATA := ED-FLINE
+  ESCAPE ROUTINE
+END-IF
+/*SU4   END-IF
+K := R-DISP
+L := R-LEN
+K := K + L
+R-DISP := K
+*
+END-SUBROUTINE /* #DO-IT
+*
+END

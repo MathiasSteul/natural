@@ -1,0 +1,75 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDELFO - Delete a Folder
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-08-05 s(999999) created
+* mrs 93-08-09 s(999999) allow lower case in N-CNFRM
+* gw  95-12-06 s(236063) allow admin to maintain folders
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* xsetggr 2007-12-19 p(300375) restow due changes in EOMFOM-P
+* xsetggr 2008-06-14 p(297859) check & delete grants when delete folder
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-05-03 NOMALL-902 changes in EOMFOM-P
+* xsetggr 2012-11-26 NOMALL-89 delete folder grants moved to EOMARM-N
+* SU1     2022-03-03 NOMALL-2536 restruct
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL  USING EOM----E
+LOCAL  USING EOM----P
+LOCAL  USING EOMFOM-P
+LOCAL  USING EOMMSG-P
+*
+LOCAL
+1 #FATHER-PROG         (A8) INIT <'RLISFO'>
+1 #OBJECT-NAME         (A32)
+1 #CONFIRMED           (L)
+1 LOWER-CASE           (L) CONST <TRUE>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+G-NATRP-ERC := 17
+RESET  G-NATRP-ERT
+*
+EOMFOM-I-NAME    := G-C-FOLDER
+EOMFOM-I-USER    := G-FOR-USERID
+EOM-USER-PROFILE := G-USER-PROFILE
+EOM-USER         := G-USERID
+EOM-USER-TYPE    := G-USER-TYPE
+EOM-LANGUAGE     := *LANGUAGE
+EOM-FUNCTION     := EOM-READ
+CALLNAT 'EOMFOM-N' EOM-PARMS EOMFOM-PARMS EOMMSG-PARMS
+IF EOMMSG-NR NE 0
+  G-NATRP-ERC := EOMMSG-NR
+  G-NATRP-ERT := EOMMSG-TOKEN (1)
+  INCLUDE C-ESCAPE
+END-IF
+*
+IF G-CONFIRM
+  #OBJECT-NAME := G-C-FOLDER
+  CALLNAT 'N-CNFRM' #OBJECT-NAME 'F' G-DISPLAY-LONG-NAMES #CONFIRMED
+    G-NATRP-ERT LOWER-CASE
+END-IF
+IF #CONFIRMED OR NOT G-CONFIRM
+  EOM-FUNCTION := EOM-DELETE
+  CALLNAT 'EOMFOM-N' EOM-PARMS EOMFOM-PARMS EOMMSG-PARMS
+  IF EOMMSG-NR NE 0
+    G-NATRP-ERC := EOMMSG-NR
+    G-NATRP-ERT := EOMMSG-TOKEN (1)
+    BACKOUT TRANSACTION
+  ELSE
+    END OF TRANSACTION
+    G-NATRP-ERC := 18
+  END-IF
+END-IF
+INCLUDE C-ESCAPE
+*
+END

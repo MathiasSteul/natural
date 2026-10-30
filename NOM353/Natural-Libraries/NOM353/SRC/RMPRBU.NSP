@@ -1,0 +1,1892 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 5
+* <Natural Source Header
+* RMPRBU - Print Active Bundle
+* Bundle Contents is printed as follows:
+* - ALL
+*   The bundle is printed as one uint.
+*   (VTAM, SYSPRINT (POWER), TAPE, DISK, CON-NECT, NAF)
+* - PORTION
+*   The Program is advised to print only a portion of the Bundle.
+*   Bundle Start Separator and Bundle VTOC are printed within the
+*   first Portion, Bundle End Separator within the last.
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-02-25 s(999999) created
+* mrs 93-11-02 s(999999) old version saved, various modifications
+* mrs 93-12-14 s(999999) don't print separators of archived reports
+* mrs 94-01-05 s(161550) terminate with condition code
+* mrs 94-02-24 s(999999) terminate only if type ne subtask
+* mrs 94-03-10 s(999999) logon to / logoff from esy
+* gw  94-03-23 s(999999) assign flush-desc
+* mrs 94-05-20 s(999999) follow printout until canceled or printed
+* gw  94-05-30 p(129055) phone separator variable
+* gw  95-01-09 p(135759) wake monitor when finished
+* gw  95-02-09 p(136952) previous separator taken if no separ. defined
+* gw  95-02-21 p(137438) make date and time vaiables in bundle separator
+* mrs 95-05-10 s(224641) jobname substitution variable corrected BS2
+* mrs 95-05-18 s(225071) descr substitution variable corrected
+* gw  96-10-18 s(999999) printout statistics exit
+* gw  96-10-24 s(238382) stop printing if VSE error 681 job active
+* jvd 97-10-09 p(163166) Replace Callnat 'OUTDATE' with 'IODATE-N'
+*                        Y2C and use only one date routine for NOM
+* gw  98-03-24 s(279421) sort reports by repname-rnb within group-seqno
+*                        new superde BC-BUNDLE-RNB-GROUP-SEQNO-REPRNB
+*                        if not present (NAT3061) we use the old one
+* gw  98-07-16 p(172297) recat for build list active bundle redesign
+*                        to include prerequisites
+* jvd 98-09-14 p(164220) NAT23ÖNOM141
+* sju 99-05-06 p(182497) avoid parm truncation by doing 2 inputs
+* sju 99-06-17 p(183296) new bundle substitution variables
+* sju 99-06-28 p(183721) new printer exit return code 97 (means don't
+*                        call again until next report separator)
+* sju 99-07-14 p(184320) set FLUSH-REPNAME for printer exits
+* jvd 99-11-10 p(188713) Steplib for non NAT.SEC environment
+*                        and remove comments pre 1997
+* sju 00-04-28 p(191368)  wake up print task
+* xsisgg 00-05-31 p(191312) sort reports in bundle - take out old code
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* sju 00-11-21 s(999999) Check setting of lfile 131 (SAT log file)
+* sju 01-04-20 p(208757) User-exit to decide old or new sequence
+* xsetggr 01-06-15 p(209875) change adding steplibs if NSC is not active
+* sju 02-02-25 NOM221    New lfile for active data
+* sju 02-03-21 p(221908) Correct STEPLIB handling
+* sju 02-11-08 NOM221    Long records (Jes2 only)
+* fhi 03-07-23 p(242064) Unify steplib concatentation
+* xsetggr 2003-08-20 p(240465) allow print for non-defined userid
+* xsetggr 04-02-13 p(250183) don't print sep page if it is 'NONE'/'KEIN'
+* xsetggr 04-03-10 p(250355) save evaluated lrecl in FLUSH-RECORD-LENGTH
+*                            when fixed record length
+* sju     2004-04-22 p(250355) correct handling of recfm
+* NOTE: for performance reasons (WRITE WORK much faster than VARIABLE)
+*       RECFM=F is always written with LRECL 251
+* HH      20040825 FORMATTING T CHANGED;
+* xsetggr 2004-11-29 p(158871) recat due to changes in rmfl---p
+* sju     2004-12-14 TYPE=AL   NOM31 support TYPE=AL
+* fhi     2005-04-21 NOM3107   Support 7-byte job numbers
+* fhi     2005-06-23 p(266530) Monitor must be NPR Mainframe independent
+* xsetggr 2007-05-03 NOM3201   support 11 byte run numbers
+* xsetggr 2007-05-07 NOM3201   support 5 byte node numbers
+* fhi     2007-05-30 P297047   Replace RSTEPLIB, old comments deleted
+* fhi 2007-07-13 P295667 Support printing from page with SKIP nnnnnn
+*                        in jobcards of printout record.
+* xsetggr 2007-07-19 p(295731) do not print report separators if
+*                              b-flag-repsep = 'n'
+* xsetggr 2007-11-19 NRT2766   add steplib for printer exit
+* fhi     2008-02-27 P302167   Binary printing in BS2000
+* xsetggr 2008-04-29 p(300028) evaluate SKIP in lower case
+* xsetggr 2008-06-10 p(292935) fill po-printed only after successful
+*                              end of printing
+* fhi     2008-06-20 P306371   Redefintion misused, WKF-NUMBER destroyed
+* xsetggr 2008-06-29 p(304350) restow due to changes in RMSPL--L
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* xsetggr 2009-02-16 P313650   remove added steplib for printer exit
+* xsetggr 2009-02-24 P300323   make steplib handling unix compliant
+* fhi     2009-02-27 P300323 Rename RGETSTEP to NOMGSTEP delivered in SYSTEM
+* fhi     2009-05-26 N3876     Introduce exit NOMEX014
+* fhi     2009-06-26 N3876     Introduce trace for NOMEX014
+* fhi     2009-07-07 N3463     Binary Bundle Printing
+* fhi     2009-07-08 N3876     AR-CC-TYPE (B2) -> (I2) format
+* fhi     2009-07-15 N3463     check for last report in bundle
+* fhi     2009-10-30 P321483   Introduce CONFIRM in jobcards
+* fhi     2010-02-22 P321483   Data field handling incorrect
+* xsetggr 2010-03-31 P307403   printouts corrupted when NONE sep pages
+*                              honoured copies of bundles
+* fhi     2010-04-06 P321962   Set correct status at end
+* fhi     2010-04-12 P307403   Honour error-fields of NOMEX014
+* xsetggr 2010-08-04 NOMALL-824 reset number of copies at the start
+* fhi     2010-08-09 NOMALL-93  Write statistics for Optimize
+* xsetggr 2010-08-20 NOMALL-824 change handling of printing separators
+* fhi     2010-08-31 NOMALL-93 Introduce trace levels                   STEM
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-09 NOMALL-93 Extend supplied values                   STEM
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* fhi     2010-11-25 NOMALL-856 Use symbol replacement
+* xsetggr 2010-12-21 NOMALL-865 restow due to changes in RMFL---P
+* fhi     2011-02-01 NOMALL-922 Reuse printer tasks
+* fhi     2011-03-21 NOMALL-947 log complete error text
+* xsetggr 2011-10-17 NOMALL-970 implement new report flag-print once
+* raya    2012-01-31 NOMALL-1096 error-text a250 in NOMWK--P stow only
+* xsetggr 2012-02-02 NOMALL-1100 add lg-object-name when write to log
+* raya    2012-02-08 NOMALL-98   check exit member to avoide err 82
+* raya    2012-04-18 NOMALL-98   change in add/remove steplib
+* fhi     2012-08-01 NOMALL-882 Ignore missing default separation pages
+* raya    2012-08-16 NOMALL-78  disable long records
+* fhi     2012-11-02 NOMALL-1004 Correct FLUSH-BRACKET
+* fhi     2012-11-09 NOMALL-1143 Add cpu time output
+* fhi     2012-11-12 NOMALL-932  Changed to stow it with NOMEXP14
+* raya    2012-11-29 NOMALL-1214 check cat date of nomex*
+* raya    2013-01-08 NOMALL-1214 check cat date of user exit
+* xsetggr 2013-01-22 NOMALL-970 implementation cancelled
+* xsetggr 2013-02-11 NOMALL-1229 correct brackating
+* fhi     2013-02-19 NOMALL-1229 temporarily backouted for NOMALL-1004
+* fhi     2013-03-06 NOMALL-1004 Correct rep separator not printed
+* raya    2013-05-09 NOMALL-1214 backout check cat date of nomex*
+* fhi     2013-11-05 NOMALL-1295 correct append flag
+* RAYA    2013-11-15 NOMALL-1297 avoid sep page problems
+* fhi     2013-11-22 NOMALL-1298 correct bracket flags
+* raya    2013-12-01 NOMALL-1298 correct bracket flags cont.
+* fhi     2014-02-13 NOMALL-1352 Re-create NOMEX015 from NOM322
+* fhi     2014-09-11 NOMALL-1485 Correct separation page number
+*                                Old tags up to 2012 deleted.
+* fhi     2014-09-18 NOMALL-1485 same
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* fhi     2015-04-28 NOMALL-1585 correct FLUSH-BRACKET for endsep=NONE
+* fhi     2015-05-19 NOMALL-1585 same
+* fhi     2015-05-20 NOMALL-1573 Correct FLUSH-BRACKET as in NOMALL-1585
+* fhi     2015-06-26 NOMALL-1573 same
+* fhi     2015-06-30 NOMALL-1655 Leave copies field as entered
+* fhi     2015-09-09 NOMALL-1712 Display error correctly if RC 1006
+* fhi     2015-11-05 NOMALL-1759 Correct missing sep-page handling
+* SU2     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-02-03 NOMALL-1913 Use new SAT routine SATTIMST
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* SU3     2017-12-27 NOMALL-1823 NOM 3.5: remove CONNECT
+* fhi     2018-03-16 NOMALL-1918 Get it on Unix / Correct NPR Logons
+* fhi     2018-12-14 NOM 3.5     Improve CPU measures, no tags
+* SU4     2019-07-17 NOMALL-2297 deactive NOMEX015(performance
+* SU5     2019-11-13 NOMALL-2348 do not cut msg
+* SU6     2020-05-18 NOMALL-2349 use N-CHKCAT + N-ESYLG
+* SU7     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* SU8     2023-01-13 NOMALL-2607 return error (print bundle)
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING PRINT-GL
+INDEPENDENT
+1 +HEX-TIMESTAMP    (A20)
+1 +G-L9-EXISTS      (L)
+1 +G-NOMEXIT-ACTIVE (L/1:20)
+1 +WKF-NUMBER       (N2)
+1 +CMRDC            (A1)
+* -----------------------------LDAs-------------------------------------
+LOCAL USING RCCTYP-E
+LOCAL USING RMSPFL-E
+LOCAL USING RMSPFL-P
+LOCAL USING RMBVFL-P
+LOCAL USING RMSPL--L
+LOCAL USING RMSR---E
+LOCAL USING RMFL---P
+LOCAL USING RLOG-L
+LOCAL USING SATSL--E
+LOCAL USING NOMFNC-E
+LOCAL USING NOMWK--P
+LOCAL USING NOMEXP06
+LOCAL USING MAXITIML
+LOCAL USING RMTASK-E
+LOCAL USING SATLGV1P
+LOCAL USING RACTLF-A
+LOCAL USING SAT00009
+LOCAL USING RMTASK-P
+*
+LOCAL
+1 BUNDLE VIEW OF NRM-BUNDLES
+  2 B-DESC
+  2 B-FLAG-REPSEP
+1 PO-UPD VIEW OF NRM-PRINTOUTS
+  2 PO-BUNDLE
+  2 PO-BUNDRNB
+  2 PO-LOGICAL
+  2 PO-PRINTED
+  2 PO-STATUS
+  2 PO-MSG
+  2 PO-PHYSICAL-NAME
+  2 PO-PRINTER-TYPE
+  2 PO-JCL-SKELETON
+  2 PO-JOBCARD                (1:3)
+  2 PO-EXITMEM
+  2 PO-EXITLIB
+  2 PO-USERID
+  2 PO-CREATED
+  2 PO-LANGUAGE
+  2 PO-COPIES
+  2 PO-REPNAME
+  2 PO-REPRNB
+  2 PO-ID
+  2 PO-JOBNAME
+  2 PO-JOBNO
+  2 REDEFINE PO-JOBNO
+    3 PO-JOBNO-A7             (A7)
+  2 PO-JOBID
+  2 PO-ESY-USERID
+  2 PO-SCHEDULED
+  2 PO-LAST-PRINTED-RECNO
+1 PRINTOUT VIEW OF NRM-PRINTOUTS
+  2 PO-ID
+  2 PO-NODE
+  2 PO-USERID
+  2 PO-STATUS
+  2 PO-LOGICAL
+  2 PO-PRINTER-TYPE
+  2 PO-BUNDLE
+  2 PO-BUNDRNB
+  2 PO-PHYSICAL-NAME
+  2 PO-EXITMEM
+  2 PO-EXITLIB
+  2 PO-LANGUAGE
+  2 PO-LAST-PRINTED-RECNO
+  2 PO-JOBCARD                (1:3)
+1 ACTIVE-BUNDLE VIEW OF NRM-ACTIVE-BUNDLES
+  2 AB-BUNDLE
+  2 AB-COORDINATOR-ID
+  2 AB-SEPNO
+  2 AB-SEPMEM
+  2 REDEFINE AB-SEPMEM
+    3 AB-SEP-START (A8)
+    3 AB-SEP-END   (A8)
+  2 AB-OPEN-TIME
+1 BUNDLE-CONTENTS VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-REPNAME
+  2 BC-REPRNB
+  2 BC-BUNDLE
+  2 BC-BUNDRNB
+  2 BC-GROUP
+  2 BC-SEQNO
+  2 BC-SEPNO
+  2 BC-SEPMEM
+  2 REDEFINE BC-SEPMEM
+    3 BC-SEP-START            (A8)
+    3 BC-SEP-END              (A8)
+  2 BC-REPNO
+1 BUNDLE-CONT-CHECK VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-BUNDLE
+  2 BC-BUNDRNB
+  2 BC-REPRNB
+1 REPORT VIEW OF NRM-REPORTS-NEW
+  2 R-DESC
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-CURRENT-LOCATION
+  2 AR-DESC
+  2 AR-PROCESS-TIME
+  2 AR-NUMBER-OF-LINES
+  2 AR-SEPMEM
+  2 REDEFINE    AR-SEPMEM
+    3 AR-SEP-START            (A8)
+    3 AR-SEP-END              (A8)
+  2 AR-CC-TYPE
+  2 AR-RECORD-LENGTH
+  2 AR-SPOOL-ATTRIBUTES
+  2 AR-SPOOL-ATTR-EXTENDED    (120)
+  2 AR-REP-FORMAT
+1 USER VIEW OF NRM-USERS
+  2 USER-ID
+  2 USER-PROFILE
+  2 REDEFINE USER-PROFILE
+    3 PROF-TYPE               (A1)
+  2 LAST-NAME
+  2 FIRST-NAME
+  2 WORK-ADDRESS              (3)
+  2 WORK-DEPT-NUM
+  2 WORK-DEPT-NAME
+  2 WORK-ORGANIZATION
+  2 WORK-LOCATION
+  2 WORK-PHONE
+  2 WORK-PHONE-EXT
+1 COORDINATOR VIEW OF NRM-USERS
+  2 USER-ID
+  2 LAST-NAME
+  2 FIRST-NAME
+  2 WORK-ADDRESS              (3)
+  2 WORK-DEPT-NUM
+  2 WORK-DEPT-NAME
+  2 WORK-ORGANIZATION
+  2 WORK-LOCATION
+  2 WORK-PHONE
+  2 WORK-PHONE-EXT
+*
+1 USER-EXITS VIEW OF NRM-MONITOR
+  2 M-USER-DEFAULTS
+  2 REDEFINE M-USER-DEFAULTS
+    3 M-NOMEXIT-ACTIVE        (A1/1:20)
+1 PRINTERS VIEW OF NRM-PRINTERS
+  2 P-ATTRIBUTES              (25)
+*
+1 RMARFL-PARMS
+  2 RMARFL-REPNAME            (A25)
+  2 RMARFL-REPRNB             (P11)
+  2 RMARFL-LINE-FROM          (P10)
+  2 RMARFL-LINE-TO            (P10)
+  2 RMARFL-LAYOUT-HEADER-LINES(N3)
+  2 RMARFL-LAYOUT-ENTRIES     (N2)
+  2 RMARFL-LAYOUT (1:10)
+    3 RMARFL-LAYOUT-FROM      (N3)
+    3 RMARFL-LAYOUT-TO        (N3)
+1 #PO-ID                      (N7)
+1 #BC-BUNDLE-RNB-GROUP-SEQNO  (A41)
+1 REDEFINE #BC-BUNDLE-RNB-GROUP-SEQNO
+  2 #BC-BUNDLE                (A25)
+  2 #BC-BUNDRNB               (P11)
+  2 #BC-GROUP                 (A8)
+  2 #BC-SEQNO                 (P3)
+1 #BC-BUNDLE-REPRNB           (A72)
+1 REDEFINE #BC-BUNDLE-REPRNB
+  2 #BC-BUNDLE                (A25)
+  2 #BC-BUNDRNB               (P11)
+  2 #BC-GROUP                 (A8)
+  2 #BC-SEQNO                 (P3)
+  2 #BC-REPNAME               (A25)
+  2 #BC-REPRNB                (P11)
+1 #AB-BUNDLE-RNB              (A31)
+1 REDEFINE #AB-BUNDLE-RNB
+  2 #AB-BUNDLE                (A25)
+  2 #AB-BUNDRNB               (P11)
+1 #AR-REPORT-RNB              (A31)
+1 REDEFINE #AR-REPORT-RNB
+  2 #AR-REPNAME               (A25)
+  2 #AR-REPRNB                (P11)
+1 #DATE                       (A8)
+1 #SUBST-ENTRIES-FIX          (P3)
+1 #USER-TYPE                  (A1)
+1 #OPTION                     (A8)
+1 #RPCP                       (N3)
+1 #RPCOPIES                   (N3)
+1 #BUCP                       (N3)
+1 #BUCOPIES                   (N3)
+1 #RC                         (N4)
+1 REDEFINE #RC
+  2 #RC-A                     (A4)
+1 END-OF-PORTION              (L)
+1 LAST-PORTION                (L)
+1 LAST-SEGMENT                (L)
+1 #TYPE                       (A2)
+1 #PARMS                      (A98)
+1 REDEFINE #PARMS
+  2 #STYPE                    (A8)
+  2 #NAME                     (A25)
+  2 #RNB                      (N11)
+  2 #CP                       (N3)
+  2 #SSEP                     (A8)
+  2 #ESEP                     (A8)
+  2 #SCP                      (N3)
+1 #NEXT-TYPE                  (A2)
+1 #NEXT-PARMS                 (A98)
+1 REDEFINE #NEXT-PARMS
+  2 TYPE                      (A8)
+  2 NAME                      (A25)
+  2 RNB                       (N11)
+  2 CP                        (N3)
+  2 SSEP                      (A8)
+  2 ESEP                      (A8)
+  2 SCP                       (N3)
+1 #TASK-TYPE                  (A8)
+1 #ESY-USER                   (A8)
+1 LOGOFF-FROM-ESY             (L)
+1 #FOLLOW-PRINTOUT            (A1) INIT <'N'>
+1 #NOMEXIT-6                  (A1)
+1 #FORMATED-DATE              (A10)
+1 REDEFINE #FORMATED-DATE
+  2 #S-FORMATED-DATE          (A8)
+1 #ERROR-CODE                 (N4)
+1 #ERROR-TEXT                 (A250)
+1 #OPENT                      (T)
+1 #OPENP                      (P12)
+1 #NSC-ACTIVE                 (A1)
+1 NAT00053-PARMS
+  2 NAT00053-FUNCTION         (A1)    INIT <'O'>
+  2 NAT00053-MEMBER           (A8)    INIT <'RMBUNSEQ'>
+  2 NAT00053-LIBRARY          (A8)
+  2 NAT00053-DBID             (B2)
+  2 NAT00053-FNR              (B2)
+  2 NAT00053-RSP              (I2)
+  2 NAT00053-FIELDS           (A55)
+1 #SKIP-PAGES                 (P11)
+1 #POS                        (P3)
+1 #IND                        (P3)
+1 #LEN                        (P3)
+1 #PO-JOBCARD                 (A72)
+1 #J                          (P3)
+1 #K                          (P3)
+1 #DIGIT                      (L)
+1 #FLAG-REPSEP                (A1)
+1 STEPLIB-ADDED               (L)
+1 #STEPLIB-EXIST              (L)
+1 #MEMBER                     (A250)
+* ------ Variables for NOMEX014 ------
+1 #I                          (P3)
+1 #PRINTOUT
+  2 PO-ID                     (N7)
+  2 PO-NODE                   (N5)
+  2 PO-USERID                 (A8)
+  2 PO-STATUS                 (A1)
+  2 PO-BUNDLE                 (A25)  /* Bundle name
+  2 PO-BUNDRNB                (P11)  /* Bundle run number
+  2 PO-REPNAME                (A25)
+  2 PO-REPRNB                 (P11)
+  2 PO-PHYSICAL-NAME          (A8)
+  2 PO-EXITMEM                (A8)
+  2 PO-EXITLIB                (A8)
+  2 PO-LOGICAL                (A8)
+  2 PO-FROM-LINE              (P8)
+  2 PO-TO-LINE                (P8)
+  2 PO-LAYOUT
+    3 PO-LAYOUT-FROM          (P3/1:10)
+    3 PO-LAYOUT-TO            (P3/1:10)
+  2 PO-HEADLINES              (N3)
+  2 PO-LANGUAGE               (N3)
+  2 PO-LAST-PRINTED-RECNO     (P9)
+  2 PO-JOBCARD                (A72/1:3)
+*
+1 #ACTIVE-REPORT
+  2 AR-CURRENT-LOCATION       (A1)
+  2 AR-DESC                   (A50)
+  2 AR-SOURCE-ID              (P10)
+  2 AR-PROCESS-TIME           (T)
+  2 AR-SEPMEM (A16)
+  2 REDEFINE    AR-SEPMEM
+    3 AR-SEP-START            (A8)
+    3 AR-SEP-END              (A8)
+  2 AR-SEPNO                  (P3)
+  2 AR-CC-TYPE                (I2)
+  2 AR-RECORD-LENGTH          (N3)
+  2 AR-SPOOL-ATTRIBUTES       (A250)
+  2 AR-REP-FORMAT             (A1)
+  2 AR-NUMBER-OF-LINES        (P8)
+  2 AR-REPNAME                (A25)
+  2 AR-REPRNB                 (P11)
+  2 AR-MASTER-REPNAME         (A25)
+  2 AR-STATUS                 (A1)
+*
+1 #REPORT
+  2 R-DESC                    (A50)
+  2 R-SEPLENG                 (N3)
+1 #SPOOL-ATTR-EXTENDED        (A)        DYNAMIC
+1 NOMEX014-ERROR-CODE         (N4)
+1 NOMEX014-ERROR-TEXT         (A250)
+1 #P-ATTRIBUTES               (A95)
+1 #G-TRACE                    (A95)
+* ------ Variables for NOMEX015 ------
+1 #HEX                        (A1)   CONST <'H'>
+1 #PRINT-BUNDLE-SEP           (L) INIT <TRUE>
+1 #PRINT-REPORT-SEP           (L) INIT <TRUE>
+1 #TRACING                    (L)
+1 RMSETTIM
+  2 FUNCTION                  (A1)
+  2 ERC                       (N4)
+  2 MSG                       (A250)
+  2 TIME                      (I4)
+1 #CAT-DATE-1                 (A10)
+1 #CAT-DATE-2                 (A10)
+1 #HEX-TIMESTAMP              (A20)
+1 #AUTODEF                    (A1)
+1 #CALLER                     (A8) INIT <*PROGRAM>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=132
+*
+PERFORM RMGTRACP-GET-SETTINGS
+IF G-TRACE GE *LEVEL AND G-TRACE-SET = SCAN ('PRINT')
+  #TRACING := TRUE
+END-IF
+#HEX-TIMESTAMP := +HEX-TIMESTAMP
+PERFORM SATTIMST-GET-TIME #HEX #HEX-TIMESTAMP
++HEX-TIMESTAMP := #HEX-TIMESTAMP
+*
+INPUT (AD=MIT) '=' #PO-ID '=' #ESY-USER '=' #FOLLOW-PRINTOUT
+  '=' #NOMEXIT-6 '=' #OPTION '=' #TASK-TYPE #NSC-ACTIVE
+*
+RESET G-NATRP-ERC G-NATRP-ERT #BUCP
+PERFORM INIT-FUNCTION
+*
+IF G-NATRP-ERC = 0
+  PERFORM GET-FLAGS
+  DECIDE FOR FIRST CONDITION
+    WHEN G-NATRP-ERC NE 0
+      IGNORE
+    WHEN #OPTION = 'ALL'
+      REPEAT
+        UNTIL G-NATRP-ERC NE 0 OR #BUCP >= #BUCOPIES
+        ADD 1 TO #BUCP
+        PERFORM PRINT-ACTIVE-BUNDLE
+      END-REPEAT
+      LAST-PORTION := TRUE               /* does not work here
+    WHEN NONE
+      PERFORM PRINT-ACTIVE-BUNDLE-PORTION
+  END-DECIDE
+END-IF
+NOMWK-TASK-TYPE:= EQU-MANAGE-PRINTOUTS
+CALLNAT NOM-WAKE-MONITOR NOMWK-NOMVERS NOMWK-PARMS (*)
+IF LOGOFF-FROM-ESY /*AND *MACHINE-CLASS = 'MAINFRAME'
+  CALLNAT 'N-ESYLG' SATSL-LOGOFF PRINTOUT.PO-NODE #ESY-USER #CALLER
+    G-NATRP-ERC G-NATRP-ERT 2X #TRACING
+END-IF
+IF STEPLIB-ADDED
+  PERFORM REMOVE-STEPLIB
+END-IF
+*
+PERFORM UPDATE-PRINTOUT-RECORD
+*
+IF #FOLLOW-PRINTOUT = 'N' OR G-NATRP-ERC NE 0
+  PERFORM RMPRSTCS-WRITE-STATISTICS PO-UPD.PO-LOGICAL
+    PO-UPD.PO-LAST-PRINTED-RECNO PO-UPD.PO-STATUS PO-UPD.PO-MSG
+    FLUSH-CC-TYPE
+  IF #NOMEXIT-6 = 'Y'
+    PERFORM CALL-STATISTIC-EXIT
+  END-IF
+END-IF
+COMPRESS PRINTOUT.PO-BUNDLE '/' PRINTOUT.PO-BUNDRNB TO #ERROR-TEXT /*SU8
+  LEAVING NO
+IF G-NATRP-ERC = 0
+  PRINT NOTITLE NOHDR *PROGRAM 10T *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Print Bundle terminated normally:' #ERROR-TEXT /*SU8
+ELSE
+  PRINT NOTITLE NOHDR *PROGRAM 10T *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Print Bundle' #ERROR-TEXT /*SU8
+    'terminated with condition code' G-NATRP-ERC
+  PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Error Text' G-NATRP-ERT /*SU6 (AL=70)
+  IF #TASK-TYPE NE 'SUBTASK' AND *MACHINE-CLASS = 'MAINFRAME'
+    TERMINATE 50
+  END-IF
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-ACTIVE-BUNDLE
+************************************************************************
+#BC-BUNDLE-RNB-GROUP-SEQNO.#BC-BUNDLE  := PRINTOUT.PO-BUNDLE
+#BC-BUNDLE-RNB-GROUP-SEQNO.#BC-BUNDRNB := PRINTOUT.PO-BUNDRNB
+RESET #BC-BUNDLE-RNB-GROUP-SEQNO.#BC-GROUP
+RESET #BC-BUNDLE-RNB-GROUP-SEQNO.#BC-SEQNO
+*
+FLUSH-BRACKET := 'F'
+CALLNAT 'RGETLIB' NAT00053-LIBRARY
++G-L9-EXISTS:= TRUE
+CALLNAT 'NAT00053' NAT00053-PARMS
+IF NAT00053-RSP = 0
+  CALLNAT 'RMBUNSEQ' #BC-BUNDLE-RNB-GROUP-SEQNO.#BC-BUNDLE (AD=O)
+    #BC-BUNDLE-RNB-GROUP-SEQNO.#BC-BUNDRNB (AD=O) +G-L9-EXISTS
+END-IF
+IF +G-L9-EXISTS
+  PERFORM READ-BUNDLE-CONTENTS-NEW
+ELSE
+  PERFORM READ-BUNDLE-CONTENTS-OLD
+END-IF
+IF G-NATRP-ERC = 0
+  IF +WKF-NUMBER NE 2                 /* NOT RECFM=Fxx P306371 +WKF-NUMBER
+    FLUSH-RECORD-LENGTH := 133
+  END-IF
+  RESET ACTIVE-REPORT.AR-RECORD-LENGTH
+  IF #PRINT-BUNDLE-SEP AND NOT(AB-SEP-END = 'NONE' OR = 'KEIN')
+    IF #BUCP = #BUCOPIES
+      FLUSH-SEGMENT := 'L'
+      IF FLUSH-PRINTER-TYPE = 'DISKUNIX' OR = 'NATUNIX'
+        FLUSH-BRACKET := 'L'
+      END-IF
+    END-IF
+    RMSPFL-TYPE := BUNDLE-END-SEPARATOR
+    PERFORM PRINT-SEPARATOR
+    IF G-NATRP-ERC = 1006 /* member not found
+      RESET G-NATRP-ERC
+      AB-SEP-END := 'NONE'
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* PRINT-ACTIVE-BUNDLE
+*
+************************************************************************
+DEFINE SUBROUTINE READ-BUNDLE-CONTENTS-NEW
+************************************************************************
+READ BUNDLE-CONTENTS BY BC-BUNDLE-RNB-GROUP-SEQNO-REPRNB
+= #BC-BUNDLE-RNB-GROUP-SEQNO                                          /*
+  AT START OF DATA
+    IF #BUCP = 1
+      FLUSH-SEGMENT := 'F'
+    END-IF
+    IF +WKF-NUMBER NE 2                 /* NOT RECFM=Fxx P306371 +WKF-NUMBER
+      FLUSH-RECORD-LENGTH := 133
+    END-IF
+    IF #PRINT-BUNDLE-SEP
+    AND NOT(ACTIVE-BUNDLE.AB-SEP-START = 'NONE' OR = 'KEIN')          /*
+      RMSPFL-TYPE := BUNDLE-START-SEPARATOR
+      PERFORM PRINT-SEPARATOR
+      IF G-NATRP-ERC = 1006 /* member not found
+        RESET G-NATRP-ERC
+        AB-SEP-START := 'NONE'
+      END-IF
+    END-IF
+    IF G-NATRP-ERC = 0
+      PERFORM PRINT-BUNDLE-VTOC
+    END-IF
+    IF G-NATRP-ERC NE 0
+      ESCAPE ROUTINE
+    END-IF
+  END-START
+  #PRINT-REPORT-SEP := TRUE
+  IF BC-BUNDLE NE #BC-BUNDLE-RNB-GROUP-SEQNO.#BC-BUNDLE OR
+      BC-BUNDRNB NE #BC-BUNDLE-RNB-GROUP-SEQNO.#BC-BUNDRNB
+    ESCAPE ROUTINE
+  END-IF
+  RESET FLUSH-PARMS.FLUSH-LAST-REPORT
+  #BC-BUNDLE-REPRNB.#BC-BUNDLE  := BUNDLE-CONTENTS.BC-BUNDLE
+  #BC-BUNDLE-REPRNB.#BC-BUNDRNB := BUNDLE-CONTENTS.BC-BUNDRNB
+  #BC-BUNDLE-REPRNB.#BC-GROUP   := BUNDLE-CONTENTS.BC-GROUP
+  #BC-BUNDLE-REPRNB.#BC-SEQNO   := BUNDLE-CONTENTS.BC-SEQNO
+  #BC-BUNDLE-REPRNB.#BC-REPNAME := BUNDLE-CONTENTS.BC-REPNAME
+  #BC-BUNDLE-REPRNB.#BC-REPRNB  := BUNDLE-CONTENTS.BC-REPRNB
+  IF #TRACING
+    COMPRESS 'Read curr.contents:' 'BC-Bundle:' BC-BUNDLE
+      'BC-Bundle RNB:' BC-BUNDRNB 'BC-Report RNB:' BC-REPRNB
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  INCLUDE CMRDC
+  FLUSH-PARMS.FLUSH-LAST-REPORT := 'Y'
+  CONT-CHECK. READ (2) BUNDLE-CONT-CHECK /*next record still sameBundle?
+  BY BC-BUNDLE-RNB-GROUP-SEQNO-REPRNB = #BC-BUNDLE-REPRNB             /*
+    IF *COUNTER EQ 1
+      ESCAPE TOP
+    END-IF
+    IF #TRACING
+      COMPRESS 'Read next contents:' 'BC-Bundle:' BC-BUNDLE
+        'BC-Bundle RNB:' BC-BUNDRNB 'BC-Report RNB:' BC-REPRNB
+        TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+    IF BUNDLE-CONT-CHECK.BC-BUNDLE       = BUNDLE-CONTENTS.BC-BUNDLE
+    AND BUNDLE-CONT-CHECK.BC-BUNDRNB = BUNDLE-CONTENTS.BC-BUNDRNB     /*
+      RESET FLUSH-PARMS.FLUSH-LAST-REPORT
+    END-IF
+  END-READ
+  IF #TRACING
+    COMPRESS 'Flush Last Report:' FLUSH-PARMS.FLUSH-LAST-REPORT
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  IF (BC-SEP-START ='NONE' OR='KEIN' AND BC-SEP-END ='NONE' OR='KEIN')
+  OR #FLAG-REPSEP NE 'Y' OR BC-SEPNO = 0                              /*
+    RESET #PRINT-REPORT-SEP
+  END-IF
+  PERFORM BUNDLE-CONTENTS
+  IF G-NATRP-ERC NE 0
+    ESCAPE BOTTOM
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* READ-BUNDLE-CONTENTS-NEW
+*
+************************************************************************
+DEFINE SUBROUTINE READ-BUNDLE-CONTENTS-OLD
+************************************************************************
+READ BUNDLE-CONTENTS BY BC-BUNDLE-RNB-GROUP-SEQNO
+= #BC-BUNDLE-RNB-GROUP-SEQNO                                          /*
+  AT START OF DATA
+    IF #BUCP = 1
+      FLUSH-SEGMENT := 'F'
+    END-IF
+    IF +WKF-NUMBER NE 2                 /* NOT RECFM=Fxx
+      FLUSH-RECORD-LENGTH := 133
+    END-IF
+    IF #PRINT-BUNDLE-SEP
+    AND NOT(ACTIVE-BUNDLE.AB-SEP-START = 'NONE' OR = 'KEIN')          /*
+      RMSPFL-TYPE := BUNDLE-START-SEPARATOR
+      PERFORM PRINT-SEPARATOR
+      IF G-NATRP-ERC = 1006 /* member not found
+        RESET G-NATRP-ERC
+        ACTIVE-BUNDLE.AB-SEP-START := 'NONE'
+      END-IF
+    END-IF
+    IF G-NATRP-ERC = 0
+      PERFORM PRINT-BUNDLE-VTOC
+    END-IF
+    IF G-NATRP-ERC NE 0
+      ESCAPE ROUTINE
+    END-IF
+  END-START
+  #PRINT-REPORT-SEP := TRUE
+  IF BC-BUNDLE NE #BC-BUNDLE-RNB-GROUP-SEQNO.#BC-BUNDLE
+  OR  BC-BUNDRNB NE #BC-BUNDLE-RNB-GROUP-SEQNO.#BC-BUNDRNB            /*
+    ESCAPE ROUTINE
+  END-IF
+  IF BC-SEPNO = 0 OR ((BC-SEP-START = 'NONE' OR = 'KEIN')
+  AND (BC-SEP-END = 'NONE' OR = 'KEIN'))                              /*
+  OR #FLAG-REPSEP NE 'Y'                                              /*
+    RESET #PRINT-REPORT-SEP
+  END-IF
+  PERFORM BUNDLE-CONTENTS
+  IF G-NATRP-ERC NE 0
+    ESCAPE ROUTINE
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* READ-BUNDLE-CONTENTS-OLD
+*
+************************************************************************
+DEFINE SUBROUTINE BUNDLE-CONTENTS
+************************************************************************
+IF BUNDLE-CONTENTS.BC-REPNO = 0
+  BUNDLE-CONTENTS.BC-REPNO := 1
+END-IF
+#AR-REPNAME := BUNDLE-CONTENTS.BC-REPNAME
+#AR-REPRNB  := BUNDLE-CONTENTS.BC-REPRNB
+PERFORM READ-ACTIVE-REPORT
+IF G-NATRP-ERC NE 0
+  RESET G-NATRP-ERC G-NATRP-ERT
+  ESCAPE TOP
+END-IF
+#RPCOPIES := BUNDLE-CONTENTS.BC-REPNO
+RESET #RPCP
+REPEAT
+  UNTIL G-NATRP-ERC NE 0 OR #RPCP >= #RPCOPIES
+  ADD 1 TO #RPCP
+  PERFORM PRINT-ACTIVE-REPORT
+END-REPEAT
+IF G-NATRP-ERC NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* BUNDLE-CONTENTS
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-ACTIVE-BUNDLE-PORTION
+************************************************************************
+RESET CP SSEP ESEP SCP
+INPUT (AD=MIT) #NEXT-TYPE TYPE NAME RNB CP
+IF #NEXT-TYPE = 'RP'
+  INPUT (AD=MIT) SSEP ESEP SCP
+END-IF
+IF #NEXT-TYPE = '.'
+  END-OF-PORTION := TRUE
+END-IF
+*
+FLUSH-SEGMENT := 'F'
+FLUSH-LINES := PRINTOUT.PO-LAST-PRINTED-RECNO
+*
+REPEAT
+  UNTIL END-OF-PORTION OR G-NATRP-ERC NE 0
+*
+  #TYPE         := #NEXT-TYPE
+  #PARMS := #NEXT-PARMS
+  RESET CP SSEP ESEP SCP
+  INPUT (AD=MIT) #NEXT-TYPE TYPE NAME RNB CP
+  IF #NEXT-TYPE = 'RP'
+    INPUT (AD=MIT) SSEP ESEP SCP
+  END-IF
+  IF #NEXT-TYPE = '.' OR = 'EP'
+    IF #NEXT-TYPE = '.'
+      END-OF-PORTION := TRUE
+    END-IF
+    LAST-SEGMENT := TRUE
+  END-IF
+  DECIDE ON FIRST #TYPE
+    VALUE 'EP' LAST-PORTION := TRUE
+    VALUE 'BS' PERFORM PORTION-BUNDLE-SEPARATOR
+    VALUE 'BV' PERFORM PRINT-BUNDLE-VTOC
+    VALUE 'RP' PERFORM PORTION-ACTIVE-REPORT
+    NONE IGNORE
+  END-DECIDE
+  IF FLUSH-SEGMENT NE 'L'
+    FLUSH-SEGMENT := 'M'
+  END-IF
+END-REPEAT
+*
+END-SUBROUTINE /* PRINT-ACTIVE-BUNDLE-PORTION
+*
+************************************************************************
+DEFINE SUBROUTINE PORTION-ACTIVE-REPORT
+************************************************************************
+BUNDLE-CONTENTS.BC-REPNAME   := #NAME
+BUNDLE-CONTENTS.BC-REPRNB    := #RNB
+BUNDLE-CONTENTS.BC-REPNO     := #CP
+BUNDLE-CONTENTS.BC-SEP-START := #SSEP
+BUNDLE-CONTENTS.BC-SEP-END   := #ESEP
+BUNDLE-CONTENTS.BC-SEPNO     := #SCP
+*
+#PRINT-REPORT-SEP := TRUE
+IF BUNDLE-CONTENTS.BC-SEPNO = 0
+OR ((BUNDLE-CONTENTS.BC-SEP-START = 'NONE' OR = 'KEIN')               /*
+AND (BUNDLE-CONTENTS.BC-SEP-END = 'NONE' OR = 'KEIN'))                /*
+  RESET #PRINT-REPORT-SEP
+END-IF
+IF BUNDLE-CONTENTS.BC-REPNO = 0
+  BUNDLE-CONTENTS.BC-REPNO := 1
+END-IF
+#AR-REPNAME := BUNDLE-CONTENTS.BC-REPNAME
+#AR-REPRNB  := BUNDLE-CONTENTS.BC-REPRNB
+PERFORM READ-ACTIVE-REPORT
+IF G-NATRP-ERC NE 0
+  RESET G-NATRP-ERC G-NATRP-ERT
+  ESCAPE ROUTINE
+END-IF
+#RPCOPIES := BUNDLE-CONTENTS.BC-REPNO
+RESET #RPCP
+REPEAT
+  UNTIL G-NATRP-ERC NE 0 OR #RPCP >= #RPCOPIES
+  ADD 1 TO #RPCP
+  PERFORM PRINT-ACTIVE-REPORT-PORTION
+END-REPEAT
+*
+END-SUBROUTINE /* PORTION-ACTIVE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE PORTION-BUNDLE-SEPARATOR
+************************************************************************
+IF LAST-SEGMENT
+  IF FLUSH-SEGMENT = 'F'
+    FLUSH-SEGMENT := 'A'
+  ELSE
+    FLUSH-SEGMENT := 'L'
+  END-IF
+END-IF
+IF +WKF-NUMBER NE 2 /* NOT RECFM=Fxx
+  FLUSH-RECORD-LENGTH := 133
+END-IF
+IF #STYPE = 'START'
+  RMSPFL-TYPE := BUNDLE-START-SEPARATOR
+ELSE
+  RMSPFL-TYPE := BUNDLE-END-SEPARATOR
+END-IF
+IF #PRINT-BUNDLE-SEP
+  PERFORM PRINT-SEPARATOR
+  IF G-NATRP-ERC = 1006 /* member not found
+    RESET G-NATRP-ERC
+    IF #STYPE = 'START'
+      ACTIVE-BUNDLE.AB-SEP-START := 'NONE'
+    ELSE
+      ACTIVE-BUNDLE.AB-SEP-END   := 'NONE'
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* PORTION-BUNDLE-SEPARATOR
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-ACTIVE-REPORT-PORTION
+************************************************************************
+PERFORM ACTIVE-REPORT-INTERFACE
+PERFORM SUBSTITUTION-VARIABLES-REPORT
+IF +WKF-NUMBER NE 2 /* NOT RECFM=Fxx
+  FLUSH-RECORD-LENGTH := ACTIVE-REPORT.AR-RECORD-LENGTH
+END-IF
+IF #PRINT-REPORT-SEP AND  NOT (BC-SEP-START = 'NONE' OR = 'KEIN')
+  RMSPFL-TYPE := REPORT-START-SEPARATOR
+  PERFORM PRINT-SEPARATOR
+  IF G-NATRP-ERC = 1006 /* member not found
+    RESET G-NATRP-ERC
+    BC-SEP-START := 'NONE'
+  END-IF
+END-IF
+FLUSH-CC-TYPE := ACTIVE-REPORT.AR-CC-TYPE
+FLUSH-REPRNB  := ACTIVE-REPORT.AR-REPRNB
+FLUSH-BUNDRNB := PRINTOUT.PO-BUNDRNB
+FLUSH-TYPE-AL:= 'N'                  /* assume not type=al
+IF (#SPOOL-TYPE = JES2 OR = JES3) AND #SPOOL-JES-DSTYPE = 'AL'
+  FLUSH-TYPE-AL:= 'Y'                /* it is type=al
+END-IF
+IF +WKF-NUMBER NE 2                 /* NOT RECFM=Fxx P306371 +WKF-NUMBER
+  FLUSH-RECORD-LENGTH := ACTIVE-REPORT.AR-RECORD-LENGTH
+END-IF
+IF G-NATRP-ERC NE 0
+  ESCAPE ROUTINE
+END-IF
+IF #TRACING
+  IF +G-NOMEXIT-ACTIVE (14)
+    G-TRACE-MSG := 'Nomexit 14 is active.'
+  ELSE
+    G-TRACE-MSG := 'Nomexit 14 is not active.'
+  END-IF
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+IF +G-NOMEXIT-ACTIVE (14)
+  PERFORM CALL-NOMEX014
+  IF G-NATRP-ERC NE 0
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+IF LAST-SEGMENT AND ((BUNDLE-CONTENTS.BC-SEP-END = 'NONE' OR = 'KEIN')
+OR NOT #PRINT-REPORT-SEP)                                             /*
+  FLUSH-SEGMENT := 'L'
+  IF FLUSH-PRINTER-TYPE = 'DISKUNIX' OR = 'NATUNIX'
+    FLUSH-BRACKET := 'L'
+  END-IF
+END-IF
+PERFORM CALL-IT
+IF #PRINT-REPORT-SEP AND NOT (BC-SEP-END = 'NONE' OR = 'KEIN')
+  IF LAST-SEGMENT
+    FLUSH-SEGMENT := 'L'
+  END-IF
+  RMSPFL-TYPE := REPORT-END-SEPARATOR
+  PERFORM PRINT-SEPARATOR
+  IF G-NATRP-ERC = 1006 /* member not found
+    RESET G-NATRP-ERC
+    BC-SEP-END := 'NONE'
+  END-IF
+END-IF
+G-SUBST-ENTRIES := #SUBST-ENTRIES-FIX
+*
+END-SUBROUTINE /* PRINT-ACTIVE-REPORT-PORTION
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-ACTIVE-REPORT
+************************************************************************
+PERFORM ACTIVE-REPORT-INTERFACE
+PERFORM SUBSTITUTION-VARIABLES-REPORT
+IF +WKF-NUMBER NE 2                 /* NOT RECFM=Fxx P306371 +WKF-NUMBER
+  FLUSH-RECORD-LENGTH := ACTIVE-REPORT.AR-RECORD-LENGTH
+END-IF
+*
+IF NOT( BUNDLE-CONTENTS.BC-SEP-START = 'NONE' OR = 'KEIN')
+AND #PRINT-REPORT-SEP                                                 /*
+  RMSPFL-TYPE := REPORT-START-SEPARATOR
+  PERFORM PRINT-SEPARATOR
+  IF G-NATRP-ERC = 1006 /* member not found
+    RESET G-NATRP-ERC
+    BC-SEP-START := 'NONE'
+  END-IF
+END-IF
+*
+FLUSH-CC-TYPE := ACTIVE-REPORT.AR-CC-TYPE
+FLUSH-REPRNB         := ACTIVE-REPORT.AR-REPRNB
+FLUSH-BUNDRNB := PRINTOUT.PO-BUNDRNB
+FLUSH-TYPE-AL:= 'N'                  /* assume not type=al
+IF (#SPOOL-TYPE = JES2 OR = JES3) AND #SPOOL-JES-DSTYPE = 'AL'
+  FLUSH-TYPE-AL:= 'Y'                /* it is type=al
+END-IF
+IF +WKF-NUMBER NE 2                 /* NOT RECFM=Fxx P306371 +WKF-NUMBER
+  FLUSH-RECORD-LENGTH := ACTIVE-REPORT.AR-RECORD-LENGTH
+END-IF
+*
+IF G-NATRP-ERC NE 0
+  ESCAPE ROUTINE
+END-IF
+IF (NOT #PRINT-BUNDLE-SEP OR ACTIVE-BUNDLE.AB-SEP-END ='NONE' OR='KEIN')
+AND #BUCP = #BUCOPIES       /* the last copy of the bundle            /*
+AND #RPCP = #RPCOPIES       /* the last copy of the report            /*
+AND FLUSH-LAST-REPORT = 'Y' /* the last report in bundle              /*
+  FLUSH-SEGMENT := 'L'
+  IF FLUSH-PRINTER-TYPE = 'DISKUNIX' OR = 'NATUNIX'
+  AND (NOT #PRINT-REPORT-SEP                                          /*
+  OR (ACTIVE-REPORT.AR-SEP-END = 'NONE' OR = 'KEIN'))                 /*
+    FLUSH-BRACKET := 'L'
+  END-IF
+END-IF
+IF #TRACING
+  IF +G-NOMEXIT-ACTIVE (14)
+    G-TRACE-MSG := 'Nomexit 14 is active.'
+  ELSE
+    G-TRACE-MSG := 'Nomexit 14 is not active.'
+  END-IF
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+IF +G-NOMEXIT-ACTIVE (14)
+  PERFORM CALL-NOMEX014
+  IF G-NATRP-ERC NE 0
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+/*PERFORM CALL-NOMEX015 /*???? SU why not here ?
+PERFORM CALL-IT
+*
+IF (((NOT #PRINT-BUNDLE-SEP
+OR (ACTIVE-BUNDLE.AB-SEP-END = 'NONE' OR = 'KEIN'))                   /*
+AND #BUCP = #BUCOPIES)) /* last copy of bundle                        /*
+AND #PRINT-REPORT-SEP                                                 /*
+AND NOT (BUNDLE-CONTENTS.BC-SEP-END = 'NONE' OR = 'KEIN')             /*
+AND #RPCP = #RPCOPIES                  /* the last copy of the report /*
+AND FLUSH-LAST-REPORT = 'Y'            /* the last report in bundle   /*
+  FLUSH-SEGMENT := 'L'
+  IF FLUSH-PRINTER-TYPE = 'DISKUNIX' OR = 'NATUNIX'
+    FLUSH-BRACKET := 'L'
+  END-IF
+END-IF
+*
+IF NOT( BUNDLE-CONTENTS.BC-SEP-END = 'NONE' OR = 'KEIN')
+AND #PRINT-REPORT-SEP                                                 /*
+  RMSPFL-TYPE := REPORT-END-SEPARATOR
+  PERFORM PRINT-SEPARATOR
+  IF G-NATRP-ERC = 1006 /* member not found
+    RESET G-NATRP-ERC
+    BC-SEP-END := 'NONE'
+  END-IF
+END-IF
+*
+G-SUBST-ENTRIES := #SUBST-ENTRIES-FIX
+*
+END-SUBROUTINE /* PRINT-ACTIVE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE ACTIVE-REPORT-INTERFACE
+************************************************************************
+RMARFL-REPNAME   := ACTIVE-REPORT.AR-REPNAME
+RMARFL-REPRNB    := ACTIVE-REPORT.AR-REPRNB
+RMARFL-LINE-FROM := 1
+RMARFL-LINE-TO   := ACTIVE-REPORT.AR-NUMBER-OF-LINES
+RESET RMARFL-LAYOUT-HEADER-LINES RMARFL-LAYOUT-ENTRIES
+FLUSH-REPNAME:= ACTIVE-REPORT.AR-REPNAME
+*
+END-SUBROUTINE /* ACTIVE-REPORT-INTERFACE
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-INTERFACE
+************************************************************************
+RESET  FLUSH-COMMON-FIELDS
+FLUSH-POID := #PO-ID
+FLUSH-DESC := BUNDLE.B-DESC
+*
+CALLNAT 'RMFL---N' FLUSH-PARMS G-NATRP-ERC G-NATRP-ERT
+*
+IF +WKF-NUMBER = 2          /* RECFM=Fxx P306371 +WKF-NUMBER
+  FLUSH-CC-TYPE := ACTIVE-REPORT.AR-CC-TYPE
+  DECIDE FOR FIRST CONDITION
+    WHEN FLUSH-CC-TYPE = BINARY
+      FLUSH-RECORD-LENGTH:= 0
+    WHEN FLUSH-RECORD-LENGTH = 0  /* NO LRECL ON PRINTOUT DEFINITION
+        AND FLUSH-CC-TYPE NE BINARY
+      FLUSH-RECORD-LENGTH:= 251
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-IF
+FLUSH-BRACKET := 'F'
+#BUCOPIES     := FLUSH-COPIES
+*
+END-SUBROUTINE /* FLUSH-INTERFACE
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-FUNCTION
+************************************************************************
+IF G-TRACE < 2
+  CALLNAT 'NOMGSTEP' '*' G-NATRP-ERC
+ELSE
+  CALLNAT 'NOMGSTEP' '*' G-NATRP-ERC G-TRACE
+END-IF
+CALLNAT 'SATLGFVN' SATLGV-PARMS
+IF SATLGV-RC NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    SATLGV-ERROR-TEXT
+  IF SATLGV-LOG-DBID NE 0 OR SATLGV-LOG-FNR NE 0
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Dbid:' SATLGV-LOG-DBID 'Fnr:' SATLGV-LOG-FNR
+  END-IF
+  IF *MACHINE-CLASS = 'MAINFRAME'
+    IF #TASK-TYPE = 'SUBTASK'
+      STOP
+    END-IF
+    TERMINATE 50
+  END-IF
+  ESCAPE MODULE
+END-IF
+RESET RACTLF-LOGGING
+RACTLF-ERROR-LOGGING:= TRUE
+RMTASK-P.FUNCTION       := 'L'
+RMTASK-P.SUBTASK-NUMBER := 1
+CALLNAT 'RMTASKID' RMTASK-P
+RACTLF-LOG-USERID := RMTASK-P.TASK-ID
+RACTLF-LOG-CODE := 'MO'
+RACTLF-LFILE-1:= 91
+RACTLF-LFILE-2:= 206
+CALLNAT 'RACTLF-N' RACTLF-PARMS
+IF RACTLF-ERROR-CODE NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    RACTLF-ERROR-CODE RACTLF-ERROR-TEXT
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Dbid1:' RACTLF-DBID-1 'Fnr1:' RACTLF-FNR-1
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Dbid2:' RACTLF-DBID-2 'Fnr2:' RACTLF-FNR-2
+  IF *MACHINE-CLASS = 'MAINFRAME'
+    IF #TASK-TYPE = 'SUBTASK'
+      STOP
+    END-IF
+    TERMINATE 50
+  END-IF
+  ESCAPE MODULE
+END-IF
+#AUTODEF := F#MONITOR-USER-AUTODEF (<>)
+DECIDE FOR EVERY CONDITION
+  WHEN G-NATRP-ERC = 0
+    PERFORM READ-PRINTOUT-RECORD
+    PERFORM CHECK-BINARY
+  WHEN G-NATRP-ERC = 0
+    PERFORM READ-TRACE
+  WHEN G-NATRP-ERC = 0 AND PRINTOUT.PO-NODE NE 0
+    CALLNAT 'N-ESYLG' 1X PRINTOUT.PO-NODE #ESY-USER #CALLER
+      G-NATRP-ERC G-NATRP-ERT 1X
+    IF G-NATRP-ERC NE 0
+      G-NATRP-ERC := 0005
+    ELSE
+      LOGOFF-FROM-ESY := TRUE
+    END-IF
+  WHEN G-NATRP-ERC = 0
+    PERFORM READ-ACTIVE-BUNDLE
+  WHEN G-NATRP-ERC = 0
+    PERFORM READ-BUNDLE
+  WHEN G-NATRP-ERC = 0
+    PERFORM READ-USER
+  WHEN G-NATRP-ERC = 0
+    PERFORM READ-COORDINATOR
+  WHEN G-NATRP-ERC = 0
+    PERFORM SUBSTITUTION-VARIABLES-BUNDLE
+  WHEN G-NATRP-ERC = 0
+    PERFORM FLUSH-INTERFACE
+  WHEN NONE
+    IGNORE
+END-DECIDE
+IF PRINTOUT.PO-USERID = ACTIVE-BUNDLE.AB-COORDINATOR-ID
+  #USER-TYPE := 'A'
+ELSE
+  #USER-TYPE := USER.PROF-TYPE
+END-IF
+*
+END-SUBROUTINE /* INIT-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE READ-PRINTOUT-RECORD
+************************************************************************
+FNDPR. FIND PRINTOUT WITH PO-ID = #PO-ID
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 0005
+    G-NATRP-ERT := 'Printout Record not found'
+    ESCAPE BOTTOM (FNDPR.)
+  END-NOREC
+  RESET #SKIP-PAGES
+  EXAMINE PRINTOUT.PO-JOBCARD (*) FOR 'SKIP' GIVING INDEX #IND
+  IF #IND = 0
+    EXAMINE PRINTOUT.PO-JOBCARD (*) FOR 'skip' GIVING INDEX #IND
+  END-IF
+  IF #IND > 0
+    #PO-JOBCARD := PRINTOUT.PO-JOBCARD (#IND)
+    EXAMINE #PO-JOBCARD FOR 'SKIP' GIVING POSITION #POS LENGTH #LEN
+    IF #POS = 0
+      EXAMINE #PO-JOBCARD FOR 'skip' GIVING POSITION #POS LENGTH #LEN
+    END-IF
+    ADD 4 TO #POS /* start position for number
+    RESET #DIGIT
+    FORPOS. FOR #J = #POS TO #LEN
+      IF SUBSTR(#PO-JOBCARD,#J,1) = ' ' OR = MASK(N)
+        #DIGIT := TRUE
+        ESCAPE TOP
+      END-IF
+      ESCAPE BOTTOM (FORPOS.)
+    END-FOR
+    IF #DIGIT = TRUE
+      #K := #J - #POS /* number of digits and blanks
+      #PO-JOBCARD := SUBSTR(#PO-JOBCARD,#POS,#K)
+      MOVE LEFT #PO-JOBCARD TO #PO-JOBCARD
+      #SKIP-PAGES := VAL(#PO-JOBCARD)
+    END-IF
+  END-IF
+  IF PRINTOUT.PO-EXITMEM NE ' ' AND PRINTOUT.PO-EXITLIB NE ' '
+    PERFORM ADD-STEPLIB
+    IF G-NATRP-ERC = 0
+      CALLNAT 'N-CHKCAT' G-NATRP-ERC G-NATRP-ERT /*SU6
+        PRINTOUT.PO-EXITMEM PRINTOUT.PO-EXITLIB #CALLER
+        #CAT-DATE-1 #CAT-DATE-2
+      IF G-NATRP-ERC NE 0
+        COMPRESS PRINTOUT.PO-BUNDLE '/' PRINTOUT.PO-BUNDRNB
+          TO #MEMBER LEAVING NO
+        COMPRESS PRINTOUT.PO-EXITLIB '(' PRINTOUT.PO-EXITMEM ')'
+          TO LG-MSG LEAVING NO
+        COMPRESS '1587' #MEMBER LG-MSG PRINTOUT.PO-LOGICAL  TO LG-MSG
+        RMTASK-P.FUNCTION       := 'L'
+        RMTASK-P.SUBTASK-NUMBER := 1
+        CALLNAT 'RMTASKID' RMTASK-P
+        LG-USERID := RMTASK-P.TASK-ID
+        LG-CODE := 'MO'
+        CALLNAT 'RLOG' PL-PARMS
+        IF #TRACING
+          COMPRESS PRINTOUT.PO-EXITLIB '(' PRINTOUT.PO-EXITMEM ')'
+            TO G-TRACE-MSG LEAVING NO
+          COMPRESS 'Unable to find exitmem' G-TRACE-MSG
+            TO G-TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END-IF
+      END-IF
+    END-IF
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-PRINTOUT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ACTIVE-REPORT
+************************************************************************
+FNDAR. FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REPORT-RNB
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 0005
+    G-NATRP-ERT := 'Active Report not found'
+    ESCAPE BOTTOM (FNDAR.)
+  END-NOREC
+  IF ACTIVE-REPORT.AR-CURRENT-LOCATION = 'A'
+    G-NATRP-ERC := 0005
+    G-NATRP-ERT := 'Active Report on Archive'
+    ESCAPE BOTTOM (FNDAR.)
+  END-IF
+*
+  #SPOOL-ATTRIBUTES := ACTIVE-REPORT.AR-SPOOL-ATTRIBUTES
+  CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+  IF ACTIVE-REPORT.AR-DESC = ' '
+    FNDRP. FIND REPORT WITH R-REPNAME = ACTIVE-REPORT.AR-REPNAME
+      ACTIVE-REPORT.AR-DESC := REPORT.R-DESC
+    END-FIND
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-ACTIVE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-BUNDLE-VTOC
+************************************************************************
+IF LAST-SEGMENT AND #BUCP = #BUCOPIES
+  IF FLUSH-SEGMENT = 'F'
+    FLUSH-SEGMENT := 'A'
+  ELSE
+    FLUSH-SEGMENT := 'L'
+  END-IF
+END-IF
+*
+RMBVFL-BUNDLE      := PRINTOUT.PO-BUNDLE
+RMBVFL-BUNDRNB     := PRINTOUT.PO-BUNDRNB
+RMBVFL-USER-ID     := PRINTOUT.PO-USERID
+RMBVFL-LANGUAGE    := PRINTOUT.PO-LANGUAGE
+RMBVFL-DATE-FORMAT := G-DATE-FORMAT
+RMBVFL-USER-TYPE   := USER.PROF-TYPE
+*
+CALLNAT 'RMBVFL-N' RMBVFL-PARMS FLUSH-PARMS G-LINE-PARMS
+  G-NATRP-ERC G-NATRP-ERT
+*
+FLUSH-SEGMENT := 'M'             /* always follows printing of reports
+*
+END-SUBROUTINE /* PRINT-BUNDLE-VTOC
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-SEPARATOR
+************************************************************************
+DECIDE ON FIRST RMSPFL-TYPE
+  VALUE REPORT-START-SEPARATOR
+    RMSPFL-MEMBER := BUNDLE-CONTENTS.BC-SEP-START
+    IF #FLAG-REPSEP = 'N'
+      RESET RMSPFL-COPIES
+    ELSE
+      RMSPFL-COPIES := BUNDLE-CONTENTS.BC-SEPNO
+    END-IF
+    IF FLUSH-RC = 97
+      RESET FLUSH-RC FLUSH-WORK-PRINTER-EXIT
+    END-IF
+  VALUE REPORT-END-SEPARATOR
+    RMSPFL-MEMBER := BUNDLE-CONTENTS.BC-SEP-END
+    IF #FLAG-REPSEP = 'N'
+      RESET RMSPFL-COPIES
+    ELSE
+      RMSPFL-COPIES := BUNDLE-CONTENTS.BC-SEPNO
+    END-IF
+  VALUE BUNDLE-START-SEPARATOR
+    RMSPFL-COPIES := ACTIVE-BUNDLE.AB-SEPNO
+    RMSPFL-MEMBER := ACTIVE-BUNDLE.AB-SEP-START
+    PERFORM EXTRA-BUNDLE-VARIABLES
+  VALUE BUNDLE-END-SEPARATOR
+    IF FLUSH-RC = 97
+      RESET FLUSH-RC FLUSH-WORK-PRINTER-EXIT
+    END-IF
+    RMSPFL-COPIES := ACTIVE-BUNDLE.AB-SEPNO
+    RMSPFL-MEMBER := ACTIVE-BUNDLE.AB-SEP-END
+    PERFORM EXTRA-BUNDLE-VARIABLES
+  NONE VALUE
+    IGNORE
+END-DECIDE
+*
+IF +WKF-NUMBER NE 2                 /* NOT RECFM=Fxx P306371 +WKF-NUMBER
+  RMSPFL-RECORD-LENGTH := ACTIVE-REPORT.AR-RECORD-LENGTH
+ELSE
+  RMSPFL-RECORD-LENGTH := FLUSH-RECORD-LENGTH
+END-IF
+RMSPFL-LANGUAGE := PRINTOUT.PO-LANGUAGE
+*
+IF NOT(RMSPFL-MEMBER ='NONE' OR='KEIN') AND (FLUSH-CC-TYPE NE BINARY
+OR FLUSH-PRINTER-TYPE = 'DISKUNIX')                                   /*
+  /* Flush Lines of an Separator Member
+  CALLNAT 'RMSPFL-N' RMSPFL-PARMS G-SUBST-PARMS FLUSH-PARMS
+    G-LINE-PARMS G-NATRP-ERC G-NATRP-ERT
+  IF G-NATRP-ERC NE 1006 /* sep page not found, treated like NONE.
+  AND FLUSH-SEGMENT NE 'L'                                            /*
+    FLUSH-SEGMENT := 'M'
+  END-IF
+END-IF
+IF RMSPFL-TYPE = BUNDLE-START-SEPARATOR OR = BUNDLE-END-SEPARATOR
+  G-SUBST-ENTRIES:= #SUBST-ENTRIES-FIX
+END-IF
+*
+END-SUBROUTINE /* PRINT-SEPARATOR
+*
+************************************************************************
+DEFINE SUBROUTINE READ-TRACE
+************************************************************************
+FIND PRINTERS WITH P-ID = PRINTOUT.PO-LOGICAL
+  EXAMINE P-ATTRIBUTES (*) FOR 'TRACE' GIVING POSITION #POS INDEX #IND
+  IF #IND = 0
+    ESCAPE TOP
+  END-IF
+  ADD 5 TO #POS
+  #P-ATTRIBUTES := SUBSTR (P-ATTRIBUTES (#IND),#POS)
+  SEPARATE #P-ATTRIBUTES LEFT JUSTIFIED INTO #G-TRACE IGNORE
+  RESET G-TRACE
+  IF SUBSTR(#G-TRACE,1,1) = 'Y' OR = '1' OR = '2' OR = '3'
+    G-TRACE := 100
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-TRACE
+*
+************************************************************************
+DEFINE SUBROUTINE READ-USER
+************************************************************************
+FNDUS. FIND USER WITH USER-ID = PRINTOUT.PO-USERID
+  IF NO RECORDS FOUND
+    IF NOT(#AUTODEF ='Y' OR='P')
+      G-NATRP-ERC := 0005
+      G-NATRP-ERT := 'User not found'
+      ESCAPE BOTTOM (FNDUS.)
+    END-IF
+    FIND USER WITH USER-ID = 'DEFAULT'
+    END-FIND
+  END-NOREC
+END-FIND
+*
+END-SUBROUTINE /* READ-USER
+*
+************************************************************************
+DEFINE SUBROUTINE READ-COORDINATOR
+************************************************************************
+FNDCO. FIND COORDINATOR WITH USER-ID = ACTIVE-BUNDLE.AB-COORDINATOR-ID
+  IF NO RECORDS FOUND
+    IF NOT(#AUTODEF ='Y' OR='P')
+      G-NATRP-ERC := 0005
+      G-NATRP-ERT := 'Coordinator not found'
+      ESCAPE BOTTOM (FNDCO.)
+    ELSE
+      FIND USER WITH USER-ID = 'DEFAULT'
+      END-FIND
+    END-IF
+  END-NOREC
+END-FIND
+*
+END-SUBROUTINE /* READ-COORDINATOR
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ACTIVE-BUNDLE
+************************************************************************
+#AB-BUNDLE        := PRINTOUT.PO-BUNDLE
+#AB-BUNDRNB       := PRINTOUT.PO-BUNDRNB
+#PRINT-BUNDLE-SEP := TRUE
+*
+FNDAB. FIND ACTIVE-BUNDLE WITH AB-BUNDLE-RNB = #AB-BUNDLE-RNB
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 0005
+    G-NATRP-ERT := 'Coordinator not found'
+    ESCAPE BOTTOM (FNDAB.)
+  END-NOREC
+  #OPENT := AB-OPEN-TIME
+  #OPENP := #OPENT
+  #OPENP := - (#OPENP - #MAX-INV-TIME)
+  #OPENT := #OPENP
+  IF AB-SEPNO = 0 OR ((AB-SEP-START = 'NONE' OR = 'KEIN')
+  AND (AB-SEP-END = 'NONE' OR = 'KEIN'))                              /*
+    RESET #PRINT-BUNDLE-SEP
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* READ-ACTIVE-BUNDLE
+*
+************************************************************************
+DEFINE SUBROUTINE READ-BUNDLE
+************************************************************************
+FIND BUNDLE WITH B-BUNDLE = PRINTOUT.PO-BUNDLE
+  IF NO RECORDS FOUND
+    MOVE ALL '?' TO B-DESC
+  END-NOREC
+  FLUSH-DESC := B-DESC
+  #FLAG-REPSEP := B-FLAG-REPSEP
+END-FIND
+*
+END-SUBROUTINE /* READ-BUNDLE
+*
+************************************************************************
+DEFINE SUBROUTINE SUBSTITUTION-VARIABLES-REPORT
+************************************************************************
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§REPORT'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := ACTIVE-REPORT.AR-REPNAME
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§CDATE'
+MOVE EDITED ACTIVE-REPORT.AR-PROCESS-TIME (EM=YYYYMMDD) TO #DATE
+CALLNAT 'IODATE-N' 'M' 'S' #DATE #FORMATED-DATE G-DATE-FORMAT
+  #ERROR-CODE #ERROR-TEXT
+IF #ERROR-CODE = 0
+  #DATE := #S-FORMATED-DATE
+END-IF
+G-SUBST-TEXT (G-SUBST-ENTRIES) := #DATE
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR         (G-SUBST-ENTRIES) := '§CTIME'
+MOVE EDITED ACTIVE-REPORT.AR-PROCESS-TIME (EM=HH':'II) TO #DATE
+G-SUBST-TEXT (G-SUBST-ENTRIES) := #DATE
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR         (G-SUBST-ENTRIES) := '§DESCR'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := ACTIVE-REPORT.AR-DESC
+DECIDE ON FIRST #SPOOL-TYPE
+  VALUE JES2, JES3
+    ADD 1 TO G-SUBST-ENTRIES
+    G-SUBST-VAR  (G-SUBST-ENTRIES) := '§JOBNAME'
+    G-SUBST-TEXT (G-SUBST-ENTRIES) := #SPOOL-JES-JOB-NAME
+    ADD 1 TO G-SUBST-ENTRIES
+    G-SUBST-VAR  (G-SUBST-ENTRIES) := '§JOBNO'
+    G-SUBST-TEXT (G-SUBST-ENTRIES) := #SPOOL-JES-JOB-NUMBER
+/*SU8  VALUE POWER
+  VALUE SEQUENTIAL-FILE-BS2
+    ADD 1 TO G-SUBST-ENTRIES
+    G-SUBST-VAR  (G-SUBST-ENTRIES) := '§JOBNAME'
+    G-SUBST-TEXT (G-SUBST-ENTRIES) := #SPOOL-BS2-JOB-NAME
+    ADD 1 TO G-SUBST-ENTRIES
+    G-SUBST-VAR  (G-SUBST-ENTRIES) := '§JOBNO'
+    G-SUBST-TEXT (G-SUBST-ENTRIES) := #SPOOL-BS2-JOB-ID
+  NONE VALUE
+    ADD 1 TO G-SUBST-ENTRIES
+    G-SUBST-VAR        (G-SUBST-ENTRIES) := '§JOBNAME'
+    RESET G-SUBST-TEXT (G-SUBST-ENTRIES)
+    ADD 1 TO G-SUBST-ENTRIES
+    G-SUBST-VAR        (G-SUBST-ENTRIES) := '§JOBNO'
+    RESET G-SUBST-TEXT (G-SUBST-ENTRIES)
+END-DECIDE
+*
+END-SUBROUTINE /* SUBSTITUTION-VARIABLES-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE SUBSTITUTION-VARIABLES-BUNDLE
+************************************************************************
+RESET G-SUBST-ENTRIES
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR (G-SUBST-ENTRIES) := '§DATE'
+MOVE EDITED *DATX (EM=YYYYMMDD) TO #DATE
+CALLNAT 'IODATE-N' 'M' 'S' #DATE #FORMATED-DATE G-DATE-FORMAT
+  #ERROR-CODE #ERROR-TEXT
+IF #ERROR-CODE = 0
+  #DATE := #S-FORMATED-DATE
+END-IF
+G-SUBST-TEXT (G-SUBST-ENTRIES) := #DATE
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§TIME'
+MOVE EDITED *TIMX (EM=HH':'II)  TO #DATE
+G-SUBST-TEXT (G-SUBST-ENTRIES) := #DATE
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§COORDINATOR'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := COORDINATOR.USER-ID
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§COORD-NAME'
+COMPRESS COORDINATOR.LAST-NAME ',' COORDINATOR.FIRST-NAME
+  TO G-SUBST-TEXT (G-SUBST-ENTRIES) LEAVING NO
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§COORD-DEPTNO'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := COORDINATOR.WORK-DEPT-NUM
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§COORD-DEPTNAME'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := COORDINATOR.WORK-DEPT-NAME
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR (G-SUBST-ENTRIES) := '§COORD-PHONE'
+IF COORDINATOR.WORK-PHONE = ' '
+  G-SUBST-TEXT (G-SUBST-ENTRIES) := COORDINATOR.WORK-PHONE-EXT
+ELSE
+  COMPRESS COORDINATOR.WORK-PHONE '/' COORDINATOR.WORK-PHONE-EXT
+    TO G-SUBST-TEXT (G-SUBST-ENTRIES) LEAVING NO
+END-IF
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§COORD-LOCATION'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := COORDINATOR.WORK-LOCATION
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§COORD-ORGANIZATION'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := COORDINATOR.WORK-ORGANIZATION
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§COORD-ADDRESS1'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := COORDINATOR.WORK-ADDRESS (01)
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§COORD-ADDRESS2'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := COORDINATOR.WORK-ADDRESS (02)
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§COORD-ADDRESS3'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := COORDINATOR.WORK-ADDRESS (03)
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§USER'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := USER.USER-ID
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§NAME'
+COMPRESS USER.LAST-NAME ',' USER.FIRST-NAME
+  TO G-SUBST-TEXT (G-SUBST-ENTRIES) LEAVING NO
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§DEPTNO'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := USER.WORK-DEPT-NUM
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§DEPTNAME'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := USER.WORK-DEPT-NAME
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§LOCATION'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := USER.WORK-LOCATION
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§ORGANIZATION'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := USER.WORK-ORGANIZATION
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§PHONE'
+IF USER.WORK-PHONE = ' '
+  G-SUBST-TEXT (G-SUBST-ENTRIES) := USER.WORK-PHONE-EXT
+ELSE
+  COMPRESS USER.WORK-PHONE '/' USER.WORK-PHONE-EXT
+    TO G-SUBST-TEXT (G-SUBST-ENTRIES) LEAVING NO
+END-IF
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§ADDRESS1'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := USER.WORK-ADDRESS (01)
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§ADDRESS2'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := USER.WORK-ADDRESS (02)
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§ADDRESS3'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := USER.WORK-ADDRESS (03)
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§BUNDLE'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := ACTIVE-BUNDLE.AB-BUNDLE
+*
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES) := '§EXIT'
+G-SUBST-TEXT (G-SUBST-ENTRIES) := PRINTOUT.PO-EXITMEM
+*
+#SUBST-ENTRIES-FIX := G-SUBST-ENTRIES
+*
+END-SUBROUTINE /* SUBSTITUTION-VARIABLES-BUNDLE
+*
+************************************************************************
+DEFINE SUBROUTINE EXTRA-BUNDLE-VARIABLES
+************************************************************************
+ADD 1 TO G-SUBST-ENTRIES
+G-SUBST-VAR  (G-SUBST-ENTRIES):= '§DESCR'
+G-SUBST-TEXT (G-SUBST-ENTRIES):= FLUSH-DESC
+IF #OPENT NE T'00:00:00'
+  ADD 1 TO G-SUBST-ENTRIES
+  G-SUBST-VAR(G-SUBST-ENTRIES):= '§CDATE'
+  MOVE EDITED #OPENT (EM=YYYYMMDD) TO #DATE
+  CALLNAT 'IODATE-N' 'M' 'S' #DATE #FORMATED-DATE G-DATE-FORMAT
+    #ERROR-CODE #ERROR-TEXT
+  IF #ERROR-CODE = 0
+    #DATE := #S-FORMATED-DATE
+  END-IF
+  G-SUBST-TEXT(G-SUBST-ENTRIES):= #DATE
+*
+  ADD 1 TO G-SUBST-ENTRIES
+  G-SUBST-VAR(G-SUBST-ENTRIES):= '§CTIME'
+  MOVE EDITED #OPENT (EM=HH':'II) TO #DATE
+  G-SUBST-TEXT(G-SUBST-ENTRIES):= #DATE
+END-IF
+*
+END-SUBROUTINE /* EXTRA-BUNDLE-VARIABLES
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-PRINTOUT-RECORD
+************************************************************************
+IF NOT LAST-PORTION AND G-NATRP-ERC = 0
+  ESCAPE ROUTINE
+END-IF
+FNDPO. FIND PO-UPD WITH PO-ID = #PO-ID
+  IF PO-MSG = '8861' /* RMPRTJOB did not find jobvariable in BS2
+    RESET G-NATRP-ERC G-NATRP-ERT PO-MSG
+    #FOLLOW-PRINTOUT := 'N'
+  END-IF
+  IF #FOLLOW-PRINTOUT = 'Y' AND G-NATRP-ERC = 0
+    ESCAPE ROUTINE
+  END-IF
+  LG-BUNDLE  := PO-UPD.PO-BUNDLE
+  LG-BUNDRNB := PO-UPD.PO-BUNDRNB
+  LG-PRINTER := PO-UPD.PO-LOGICAL
+  COMPRESS PO-UPD.PO-BUNDLE '/' PO-UPD.PO-BUNDRNB
+    TO LG-MSG LEAVING NO
+  LG-OBJECT-NAME := LG-MSG
+  IF G-NATRP-ERC = 0
+    PO-UPD.PO-STATUS := 'D'
+    FOR-JOBC. FOR #I = 1 TO 3
+      #PO-JOBCARD := PO-UPD.PO-JOBCARD (#I)
+      EXAMINE #PO-JOBCARD TRANSLATE INTO UPPER
+      IF #PO-JOBCARD = SCAN ('EXTERNAL-OK')  /* confirm manually
+        PO-UPD.PO-STATUS := 'X'
+        ESCAPE BOTTOM (FOR-JOBC.)
+      END-IF
+    END-FOR
+    IF PO-UPD.PO-STATUS NE 'X'
+      PO-PRINTED := *TIMX
+      RESET  PO-MSG
+    END-IF
+    COMPRESS '7212' LG-MSG TO LG-MSG
+  ELSE
+    PO-UPD.PO-STATUS := 'E'
+    IF G-NATRP-ERC = 5
+      COMPRESS 'Log:' *TIME G-NATRP-ERT TO PO-MSG
+      PERFORM XXRLOG-WRITE-LOG 'W' G-NATRP-ERT
+    ELSE
+      #RC := G-NATRP-ERC
+      COMPRESS #RC-A G-NATRP-ERT TO PO-MSG
+    END-IF
+    COMPRESS '7214' LG-MSG TO LG-MSG
+  END-IF
+  LG-CODE := 'PR'
+  COMPRESS LG-MSG PO-UPD.PO-LOGICAL TO LG-MSG
+  RMTASK-P.FUNCTION       := 'L'
+  RMTASK-P.SUBTASK-NUMBER := 1
+  CALLNAT 'RMTASKID' RMTASK-P
+  LG-USERID := RMTASK-P.TASK-ID
+  CALLNAT 'RLOG' PL-PARMS
+  UPDATE (FNDPO.)
+  END OF TRANSACTION
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-PRINTOUT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-STATISTIC-EXIT
+************************************************************************
+INCLUDE NOMEXC06
+*
+END-SUBROUTINE /* CALL-STATISTIC-EXIT
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-STEPLIB
+************************************************************************
+** check existence of po-exitlib in steplib table
+CALLNAT 'RLIBACT' PRINTOUT.PO-EXITLIB #STEPLIB-EXIST
+IF NOT #STEPLIB-EXIST
+  NAT00009-LIBRARY := PRINTOUT.PO-EXITLIB
+  RESET  NAT00009-FNR NAT00009-DBID
+  CALLNAT 'RGETLIB' NAT00009-APPLIC
+  NAT00009-FUNCTION := 08
+  CALLNAT 'NAT00009' NAT00009-PARMS
+  IF NAT00009-RESPONSE NE 0
+    G-NATRP-ERC := 1078
+    RMTASK-P.FUNCTION       := 'L'
+    RMTASK-P.SUBTASK-NUMBER := 1
+    CALLNAT 'RMTASKID' RMTASK-P
+    LG-USERID := RMTASK-P.TASK-ID
+    LG-CODE   := 'MO'
+    COMPRESS  '1078'  PRINTOUT.PO-EXITLIB TO LG-MSG
+    CALLNAT 'RLOG' PL-PARMS
+    END TRANSACTION
+    IF #TRACING
+      COMPRESS 'Unable to add steplib' PRINTOUT.PO-EXITLIB
+        TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+  ELSE
+    STEPLIB-ADDED := TRUE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* ADD-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE REMOVE-STEPLIB
+************************************************************************
+IF NOT STEPLIB-ADDED
+  ESCAPE ROUTINE
+END-IF
+*
+** check existence of po-exitlib in steplib table
+CALLNAT 'RLIBACT' PRINTOUT.PO-EXITLIB #STEPLIB-EXIST
+IF #STEPLIB-EXIST
+  NAT00009-FUNCTION := 16
+  CALLNAT 'NAT00009' NAT00009-PARMS
+END-IF
+STEPLIB-ADDED := FALSE
+*
+END-SUBROUTINE /* REMOVE-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE ERROR-HANDLING
+************************************************************************
+BACKOUT TRANSACTION
+COMPRESS PRINTOUT.PO-BUNDLE '/' PRINTOUT.PO-BUNDRNB /*SU8 ->
+  TO #ERROR-TEXT LEAVING NO
+PRINT NOTITLE NOHDR *PROGRAM 10T *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'Print Bundle abnormal termination:' #ERROR-TEXT
+COMPRESS 'AR:' #AR-REPNAME '/' #AR-REPRNB TO #ERROR-TEXT LEAVING NO
+PRINT NOTITLE NOHDR *PROGRAM 10T *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  #ERROR-TEXT /*SU8 <-
+IF *ERROR-NR NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Error' *ERROR-NR 'Line' *ERROR-LINE 'Program' *PROGRAM
+  G-NATRP-ERC := 21
+  COMPRESS *ERROR-NR '/' *PROGRAM '/' *ERROR-LINE
+    TO G-NATRP-ERT LEAVING NO
+ELSE
+  PRINT NOTITLE NOHDR *PROGRAM 10T *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    G-NATRP-ERT
+END-IF
+IF #PO-ID NE 0 AND NOT *ERROR-NR = 3000 THRU 3999
+  PERFORM UPDATE-PRINTOUT-RECORD
+END-IF
+IF *MACHINE-CLASS = 'MAINFRAME'
+  IF #TASK-TYPE = 'SUBTASK'
+    STOP
+  END-IF
+  TERMINATE 50
+END-IF
+ESCAPE MODULE
+*
+END-SUBROUTINE /* ERROR-HANDLING
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-BINARY
+************************************************************************
+#BC-BUNDLE-RNB-GROUP-SEQNO.#BC-BUNDLE  := PRINTOUT.PO-BUNDLE
+#BC-BUNDLE-RNB-GROUP-SEQNO.#BC-BUNDRNB := PRINTOUT.PO-BUNDRNB
+RESET  #BC-BUNDLE-RNB-GROUP-SEQNO.#BC-GROUP
+RESET  #BC-BUNDLE-RNB-GROUP-SEQNO.#BC-SEQNO
+READ (1) BUNDLE-CONTENTS BY BC-BUNDLE-RNB-GROUP-SEQNO
+    STARTING FROM #BC-BUNDLE-RNB-GROUP-SEQNO
+END-READ
+#AR-REPNAME := BUNDLE-CONTENTS.BC-REPNAME
+#AR-REPRNB  := BUNDLE-CONTENTS.BC-REPRNB
+PERFORM READ-ACTIVE-REPORT
+IF ACTIVE-REPORT.AR-CC-TYPE = BINARY
+AND PRINTOUT.PO-PRINTER-TYPE NE 'DISKUNIX'                            /*
+  FETCH 'RMPRBUB' /* use different module for binary processing
+    #PO-ID #ESY-USER #FOLLOW-PRINTOUT #NOMEXIT-6 #OPTION #TASK-TYPE
+END-IF
+*
+END-SUBROUTINE /* CHECK-BINARY
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-NOMEX014
+************************************************************************
+IF G-NATRP-ERC NE 0
+  IF #TRACING
+    COMPRESS 'RC' G-NATRP-ERC '/ No exit called due to error condition.'
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  ESCAPE ROUTINE /* do nothing if error in preceeding step
+END-IF
+MOVE BY NAME PRINTOUT      TO #PRINTOUT
+MOVE BY NAME ACTIVE-REPORT TO #ACTIVE-REPORT
+MOVE BY NAME REPORT        TO #REPORT
+RESET #SPOOL-ATTR-EXTENDED
+RESIZE DYNAMIC #SPOOL-ATTR-EXTENDED TO 0
+FOR-EXT. FOR #I = 1 TO 120
+  IF AR-SPOOL-ATTR-EXTENDED (#I) = ' '
+    ESCAPE BOTTOM (FOR-EXT.)
+  END-IF
+  COMPRESS #SPOOL-ATTR-EXTENDED AR-SPOOL-ATTR-EXTENDED (#I)
+    TO #SPOOL-ATTR-EXTENDED LEAVING NO
+END-FOR
+IF #TRACING
+  COMPRESS 'Calling NOMEX014 with extended spool-attributes:'
+    #SPOOL-ATTR-EXTENDED TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+IF G-TRACE > 1
+  RMSETTIM.FUNCTION := 'S'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+END-IF
+CALLNAT 'NOMEX014' #PRINTOUT #ACTIVE-REPORT #REPORT #SPOOL-ATTR-EXTENDED
+  NOMEX014-ERROR-CODE NOMEX014-ERROR-TEXT
+G-NATRP-ERC := NOMEX014-ERROR-CODE
+G-NATRP-ERT := NOMEX014-ERROR-TEXT
+IF G-TRACE > 1
+  G-TRACE-MSG := 'CPU consumed by user exit NOMEX014:'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+END-IF
+*
+IF #TRACING
+  IF G-NATRP-ERC = 0
+    G-TRACE-MSG := 'NOMEX014 ended with no errors.'
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  ELSE
+    COMPRESS 'NOMEX014 ended with error fields:'
+      G-NATRP-ERC-A G-NATRP-ERT TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CALL-NOMEX014
+*
+************************************************************************
+DEFINE SUBROUTINE GET-FLAGS
+************************************************************************
+FIND (1) USER-EXITS WITH M-MONITOR-ID = 'API-DEFS'
+  FOR #I = 1 TO 20
+    IF M-NOMEXIT-ACTIVE (#I) = 'Y'
+      +G-NOMEXIT-ACTIVE (#I) := TRUE
+    ELSE
+      +G-NOMEXIT-ACTIVE (#I) := FALSE
+    END-IF
+  END-FOR
+END-FIND
+*
+END-SUBROUTINE /* GET-FLAGS
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-IT
+************************************************************************
+DECIDE ON FIRST ACTIVE-REPORT.AR-CURRENT-LOCATION
+  VALUE 'S'
+    CALLNAT 'RMARFLSN' RMARFL-PARMS FLUSH-PARMS G-LINE-PARMS #SKIP-PAGES
+      G-NATRP-ERC G-NATRP-ERT
+  VALUE 'D'
+    CALLNAT 'RMARFLDN' RMARFL-PARMS FLUSH-PARMS G-LINE-PARMS #SKIP-PAGES
+      G-NATRP-ERC G-NATRP-ERT
+  NONE /*SU8
+    COMPRESS 'invalid location:' ACTIVE-REPORT.AR-CURRENT-LOCATION
+      TO G-NATRP-ERT
+    PERFORM ERROR-HANDLING
+END-DECIDE
+IF G-NATRP-ERC = 4605 /*:1: :2: (show error) see XXUX---N SU8
+  FLUSH-ERROR := TRUE
+END-IF
+IF G-NATRP-ERC NE 0
+  IF FLUSH-ERROR /*SU8: all other errors ignored Ü?
+    PERFORM ERROR-HANDLING
+    ESCAPE ROUTINE
+  END-IF
+  G-LINE-CURRENT := 1
+  RESET G-NATRP-ERC G-NATRP-ERT
+END-IF
+*
+END-SUBROUTINE /* CALL-IT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  PERFORM ERROR-HANDLING
+*
+END-ERROR
+*
+END

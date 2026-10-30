@@ -1,0 +1,197 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Program  XXMVENC
+* Template N-CP-CHK
+* Function Codepage support: Execute a MOVE ENCODED with error recovery
+*
+* Why:     ON ERROR used since MOVE ENCODED .. GIVING does not return
+*          variable parts of error message (:1:).
+*
+* Use this routine as follows:
+* 1. Specify either the (A) or the (U) field as input
+* 2. Specify either the (A) or the (U) field as output
+* 3. Fill input and/or output codepages or leave one of them empty
+*    to get *CODEPAGE instead.
+* 4  Leave out input- and output-codepages to force a MOVE non-encoded.
+* 5. CALLNAT 'XXMVENC'
+*
+* Examples:
+* CALLNAT 'XXMVENC' A-INPUT 1X INPUT-CP A-OUTPUT 1X OUTPUT-CP ERC ERT
+* CALLNAT 'XXMVENC' 1X U-INPUT A-OUTPUT 1X OUTPUT-CP ERC ERT
+*
+* ERC:
+* 0     -> OK
+* 9170  -> Codepage not found
+* <0    -> Natural error message (such as -3413: conversion error)
+*
+* Version  3.5
+*
+* MAINTENANCE:
+* User ID yyyy-mm-dd itrac       Comment
+* ------- ---------- ----------- ---------------------------------------
+* fhi     2018-05-04             NOM 3.5 Created
+* fhi     2018-09-28 NOMALL-2125 rewritten, handle errors
+* fhi     2018-10-11 NOMALL-2125 rewritten, no tags
+* fhi     2019-03-12 NOMALL-2172 Handle CP=OFF correctly, add tracing
+************************************************************************
+*
+DEFINE DATA
+PARAMETER
+1 A-INPUT    (A) DYNAMIC BY VALUE        OPTIONAL /* Use either this...
+1 U-INPUT    (U) DYNAMIC BY VALUE        OPTIONAL /* ... or this field
+1 INPUT-CP   (A64)       BY VALUE        OPTIONAL
+1 A-OUTPUT   (A) DYNAMIC BY VALUE RESULT OPTIONAL /* Use either this...
+1 U-OUTPUT   (U) DYNAMIC BY VALUE RESULT OPTIONAL /* ... or this field
+1 OUTPUT-CP  (A64)       BY VALUE        OPTIONAL
+1 ERC        (N4)        BY VALUE RESULT /* RC: 0=OK, <0=Natural error
+1 ERT        (A) DYNAMIC BY VALUE RESULT /*     9170=codepage not found
+1 TRACING    (L)                         OPTIONAL /* NOMALL-2172 fhi in
+************************************************************************
+LOCAL USING XXGMSG-A
+LOCAL
+1 #INPUT-CP          (A64)
+1 #OUTPUT-CP         (A64)
+1 #NAT42002
+  2 P-DYN-PART       (A253/9)
+  2 P-OCCU           (I2)
+  2 P-ERROR-NUMBER   (I4)
+  2 P-RESPONSE       (I4)
+1 #U-TABLE           (L)
+1 #INPUT-USER-TABLE  (L)
+1 #OUTPUT-USER-TABLE (L)
+1 #U-STRING          (U)    DYNAMIC
+1 #CP-NO             (A)    DYNAMIC
+1 #CP-NAME           (A)    DYNAMIC
+1 #CP-DESC           (A)    DYNAMIC
+1 #ENC-ERC           (I4)
+1 #TRACING           (L)                /* NOMALL-2172 fhi in
+1 #TRACE-MSG         (A250)             /* NOMALL-2172 fhi in
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #INPUT-USER-TABLE #OUTPUT-USER-TABLE
+SET GLOBALS CPCVERR=ON
+/* Throw Nat error if codepage conversion fails. Will be set to OFF by
+/* ON ERROR to get the destination string even after 3413 has occurred.
+*
+* Handle codepage entries
+*
+* fhi     2019-03-12 NOMALL-2172 start insertion
+IF TRACING SPECIFIED
+  #TRACING := TRACING
+END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+RESET #INPUT-CP #OUTPUT-CP
+DECIDE FOR EVERY CONDITION
+  WHEN INPUT-CP  SPECIFIED
+    #CP-NAME           := INPUT-CP
+    PERFORM CHECK-CP /* on error: Escape module unless CP=OFF
+    #INPUT-USER-TABLE  := #U-TABLE
+    #INPUT-CP          := #CP-NAME
+  WHEN OUTPUT-CP SPECIFIED
+    #CP-NAME           := OUTPUT-CP
+    PERFORM CHECK-CP /* on error: Escape module unless CP=OFF
+    #OUTPUT-USER-TABLE := #U-TABLE
+    #OUTPUT-CP         := #CP-NAME
+  WHEN #INPUT-CP        = ' '
+    #INPUT-CP          := *CODEPAGE
+  WHEN #OUTPUT-CP       = ' '
+    #OUTPUT-CP         := *CODEPAGE
+  WHEN NONE
+    IGNORE
+END-DECIDE
+* fhi     2019-03-12 NOMALL-2172 start insertion
+IF #TRACING
+  COMPRESS 'Got input code page' #INPUT-CP 'and output code page'
+    #OUTPUT-CP TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+*
+* Do the appropriate MOVE ENCODED; throw Natural error if necessary:
+INCLUDE XXMVENCC '/*'
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-CP
+************************************************************************
+#U-TABLE := FALSE
+CALLNAT 'XXCHCKCP' '#' #CP-NO #CP-NAME #CP-DESC ERC
+* fhi     2019-03-12 NOMALL-2172 start insertion
+IF #TRACING
+  COMPRESS 'Code page check ''XXCHCKCP'' returned' ERC
+    'for CP' #CP-NAME  TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+DECIDE ON FIRST VALUE OF ERC
+  VALUE 4 /* Codepage found as a user defined conversion table
+    #U-TABLE := TRUE
+    RESET ERC ERT
+    ESCAPE ROUTINE
+  VALUE 0
+    IGNORE
+  NONE
+* fhi     2019-03-12 NOMALL-2172 start insertion
+    IF *CODEPAGE = ' ' /* CP=OFF, Ignore given CP and do a MOVE
+      IF #TRACING
+        MOVE '*CODEPAGE is empty.' TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      RESET ERC ERT
+    ELSE
+* fhi     2019-03-12 NOMALL-2172 end   insertion
+      ERC := #XX-ERROR-CODE := 9170
+      #XX-MSG-DYNA(1) := #CP-NAME
+      #XX-MSG-DYNA(2) := *LINE
+      CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+      ERT := #XX-SHORT-TEXT
+      RESET #XX-GMSG-PARMS
+      ESCAPE MODULE
+    END-IF        /* NOMALL-2172 fhi in
+END-DECIDE
+*
+END-SUBROUTINE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  DECIDE ON EVERY VALUE OF *ERROR
+    VALUE 3411
+      ERC := #XX-ERROR-CODE := 9170
+      #XX-MSG-DYNA(1) := #CP-NAME
+      #XX-MSG-DYNA(2) := *LINE
+      CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+      ERT := #XX-SHORT-TEXT
+      RESET #XX-GMSG-PARMS
+      ESCAPE ROUTINE
+    VALUE 3413
+/* Determine the non-convertable byte
+      ERT := *ERROR
+      ERC := -*ERROR
+      CALLNAT 'NAT42002' #NAT42002
+      COMPRESS ERT P-DYN-PART (*) TO ERT
+/* Now the character in error has been determined. Set CPCVERR to OFF
+/* to get the destination string even after 3413 has occurred.
+      SET GLOBALS CPCVERR=OFF
+/* Repeat the MOVE ENCODED without throwing a Natural error:
+      INCLUDE XXMVENCC 'GIVING #ENC-ERC'
+      ESCAPE ROUTINE
+    NONE
+      IGNORE
+  END-DECIDE
+*
+END-ERROR
+*
+************************************************************************
+END

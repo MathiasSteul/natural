@@ -1,0 +1,250 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOXTSX-N - Start Archive, Condense or Revive Tasks
+*           ES-RC = 2 not error, just message
+*
+* Maintenance:
+* XSETGGR 2005-01-20   created
+* XSETHZ 2005-01-29   'OP' ---> 'SX'  'IF ES-RC = 0' ---> 'IF ES-RC NE 1
+* xsetggr 2007-04-25  Error 0020 when user profile values does not
+*                     allowed to start job
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOXTSX-A
+************************************************************************
+LOCAL USING VARCIV-L
+LOCAL USING RLOG-L
+LOCAL USING VUSERS-L
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+1 #ES-MSG-TXT               (A250)
+1 #LIBRARY-ID               (A8)
+1 #TASK-TYPE                (A3)
+1 #MONIT-ID                 (A8)
+1 #DATE-A8                  (A8)
+1 #TIME                     (A4)
+1 #TIME-F                   (A5)
+1 #DATE-A12                 (A12)
+1 #ERC                      (N4)
+1 #ERT                      (A250)
+1 #TASK-NAME                (A13)
+1 #USER-LIB                 (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+ON ERROR
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+RESET ES-RC
+#LIBRARY-ID := ES-APP-SERVER-LIBRARY
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+#TASK-TYPE  := ES-KEY-PARM(1)
+FIND USERS WITH USER-ID = ES-USER
+END-FIND
+DECIDE ON FIRST VALUE ES-ORIG-OBJECT
+  VALUE 'AT'
+    IF PROF-ARCHIVE NE 'Y'
+      #ES-MSG-NR := 0020
+    END-IF
+    #MONIT-ID := 'ARCHIVE'
+    IF ES-LANGUAGE = 2
+      #TASK-NAME := 'Archivierung'
+    ELSE
+      #TASK-NAME := 'Archive'
+    END-IF
+  VALUE 'RT'
+    IF PROF-REVIVE NE 'Y'
+      #ES-MSG-NR := 0020
+    END-IF
+    #MONIT-ID := 'REVIVE'
+    IF ES-LANGUAGE = 2
+      #TASK-NAME := 'Reaktivierung'
+    ELSE
+      #TASK-NAME := 'Revive'
+    END-IF
+  VALUE 'CT'
+    IF PROF-ARCHIVE NE 'Y'
+      #ES-MSG-NR := 0020
+    END-IF
+    #MONIT-ID := 'CONDENSE'
+    IF ES-LANGUAGE = 2
+      #TASK-NAME := 'Verdichtung'
+    ELSE
+      #TASK-NAME := 'Condense'
+    END-IF
+  NONE  IGNORE
+END-DECIDE
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+*
+DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+  VALUE ' '
+    PERFORM READ-RECORD
+  VALUE 'UPD'
+    PERFORM UPDATE-RECORD
+    IF ES-RC NE 1
+      PERFORM WRITE-LOG-RECORD
+      END TRANSACTION
+    ELSE
+      BACKOUT TRANSACTION
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-RECORD
+************************************************************************
+FNDAR. FIND ARCHIVE-TASK WITH M-MONITOR-ID = #MONIT-ID
+  IF NO RECORDS FOUND
+    IF #TASK-TYPE = 'CDN'
+      M-MONITOR-ID := 'CONDENSE'
+      CD. STORE ARCHIVE-TASK
+      ESCAPE BOTTOM
+    END-IF
+    #ES-MSG-NR := 0114
+    ESCAPE BOTTOM(FNDAR.)
+  END-NOREC
+/* read planned archive time (non modifiable)
+  MOVE EDITED M-PLAN-ARC-TIME (EM=HH':'II) TO NOXT-PLAN-ARC-T
+  MOVE EDITED M-PLAN-ARC-TIME (EM=YYYYMMDD) TO #DATE-A8
+  CALLNAT 'IODATE-N' 'M' 'L' #DATE-A8 NOXT-PLAN-ARC-D ES-DATE-FORMAT
+    #ERC #ERT
+/* read default schedule time   (modifiable)
+  MOVE EDITED *TIMX (EM=HH':'II) TO NOXT-PLAN-SCHED-T
+  MOVE EDITED *TIMX (EM=YYYYMMDD) TO #DATE-A8
+  CALLNAT 'IODATE-N' 'M' 'L' #DATE-A8 NOXT-PLAN-SCHED-D ES-DATE-FORMAT
+    #ERC #ERT
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* READ-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+RESET #ERT #DATE-A8
+FNDUPDAR. FIND ARCHIVE-TASK WITH M-MONITOR-ID = #MONIT-ID
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0114
+    COMPRESS 'Archive task' #MONIT-ID 'not found' TO #ERT
+    ESCAPE BOTTOM(FNDUPDAR.)
+  END-NOREC
+/* validate specified schedule time
+  IF NOXT-PLAN-SCHED-D = MASK(YYYYMMDD)
+    #DATE-A8 := NOXT-PLAN-SCHED-D
+  ELSE
+    CALLNAT 'IODATE-N' 'V' 'L' #DATE-A8 NOXT-PLAN-SCHED-D ES-DATE-FORMAT
+      #ES-MSG-NR #ES-MSG-TXT
+    IF #ES-MSG-NR NE 0
+      #ES-MSG-FIELD-NAME := 'PLAN-SCHED-D'
+      ESCAPE BOTTOM(FNDUPDAR.)
+    END-IF
+  END-IF
+  #TIME-F := NOXT-PLAN-SCHED-T
+  EXAMINE #TIME-F FOR ':' DELETE
+  MOVE LEFT JUSTIFIED #TIME-F TO #TIME
+  IF #TIME NOT = MASK (00:2300:59)
+    #ES-MSG-NR := 0051                     /* Please enter correct time
+    #ES-MSG-FIELD-NAME := 'PLAN-SCHED-T'
+    ESCAPE BOTTOM(FNDUPDAR.)
+  END-IF
+/* assign task schedule time
+  GETTSK. GET ARCHIVE-TASK *ISN(FNDUPDAR.)
+  COMPRESS #DATE-A8 #TIME TO #DATE-A12 LEAVING NO
+  MOVE EDITED #DATE-A12 TO M-PLAN-ARC-TIME (EM=YYYYMMDDHHII)
+  UPDATE(GETTSK.)
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+ELSE
+  #ES-MSG-NR := 0464                   /* :1: task initiated
+  PERFORM GET-MSG-TXT
+  ES-RC := 2
+END-IF
+*
+END-SUBROUTINE /* READ-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+DECIDE ON FIRST VALUE ES-ORIG-OBJECT
+  VALUE 'AT'
+    LG-CODE := 'A1'
+    COMPRESS '0472' 'ARCHIVE' NOXT-PLAN-SCHED-D NOXT-PLAN-SCHED-T
+      TO LG-MSG
+  VALUE 'RT'
+    LG-CODE := 'R1'
+    COMPRESS '0472' 'REVIVE' NOXT-PLAN-SCHED-D NOXT-PLAN-SCHED-T
+      TO LG-MSG
+  VALUE 'CT'
+    LG-CODE := 'A1'
+    COMPRESS '0472' 'CONDENSE' NOXT-PLAN-SCHED-D NOXT-PLAN-SCHED-T
+      TO LG-MSG
+  NONE  IGNORE
+END-DECIDE
+LG-USERID := ES-USER
+CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+DECIDE ON FIRST VALUE OF #ES-MSG-NR
+  VALUE 0464
+    EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #MONIT-ID
+  VALUE 0150
+    EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT
+  NONE VALUE IGNORE
+END-DECIDE
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+END

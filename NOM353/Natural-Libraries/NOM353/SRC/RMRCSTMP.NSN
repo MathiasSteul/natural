@@ -1,0 +1,317 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+************************************************************************
+* Program:  RMRCSTMP - implement NOM internal lock mechanism
+* Function: Set or query receipt stamp of a source record
+* Template: XXLOCKED
+*
+* Synchronize NOM's monitor tasks by setting a flag into the source
+* record of the file to be processed.
+*
+* The RMSC* will match reports to the file on the current node.
+* After all reports have been matched for a file (a source record)
+* stamp 'S' (='scanned') will be written. This will be the indicator
+* for the copy task which will set the stamp to the lowest digit of
+* copy task (1 to 9) B E F O R E  any copy is done. Only the same copy
+* task should continue/finish the copy process.
+* It will be reset to ' ' after the copy process.
+*
+* So a scan task expects an empty stamp,otherwise the scan is postponed.
+* A copy task expects stamp 'S', otherwise the copy operation is
+* postponed/skipped.
+*
+* This ensures that:
+* - No copy task will take a file before all reports are scanned,
+* - No copy task will take the file of another copy task,
+* - In case of short cycles no scan task will scan files twice if the
+*   copy task is not yet finished with it
+*
+* The calling program has to do the END TRANSCTION
+*
+* Intern. docu ÖÖdaenus01ÖNaturalÖNat-AdtÖNAT-EsmÖProjectsÖNom35Ö...
+*           ...Internal_DocumentationÖNOM_Task_Sync_Concept.pdf
+*
+* Maintenance
+* uuu     yyyy-mm-dd iTrac       Action
+* ----------------------------------------------------------------------
+* fhi     2019-07-08 NOMALL-2287 Created.
+* fhi     2019-08-14 NOMALL-2294 Introduce TRACE-ORDER in JOBCARDs
+* BLI     2019-11-19 NOMALL-2346 Add trace, use 'L' for XXHASH
+* SU1     2020-01-02 NOMALL-2294 show info in case of error
+* BLI     2020-01-21 NOMALL-2294 task number for copying
+* BLI     2020-02-14 NOMALL-2294 enhance to other sources than Unix
+* SU2     2020-03-27 NOMALL-2349 email EVI->add ON ERROR+avoid NAT3113
+* BLI     2020-07-10 NOMALL-2422 remove hold
+* SU3     2022-04-12 NOMALL-2543 avoid NAT0999 in RMSCUX in QA ('..')
+* BLI1    2022-06-20 NOMALL-2562 use JOB-ID for BS2 identification
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER
+1 L-STAMP                (A1) /* Following values are allowed:
+  /* 'Q' = Query current stamp
+  /* 'S' = Set stamp 'has been scanned'
+  /*       Note: RMSCUX sets 'S' directly    NOMALL-2422
+  /* '1'...'9' = Set stamp to 'copy' by task
+  /* 'U' = Unlock, set stamp to ' ' stamp returned will be the stamp
+  /*       queried or set, or:
+  /* 'E' = 'S' cannot be set, already done
+  /*       '1'..'9' cannot be set, must be 'S' before or same task
+  /* 'F' = source record not found
+1 L-TYPE                 (I2)                     /* BLI NOMALL-2294
+1 L-NODE                 (A16)          BY VALUE
+1 L-FILE-ID              (A)   DYNAMIC  BY VALUE
+1 L-TRACING              (L)   OPTIONAL
+1 L-BS2-JOB-ID           (A5)  OPTIONAL           /* BLI1 NOMALL-2562
+************************************************************************
+INDEPENDENT
+1 +TRACE-ORDER           (A1)
+* *****
+LOCAL USING RMSR---E
+LOCAL USING RMSPL--L
+LOCAL USING XXHASH-P
+LOCAL
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-SPOOL-ATTRIBUTES
+  2 SR-RECEIPT-STAMP
+*
+1 #L-STAMP-IN            (A1)
+1 #L-CONTROL             (A66)
+1 REDEFINE #L-CONTROL
+  2 #L-TYPE              (B2)
+  2 #L-IDENT             (A63)
+  2 #L-CONTROL-FLAG      (A1)
+1 #UNIX-IDENT            (A63)
+1 REDEFINE #UNIX-IDENT
+  2 #UNIX-NODE-NAME      (A16)
+  2 #UNIX-FILE-SPEC      (A47)
+1 #FBS2-IDENT            (A63)
+1 REDEFINE #FBS2-IDENT
+  2 #FBS2-NODE           (N5)
+  2 REDEFINE #FBS2-NODE
+    3 #FBS2-NODE-A       (A5)
+  2 #FBS2-DSNAME         (A54)
+1 #TRACING               (L)
+1 #TRACE-MSG             (A250)
+1 #PATH                  (A)   DYNAMIC
+1 #FILE                  (A)   DYNAMIC
+1 #EXT                   (A)   DYNAMIC
+1 #LINE                  (I4) /*SU2
+1 #RC                    (N4)
+1 #LASTPROG              (A8)
+1 #L-FILE-ID             (A) DYNAMIC
+1 #NO                    (A1) INIT <'X'> /*do not chnage filename SU3
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM XXLSLEVL-GET-LAST-LEVEL #LASTPROG
+IF +TRACE-ORDER = ' ' /* not yet determined from jobcards
+  PERFORM RMGTRACE-GET-SETTINGS
+END-IF
+IF L-TRACING SPECIFIED
+  #TRACING      := L-TRACING
+END-IF
+* fill #L-CONTROL for FNDSRC. with corresponding type and ident
+#L-STAMP-IN     := L-STAMP
+#L-TYPE         := L-TYPE
+*
+IF L-TYPE = SEQUENTIAL-FILE-UNIX
+  #UNIX-NODE-NAME := L-NODE
+  #UNIX-FILE-SPEC := L-FILE-ID
+* separate L-FILE-ID into #PATH #FILE #EXT SU3 below #NO added
+  PERFORM XXCHKFN-CHECK-FILENAME L-FILE-ID #RC #PATH #FILE #EXT 2X #NO
+  IF *LENGTH(#PATH) > 0
+    COMPRESS #PATH '/' TO #PATH LEAVING NO
+  END-IF
+  IF #EXT NE ' '
+    COMPRESS #FILE '.' #EXT TO #FILE LEAVING NO
+  END-IF
+  #L-IDENT := #UNIX-IDENT
+END-IF
+*
+IF L-TYPE = SEQUENTIAL-FILE-BS2
+  #FBS2-NODE-A  := L-NODE
+  #FBS2-DSNAME  := L-FILE-ID
+  #L-IDENT      := #FBS2-IDENT
+END-IF
+*
+IF +TRACE-ORDER = 'Y' /* TRACE-ORDER in jobcards found
+  COMPRESS *PROGRAM 'function' #L-STAMP-IN 'for file'
+    #FILE '- RC short name:' P-RC '- called by' #LASTPROG TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+*
+FNDSRC. FIND SOURCE WITH SR-CONTROL = #L-CONTROL
+  IF NO RECORDS FOUND
+    L-STAMP := 'F' /* File not found
+    IF #TRACING
+      COMPRESS 'No records found for file' L-FILE-ID TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+    ESCAPE BOTTOM (FNDSRC.)
+  END-NOREC
+*
+  L-STAMP := 'F' /* In advance: file not found if no record will match
+  #SPOOL-ATTRIBUTES := SR-SPOOL-ATTRIBUTES
+*
+  IF L-TYPE EQ SEQUENTIAL-FILE-UNIX
+    IF L-NODE NE #SPOOL-UNIX-NODE-NAME OR #PATH  NE #SPOOL-UNIX-PATH
+      IF #TRACING AND #PATH NE #SPOOL-UNIX-PATH
+        COMPRESS 'Path' #PATH 'NE' #SPOOL-UNIX-PATH TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      ESCAPE TOP             /* wrong node or wrong path
+    END-IF
+*
+    XXHASH-PARMS.P-SHORT-NAME := #SPOOL-UNIX-FILE-NAME
+    PERFORM GET-LONG-NAME
+*
+    IF #FILE NE XXHASH-PARMS.P-LONG-NAME OR P-RC =1 /*longname not found
+      IF #TRACING
+       COMPRESS 'File' #FILE 'NE' XXHASH-PARMS.P-LONG-NAME TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      ESCAPE TOP             /* wrong file name
+    END-IF
+  END-IF
+*
+  IF L-TYPE EQ SEQUENTIAL-FILE-BS2
+    IF L-BS2-JOB-ID NOT SPECIFIED              /* BLI1 NOMALL-2562
+      IF #TRACING
+        COMPRESS 'File' L-FILE-ID 'without JOB-ID' TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      ESCAPE TOP
+    END-IF
+    IF L-NODE NE #SPOOL-BS2-NODE-A
+      IF #TRACING
+        COMPRESS 'Node' L-NODE 'NE' #SPOOL-BS2-NODE-A TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      ESCAPE TOP
+    END-IF
+    IF L-FILE-ID NE #SPOOL-BS2-DSNAME
+      IF #TRACING
+        COMPRESS 'File' L-FILE-ID 'NE' #SPOOL-BS2-DSNAME TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      ESCAPE TOP
+    END-IF
+    IF L-BS2-JOB-ID NE #SPOOL-BS2-JOB-ID      /* BLI1 NOMALL-2562
+      IF #TRACING
+        COMPRESS 'Job-ID' L-BS2-JOB-ID 'NE' #SPOOL-BS2-JOB-ID
+          TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      ESCAPE TOP
+    END-IF
+  END-IF
+*
+  DECIDE ON FIRST VALUE OF #L-STAMP-IN
+    VALUE 'Q'
+      L-STAMP   := SOURCE.SR-RECEIPT-STAMP
+      IF #TRACING
+        COMPRESS 'Stamp query got stamp' L-STAMP 'for file' L-FILE-ID
+          TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+    VALUE 'S'
+      IF SOURCE.SR-RECEIPT-STAMP = ' ' /* no scan yet done on this file
+        #LINE := *LINE
+        PERFORM UPDATE-STAMP
+      ELSE
+        L-STAMP := 'E'
+        IF #TRACING
+          COMPRESS 'Stamp could not be set to ''S'', contains'
+            SOURCE.SR-RECEIPT-STAMP 'for file' L-FILE-ID TO #TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+      END-IF
+* Copy task
+    VALUE '1' : '9'
+      IF SOURCE.SR-RECEIPT-STAMP = 'S' OR         /* scan has succeeded
+          SOURCE.SR-RECEIPT-STAMP = #L-STAMP-IN   /* continue copying
+        #LINE := *LINE
+        PERFORM UPDATE-STAMP
+      ELSE
+        L-STAMP := 'E'
+        IF #TRACING
+          COMPRESS 'Stamp could not be set to ''copytask'', contains'
+            SOURCE.SR-RECEIPT-STAMP 'for file' L-FILE-ID TO #TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+      END-IF
+    VALUE 'U'
+      RESET #L-STAMP-IN
+      #LINE := *LINE
+      PERFORM UPDATE-STAMP
+    NONE
+      COMPRESS *PROGRAM 'L-STAMP:' #L-STAMP-IN 'last pgm:' #LASTPROG
+        TO #TRACE-MSG /*SU1
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG /*SU1
+      *ERROR-NR := 999 /* internal error, wrong function called
+  END-DECIDE
+  ESCAPE BOTTOM        /* BLI NOMALL-2346
+END-FIND
+IF #TRACING AND L-STAMP = 'F'
+  COMPRESS 'No records matched for file' L-FILE-ID TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+IF +TRACE-ORDER = 'Y' /* TRACE-ORDER in jobcards found
+  COMPRESS *PROGRAM 'exits with stamp' L-STAMP 'to calling' #LASTPROG
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-STAMP
+************************************************************************
+GETSRC. GET SOURCE *ISN(FNDSRC.)
+SOURCE.SR-RECEIPT-STAMP := L-STAMP := #L-STAMP-IN
+UPDATE (GETSRC.)
+IF #TRACING
+  COMPRESS 'Stamp set to ' L-STAMP 'for file' L-FILE-ID TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+IF +TRACE-ORDER = 'Y' /* TRACE-ORDER in jobcards found
+  COMPRESS *PROGRAM 'has set stamp' L-STAMP 'for source record' SR-ID
+    'short filename' #SPOOL-UNIX-FILE-NAME TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* UPDATE-STAMP
+*
+************************************************************************
+DEFINE SUBROUTINE GET-LONG-NAME  /* BLI NOMALL-2346
+************************************************************************
+XXHASH-PARMS.P-FUNCTION   := 'L' /* short -> long
+XXHASH-PARMS.P-TRACE-HASH := #TRACING
+PERFORM XXHASH XXHASH-PARMS
+*
+END-SUBROUTINE /* GET-LONG-NAME
+*
+* *****
+ON ERROR /*SU2
+* *****
+  IF *ERROR = 3113
+    PRINT (AD=L) *PROGRAM *LINE 'line:' #LINE
+      'L-STAMP in:' #L-STAMP-IN 'L-STAMP:' L-STAMP
+      '=' L-TYPE '=' L-NODE '=' L-FILE-ID '=' *ISN(FNDSRC.)
+      'SOURCE-STAMP:' SOURCE.SR-RECEIPT-STAMP
+    SET CONTROL '<TECH'
+  END-IF
+END-ERROR
+*
+END

@@ -1,0 +1,262 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NODLLS-N - EOM API Distribution Lists
+*
+* Maintenance:
+* XSETHZ   2002-01-16 created
+* XSETGGR  2002-04-04 read headers from SYSERR
+* XSETGGR  2002-06-07 change compressing header texts
+* XSETGGR  2002-10-28 change numeric fields in list
+* XSETGGR  2002-11-14 new field ES-APP-SERVER-LIBRARY
+* XSETGGR  2002-11-20 add number of options
+* XSETGGR  2002-11-25 check grants for non-administrator users
+* XSETGGR  2005-09-20 use right option for xref function (xd)
+* XSETHZ   2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* xsetggr 2012-04-23 NOMALL-1136 corrections of using grants
+* xsetggr 2012-09-28 NOMALL-89 allow to list authorization for granted
+*                              objects
+* CF1     2018-11-27 NOMALL-2178 Correct authorisation filter results
+* SU1     2024-04-30 NOM 3.6     remove unused
+** --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NODLLS-A
+************************************************************************
+LOCAL USING NODLSL-A
+LOCAL USING ESMCONSL
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL
+1 DL VIEW OF NRM-DISTRIBUTION-LIST
+  2 D-LIST-NAME
+  2 D-LIST-DESC
+/*SU1  2 D-USER-LIST     (191)
+  2 C*D-USER-LIST
+1 GRANTS VIEW OF NRM-GRANTS
+/*SU1  2 GR-SUPER 2 GR-USERID 2 GR-OBJECT-TYPE 2 GR-OBJECT-NAME
+/*SU1  2 GR-OPTION      (1:6) 2 GR-TYPE-NAME
+1 RP VIEW OF NRM-REPORTS-NEW
+1 #I2              (I4)
+1 #IMAX            (I4)
+1 #E-NAME          (A8)
+1 #NAME-S          (A8)
+1 #MSG-NR          (N4)  CONST <6104>
+1 #I               (I4)
+1 #GR-TYPES        (A1/4) INIT <'R','B','P','L'>
+1 #GR-SUPER        (A34)
+1 REDEFINE #GR-SUPER
+  2 #OBJ-TYPE      (A1)
+  2 #USERID        (A8)
+  2 #OBJ-NAME      (A25)
+1 #GR-SUPER-E      (A34)
+1 REDEFINE #GR-SUPER-E
+  2 #OBJ-TYPE-E    (A1)
+  2 #USERID-E      (A8)
+  2 #OBJ-NAME-E    (A25)
+1 #OPTION3         (A2)
+1 #GRANTS          (A1/1:6)
+1 #NEW-OPTIONS     (A2/1:8)
+1 #OPTIONS         (A2/1:10)
+1 #LS-USERID       (A8)
+1 I                (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-NUMBER ES-SORTKEY ES-SORTORDER ES-STARTINDEX
+DECIDE ON FIRST VALUE OF ES-FUNCTION
+  VALUE 'LS'
+    ES-OPTION-COUNT := 10
+    IF ES-EXPAND = 'E'
+      #IMAX := 903
+      ES-FIELD-COUNT := 1
+      NODLEX-FIELD-LENGTH(1) := 8
+    ELSE
+      #IMAX := 280
+      ES-FIELD-COUNT := 5
+      NODLLS-FIELD-LENGTH(1) := 8
+      NODLLS-FIELD-LENGTH(2) := 8
+      NODLLS-FIELD-LENGTH(3) := 903
+      NODLLS-FIELD-LENGTH(4) := 1
+      NODLLS-FIELD-LENGTH(5) := 50
+    END-IF
+  VALUE 'LS1'
+    ES-OPTION-COUNT := 0
+    #IMAX := 436
+    ES-FIELD-COUNT := 2
+    NODLLN-FIELD-LENGTH(1) := 8
+    NODLLN-FIELD-LENGTH(2) := 50
+  NONE VALUE IGNORE
+END-DECIDE
+ES-EOF := 'X'
+#NODLSL := ES-SELECT
+EXAMINE  #NODLSL.#NAME FOR '*' DELETE
+COMPRESS #NODLSL.#NAME H'FF' TO #E-NAME LEAVING NO
+EXAMINE  #NODLSL.#AUTH FOR '*' DELETE
+IF ES-NEXT-KEY-PARM(1) > #NODLSL.#NAME
+  #NAME-S := ES-NEXT-KEY-PARM(1)
+ELSE
+  #NAME-S := #NODLSL.#NAME
+  IF ES-EXPAND NE 'E' AND ES-FUNCTION = 'LS'
+    ES-STARTINDEX := 2
+    #I2 := 1
+    RESET SHORT-MSG
+      LONG-MSG(*)
+      NODLLS-HEADER(1)
+    VERSION := 0
+    NADA2000.OBJECT-KIND := 'U'
+    NADA2000.ERROR-NUMBER := #MSG-NR
+    NADA2000.OPT-INSERT-DYN := FALSE
+    NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+    NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+    CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+    NODLLS-HEADER(1) := LONG-MSG(1)
+    FOR #I = 2 TO ES-FIELD-COUNT
+      COMPRESS NODLLS-HEADER(1) C-HEADER-DELIMITER LONG-MSG(#I)
+        TO NODLLS-HEADER(1) LEAVING NO
+    END-FOR
+  END-IF
+END-IF
+IF ES-USER-TYPE NE 'A'
+  #NODLSL.#AUTH := ES-USER
+END-IF
+IF (#NODLSL.#AUTH = ' ' OR = '*' OR = 'ADMIN') OR ES-FUNCTION = 'LS1'
+  PERFORM READ-ALL-LISTS
+ELSE
+  PERFORM READ-GRANTED-LISTS
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ALL-LISTS
+************************************************************************
+READ DL BY D-LIST-NAME STARTING FROM #NAME-S ENDING AT #E-NAME
+  #LS-USERID := 'ADMIN'
+  PERFORM DATA-TO-PDA
+END-READ
+*
+END-SUBROUTINE /* READ-ALL-LISTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-GRANTED-LISTS
+************************************************************************
+READ DL BY D-LIST-NAME STARTING FROM #NAME-S ENDING AT #E-NAME
+  #OBJ-NAME := D-LIST-NAME
+  CALLNAT 'NOGROU-N' 'L' #OBJ-NAME #NODLSL.#AUTH #LS-USERID #GRANTS(*)
+  /* Note: For a Non-Admin user show all distribution lists with any
+  /* authorisation (no selection for different authorisations available)
+  /* For an Admin user show only the distribution lists with
+  /* the selected authorisation.
+  IF #LS-USERID NE ' ' AND ES-USER-TYPE NE 'A'
+  OR  #LS-USERID = #NODLSL.#AUTH AND ES-USER-TYPE = 'A' /* CF1 <-     /*
+    IF ES-USER-TYPE = 'A'
+      #LS-USERID := 'ADMIN'
+    END-IF
+    PERFORM DATA-TO-PDA
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* READ-GRANTED-LISTS
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-TO-PDA
+************************************************************************
+RESET  #OPTIONS(*)
+ADD 1 TO #I2
+IF #I2 > #IMAX
+  ES-NEXT-KEY-PARM(1) := D-LIST-NAME
+  ES-NUMBER := #IMAX
+  RESET ES-EOF
+  ESCAPE BOTTOM
+ELSE
+  RESET #OPTIONS(*)
+  DECIDE ON FIRST VALUE OF ES-FUNCTION
+    VALUE 'LS'
+      IF ES-EXPAND = 'E'
+        NODLEX-LIST-NAME(#I2) := D-LIST-NAME
+        IF C*D-USER-LIST = 0
+          #OPTIONS(1) := 'LM'
+          #OPTIONS(2) := 'FF'
+        END-IF
+        #OPTION3 := 'XD'
+        FNDNR1. FIND NUMBER DL WITH D-USER-LIST = D-LIST-NAME
+        IF *NUMBER (FNDNR1.) > 0
+          #OPTION3 := ' '
+        END-IF
+        PERFORM OPTIONS
+        NODLEX-OPTIONS(#I2,*) := #OPTIONS(*)
+      ELSE
+        NODLLS-LIST-NAME(#I2)     := D-LIST-NAME
+        NODLLS-DESC (#I2)         := D-LIST-DESC
+        NODLLS-MEMBERS (#I2)      := C*D-USER-LIST
+        MOVE RIGHT JUSTIFIED NODLLS-MEMBERS(#I2)
+          TO NODLLS-MEMBERS (#I2)
+        NODLLS-AUTHORIZATION(#I2) := #LS-USERID
+        #OPTION3 := 'XD'
+        FNDNR2. FIND NUMBER DL WITH D-USER-LIST = D-LIST-NAME
+        IF *NUMBER (FNDNR2.) > 0
+          #OPTION3 := ' '
+          NODLLS-PART-OF(#I2) := 'Y'
+        ELSE
+          NODLLS-PART-OF(#I2) := 'N'
+        END-IF
+        IF C*D-USER-LIST = 0
+          #OPTIONS(1) := 'LM'
+          #OPTIONS(2) := 'FF'
+        END-IF
+        PERFORM OPTIONS
+        NODLLS-OPTIONS(#I2,*)  := #OPTIONS (*)
+      END-IF
+    VALUE 'LS1'
+      NODLLN-LIST-NAME(#I2)     := D-LIST-NAME
+      NODLLN-DESC (#I2)         := D-LIST-DESC
+    NONE VALUE IGNORE
+  END-DECIDE
+  ES-NUMBER := #I2
+END-IF
+*
+END-SUBROUTINE /* DATA-TO-PDA
+*
+************************************************************************
+DEFINE SUBROUTINE OPTIONS
+************************************************************************
+RESET #OPTIONS(*) #NEW-OPTIONS(*) I
+IF #OPTION3 NE ' '
+  #GR-SUPER.#USERID := D-LIST-NAME
+  #GR-SUPER-E.#USERID-E := D-LIST-NAME
+  #GR-SUPER.#OBJ-NAME := H'00'
+  #GR-SUPER-E.#OBJ-NAME-E := H'FF'
+  FOR #I = 1 TO 4
+    #GR-SUPER.#OBJ-TYPE := #GR-TYPES(#I)
+    #GR-SUPER-E.#OBJ-TYPE-E := #GR-TYPES(#I)
+    FNDNG. FIND NUMBER GRANTS WITH GR-SUPER = #GR-SUPER THRU #GR-SUPER-E
+    IF *NUMBER (FNDNG.) > 0
+      #OPTION3 := ' '
+      ESCAPE BOTTOM
+    END-IF
+  END-FOR
+  IF #OPTION3 > ' '
+    FRP. FIND NUMBER RP WITH R-NATRPT-DIST = D-LIST-NAME
+    IF *NUMBER (FRP.) > 0
+      #OPTION3 := ' '
+    END-IF
+  END-IF
+END-IF
+#OPTIONS(3) := #OPTION3
+INCLUDE NOOPT--C
+*
+END-SUBROUTINE /* OPTIONS
+*
+END

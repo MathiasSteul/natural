@@ -1,0 +1,111 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    GETHOLD
+* Function  Check if ISN is in hold
+* Version   1.3
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+*     89-10-10 s(999999) created by ANDREY (SPL)
+* gw  94-08-30 s(999999) cleanup
+* jvd 98-09-14 p(164220) NAT23
+* xsetggr 05-10-264 p(270950) ISN Fields must be P10, not P8
+* SU1     2015-11-23 NOMALL-1784 avoid NAT1301 (P10->B4/I4 - big ISNs)
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+*
+1 PARM-DBID                          (N5)
+1 PARM-FNR                           (N5)
+1 PARM-ISN                           (P10)
+1 PARM-ADANAME                       (A2)
+1 PARM-RC                            (N4)
+*
+LOCAL
+1 CB-CONTROL-BLOCK                   (A80)
+1 REDEFINE    CB-CONTROL-BLOCK
+  2 CB-FIRST-BYTE                    (B1)
+  2 CB-FILL                          (B1)
+  2 CB-COMMAND                       (A2)
+  2 CB-CID                           (A4)
+  2 CB-FILEID                        (B2)
+  2 REDEFINE    CB-FILEID
+    3 CB-DBID                        (B1)
+    3 CB-FNR                         (B1)
+  2 CB-RSP                           (B2)
+  2 CB-ISN                           (B4)
+  2 CB-ISNL                          (B4)
+  2 CB-FIL2                          (A4)
+  2 CB-FBL                           (B2)
+  2 CB-RBL                           (B2)
+  2 CB-SBL                           (B2)
+  2 CB-VBL                           (B2)
+  2 CB-IBL                           (B2)
+  2 CB-COP1                          (A1)
+  2 CB-FIL                           (A9)
+  2 CB-ADD2                          (A4)
+  2 CB-ADD3                          (A8)
+  2 CB-FILL4                         (A16)
+1 #FILLER1                           (A20)     /* +  20 = 100
+1 FB-FORM-BUFF                       (A3)      /* +   3 = 103
+1 #FILLER02                          (B1)      /* +   1 = 104
+1 SB-FORM-BUFF                       (A3)      /* +   3 = 107
+1 #FILLER03                          (B1)      /* +   1 = 108
+1 RB-REC-BUFF                        (A50)     /* +  50 = 158
+1 REDEFINE    RB-REC-BUFF
+  2 RB-REC-BUFF-CC                   (N9)
+1 VB-REC-BUFF                        (A50)
+1 IS-BUFF                            (A40)
+*
+1 PARM-IND                           (P3)
+1 L1-CID                             (A4)
+1 REDEFINE    L1-CID
+  2 L1-F1                            (A1)
+  2 L1-F2                            (A3)
+*
+1 #FIRST-HEX-30                      (B1) INIT <H'30'>
+1 #ISN                               (P10) /*SU1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+CB-COMMAND := 'L4'
+/*SU1 CB-ISN     := PARM-ISN
+#ISN := PARM-ISN /*SU1 ->
+IF #ISN GE ( 2**31)
+  SUBTRACT (2**32) FROM #ISN
+END-IF
+CB-ISN     := #ISN /*SU1 <-
+CB-COP1    := 'R'
+CB-FBL     := 3
+CB-RBL     := 9
+L1-F1      := 'G'
+L1-F2      := PARM-FNR
+CB-CID     := L1-CID
+*
+* jvd 98-09-14 p(164220) start adding new check for NAT23
+*     currently  ADABAS check if first byte in command    is x'30'
+*     then it knows that it will received DBID and FNR that are
+*     5 bytes in lenght.
+*
+IF PARM-FNR > 255 OR PARM-DBID > 255
+  CB-FIRST-BYTE := #FIRST-HEX-30
+  CB-FILEID     := PARM-FNR
+  CB-RSP        := PARM-DBID
+ELSE
+  CB-FNR  := PARM-FNR
+  CB-DBID := PARM-DBID
+END-IF
+*
+COMPRESS PARM-ADANAME '.' TO  FB-FORM-BUFF LEAVING NO
+*
+CALL 'CMADA' CB-CONTROL-BLOCK FB-FORM-BUFF RB-REC-BUFF
+*
+PARM-RC := CB-RSP
+*
+END

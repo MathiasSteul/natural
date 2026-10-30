@@ -1,0 +1,134 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ----------------------------------------------------------------------
+* Subprogram N-CHKRPJ CHeck Report - JES attributes
+* Version    3.4.1
+* Function   CHeck Report - JES attributes
+*   Extracted from EOMRPM-N and NORPOP-N - one coding for GUI and CUI Ü .
+*
+* Maintenance
+* SU      2013-05-28 created
+* XSETGGR 2005-05-11 NOM31 long records for all spool types
+* xsetggr 2012-08-14 NOMALL-78 disabled maintenance of long records
+* SU1     2016-07-28 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* SU2     2020-02-03 NOMALL-2379 check length: 26 (not 27)
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER
+1 EOM-INDICATOR       (A1)                  /*in: 'E'=EOMRPM-N called
+1 NORP-JES-FILES      (A44/1:10)            /*in:
+1 #ES-MSG-NR          (N4)                  /*out:
+1 #ES-MSG-FIELD-NAME  (A28) BY VALUE RESULT /*out:
+1 #ES-MSG-FIELD-INDEX (N4)  BY VALUE RESULT /*out:
+************************************************************************
+LOCAL
+1 #I                  (I2)
+1 #NUM                (I2)
+1 #NUM2               (I2)
+1 #MAX                (I2)
+1 #TOKENS             (A44/8)
+1 #DDTOK              (A44/3)
+1 #DDLEN              (P2)
+1 #DDNLEN             (P2)
+1 #FROM-DS            (A44)
+1 #TO-DS              (A44)
+1 #TEMP-DS            (A44)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #ES-MSG-NR #ES-MSG-FIELD-NAME #ES-MSG-FIELD-INDEX
+PERFORM CHECK-IT
+IF #ES-MSG-NR NE 0
+  IF #ES-MSG-FIELD-INDEX = 0
+    #ES-MSG-FIELD-INDEX := #I
+  END-IF
+  IF #ES-MSG-FIELD-NAME = ' '
+    #ES-MSG-FIELD-NAME := 'JES-FILES'
+    IF EOM-INDICATOR = 'E' /*called from EOMRPM-N
+      COMPRESS #ES-MSG-FIELD-NAME 'EOMRPM-'
+        TO #ES-MSG-FIELD-NAME LEAVING NO
+    END-IF
+  END-IF
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-IT
+************************************************************************
+#MAX := *OCC (NORP-JES-FILES)
+FOR #I = 1 TO #MAX
+  IF NORP-JES-FILES (#I) = ' '
+    ESCAPE TOP
+  END-IF
+  IF NORP-JES-FILES (#I) = 'TYPE=AL'
+  AND (#I > 1 OR NORP-JES-FILES (2:#MAX) NE ' ')                      /*
+    #ES-MSG-NR := 1116 /* TYPE=AL must be 1. and only Data Set def
+    ESCAPE ROUTINE
+  END-IF
+  IF NORP-JES-FILES (#I) = MASK ('DSN=')
+    ESCAPE TOP
+  END-IF
+  EXAMINE NORP-JES-FILES (#I) FOR ' ' GIVING LENGTH #NUM
+  IF #NUM > 26 /*SU2 was 27
+    #ES-MSG-NR := 1114 /* identification file name too long
+    ESCAPE ROUTINE
+  END-IF
+  SEPARATE NORP-JES-FILES(#I) INTO #TOKENS(*) IGNORE WITH
+    DELIMITER ' ' GIVING NUMBER #NUM
+  IF #NUM > 2
+    #ES-MSG-NR := 1093  /* invalid sysout selection criteria
+    ESCAPE ROUTINE
+  END-IF
+  IF NOT (#TOKENS(1) ='SM' OR='SO' OR='JL' OR='CC' OR='SI')
+    SEPARATE #TOKENS(1) INTO #DDTOK(*) IGNORE
+      WITH DELIMITER '.' GIVING NUMBER #NUM
+    IF #NUM > 3
+      #ES-MSG-NR := 1115
+      ESCAPE ROUTINE
+    END-IF
+    FOR #NUM = 1 TO 3
+      EXAMINE #DDTOK(#NUM) FOR ' ' GIVING LENGTH #DDLEN
+      IF #DDLEN > 9
+        #ES-MSG-NR := 1105  /* token too long
+        ESCAPE ROUTINE
+      END-IF
+    END-FOR
+    ESCAPE TOP
+  END-IF
+  SEPARATE #TOKENS(2) INTO #FROM-DS #TO-DS #TEMP-DS IGNORE
+    WITH DELIMITER ':' GIVING NUMBER #NUM2
+  DECIDE ON FIRST VALUE OF #NUM2
+    VALUE 1
+      IF NOT(#TOKENS(2) IS (N2) OR #TOKENS(2) = '*')
+        #ES-MSG-NR := 1095 /* Dataset number must be numeric
+        ESCAPE ROUTINE
+      END-IF
+    VALUE 2
+      IF ( NOT(#FROM-DS IS (N2))) OR (NOT(#TO-DS IS (N2)))
+        #ES-MSG-NR := 1095
+        ESCAPE ROUTINE
+      END-IF
+      IF #TO-DS < #FROM-DS
+        #ES-MSG-NR := 1096  /* dataset range must be n:n
+        ESCAPE ROUTINE
+      END-IF
+    NONE VALUE
+      #ES-MSG-NR := 1097    /* invalid sysout dataset number
+      ESCAPE ROUTINE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /*CHECK-IT
+*
+END /*N-CHKRPJ

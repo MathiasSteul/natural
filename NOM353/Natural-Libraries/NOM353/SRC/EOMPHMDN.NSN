@@ -1,0 +1,239 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMPHMDN - Fill special attributes for predefined printers                       >
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  93-06-28           created
+* gw  93-11-08 s(999999) move init to lda EOMPHVRE
+* gw  94-03-03 s(999999) CMASPOOL added
+* gw  94-04-14 s(999999) BS2000   added
+* gw  94-10-04 s(999999) WINPM    added
+* gw  94-10-18 s(999999) OS2PM    added
+* mrs 95-07-07 s(999999) ECL      added
+* gw  95-12-20 s(999999) various attributes added
+* gw  96-01-29 s(999999) SYSPRBS2 original attributes
+* gw  96-09-03 s(999999) recataloged - VTAM restart
+* gw  96-09-06 s(999999) WINPM32  added
+* gw  98-05-15 s(277145) recat for change in EOMPHVRE
+* gw  98-05-26 p(171160) recat for change in EOMPHVRE
+* jvd 99-05-26 p(182583) recat for change in EOMPHVRE
+* xsetggr 2002-02-08 p(208312) make using type DUMMY available
+* fhi     2002-06-13 p(225125) add phys printer type EMAIL
+* sju     2002-10-08 NOM221    add phys printer type XML
+* fhi     2003-02-06 p(225241) Get rid of prt type 'DISKUNIX','UNIXLP'
+* sju     2003-05-20 p(240452) restow for changed EOMPHVRE
+* fhi     2004-12-10 NOM3104   Backout p(225241)
+* fhi     2008-06-25 P306560   Reactivate DISKUNIX printer type
+* xsetggr 2008-07-22 p(302947) fill default value for TRAY attribute
+* fhi     2008-11-12 P308274   Change DISKUNIX attributes parm1 -> opt1
+* SPLIAR  2009-03-02 P(308277) RESTOW FOR CHANGED EOMPHVRE
+* Splildav 2009-09-30 P(317741) RESTOW FOR CHANGED EOMPHVRE
+* xsetggr 2010-12-21 NOMALL-865 add printer of type ##PHYS-WRTSPOOL
+* SU1     2013-06-05 NOMALL-1262 remove OS2PM,HPSPOOL,WINPM,WINPM32
+* SU2     2017-10-09 NOMALL-1823 NOM 3.5: remove CONNECT,ECL,XML
+* SU3     2024-03-07 ES-34613    NOM 3.6 Remove power / BS2
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING EOMPHM-P
+************************************************************************
+LOCAL USING EOMPHTYE
+LOCAL USING EOMPHVRE
+LOCAL
+1 #I  (I2)
+1 #K  (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET EOMPHM-JCL-SKELETON EOMPHM-ESCAPE-CHAR
+*
+DECIDE ON FIRST VALUE EOMPHM-PRINTER-TYPE
+/*SU3 VALUE ##PHYS-SYSPR-PWR    PERFORM ATTRIBUTES-SYSPR-PWR
+  VALUE ##PHYS-SYSPR-JES    PERFORM ATTRIBUTES-SYSPR-JES
+/*SU3  VALUE ##PHYS-TAPE-VSE     PERFORM ATTRIBUTES-TAPE-VSE
+  VALUE ##PHYS-TAPE-MVS     PERFORM ATTRIBUTES-TAPE-MVS
+  VALUE ##PHYS-DISK-MVS     PERFORM ATTRIBUTES-DISK-MVS
+  VALUE ##PHYS-NAF          PERFORM ATTRIBUTES-NAF
+  VALUE ##PHYS-CMASPOOL     PERFORM ATTRIBUTES-CMASPOOL
+  VALUE ##PHYS-UNIXLP       PERFORM ATTRIBUTES-UNIXLP
+  VALUE ##PHYS-NATUNIX      PERFORM ATTRIBUTES-NATUNIX
+  VALUE ##PHYS-DISKUNIX     PERFORM ATTRIBUTES-DISKUNIX
+/*SU3  VALUE ##PHYS-BS2          PERFORM ATTRIBUTES-BS2
+  VALUE ##PHYS-EMAIL        PERFORM ATTRIBUTES-EMAIL
+  VALUE ##PHYS-WRTSPOOL PERFORM ATTRIBUTES-WRTSPOOL
+  VALUE ##PHYS-DUMMY IGNORE
+  ANY
+    IF NOT ( EOMPHM-PRINTER-TYPE = ##PHYS-CMASPOOL OR=##PHYS-NAF
+    OR=##PHYS-UNIXLP OR=##PHYS-NATUNIX OR=##PHYS-DISKUNIX             /*
+    OR=##PHYS-EMAIL OR=##PHYS-WRTSPOOL)                               /*
+      EOMPHM-ESCAPE-CHAR := '&'
+    END-IF
+  NONE  PERFORM ATTRIBUTES-VTAM
+*
+END-DECIDE
+IF EOMPHM-PRINTER-TYPE = ##PHYS-DUMMY
+  #I:=##PHYS-MAX-TYPES
+ELSE
+  EXAMINE ##PHYS-TYPES (*) FOR EOMPHM-PRINTER-TYPE GIVING INDEX #I
+END-IF
+IF #I NE 0
+  EOMPHM-PRINT-PGM := ##PHYS-PRINT-PGM (#I)
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE ATTRIBUTES-EMAIL
+************************************************************************
+RESET  EOMPHM-JCL-SKELETON EOMPHM-ESCAPE-CHAR EOMPHM-ATTRIBUTES (*)
+FOR #I 1 #EMAIL-VARS
+  EOMPHM-ATTR-IDENT (#I) := #I
+  EOMPHM-ATTR-L-P-V (#I) := #EMAIL-L-P-V (#I)
+END-FOR
+*
+END-SUBROUTINE /* ATTRIBUTES-EMAIL
+*
+/*SU3 DEFINE SUBROUTINE ATTRIBUTES-BS2
+/*SU3 DEFINE SUBROUTINE ATTRIBUTES-SYSPR-PWR
+/*SU3 DEFINE SUBROUTINE ATTRIBUTES-TAPE-VSE
+*
+************************************************************************
+DEFINE SUBROUTINE ATTRIBUTES-SYSPR-JES
+************************************************************************
+EOMPHM-JCL-SKELETON := 'SYSPRJES'
+RESET EOMPHM-ATTRIBUTES (*)
+FOR #I 1 #JES-VARS
+  EOMPHM-ATTR-IDENT (#I) := #I
+  EOMPHM-ATTR-L-P-V (#I) := #JES-L-P-V (#I)
+END-FOR
+*
+END-SUBROUTINE /* ATTRIBUTES-SYSPR-JES
+*
+************************************************************************
+DEFINE SUBROUTINE ATTRIBUTES-VTAM
+************************************************************************
+RESET  EOMPHM-JCL-SKELETON EOMPHM-ESCAPE-CHAR EOMPHM-ATTRIBUTES (*)
+FOR #I 1 #VTAM-VARS
+  EOMPHM-ATTR-IDENT (#I) := #I
+  EOMPHM-ATTR-L-P-V (#I) := #VTAM-L-P-V (#I)
+  DECIDE ON FIRST VALUE EOMPHM-ATTR-VAR (#I)
+    VALUE 'CONTROL'
+      EOMPHM-ATTR-DEFAULT (#I) := 'YES'
+    VALUE 'FEED-BEFORE'
+      EOMPHM-ATTR-DEFAULT (#I) := '0'
+    VALUE 'FEED-AFTER'
+      EOMPHM-ATTR-DEFAULT (#I) := '0'
+    VALUE 'TRACE'
+      EOMPHM-ATTR-DEFAULT (#I) := 'NO'
+    NONE IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* ATTRIBUTES-VTAM
+*
+************************************************************************
+DEFINE SUBROUTINE ATTRIBUTES-TAPE-MVS
+************************************************************************
+EOMPHM-JCL-SKELETON := 'TAPEMVS'
+RESET EOMPHM-ATTRIBUTES (*)
+FOR #I 1 #TAPEMVS-VARS
+  EOMPHM-ATTR-IDENT (#I) := #I
+  EOMPHM-ATTR-L-P-V (#I) := #TAPEMVS-L-P-V (#I)
+END-FOR
+*
+END-SUBROUTINE /* ATTRIBUTES-TAPE-MVS
+*
+************************************************************************
+DEFINE SUBROUTINE ATTRIBUTES-DISK-MVS
+************************************************************************
+EOMPHM-PRINT-PGM    := 'RMPRWKF'
+EOMPHM-JCL-SKELETON := 'DISKMVS'
+RESET EOMPHM-ATTRIBUTES (*)
+FOR #I 1 #DISKMVS-VARS
+  EOMPHM-ATTR-IDENT (#I) := #I
+  EOMPHM-ATTR-L-P-V (#I) := #DISKMVS-L-P-V (#I)
+END-FOR
+*
+END-SUBROUTINE /* ATTRIBUTES-DISK-MVS
+*
+************************************************************************
+DEFINE SUBROUTINE ATTRIBUTES-NAF
+************************************************************************
+RESET EOMPHM-ATTRIBUTES (*) EOMPHM-JCL-SKELETON EOMPHM-ESCAPE-CHAR
+FOR #I 1 #NAF-VARS
+  EOMPHM-ATTR-IDENT (#I) := #I
+  EOMPHM-ATTR-L-P-V (#I) := #NAF-L-P-V (#I)
+END-FOR
+*
+END-SUBROUTINE /* ATTRIBUTES-NAF
+*
+************************************************************************
+DEFINE SUBROUTINE ATTRIBUTES-CMASPOOL
+************************************************************************
+RESET EOMPHM-ATTRIBUTES (*) EOMPHM-JCL-SKELETON EOMPHM-ESCAPE-CHAR
+FOR #I 1 #CMA-VARS
+  EOMPHM-ATTR-IDENT (#I) := #I
+  EOMPHM-ATTR-L-P-V (#I) := #CMA-L-P-V (#I)
+END-FOR
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE ATTRIBUTES-UNIXLP
+************************************************************************
+RESET EOMPHM-ATTRIBUTES (*) EOMPHM-JCL-SKELETON EOMPHM-ESCAPE-CHAR
+FOR #I 1 #UNIXLP-VARS
+  EOMPHM-ATTR-IDENT (#I) := #I
+  EOMPHM-ATTR-L-P-V (#I) := #UNIXLP-L-P-V (#I)
+END-FOR
+*
+END-SUBROUTINE /* ATTRIBUTES-UNIXLP
+*
+************************************************************************
+DEFINE SUBROUTINE ATTRIBUTES-NATUNIX
+************************************************************************
+RESET EOMPHM-ATTRIBUTES (*) EOMPHM-JCL-SKELETON EOMPHM-ESCAPE-CHAR
+FOR #I 1 #NATUNIX-VARS
+  EOMPHM-ATTR-IDENT (#I) := #I
+  EOMPHM-ATTR-L-P-V (#I) := #NATUNIX-L-P-V (#I)
+END-FOR
+*
+END-SUBROUTINE /* ATTRIBUTES-NATUNIX
+*
+************************************************************************
+DEFINE SUBROUTINE ATTRIBUTES-DISKUNIX
+************************************************************************
+RESET EOMPHM-ATTRIBUTES (*) EOMPHM-JCL-SKELETON EOMPHM-ESCAPE-CHAR
+FOR #I 1 #DISKUNIX-VARS
+  EOMPHM-ATTR-IDENT (#I) := #I
+  EOMPHM-ATTR-L-P-V (#I) := #DISKUNIX-L-P-V (#I)
+END-FOR
+*
+END-SUBROUTINE /* ATTRIBUTES-DISKUNIX
+*
+************************************************************************
+DEFINE SUBROUTINE ATTRIBUTES-WRTSPOOL
+************************************************************************
+RESET EOMPHM-ATTRIBUTES (*) EOMPHM-JCL-SKELETON EOMPHM-ESCAPE-CHAR #K
+/*SU3 -> IF *OPSYS = MASK('VSE') FOR #I = 6 TO #WRTSPL-VARS ADD 1 TO #K
+/*EOMPHM-ATTR-IDENT (#K) := #K EOMPHM-ATTR-L-P-V (#K):=#WRTSPL-L-P-V(#I)
+/*SU3 <-  END-FOR ELSE
+FOR #I = 1 TO 10
+  ADD 1 TO #K
+  EOMPHM-ATTR-IDENT (#K) := #K
+  EOMPHM-ATTR-L-P-V (#K) := #WRTSPL-L-P-V (#I)
+END-FOR
+/*SU3 END-IF
+*
+END-SUBROUTINE /* ATTRIBUTES-WRTSPOOL
+*
+END

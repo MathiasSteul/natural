@@ -1,0 +1,485 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDEFEM - Define events for monitor emails * (Template:RDEFEM)
+*
+* Maintenance
+* uuuuuu yyyy-mm-dd iTrac       Comment
+* fhi    2015-10-14 NOMALL-1934 created
+* SU1    2017-10-12 ISN:I4 -> P10
+* fhi    2018-01-05 NOMALL-1917 add internal node id, enter long fields
+* fhi    2018-01-05             no tags, partly rewritten
+* SU2    2018-02-12             Node optional+act. help node&CP
+* SU3    2018-03-26             NOM 3.5: remove 'INTERNAL-NODE-ID'
+* SU4    2018-12-18 EM-EMAIL-NODE+EM-REMOTE-CODEPAGE no longer on map -
+*                   unused coding Ü deactivate help for NODE.
+* fhi    2019-02-08 NOMALL-2151 Show correct header in map
+* SU5    2019-08-26 NOMALL-2314 help for member+positioning+...
+*                   NOMALL-2311 email adress:no check+store always (a)
+*                   NOMALL-2317 add test function (PF9)
+* SU6    2019-11-14 NOMALL-2317 test: show msg name
+* BLI    2020-05-07 NOMALL-2309 access rights Monitor System Defaults
+* SU7    2022-03-03 NOMALL-2536 use correct msg nr+get rid of add screen
+* ------------------ ---------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+*
+LOCAL USING RPFK---L
+LOCAL USING VEMAIL-L
+LOCAL USING RMSETSTE
+LOCAL USING XXEMAILP
+*
+LOCAL
+1 L-HEADER                  (A78)
+1 L-EMAIL-ISN               (P10)
+1 CV-MAP                    (C) INIT <(AD=I CD=NE)>
+1 CV-#EVENT                 (C) INIT <(AD=IP CD=NE)>
+1 #FUNC                     (A1) /* D)isplay, M)odify, A(dd
+1 #FATHER-PROG              (A8) INIT <'RLISEM'>
+1 #MONITOR-ID               (A20)
+1 REDEFINE #MONITOR-ID
+  2 #PREF                   (A2) /*prefix 'E-'
+  2 #EVENT                  (A16)
+1 #LAST-MOD                 (A40)
+1 #X                        (A1/5) /* Only position in map
+1 #ERC                      (N4)
+1 #POS                      (I4)   /* position of field
+1 #ERT                      (A250)
+1 #ERT2                     (A250)
+1 #FROM-CONT                (A3/2)
+1 #RECIP-CONT               (A3/3)
+1 #LEN                      (I4)
+1 #I                        (I4)
+1 #OLD-MEM                  (A8)
+1 #OLD-LIB                  (A8)
+1 #MEMBER-TYPE              (A8)
+1 #PROG                     (A8) INIT <*PROGRAM>
+1 #CURS-FIELD               (I4)
+1 #A8                       (A8)
+1 #MF                       (L)
+1 #CONFIRM                  (A1)
+1 #I1                       (I2)
+1 #I2                       (I2)
+1 #I3                       (I2)
+1 #TAB                      (A70/1:50)
+1 #TAB1                     (A7)
+1 REDEFINE #TAB1
+  2 #TAB1_A3                (A3)
+  2 #TAB1_A4                (A4)
+1 #EXTENDED-MSG             (A250/1:3) /*750
+1 REDEFINE #EXTENDED-MSG
+  2 #EXT-MSG                (A72/1:10)
+1 #FROM-TXT                 (A25)
+1 #MSG-APOS                 (A30/1:2) CONST (V)
+  <'NOM0005 '' not allowed.'
+  ,'NOM0005 '' nicht erlaubt.'>
+1 #ALLOWED                  (L)             /* BLI NOMALL-2309
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE WINDOW #TEST SIZE 8 * 54 BASE 3/15 FRAMED
+DEFINE WINDOW #TEST-ERR SIZE 14 * 79 BASE 3/1 CONTROL SCREEN
+*
+PERFORM INIT-PFKEYS
+PERFORM SET-PFKEYS
+*
+INPUT G-C-FUNC / #MONITOR-ID
+IF G-LANGUAGE NE *LANGUAGE /*PF10 may changed it
+  *LANGUAGE := G-LANGUAGE
+END-IF
+*
+RESET G-COMMIT
+#PREF := 'E-'
+*
+#FUNC := G-C-FUNC
+FIND-LOOP. REPEAT
+  DECIDE ON EVERY VALUE OF #FUNC
+    VALUE 'D','M'
+      IF #FUNC = 'M'                           /* BLI NOMALL-2309 start
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'MMO' #ALLOWED /* Mofify
+      ELSE
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'DMO' #ALLOWED /* Display
+      END-IF
+      INCLUDE C-NALLOW                         /* BLI NOMALL-2309 end
+      IF L-EMAIL-ISN = 0
+        FIND (1) EMAIL-EVENTS WITH EM-MONITOR-ID = #MONITOR-ID
+          IF NO RECORDS FOUND
+            G-NATRP-ERC := 2064 /*Email Message does not exist SU7
+/*SU7       #ERC := 2024
+            INCLUDE C-ESCAPE
+          END-NOREC
+          L-EMAIL-ISN := *ISN
+        END-FIND
+      END-IF
+    VALUE 'M'
+      PERFORM UPDATE-EMAIL
+    VALUE 'D'
+      CV-MAP := (AD=IP)
+      PERFORM INPUT-EMAIL
+    VALUE 'A' /* Add                           /* BLI NOMALL-2309 below
+      CALLNAT 'NARPSEC' G-USER-PROFILE 'MMO' #ALLOWED /* Modify rights
+      INCLUDE C-NALLOW                         /* BLI NOMALL-2309 end
+      CV-#EVENT := (AD=I)
+      EM-LAST-UPDATE      := *TIMX
+      EM-LAST-UPDATE-USER := G-USERID
+*     EM-MONITOR-ID       := #MONITOR-ID /* #EVENT empty Ü
+      STORE1. STORE EMAIL-EVENTS
+      L-EMAIL-ISN := *ISN (STORE1.)
+      PERFORM UPDATE-EMAIL
+    NONE VALUE
+      INCLUDE C-ESCAPE
+  END-DECIDE
+  DECIDE ON FIRST VALUE OF G-PF-FUNC /* #PF-KEY
+    VALUE ##PFK-COMMIT /*'PF5'
+      IF G-COMMIT /* AND G-PF-FUNC = 'DO'
+        RESET G-MAP-MODIFIED
+        INCLUDE C-COMMIT
+        RESET G-COMMIT G-HOLD-TIME
+        #ERC := 15
+      END-IF
+    VALUE ##PFK-BACKOUT /*'PF6'
+      BACKOUT TRANSACTION
+      #ERC := 16
+      RESET G-MAP-MODIFIED G-COMMIT G-HOLD-TIME L-EMAIL-ISN EMAIL-EVENTS
+      RESET INITIAL CV-MAP CV-#EVENT
+      #FUNC := G-C-FUNC /* 'M' -> 'A'
+      IF #FUNC = 'A'
+        RESET #EVENT
+      END-IF
+    VALUE 'ENTR'
+      IGNORE
+    NONE
+      IF G-C-FUNC = 'A' AND #EVENT = ' '
+        BACKOUT TRANSACTION
+      END-IF
+      INCLUDE C-ESCAPE
+  END-DECIDE
+*
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-EMAIL
+************************************************************************
+GETEM. GET EMAIL-EVENTS L-EMAIL-ISN
+PERFORM INPUT-EMAIL
+IF (G-PF-FUNC ='ENTR' OR=##PFK-COMMIT) AND CV-MAP MODIFIED /*#PF-KEY=PF5
+  EM-LAST-UPDATE      := *TIMX
+  EM-LAST-UPDATE-USER := G-USERID
+  UPDATE (GETEM.)
+  #ERC := 32
+  G-COMMIT := TRUE
+END-IF
+*
+END-SUBROUTINE /* UPDATE-EMAIL
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-NEW
+************************************************************************
+IF #EVENT = ' ' /*SU7
+  #ERC := 2020 /*Please enter field.
+  #POS := POS(#EVENT)
+  ESCAPE TOP
+END-IF
+/*Check first name before second screen: SU7 moved here
+FIND-NUM. FIND NUMBER EMAIL-EVENTS WITH EM-MONITOR-ID = #MONITOR-ID
+IF *NUMBER(FIND-NUM.) > 0
+  #ERC := 2065 /*Email Message already exists SU7 was 2022
+  #POS := POS(#EVENT)
+  ESCAPE TOP
+END-IF
+#FUNC := 'M'
+RESET INITIAL CV-#EVENT /*protect
+EM-MONITOR-ID := #MONITOR-ID
+*
+END-SUBROUTINE /* CHECK-NEW
+*
+************************************************************************
+DEFINE SUBROUTINE INPUT-EMAIL
+************************************************************************
+CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDEFEMM&'
+CALLNAT 'N-HEAD2' EM-LAST-UPDATE-USER EM-LAST-UPDATE
+  #LAST-MOD G-DATE-FORMAT
+*
+#EVENT := SUBSTR(#MONITOR-ID,3)
+IF #OLD-LIB = ' '
+  #OLD-LIB := EM-EMAIL-LIBRARY
+  #OLD-MEM := EM-EMAIL-MEMBER
+END-IF
+#REP. REPEAT
+/* Prepare screen:
+  IF *MACHINE-CLASS = 'MAINFRAME'
+    #MF := TRUE
+    IF *LANGUAGE = 2
+      #FROM-TXT := 'Absendername .........'
+    ELSE
+      #FROM-TXT := 'Sender name ..........'
+    END-IF
+  ELSE
+    IF *LANGUAGE = 2
+      #FROM-TXT := 'Von E-Mail-Adresse ...'
+    ELSE
+      #FROM-TXT := 'From email address ...'
+    END-IF
+  END-IF
+  RESET #X(*)
+  FOR #I = 1 TO 2
+    IF EM-EMAIL-FROM-REPLY (#I) = H'01' /* empty status
+      RESET EM-EMAIL-FROM-REPLY (#I)
+    END-IF
+    EXAMINE EM-EMAIL-FROM-REPLY (#I) FOR 'X' GIVING LENGTH #LEN
+    IF #LEN > 48
+      #FROM-CONT (#I) := '-->'
+    ELSE
+      RESET #FROM-CONT (#I)
+    END-IF
+  END-FOR
+  FOR #I = 1 TO 3
+    IF EM-EMAIL-RECIPIENTS (#I) = H'01' /* empty status
+      RESET EM-EMAIL-RECIPIENTS (#I)
+    END-IF
+    EXAMINE EM-EMAIL-RECIPIENTS (#I) FOR 'X' GIVING LENGTH #LEN
+    IF #LEN > 48
+      #RECIP-CONT (#I) := '-->'
+    ELSE
+      RESET #RECIP-CONT (#I)
+    END-IF
+  END-FOR
+*
+  IF #POS = 0
+    #POS := POS(G-DIRECT-COMMAND) /*15 /* command line
+  END-IF
+  INPUT WITH TEXT *#ERC,#ERT,#ERT2 MARK #POS USING MAP 'RDEFEMM&'
+*
+/* Control PF-KEYs
+  RESET #ERC #ERT #ERT2 #POS
+  INCLUDE C-DIRECT
+  INCLUDE RPFKVA-C
+  DECIDE ON FIRST VALUE OF G-PF-FUNC
+    VALUE ##PFK-HELP /*'PF1'
+      REINPUT USING HELP
+    VALUE ##PFK-EXIT,##PFK-BACKOUT /*'PF3','PF6'
+      ESCAPE ROUTINE
+    VALUE ##PFK-EDIT /*'PF10'
+      PERFORM EDIT-MEM
+    VALUE 'ENTR' /*    Enter long fields:
+      DECIDE FOR EVERY CONDITION
+        WHEN #X(3) NE ' ' OR *CURS-LINE =  9 /* recipients
+          CALLNAT 'XXLONG' '1056' EM-EMAIL-RECIPIENTS (1)
+            CV-MAP 1X TRUE G-MAP-MODIFIED
+        WHEN #X(4) NE ' ' OR *CURS-LINE = 10 /* cc recipients
+          CALLNAT 'XXLONG' '1057' EM-EMAIL-RECIPIENTS (2)
+            CV-MAP 1X TRUE G-MAP-MODIFIED
+        WHEN #X(5) NE ' ' OR *CURS-LINE = 11 /* bcc recipients
+          CALLNAT 'XXLONG' '1058' EM-EMAIL-RECIPIENTS (3)
+            CV-MAP 1X TRUE G-MAP-MODIFIED
+        WHEN #X(1) NE ' ' OR *CURS-LINE = 12 /* from
+          CALLNAT 'XXLONG' '1054' EM-EMAIL-FROM-REPLY (1)
+            CV-MAP 1X TRUE G-MAP-MODIFIED
+        WHEN #X(2) NE ' ' OR *CURS-LINE = 13 /* reply
+          CALLNAT 'XXLONG' '1055' EM-EMAIL-FROM-REPLY (2)
+            CV-MAP 1X TRUE G-MAP-MODIFIED
+        WHEN NONE IGNORE
+      END-DECIDE
+    NONE IGNORE
+  END-DECIDE
+*
+  IF #FUNC = 'D'
+    ESCAPE ROUTINE
+  END-IF
+************************************************************************
+* Field Validations
+************************************************************************
+  IF #FUNC = 'A'
+    PERFORM CHECK-NEW
+  END-IF
+  IF NOT (EM-EMAIL-EVENTS (*) NE ' ')
+    EM-EMAIL-EVENTS (1) := 'NAT3*;NOM7018;NOM7019'
+  END-IF
+  IF EM-EMAIL-LIBRARY = ' '
+    CALLNAT 'RGETLIB' EM-EMAIL-LIBRARY
+    COMPRESS EM-EMAIL-LIBRARY 'U' TO EM-EMAIL-LIBRARY LEAVING NO
+  END-IF
+  DECIDE FOR FIRST CONDITION
+    WHEN #EVENT = ' '
+      #POS := POS(#EVENT) /*1
+    WHEN EM-CHECK-PERIOD > 2880
+      #ERC := 2060
+      #POS := POS(EM-CHECK-PERIOD) /*1
+    WHEN EM-EMAIL-SUBJECT = ' '
+      #POS := POS(EM-EMAIL-SUBJECT) /*3
+    WHEN EM-EMAIL-RECIPIENTS (1) = ' ' OR = H'01'
+      #POS := POS(#X(3))
+    WHEN EM-EMAIL-MEMBER = ' '
+      #POS := POS(EM-EMAIL-MEMBER) /*11
+    WHEN ANY
+      IF #ERC = 0
+        #ERC := 2020 /*NOM2020 Please enter field.
+      END-IF
+      ESCAPE TOP
+    WHEN NONE IGNORE
+  END-DECIDE
+  PERFORM CHECK-EVENTS
+  PERFORM CHECK-MEM
+  EXAMINE EM-EMAIL-RECIPIENTS (*) FOR '§' REPLACE '(a)'
+  EXAMINE EM-EMAIL-FROM-REPLY (*) FOR '§' REPLACE '(a)'
+  IF NOT #MF AND (EM-EMAIL-RECIPIENTS (1) =' ' OR=H'01')
+    #ERC := 2056 /*Please enter a valid email address.
+    #POS := POS(#X(5))
+    ESCAPE TOP
+  END-IF
+  IF #MF AND (EM-EMAIL-FROM-REPLY (1) = SCAN '''')
+    #ERC := 5 /*:1:
+    #ERT := #MSG-APOS (G-LANGUAGE)
+    #POS := POS(#X(1)) /*' not allowed
+    ESCAPE TOP
+  END-IF
+/*IF (EM-EMAIL-FROM-REPLY (1) = ' ' OR=H'01')
+/*  #ERC := 2056 /*Please enter a valid email address.
+/*  #POS := POS(#X(1))
+/*  ESCAPE TOP END-IF
+  FOR #I = 1 TO 2
+    IF EM-EMAIL-FROM-REPLY (#I) = SCAN(';') /* only one address
+      #ERC := 2067 /*Please enter only one email address.
+      #POS := POS(#X(1))
+      ESCAPE BOTTOM
+    END-IF
+  END-FOR
+  IF #POS NE 0
+    ESCAPE TOP
+  END-IF
+* Test after all checks:
+  IF G-PF-FUNC = ##PFK-TEST
+    PERFORM TEST-SEND
+  END-IF
+  UNTIL #ERC = 0
+END-REPEAT /*(#REP.)
+*
+END-SUBROUTINE /* INPUT-EMAIL
+*
+************************************************************************
+DEFINE SUBROUTINE EDIT-MEM
+************************************************************************
+#CURS-FIELD := *CURS-FIELD
+PERFORM S-SEPEDT #PROG #POS #POS #A8 #POS #A8 #POS #POS
+  EM-EMAIL-MEMBER EM-EMAIL-LIBRARY 1X #FUNC #MONITOR-ID 1X
+IF G-NATRP-ERC NE 0
+  #POS := POS(EM-EMAIL-MEMBER)
+  #ERC := G-NATRP-ERC
+  #ERT := G-NATRP-ERT
+END-IF
+ESCAPE TOP
+*
+END-SUBROUTINE /* EDIT-MEM
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-MEM
+************************************************************************
+IF EM-EMAIL-LIBRARY NE #OLD-LIB OR EM-EMAIL-MEMBER NE #OLD-MEM
+  CALLNAT 'N-LISMEM' EM-EMAIL-LIBRARY EM-EMAIL-MEMBER
+    #MEMBER-TYPE G-NATRP-ERC G-NATRP-ERT
+  IF G-NATRP-ERC = 1070 /*nothing selected
+    RESET #ERC #ERT
+    EM-EMAIL-LIBRARY := #OLD-LIB
+    EM-EMAIL-MEMBER  := #OLD-MEM
+  ELSE
+    G-MAP-MODIFIED := TRUE
+  END-IF
+  #OLD-LIB := EM-EMAIL-LIBRARY
+  #OLD-MEM := EM-EMAIL-MEMBER
+  IF G-NATRP-ERC = 1052 /*=nothing found
+    #ERC := 1079 /*NOM1079 Library or member not found :1:.
+    #ERT := EM-EMAIL-MEMBER
+    #POS := POS(EM-EMAIL-MEMBER)
+    ESCAPE TOP /*(#REP.)
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CHECK-MEM
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-EVENTS /*see RMEMAIL
+************************************************************************
+#EV. FOR #I3=1 TO *OCC(EM-EMAIL-EVENTS)
+  SEPARATE EM-EMAIL-EVENTS(#I3) INTO #TAB(*) IGNORE WITH DELIMITERS ' ;'
+    GIVING NUMBER #I2
+  FOR #I1=1 TO #I2
+    #TAB1 := #TAB(#I1)
+    EXAMINE #TAB1 TRANSLATE INTO UPPER
+    IF NOT (#TAB1_A3 ='NOM' OR='NAT') OR NOT (#TAB1_A4 =MASK('*')
+    OR=MASK(9'*') OR=MASK(99'*') OR=MASK(999'*') OR=MASK(9999))       /*
+      #ERC := 2057 /*NOM2057 Must contain NOMnnnn or NATnnnn / NATn*
+      #POS := POS(EM-EMAIL-EVENTS (1)) /*12
+      ESCAPE BOTTOM (#EV.)
+    END-IF
+  END-FOR
+END-FOR
+IF #ERC NE 0
+  ESCAPE TOP /*(#REP.)
+END-IF
+*
+END-SUBROUTINE /* CHECK-EVENTS
+*
+************************************************************************
+DEFINE SUBROUTINE TEST-SEND
+************************************************************************
+INPUT WINDOW='#TEST' USING MAP 'RDEFEMS&'
+IF #CONFIRM NE 'Y' OR *PF-KEY='PF3'
+  ESCAPE TOP /*(#REP.)
+END-IF
+*
+/*EXPAND ARRAY #EM-EMAIL-BODY (*) TO (1:1)
+REDUCE ARRAY #EM-EMAIL-BODY (*) TO 0
+#EM-FUNCTION      := 'T' /*Send Natural member with array + Test
+#EM-SUBJECT       := EM-EMAIL-SUBJECT
+#EM-FROM-NAME     := EM-EMAIL-FROM-REPLY (1)
+#EM-REPLY-TO      := EM-EMAIL-FROM-REPLY (2)
+#EM-RECIPIENTS    := EM-EMAIL-RECIPIENTS (1)
+#EM-CC-RECIPIENTS := EM-EMAIL-RECIPIENTS (2)
+#EM-BCC-RECIPIENTS:= EM-EMAIL-RECIPIENTS (3)
+#EM-EMAIL-LIBRARY := EM-EMAIL-LIBRARY
+#EM-EMAIL-MEMBER  := EM-EMAIL-MEMBER
+#EM-MSG-NAME      := #EVENT
+COMPRESS '&LAST=' *DAT4I ',' *TIME TO #EM-VARIABLES LEAVING NO
+/*#EM-EMAIL-BODY (1) := 'Test Test Test &MESSAGES' /*&MESSAGES
+/*#EM-TRACING :=
+CALLNAT 'XXEMAIL' #EM-PARAMS #EXTENDED-MSG (*)
+IF #EM-ERROR-CODE = 0
+  #ERC  := 1576 /*Email sent to :1: with subject :2:
+  #ERT  := #EM-RECIPIENTS
+  COMPRESS '''' #EM-SUBJECT '''' TO #ERT2 LEAVING NO
+  ESCAPE TOP /*(#REP.)
+END-IF
+* ESY Error: NOM1577 Email to :1: failed with :2:
+#ERC := 5
+#ERT := #EM-ERROR-TEXT
+INPUT WINDOW='#TEST-ERR' WITH TEXT *#ERC,#ERT USING MAP 'RDEFEME&'
+ESCAPE TOP /*(#REP.)
+*
+END-SUBROUTINE /* TEST-SEND
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFCOM-C
+IF G-C-FUNC NE 'D'
+  INCLUDE RPFEDT-C /*PF10=Edit
+END-IF
+INCLUDE RPFTST-C /*PF9=Test
+RESET G-PF-KEYS (12) G-PF-KEYS (24) G-PF-KEYS (4) G-PF-KEYS (16)
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+INCLUDE RPFSET-C /*set-pfkeys
+*
+END

@@ -1,0 +1,1317 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 5
+* <Natural Source Header
+* RTRARP  - Trace processing of a job's sysout dataset
+*
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-05-13 s(999999) rewritten
+* mrs 93-05-13 s(999999) show correct mask
+* mrs 93-10-26 s(999999) add steplib corrected
+* mrs 93-12-17 s(999999) some api fields not filled
+* mrs 94-03-04 s(999999) BS2
+* mrs 94-11-04 s(212611) check for p-repname = blank
+* gw  98-08-03 p(172644) account for newpage x'81' EBCDIC CC
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* jvd 99-04-21 p(181377) NAT1305 when > 10m lines
+* fhi 00-03-03 S(192651) Line length > 253 not stored in DB
+* sju 00-03-24 p(191368) use N-HEADER instead of C-HEADER
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* fhi     2003-07-29 P(227985) Clear unused modules
+* xsetggr 03-11-27 p(246658) correct existance check of steplib
+* fhi     2005-04-14   NOM3107 Added Support for 7 byte jobnumbers
+* fhi     2005-06-23 p(266530) Make Monitor NPR Mainframe independent
+* xsetggr 2005-11-28 p(271774) tolerate more than 40 Power segments
+*                              (only 40 will be traced)
+* xsetggr 2007-05-02 NOM3201   support 5 byte node numbers
+* xsetggr 2007-09-04 NOM3201   support P11 format run numbers
+* xsetggr 2007-11-19 NRT2766   correct adding of steplib
+* xsetggr 2008-01-15 p(300297) record lemgth of some ESY views is N5
+* xsetggr 2009-02-24 P300323   make steplib handling unix compliant
+* xsetggr 2010-11-29 NOMALL-908
+* raya    2011-12-29 nomall-98 check member to avoid err 82
+* raya    2013-01-09 NOMALL-1214 check cat date of user exit
+* raya    2013-01-09 NOMALL-1214 check cat date of user exit
+* SU1     2014-08-14 NOMALL-1447 TEST files > 16k - only restruct
+* SU2    2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU3     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* SU4     2016-08-02 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* fhi     2017-01-18 NOMALL-1916 Use binary NPR RECORD* fields
+* fhi     2017-01-27 NOMALL-1961 Show node name in errors
+* fhi     2017-07-11 NOMALL-2021 NPR error: use RECORD temporarily ÜÜÜ
+* SU5     2019-12-03 NOMALL-2358 sep. exit called with empty line
+* SU6     2020-05-18 NOMALL-2349 use N-CHKCAT
+* SU7     2021-07-26 NOMALL-2480 BS2: show correct map(not JES2)
+* SU8/BLI 2021-10-15 ES-31134    Unix:BS2:use ESA transl/no hex
+* SU9     2021-10-27 NOMALL-2504 update time on map
+* SU10    2024-03-07 ES-34613    NOM 3.6 Remove power / BS2
+************************************************************************
+*
+DEFINE DATA GLOBAL USING NRM-GL
+INDEPENDENT
+1 +NOD-CURRENT-NAME           (A16)
+1 +G-RLISRP-SEL-REPNAME       (A25)
+*
+LOCAL USING RCCTYP-E
+LOCAL USING RMSR---E
+LOCAL USING RMSR---L
+LOCAL USING RLC----L
+LOCAL USING RPFK---L
+LOCAL USING ROT----L
+LOCAL USING RMGT---P
+LOCAL USING RTRACPSP
+/*SU10 LOCAL USING RMPWRL-P
+LOCAL USING P-UEXIT
+LOCAL USING SAT00009
+*
+LOCAL
+1 TEMP-REPORT-CONTENTS VIEW OF NRM-REPORT-CONTENTS
+  2 AC-REPNAME
+  2 AC-REPRNB
+  2 AC-SEQNO
+  2 C*AC-INSERTED-LINE
+1 REPORT-CONTENTS VIEW OF NRM-REPORT-CONTENTS
+  2 AC-REPNAME
+  2 AC-REPRNB
+  2 AC-SEQNO
+  2 AC-INSERTED-LINE       (1:10)
+  2 AC-CONTENTS-N9
+    3 AC-FROM-LINE-N9      (1:99)
+    3 AC-TO-LINE-N9        (1:99)
+  2 AC-OBJECT-TYPE
+  2 AC-OBJECT-TIME
+1 READ-FILE VIEW OF READ-FILE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD-NUMBER
+  2 RECORD-LENGTH
+  2 RECORD /*not used, but must defined to get HEX fields filled
+  2 RECORD-HEX1
+  2 RECORD-HEX2
+  2 RECORD-HEX3
+  2 SEGMENT-LENGTH
+  2 SEGMENT-NUMBER
+1 READ-FILE-ESA VIEW OF READ-FILE /*without HEX Ü SU8
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD-NUMBER
+  2 RECORD-LENGTH
+  2 RECORD
+  2 SEGMENT-LENGTH
+  2 SEGMENT-NUMBER
+1 SYSOUT VIEW OF READ-SPOOL
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 RECORD-NUMBER
+  2 RECORD-LENGTH
+  2 RECORD /*not used, but must defined to get HEX fields filled
+  2 RECORD-HEX1
+  2 RECORD-HEX2
+  2 RECORD-HEX3
+1 SYSTEM-INFO VIEW OF SYSTEM-INFO
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 SPOOL-TYPE
+  2 SYSTEM-TYPE /*SU7
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-ID
+  2 SR-TYPE
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-CC-TYPE
+  2 SR-REMOTE-CODEPAGE
+  2 SR-RECORD-LENGTH
+  2 SR-NUMBER-OF-LINES
+  2 SR-OBJECT-TYPE
+  2 SR-OBJECT-TIME
+* *****
+1 #NATLIB                  (A8)
+1 #S                       (P4)
+1 #I                       (P2)
+1 #IL                      (P2)
+1 #J                       (P2)
+1 #T                       (P3)
+1 #NOFLINES                (I2) CONST <11>
+1 #O-DSNAME                (A54) INIT LENGTH 17 <H'00'>
+1 #O-REPNAME               (A25) INIT FULL LENGTH <H'00'>
+1 #M-REPNAME               (A25)
+1 REDEFINE #M-REPNAME
+  2 #M-REPNAME-17          (A17)
+  2 #M-REPNAME-R           (A8)
+1 #O-CLASS                 (A1) INIT <H'00'>
+1 #O-NODE                  (N5)
+*
+1 L-TEMP-REP-RNBR-SEQ      (A35) INIT <'#T-00000000000-0000'>
+1 REDEFINE L-TEMP-REP-RNBR-SEQ
+  2 L-TEMP-REPNAME         (A25)
+  2 REDEFINE L-TEMP-REPNAME
+    3 L-TEMP-FIL1          (A3)
+    3 L-TEMP-RNB           (N11)
+    3 L-TEMP-FIL2          (A1)
+    3 L-TEMP-COUNT         (N4)
+    3 L-TEMP-INSL          (A1)
+    3 L-TEMP-FIL3          (A1)
+  2 L-TEMP-RNBR            (P11)
+  2 L-TEMP-SEQ             (B4)
+1 S-TEMP-REP-RNBR-SEQ      (A35) INIT <'#T-00000000000-0000'>
+1 REDEFINE S-TEMP-REP-RNBR-SEQ
+  2 S-TEMP-REPNAME         (A25)
+  2 REDEFINE S-TEMP-REPNAME
+    3 S-TEMP-FIL1          (A3)
+    3 S-TEMP-RNB           (N11)
+    3 S-TEMP-FIL2          (A1)
+    3 S-TEMP-COUNT         (N4)
+    3 S-TEMP-INSL          (A1)
+    3 S-TEMP-FIL3          (A1)
+  2 S-TEMP-RNBR            (P7)
+  2 S-TEMP-SEQ             (B4)
+*
+1 L-PARMS
+  2 L-REPNAME              (A25)
+  2 L-NODE                 (N5)
+  2 L-CLASS                (A1)
+  2 L-DSNAME               (A54)
+  2 L-SYSOUT-PARMS
+    3 L-JOB-NUMBER         (N7)
+    3 L-JOB-TYPE           (A2)
+    3 L-DATA-SET           (N5)
+    3 L-DATASET-KEY        (N7)
+    3 L-JOBNAME            (A8)
+    3 L-FROM-LINE          (N9)
+    3 L-TO-LINE            (N9)
+*
+  2 L-OTHER
+    3 L-TRACE              (P2)  INIT <1>
+    3 L-REP-RNBR           (P11)
+    3 L-MAXREC             (N7)
+    3 OK                   (L)
+    3 FILTER-BY-NAT        (L)
+    3 FILTER-BY-ASM        (L)
+    3 L-SOURCE-ISN         (P10)
+    3 L-SOURCE-ID          (P10)
+*
+1 L-SCREEN (1:#NOFLINES)
+  2 L-MARK                 (A2)
+  2 L-IDENT                (I2)
+  2 CV-MARK                (C)
+  2 L-RC                   (A3)
+  2 L-ACTION               (A8)
+  2 L-STEP                 (P4)
+  2 L-RECNO                (P10)
+  2 L-MSG                  (A50)
+  2 L-INSL-ISN             (P10)
+1 L-HEADER                 (A78)
+1 CV-LINES                 (C)
+1 CV-SELECTION             (C/1:1)
+1 REDEFINE CV-SELECTION
+  2 CV-SREP                (C)
+1 TEMP-RECORD-STORED       (L)
+1 ALLOWED                  (L)
+1 END-OF-PROCESSING        (L)
+1 END-OF-DISPLAY           (L)
+1 END-OF-TRACE             (L)
+1 SELECTED                 (L)
+1 #C-CONTENTS              (P2)
+1 #CUR-RECORD              (N7)
+1 #TOP-RECNO               (N7)
+1 #REC-COUNT               (P13)
+1 #START-LINE              (P13)
+1 #END-LINE                (P13)
+1 #SYSOUT-RECNO            (P9)
+1 #ADD-PAGE                (P1)
+1 CLOSE-REPORT             (L)
+1 REPORT-IS-OPENED         (L)
+1 PREVIOUS-IN              (L)
+1 GET-IT                   (L)
+1 SW-EXIT                  (L)
+1 TOP-OF-PAGE              (L)
+1 GOTO-NEXT-PAGE           (L)
+1 REPOSITION               (L)
+1 #ISN                     (P10)
+1 #SEQNO                   (B4)
+1 F                        (P2)
+1 I                        (P2)
+1 #LANGUAGE                (I1)
+1 STEPLIB-ADDED            (L)
+1 #STEPLIB-EXIST           (L)
+1 #USERID                  (A8)
+1 #CAT-DATE-1              (A10)
+1 #CAT-DATE-2              (A10)
+1 #P-RECNO-OLD             (N9)
+1 #RECORD                  (A253)
+1 REDEFINE #RECORD
+  2 #REC-CC                (A1)
+1 #CALLER                  (A8) INIT <*PROGRAM>
+1 #ESC                     (L)  /*SU8
+1 #USE-ESA                 (L)  /* BLI
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET G-NATRP-ERC G-NATRP-ERT
+*
+IF *DATA > 0
+  INPUT L-REPNAME
+ELSE
+  L-REPNAME := +G-RLISRP-SEL-REPNAME /*SU7
+END-IF
+*
+PERFORM SYSTEM-INFORMATION
+IF G-NATRP-ERC NE 0 /*SU7
+  PRINT G-NATRP-ERT
+  ESCAPE MODULE
+END-IF
+#O-NODE := G-MONITOR-NODE
+L-NODE  := G-MONITOR-NODE
+#USERID := G-USERID
+*
+PERFORM INITIALISATION
+IF NOT(G-NATRP-ERC =0 OR=4104) /*Sysout selected for trace. /*SU7
+  PRINT F#GETMSG (<G-NATRP-ERC>)
+  ESCAPE MODULE
+END-IF
+*
+REPEAT UNTIL END-OF-PROCESSING
+  RESET #I L-SCREEN (*)
+  PERFORM DELETE-TEMP-RECORDS
+  PERFORM TRACE
+END-REPEAT
+PERFORM DELETE-TEMP-RECORDS
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+IF #I < #NOFLINES
+  CV-MARK (#I+1:#NOFLINES) := (AD=DP)
+END-IF
+RESET END-OF-DISPLAY
+REPEAT
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RCTPRPM&' /*SU9
+  IF #LANGUAGE NE *LANGUAGE
+    #LANGUAGE := *LANGUAGE
+    PERFORM INIT-LINECOM
+    PERFORM PF-KEYS
+    INCLUDE RMVHLP-C
+  END-IF
+*
+  SET CONTROL 'M21'
+  PERFORM FLIP-DISPLAY
+*
+  #M-REPNAME := L-REPNAME
+  IF NOT G-DISPLAY-LONG-NAMES
+    #M-REPNAME-R := H'FA'
+  END-IF
+  #REP. REPEAT
+/*SU10 DECIDE ON FIRST RTRACPS-SOURCE-TYPE
+    /*  VALUE SEQUENTIAL-FILE-UNIX SU7 ????
+    /*SU10 VALUE POWER INPUT .. USING MAP 'RTRARPP&'
+/*SU10 VALUE SEQUENTIAL-FILE-BS2
+/*SU10  INPUT WITH TEXT *G-NATRP-ERC, G-NATRP-ERT MARK *G-DIRECT-COMMAND
+/*SU10    USING MAP 'RTRARPB&'
+/*SU10 NONE /* JES2, JES3
+    INPUT WITH TEXT *G-NATRP-ERC, G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RTRARPJ&' /* JES2, JES3
+/*SU10    END-DECIDE
+    IF #M-REPNAME = SCAN '*' /*SU7
+      CALLNAT 'RSELRP-N' #M-REPNAME G-USERID G-DISPLAY-LONG-NAMES
+      SET CONTROL 'WMB'
+      IF #M-REPNAME NE SCAN '*'
+        G-NATRP-ERC := 5
+        G-NATRP-ERT := 'Report selected'
+      END-IF
+      ESCAPE TOP
+    END-IF
+    IF G-DISPLAY-LONG-NAMES
+      L-REPNAME := #M-REPNAME
+    ELSE
+      L-REPNAME := #M-REPNAME-17
+    END-IF
+*
+    RESET G-NATRP-ERC G-NATRP-ERT
+    PERFORM COMMAND-PF-KEY
+    ESCAPE BOTTOM (#REP.)
+  END-REPEAT
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+IF G-DIRECT-COMMAND = ' '
+  PERFORM CHECK-PF-KEY
+END-IF
+DECIDE ON FIRST VALUE OF G-DIRECT-COMMAND             /* test local
+  VALUE 'HELP'    REINPUT USING HELP                   /* commands
+  VALUE 'EXIT','MENU' /* return to father-prog/menu
+    END-OF-PROCESSING := END-OF-DISPLAY := END-OF-TRACE := TRUE
+  VALUE 'FLIP'    PERFORM FLIP-HANDLE
+  VALUE 'FOLLOW'  PERFORM FOLLOW-MONITOR
+  VALUE 'BROWSE'  PERFORM BROWSE-REPORT-CONTENTS
+  VALUE 'QUERY'
+    RESET #O-REPNAME #O-CLASS
+    PERFORM CHECK-MODIFICATIONS
+  VALUE 'PROCESS'
+    RESET L-MARK (*)
+    PERFORM CHECK-MODIFICATIONS
+    IF OK
+      END-OF-DISPLAY := TRUE
+    ELSE
+      IF RTRACPS-SOURCE-TYPE = SEQUENTIAL-FILE-BS2
+        G-NATRP-ERC := 4113
+      ELSE
+        G-NATRP-ERC := 4107
+      END-IF
+    END-IF
+  VALUE 'EXT'
+    IF G-DISPLAY-LONG-NAMES
+      G-DISPLAY-LONG-NAMES := FALSE
+    ELSE
+      G-DISPLAY-LONG-NAMES := TRUE
+    END-IF
+    RESET #LANGUAGE
+  VALUE ' '       PERFORM CHECK-MODIFICATIONS
+  ANY             RESET G-DIRECT-COMMAND
+  NONE
+    PERFORM DELETE-TEMP-RECORDS
+    END-OF-TRACE := TRUE
+    RESET #I L-SCREEN (*)
+    PERFORM EXECUTE-DIRECT-COMMAND
+END-DECIDE
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-PF-KEY
+************************************************************************
+G-PF-KEY := *PF-KEY
+EXAMINE G-PF-KEY FOR 'PF' REPLACE ' '
+MOVE LEFT G-PF-KEY TO G-PF-KEY
+IF G-PF-KEY IS (N4)
+  G-PF-IND := VAL (G-PF-KEY)
+  G-DIRECT-COMMAND := G-PF-CODE (G-PF-IND)
+ELSE
+  G-PF-FUNC := *PF-KEY
+END-IF
+*
+END-SUBROUTINE /* CHECK-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE EXECUTE-DIRECT-COMMAND
+************************************************************************
+MOVE LEFT G-DIRECT-COMMAND TO G-DIRECT-COMMAND
+IF G-DIRECT-COMMAND IS (N2.1) AND G-DIRECT-COMMAND NE '.'
+  COMPRESS '>' G-DIRECT-COMMAND TO G-DIRECT-COMMAND LEAVING NO
+END-IF
+FETCH RETURN 'NRMCPR'
+SET CONTROL 'WMB'
+DECIDE ON FIRST VALUE OF G-NATRP-ERC
+  VALUE 0,5,419,420,9998
+    IGNORE
+  VALUE 9999
+    RESET G-NATRP-ERC
+    END-OF-DISPLAY := END-OF-PROCESSING := END-OF-TRACE := TRUE
+  VALUE 9997
+    RESET G-NATRP-ERC
+  NONE
+    REINPUT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND ALARM
+END-DECIDE
+*
+END-SUBROUTINE /* EXECUTE-DIRECT-COMMAND
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-MODIFICATIONS
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN L-REPNAME = ' '
+    REINPUT *4105 MARK *#M-REPNAME ALARM
+  WHEN L-CLASS = ' ' AND RTRACPS-SOURCE-TYPE NE SEQUENTIAL-FILE-BS2
+    REINPUT *4106 MARK *#M-REPNAME ALARM
+  WHEN #O-REPNAME NE L-REPNAME OR #O-CLASS NE L-CLASS
+  OR #O-DSNAME NE L-DSNAME   OR #O-NODE  NE L-NODE                    /*
+    RESET L-SYSOUT-PARMS OK
+    PERFORM CHANGE-REPORT-SYSOUT
+    #O-REPNAME   := L-REPNAME
+    #O-CLASS     := L-CLASS
+    #O-NODE      := L-NODE
+    #O-DSNAME    := L-DSNAME
+    END-OF-TRACE := TRUE
+    RESET  #I L-SCREEN (*)
+    PERFORM DELETE-TEMP-RECORDS
+  WHEN NONE
+    RESET L-IDENT (*)
+    INCLUDE RLCMTI-C
+    FOR #J = 1 TO #I
+      DECIDE ON FIRST VALUE OF L-IDENT (#J)
+        VALUE ##EQU-BROWSE
+          RESET L-MARK (#J)
+          PERFORM #BROWSE
+        VALUE ##EQU-DISPLAY
+          RESET L-MARK (#J)
+          CALLNAT 'RTRADR' RTRACPS-SOURCE-TYPE RTRACPS-SOURCE-ATTRIBUTES
+            L-RECNO (#J) G-NATRP-ERC G-NATRP-ERT SR-REMOTE-CODEPAGE
+        NONE IGNORE
+      END-DECIDE
+    END-FOR
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-MODIFICATIONS
+*
+************************************************************************
+DEFINE SUBROUTINE INITIALISATION
+************************************************************************
+G-CALLER := *PROGRAM
+DECIDE FOR EVERY CONDITION
+  WHEN NOT END-OF-PROCESSING
+    CALLNAT 'NARPSEC' G-USER-PROFILE 'MRP' ALLOWED
+    IF NOT ALLOWED
+      END-OF-PROCESSING := TRUE
+      G-NATRP-ERC := 20
+    END-IF
+  WHEN NOT END-OF-PROCESSING
+    INCLUDE CVIDEO
+    G-FLIP-STATUS := 'P'
+    PERFORM DEFINE-RECORD-NUMBER
+  WHEN NOT END-OF-PROCESSING
+/*SU7 ->    DECIDE ON FIRST G-SPOOL-TYPE
+/*      VALUE 'POWR'   RTRACPS-SOURCE-TYPE := POWER
+/*      VALUE 'JES2'   RTRACPS-SOURCE-TYPE := JES2
+/*      VALUE 'JES3'   RTRACPS-SOURCE-TYPE := JES3
+/*      VALUE 'BS2000' RTRACPS-SOURCE-TYPE := SEQUENTIAL-FILE-BS2
+/*      NONE VALUE     RTRACPS-SOURCE-TYPE := JES2
+/*SU7 <-    END-DECIDE
+    PERFORM SCREEN-IO
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* INITIALISATION
+*
+************************************************************************
+DEFINE SUBROUTINE CHANGE-REPORT-SYSOUT
+************************************************************************
+RTRACPS-NODE      := L-NODE
+RTRACPS-REPNAME   := L-REPNAME
+RTRACPS-CLASS     := L-CLASS
+RTRACPS-USERID    := #USERID
+RTRACPS-USER-TYPE := G-USER-TYPE
+RTRACPS-DSNAME    := L-DSNAME
+*
+CALLNAT 'RTRACPS' RTRACPS-PARMS G-NATRP-ERC G-NATRP-ERT
+*
+RESET FILTER-BY-NAT FILTER-BY-ASM
+IF RTRACPS-EXIT-LAN = 'NAT'
+  FILTER-BY-NAT := TRUE
+ELSE
+  FILTER-BY-ASM := TRUE
+END-IF
+*
+IF G-NATRP-ERC = 4104 /*Sysout selected for trace.
+  OK := TRUE
+END-IF
+*
+#SOURCE-ATTRIBUTES := RTRACPS-SOURCE-ATTRIBUTES
+*
+END-SUBROUTINE /* CHANGE-REPORT-SYSOUT
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-LINECOM
+************************************************************************
+G-LC-IDENT (01) := ##EQU-BROWSE
+G-LC-IDENT (02) := ##EQU-DISPLAY
+G-LC-NUM        := 2
+CALLNAT 'RLCINI-N' G-OBJ-TYPE G-LC G-LCB
+CALLNAT 'RFLIPG-N' G-LC G-LINECOM (*)
+*
+END-SUBROUTINE /* INIT-LINECOM
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+PERFORM INIT-PFKEYS
+PERFORM SET-PFKEYS
+*
+END-SUBROUTINE /* PF-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE TRACE
+************************************************************************
+RESET #CUR-RECORD P-WORK REPOSITION END-OF-TRACE #REC-COUNT #T #S
+  L-TEMP-COUNT
+#SYSOUT-RECNO := 1
+SW-EXIT := TRUE
+*
+REPOSITION-SYSOUT. REPEAT UNTIL END-OF-PROCESSING OR END-OF-TRACE
+  IF FILTER-BY-NAT OR FILTER-BY-ASM
+    SW-EXIT := TRUE
+  END-IF
+  DECIDE ON FIRST RTRACPS-SOURCE-TYPE
+      /*  VALUE SEQUENTIAL-FILE-UNIX SU7 ????
+      /*SU10  VALUE POWER               PERFORM TRACE-POWER
+    VALUE JES2, JES3          PERFORM TRACE-JES
+    VALUE SEQUENTIAL-FILE-BS2 PERFORM TRACE-FBS2
+    NONE                      ESCAPE BOTTOM (REPOSITION-SYSOUT.)
+  END-DECIDE
+  IF NOT REPOSITION
+    ESCAPE BOTTOM (REPOSITION-SYSOUT.)
+  END-IF
+  RESET REPOSITION
+END-REPEAT
+PERFORM CLOSE-REPORT
+IF NOT (END-OF-TRACE OR END-OF-PROCESSING)
+  G-NATRP-ERC := 4108
+  PERFORM SCREEN-IO
+END-IF
+*
+END-SUBROUTINE /* TRACE
+*
+************************************************************************
+DEFINE SUBROUTINE TRACE-JES
+************************************************************************
+FNDJES. FIND SYSOUT WITH JOB-NUMBER = #JES-JOB-NUMBER
+AND JOB-NAME = #JES-JOB-NAME AND TYPE     = #JES-TYPE                 /*
+AND DATA-SET-KEY   = #JES-DATA-SET-KEY AND NODE = #JES-NODE           /*
+AND RECORD-NUMBER >= #SYSOUT-RECNO                                    /*
+  IF NO RECORDS FOUND
+    RESET REPOSITION
+    ESCAPE BOTTOM (FNDJES.)
+  END-NOREC
+  IF ERROR-CODE > 0
+    G-NATRP-ERC := 5
+    COMPRESS ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE
+      TO G-NATRP-ERT
+    RESET REPOSITION
+    ESCAPE BOTTOM (FNDJES.)
+  END-IF
+  #RECORD := F#CONVERT-RECORD-HEX (<SYSOUT.RECORD-HEX1,
+    SYSOUT.RECORD-HEX2,SYSOUT.RECORD-HEX3,1X,P-CODEPAGE>)
+  P-RECNO  := SYSOUT.RECORD-NUMBER
+  P-RECLEN := SYSOUT.RECORD-LENGTH
+  REPJES. REPEAT
+    PERFORM TRACE-COMMON
+    DECIDE FOR FIRST CONDITION
+      WHEN NOT REPOSITION
+        ESCAPE BOTTOM (FNDJES.)
+      WHEN #SYSOUT-RECNO = SYSOUT.RECORD-NUMBER
+        RESET REPOSITION
+      WHEN #SYSOUT-RECNO = SYSOUT.RECORD-NUMBER + 1
+        RESET REPOSITION
+        ESCAPE BOTTOM (REPJES.)
+      WHEN NONE
+        ESCAPE BOTTOM (FNDJES.)
+    END-DECIDE
+  END-REPEAT
+END-FIND
+*
+END-SUBROUTINE /* TRACE-JES
+/*SU10 DEFINE SUBROUTINE TRACE-POWER
+/*SU10 DEFINE SUBROUTINE INDICATE-LINE-WITHIN-POWER-SEGMENT
+*
+************************************************************************
+DEFINE SUBROUTINE TRACE-FBS2
+************************************************************************
+IF *MACHINE-CLASS NE 'MAINFRAME' /*BLI start
+  IF F#ESA (<#FBS2-NODE>) /*must be separate IF ÜÜ
+   CALLNAT 'NOMESA' #FBS2-NODE(AD=O) +NOD-CURRENT-NAME(AD=O) 1X #USE-ESA
+  END-IF
+END-IF
+IF #USE-ESA
+  #ESA. FIND READ-FILE-ESA WITH NODE = #FBS2-NODE
+  AND DSNAME = #FBS2-DSNAME AND RECORD-NUMBER >= #SYSOUT-RECNO        /*
+  AND SEGMENT-LENGTH = 251                                            /*
+    MOVE BY NAME READ-FILE-ESA TO READ-FILE
+    PERFORM HANDLE-IT_READ-FILE
+    IF #ESC
+      ESCAPE BOTTOM (#ESA.)
+    END-IF
+  END-FIND
+ELSE
+  FNDFBS2. FIND READ-FILE WITH NODE = #FBS2-NODE
+  AND DSNAME = #FBS2-DSNAME AND RECORD-NUMBER >= #SYSOUT-RECNO        /*
+  AND SEGMENT-LENGTH = 251                                            /*
+    PERFORM HANDLE-IT_READ-FILE
+    IF #ESC
+      ESCAPE BOTTOM (FNDFBS2.)
+    END-IF
+  END-FIND
+END-IF
+IF *NUMBER (#ESA.)=0 AND *NUMBER(FNDFBS2.)=0
+  RESET REPOSITION
+END-IF
+*
+END-SUBROUTINE /* TRACE-FBS2
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-IT_READ-FILE
+************************************************************************
+IF READ-FILE.ERROR-CODE > 0
+  G-NATRP-ERC := 5
+  COMPRESS READ-FILE.ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM
+    '/' *LINE TO G-NATRP-ERT
+  RESET REPOSITION
+  ESCAPE BOTTOM /*(FNDFBS2.)/(#ESA.)
+END-IF
+IF #USE-ESA /*SU8
+  READ-FILE.RECORD-HEX1 := READ-FILE.RECORD
+ELSE
+  #RECORD := F#CONVERT-RECORD-HEX (<READ-FILE.RECORD-HEX1,
+    READ-FILE.RECORD-HEX2,READ-FILE.RECORD-HEX3,1X,P-CODEPAGE>)
+END-IF
+P-RECNO  := READ-FILE.RECORD-NUMBER
+P-RECLEN := READ-FILE.RECORD-LENGTH
+IF READ-FILE.SEGMENT-NUMBER > 1 AND READ-FILE.SEGMENT-LENGTH < 251
+  COMPRESS '§' #RECORD TO #RECORD LEAVING NO
+  MOVE ' ' TO SUBSTR (#RECORD,1,1) /*cc char
+END-IF
+REPBS2. REPEAT
+  PERFORM TRACE-COMMON
+  DECIDE FOR FIRST CONDITION
+    WHEN NOT REPOSITION
+      #ESC := TRUE /*ESCAPE BOTTOM (FNDFBS2.)/(#ESA.)
+      ESCAPE BOTTOM (REPBS2.) /*SU8 ESCAPE BOTTOM (FNDFBS2.)
+    WHEN #SYSOUT-RECNO = READ-FILE.RECORD-NUMBER
+      RESET REPOSITION
+    WHEN #SYSOUT-RECNO = READ-FILE.RECORD-NUMBER + 1
+      RESET REPOSITION
+      ESCAPE BOTTOM (REPBS2.)
+    WHEN NONE
+      #ESC := TRUE /*ESCAPE BOTTOM (FNDFBS2.)/(#ESA.)
+      ESCAPE BOTTOM (REPBS2.) /*SU8 ESCAPE BOTTOM (FNDFBS2.)
+  END-DECIDE
+END-REPEAT
+*
+END-SUBROUTINE /* HANDLE-IT_READ-FILE
+*
+************************************************************************
+DEFINE SUBROUTINE TRACE-COMMON
+************************************************************************
+GET-IT := TRUE
+IF (#REC-CC = '1'  AND RTRACPS-SOURCE-CC-TYPE = ASA-CODE)
+OR (#REC-CC = H'89' AND RTRACPS-SOURCE-CC-TYPE = MACHINE-CODE)        /*
+OR (#REC-CC = H'8B' AND RTRACPS-SOURCE-CC-TYPE = MACHINE-CODE)        /*
+OR (#REC-CC = 'A'  AND RTRACPS-SOURCE-CC-TYPE = BS2000-CC)            /*
+OR (#REC-CC = H'81' AND RTRACPS-SOURCE-CC-TYPE = BS2000-CC)           /*
+OR P-RECNO = 1                                                        /*
+  #TOP-RECNO := P-RECNO
+  IF #REC-CC = H'89' AND RTRACPS-SOURCE-CC-TYPE = MACHINE-CODE
+    #TOP-RECNO := P-RECNO + 1
+  ELSE
+    #TOP-RECNO := P-RECNO
+  END-IF
+END-IF
+*
+IF #TOP-RECNO = P-RECNO
+  TOP-OF-PAGE := TRUE
+ELSE
+  RESET TOP-OF-PAGE
+END-IF
+*
+IF TOP-OF-PAGE AND GOTO-NEXT-PAGE
+  GOTO-NEXT-PAGE := FALSE
+  IF FILTER-BY-NAT OR FILTER-BY-ASM
+    SW-EXIT := TRUE
+  END-IF
+END-IF
+*
+IF GOTO-NEXT-PAGE AND NOT TOP-OF-PAGE
+  REPOSITION := TRUE
+  #SYSOUT-RECNO := P-RECNO + 1
+  ESCAPE ROUTINE
+END-IF
+*
+IF #ADD-PAGE > 0 AND TOP-OF-PAGE
+  SUBTRACT 1 FROM #ADD-PAGE
+  IF FILTER-BY-NAT OR FILTER-BY-ASM
+    SW-EXIT := TRUE
+  END-IF
+END-IF
+*
+IF #ADD-PAGE > 0
+  SW-EXIT := FALSE
+  GET-IT := TRUE
+END-IF
+*
+IF SW-EXIT
+  PERFORM CALL-EXIT
+  DECIDE ON FIRST VALUE OF P-RC
+    VALUE 0  GET-IT := TRUE
+    VALUE 1  GET-IT := FALSE
+    VALUE 3  ESCAPE ROUTINE
+    NONE     IGNORE
+  END-DECIDE
+*
+  IF GET-IT
+    REPORT-IS-OPENED := TRUE
+    IF PREVIOUS-IN
+      #END-LINE := P-RECNO
+    ELSE
+      #START-LINE := #END-LINE := P-RECNO
+      PREVIOUS-IN := TRUE
+    END-IF
+    ADD 1 TO #REC-COUNT
+  ELSE
+    IF PREVIOUS-IN
+      RESET PREVIOUS-IN
+      PERFORM STORE-REPORT-CONTENTS
+    END-IF
+  END-IF
+  PERFORM CHECK-STEPS
+  IF END-OF-PROCESSING OR END-OF-TRACE
+    RESET REPOSITION
+  ELSE
+    PERFORM EXIT-ACTION
+  END-IF
+ELSE
+  IF GET-IT
+    REPORT-IS-OPENED := TRUE
+    IF PREVIOUS-IN
+      #END-LINE := P-RECNO
+    ELSE
+      #START-LINE := #END-LINE := P-RECNO
+      PREVIOUS-IN := TRUE
+    END-IF
+    ADD 1 TO #REC-COUNT
+  ELSE
+    IF PREVIOUS-IN
+      RESET PREVIOUS-IN
+      PERFORM STORE-REPORT-CONTENTS
+    END-IF
+  END-IF
+  REPOSITION := TRUE
+  #SYSOUT-RECNO := P-RECNO + 1
+END-IF
+*
+END-SUBROUTINE /* TRACE-COMMON
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-EXIT
+************************************************************************
+#P-RECNO-OLD  := P-RECNO /*remember old
+RESET P-BUNDLE(*)
+P-RECORD  := #RECORD
+P-MASTER  := L-REPNAME               /* MASTER REPNAME
+P-REPNAME := L-REPNAME
+P-MAXREC  := RTRACPS-SOURCE-REC-COUNT
+*
+P-EXIT-PARMS.P-SOURCE-NUMBER-OF-LINES := RTRACPS-SOURCE-REC-COUNT
+P-EXIT-PARMS.P-SOURCE-ATTRIBUTES      := RTRACPS-SOURCE-ATTRIBUTES
+P-EXIT-PARMS.P-SOURCE-TYPE            := RTRACPS-SOURCE-TYPE
+P-EXIT-PARMS.P-SOURCE-CC-TYPE         := RTRACPS-SOURCE-CC-TYPE
+*
+IF FILTER-BY-NAT
+  PERFORM ADD-STEPLIB
+  IF STEPLIB-ADDED
+    CALLNAT 'N-CHKCAT' G-NATRP-ERC G-NATRP-ERT /*SU6
+      RTRACPS-EXIT-PGM RTRACPS-EXIT-LIB
+      #CALLER #CAT-DATE-1 #CAT-DATE-2
+    IF G-NATRP-ERC NE 0
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Member' RTRACPS-EXIT-PGM 'not defined in lib' RTRACPS-EXIT-LIB
+      PERFORM REMOVE-STEPLIB
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+  P-UPARM1(1:5) := RTRACPS-UPARMS (1:5)
+  CALLNAT RTRACPS-EXIT-PGM P-EXIT-PARMS
+  PERFORM REMOVE-STEPLIB
+END-IF
+*
+END-SUBROUTINE /* CALL-EXIT
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-STEPS
+************************************************************************
+ADD 1 TO #T
+IF #T > L-TRACE
+  IF G-NATRP-ERC = 0
+    G-NATRP-ERC := 4109
+    G-NATRP-ERT := L-TRACE
+  END-IF
+  PERFORM SCREEN-IO
+  IF END-OF-PROCESSING OR END-OF-TRACE
+    ESCAPE ROUTINE
+  END-IF
+  #T := 1
+ELSE
+  #M-REPNAME := L-REPNAME
+  IF NOT G-DISPLAY-LONG-NAMES
+    #M-REPNAME-R := H'FA'
+  END-IF
+  SET CONTROL 'N'
+/*SU10 ->  DECIDE ON FIRST RTRACPS-SOURCE-TYPE
+/*  VALUE SEQUENTIAL-FILE-BS2  INPUT USING MAP 'RTRARPB&'
+/*  NONE                       INPUT USING MAP 'RTRARPJ&' /*JES2, JES3
+/*    /*  VALUE SEQUENTIAL-FILE-UNIX SU7 ????
+/*  VALUE POWER                INPUT USING MAP 'RTRARPP&'
+/*SU10 <-  END-DECIDE
+  INPUT USING MAP 'RTRARPJ&' /*JES2, JES3 /*SU10
+END-IF
+*
+END-SUBROUTINE /* CHECK-STEPS
+*
+************************************************************************
+DEFINE SUBROUTINE EXIT-ACTION
+************************************************************************
+ADD 1 TO #I
+ADD 1 TO #S
+IF #I > #NOFLINES
+  MOVE BY NAME L-SCREEN (2:#NOFLINES) TO L-SCREEN (1:#NOFLINES - 1)
+  #I := #NOFLINES
+END-IF
+CV-MARK (#I) := (AD=I)
+L-STEP  (#I) := #S
+DECIDE ON FIRST P-RC
+  VALUE 0  L-RC (#I) := 'inc'
+  VALUE 1  L-RC (#I) := 'ign'
+  VALUE 3  L-RC (#I) := 'eor'
+    ESCAPE ROUTINE
+  NONE     L-RC (#I) := '???'
+END-DECIDE
+L-RECNO (#I) := P-RECNO
+IF P-REPNAME = ' '
+  P-REPNAME := 'NONAME'
+END-IF
+DECIDE ON EVERY VALUE OF P-ACTION
+  VALUE 'CACHEON', 'CACHEOFF'
+    #SYSOUT-RECNO := #P-RECNO-OLD
+    REPOSITION := TRUE
+    RESET L-MSG (#I)
+  VALUE 'FORW'
+    #SYSOUT-RECNO := #P-RECNO-OLD + P-RECNO
+    COMPRESS '>' P-RECNO '<' TO L-MSG (#I) LEAVING NO
+  VALUE 'BACKW'
+    #SYSOUT-RECNO := #P-RECNO-OLD - P-RECNO
+    COMPRESS '>' P-RECNO '<' TO L-MSG (#I) LEAVING NO
+  VALUE 'NEXTP'
+    GOTO-NEXT-PAGE := REPOSITION := TRUE
+    #SYSOUT-RECNO := #P-RECNO-OLD + 1
+    RESET L-MSG (#I)
+  VALUE 'GOTO'
+    #SYSOUT-RECNO := P-RECNO
+    COMPRESS '>' P-RECNO '<' TO L-MSG (#I) LEAVING NO
+  VALUE 'TOPP','GOTOP'
+    RESET  RMGT-PARMS.P-TOP-RECORD
+    RMGT-PARMS.P-RECORD-NUMBER     := #P-RECNO-OLD
+    RMGT-PARMS.P-CC-TYPE           := RTRACPS-SOURCE-CC-TYPE
+    RMGT-PARMS.P-SOURCE-TYPE       := RTRACPS-SOURCE-TYPE
+    RMGT-PARMS.P-CODEPAGE          := SR-REMOTE-CODEPAGE
+    RMGT-PARMS.P-SOURCE-ATTRIBUTES := #SOURCE-ATTRIBUTES
+    CALLNAT 'RMGT---N' RMGT-PARMS L-SOURCE-ISN
+    IF RMGT-PARMS.P-ERROR-CODE NE 0
+      G-NATRP-ERC := RMGT-PARMS.P-ERROR-CODE
+      G-NATRP-ERT := RMGT-PARMS.P-ERROR-TEXT
+    ELSE
+      #TOP-RECNO    := RMGT-PARMS.P-TOP-RECORD
+      #SYSOUT-RECNO := RMGT-PARMS.P-TOP-RECORD
+    END-IF
+    RESET L-MSG (#I)
+  VALUE 'FORW','BACKW', 'GOTO','TOPP', 'GOTOP', 'NEXTP'
+    REPOSITION := TRUE
+    IF PREVIOUS-IN
+      PERFORM STORE-REPORT-CONTENTS
+    END-IF
+    RESET PREVIOUS-IN
+  VALUE 'ADDP'
+    #ADD-PAGE := 1
+    REPOSITION := TRUE
+    #SYSOUT-RECNO := #P-RECNO-OLD
+    RESET L-MSG (#I)
+  VALUE 'ADDFP'
+    RESET  RMGT-PARMS.P-TOP-RECORD
+    RMGT-PARMS.P-RECORD-NUMBER     := #P-RECNO-OLD
+    RMGT-PARMS.P-CC-TYPE           := RTRACPS-SOURCE-CC-TYPE
+    RMGT-PARMS.P-SOURCE-TYPE       := RTRACPS-SOURCE-TYPE
+    RMGT-PARMS.P-CODEPAGE          := SR-REMOTE-CODEPAGE
+    RMGT-PARMS.P-SOURCE-ATTRIBUTES := #SOURCE-ATTRIBUTES
+    CALLNAT 'RMGT---N' RMGT-PARMS L-SOURCE-ISN
+    IF RMGT-PARMS.P-ERROR-CODE NE 0
+      G-NATRP-ERC := RMGT-PARMS.P-ERROR-CODE
+      G-NATRP-ERT := RMGT-PARMS.P-ERROR-TEXT
+    ELSE
+      #TOP-RECNO    := RMGT-PARMS.P-TOP-RECORD
+      #SYSOUT-RECNO := RMGT-PARMS.P-TOP-RECORD
+    END-IF
+    #ADD-PAGE := 2
+    REPOSITION := TRUE
+    RESET L-MSG (#I)
+  VALUE 'ADDR'
+    IF PREVIOUS-IN
+      PERFORM STORE-REPORT-CONTENTS
+    END-IF
+    REPORT-IS-OPENED := TRUE
+    #START-LINE := P-FROMLINE
+    #END-LINE := P-TOLINE
+    #REC-COUNT := #REC-COUNT + (P-TOLINE - P-FROMLINE + 1)
+    PERFORM STORE-REPORT-CONTENTS
+    RESET PREVIOUS-IN
+    #SYSOUT-RECNO := P-TOLINE + 1
+    REPOSITION := TRUE
+    COMPRESS ' from>' P-FROMLINE '<' ' to>' P-TOLINE '<' TO L-MSG (#I)
+      LEAVING NO
+  VALUE 'CLOSE'
+    CLOSE-REPORT := TRUE
+    PERFORM CLOSE-REPORT
+    COMPRESS '>' P-REPNAME'<' TO L-MSG (#I) LEAVING NO
+  VALUE 'OPEN'
+    IF REPORT-IS-OPENED
+      PERFORM CLOSE-REPORT
+    END-IF
+    PERFORM OPEN-NEW-REPORT
+    REPOSITION := TRUE
+    COMPRESS '>' P-REPNAME '<' 'as>' L-TEMP-REPNAME '<'
+      TO L-MSG (#I) LEAVING NO
+    #SYSOUT-RECNO := SYSOUT.RECORD-NUMBER
+  VALUE 'CREATE'
+    PERFORM CREATE-REPORT
+    COMPRESS '>' P-REPNAME '<' 'from>' P-FROMLINE '<' 'to>' P-TOLINE '<'
+      'as>'   L-TEMP-REPNAME '<' TO L-MSG (#I) LEAVING NO
+  VALUE 'INSL'
+    IF PREVIOUS-IN
+      #END-LINE := #P-RECNO-OLD
+    END-IF
+    PERFORM INSERT-LINES
+    REPOSITION := TRUE
+    #SYSOUT-RECNO := #P-RECNO-OLD + 1
+    COMPRESS '>' P-RECNO '<lines' TO L-MSG (#I) LEAVING NO
+  ANY
+    L-ACTION (#I) := P-ACTION
+  NONE
+    RESET L-ACTION (#I)
+    REPOSITION := TRUE
+    #SYSOUT-RECNO := #P-RECNO-OLD + 1
+    RESET L-MSG (#I)
+END-DECIDE
+*
+END-SUBROUTINE /* EXIT-ACTION
+*
+************************************************************************
+DEFINE SUBROUTINE STORE-REPORT-CONTENTS
+************************************************************************
+IF #C-CONTENTS = 99
+  #REC-COUNT := #REC-COUNT - (#END-LINE - #START-LINE + 1)
+  PERFORM STORE-CONTENTS-POINTER
+  #REC-COUNT := #REC-COUNT + (#END-LINE - #START-LINE + 1)
+END-IF
+ADD 1 TO #C-CONTENTS
+REPORT-CONTENTS.AC-FROM-LINE-N9 (#C-CONTENTS) := #START-LINE
+REPORT-CONTENTS.AC-TO-LINE-N9   (#C-CONTENTS) := #END-LINE
+*
+END-SUBROUTINE /* STORE-REPORT-CONTENTS
+*
+************************************************************************
+DEFINE SUBROUTINE STORE-CONTENTS-POINTER
+************************************************************************
+IF L-TEMP-COUNT = 0
+  ADD 1 TO L-TEMP-COUNT
+END-IF
+REPORT-CONTENTS.AC-REPNAME := L-TEMP-REPNAME
+REPORT-CONTENTS.AC-REPRNB := L-REP-RNBR         /* ???
+REPORT-CONTENTS.AC-SEQNO := #REC-COUNT
+REPORT-CONTENTS.AC-OBJECT-TYPE := 'AC'
+REPORT-CONTENTS.AC-OBJECT-TIME := *TIMX
+STOC. STORE REPORT-CONTENTS
+#ISN := *ISN (STOC.)
+TEMP-RECORD-STORED := TRUE
+IF L-SOURCE-ISN = 0
+  PERFORM STORE-SOURCE-RECORD
+END-IF
+END OF TRANSACTION
+RESET REPORT-CONTENTS #C-CONTENTS
+*
+END-SUBROUTINE /* STORE-CONTENTS-POINTER
+*
+************************************************************************
+DEFINE SUBROUTINE STORE-SOURCE-RECORD
+************************************************************************
+FNDSR. FIND SOURCE WITH SR-ID = L-SOURCE-ID
+  IF NO RECORDS FOUND
+    ENTER
+  END-NOREC
+  SR-ID               := L-SOURCE-ID
+  SR-ATTRIBUTES-IDENT := RTRACPS-SOURCE-ATTRIBUTES
+  SR-TYPE             := RTRACPS-SOURCE-TYPE
+  SR-CC-TYPE          := RTRACPS-SOURCE-CC-TYPE
+  SR-RECORD-LENGTH    := RTRACPS-SOURCE-RECORD-LENGTH
+  SR-NUMBER-OF-LINES  := RTRACPS-SOURCE-REC-COUNT
+*
+  IF *NUMBER (FNDSR.) = 0
+    SR-OBJECT-TYPE := 'SR'
+    SR-OBJECT-TIME := *TIMX
+    STOSR. STORE SOURCE
+    L-SOURCE-ISN := *ISN (STOSR.)
+  ELSE
+    UPDATE (FNDSR.)
+    L-SOURCE-ISN := *ISN (FNDSR.)
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* STORE-SOURCE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE INSERT-LINES
+************************************************************************
+IF P-RECNO =  1 THRU 10
+  PERFORM  HANDLE-CONTENTS-POINTERS
+  FOR #IL 1 TO P-RECNO
+    ADD 1 TO #REC-COUNT
+    REPORT-CONTENTS.AC-INSERTED-LINE(#IL) := P-INSERT-LINES(#IL)
+  END-FOR
+  PERFORM STORE-CONTENTS-POINTER
+  L-INSL-ISN (#I) := #ISN
+END-IF
+RESET PREVIOUS-IN #C-CONTENTS #START-LINE #END-LINE
+*
+END-SUBROUTINE /* INSERT-LINES
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-CONTENTS-POINTERS
+************************************************************************
+IF PREVIOUS-IN
+  RESET PREVIOUS-IN
+  PERFORM STORE-REPORT-CONTENTS
+END-IF
+IF #C-CONTENTS > 0
+  PERFORM STORE-CONTENTS-POINTER
+END-IF
+*
+END-SUBROUTINE /* HANDLE-CONTENTS-POINTERS
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-REPORT
+************************************************************************
+IF REPORT-IS-OPENED
+  IF #REC-COUNT > 0
+    PERFORM HANDLE-CONTENTS-POINTERS
+  END-IF
+  RESET REPORT-IS-OPENED
+END-IF
+*
+END-SUBROUTINE /* CLOSE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE OPEN-NEW-REPORT
+************************************************************************
+RESET #REC-COUNT #CUR-RECORD #C-CONTENTS #START-LINE #END-LINE
+#START-LINE := #P-RECNO-OLD
+RESET REPORT-CONTENTS
+ADD 1 TO L-TEMP-COUNT
+*
+END-SUBROUTINE /* OPEN-NEW-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-REPORT
+************************************************************************
+IF REPORT-IS-OPENED
+  PERFORM CLOSE-REPORT
+END-IF
+IF P-TOLINE = 0
+  P-TOLINE := RTRACPS-SOURCE-REC-COUNT
+END-IF
+IF P-FROMLINE > P-TOLINE
+  ESCAPE ROUTINE
+END-IF
+RESET PREVIOUS-IN #C-CONTENTS
+PERFORM OPEN-NEW-REPORT
+REPORT-IS-OPENED := TRUE
+#REC-COUNT := #REC-COUNT + P-TOLINE - P-FROMLINE + 1
+REPORT-CONTENTS.AC-FROM-LINE-N9(1) := P-FROMLINE
+REPORT-CONTENTS.AC-TO-LINE-N9(1)   := P-TOLINE
+*
+PERFORM STORE-CONTENTS-POINTER
+PERFORM CLOSE-REPORT
+REPOSITION := TRUE
+#SYSOUT-RECNO := P-TOLINE + 1
+*
+END-SUBROUTINE /* CREATE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-TEMP-RECORDS
+************************************************************************
+IF TEMP-RECORD-STORED
+  L-TEMP-RNB          := L-REP-RNBR
+  L-TEMP-RNBR         := L-REP-RNBR
+  L-TEMP-SEQ          := 0
+  S-TEMP-REP-RNBR-SEQ := L-TEMP-REP-RNBR-SEQ
+  S-TEMP-COUNT        := 1
+  REAT. READ TEMP-REPORT-CONTENTS BY AC-REP-RNB-SEQ =S-TEMP-REP-RNBR-SEQ
+    IF AC-REPNAME > L-TEMP-REPNAME OR AC-REPRNB NE L-TEMP-RNBR
+      ESCAPE BOTTOM
+    END-IF
+    DELETE
+  END-READ
+  IF L-SOURCE-ISN NE 0
+    GETSR. GET SOURCE L-SOURCE-ISN
+    DELETE (GETSR.)
+    RESET L-SOURCE-ISN
+  END-IF
+  END OF TRANSACTION
+  TEMP-RECORD-STORED := FALSE
+END-IF
+*
+END-SUBROUTINE /* DELETE-TEMP-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE DEFINE-RECORD-NUMBER
+************************************************************************
+CALLNAT 'RTRARNBR' L-REP-RNBR
+L-TEMP-RNB := L-REP-RNBR
+CALLNAT 'RMSRID-N' L-SOURCE-ID G-NATRP-ERC G-NATRP-ERT
+*
+END-SUBROUTINE /* DEFINE-RECORD-NUMBER
+*
+************************************************************************
+DEFINE SUBROUTINE BROWSE-REPORT-CONTENTS
+************************************************************************
+IF #REC-COUNT > 0
+  PERFORM HANDLE-CONTENTS-POINTERS
+END-IF
+IF TEMP-RECORD-STORED
+  REPEAT
+    CALLNAT 'RTRAST' SELECTED L-REP-RNBR S-TEMP-REPNAME L-MAXREC
+      G-DISPLAY-LONG-NAMES
+    IF *PF-KEY = 'PF3'
+      ESCAPE BOTTOM
+    END-IF
+    IF SELECTED
+      L-FROM-LINE := 1
+      L-TO-LINE   := RTRACPS-SOURCE-REC-COUNT
+      FETCH RETURN 'RTRADIRP' S-TEMP-REPNAME L-REP-RNBR L-SOURCE-ISN
+        RTRACPS-SOURCE-RECORD-LENGTH RTRACPS-SOURCE-CC-TYPE
+        L-FROM-LINE L-TO-LINE L-MAXREC
+    END-IF
+  END-REPEAT
+ELSE
+  G-NATRP-ERC := 4110
+END-IF
+*
+END-SUBROUTINE /* BROWSE-REPORT-CONTENTS
+*
+************************************************************************
+DEFINE SUBROUTINE #BROWSE
+************************************************************************
+DECIDE ON FIRST L-ACTION (#J)
+  VALUE 'INSL'
+    GETT1. GET TEMP-REPORT-CONTENTS L-INSL-ISN (#J)
+    S-TEMP-REPNAME := TEMP-REPORT-CONTENTS.AC-REPNAME
+    COMPRESS S-TEMP-REPNAME '-I' TO TEMP-REPORT-CONTENTS.AC-REPNAME
+      LEAVING NO
+    #SEQNO := TEMP-REPORT-CONTENTS.AC-SEQNO
+    TEMP-REPORT-CONTENTS.AC-SEQNO := C*AC-INSERTED-LINE
+    UPDATE (GETT1.)
+    END OF TRANSACTION
+    L-MAXREC    := C*AC-INSERTED-LINE
+    L-FROM-LINE := 1
+    L-TO-LINE   := RTRACPS-SOURCE-REC-COUNT
+    FETCH RETURN 'RTRADIRP' TEMP-REPORT-CONTENTS.AC-REPNAME
+      L-REP-RNBR L-SOURCE-ISN RTRACPS-SOURCE-RECORD-LENGTH
+      RTRACPS-SOURCE-CC-TYPE L-FROM-LINE L-TO-LINE L-MAXREC
+    GETT2. GET TEMP-REPORT-CONTENTS L-INSL-ISN (#J)
+    TEMP-REPORT-CONTENTS.AC-SEQNO := #SEQNO
+    TEMP-REPORT-CONTENTS.AC-REPNAME := S-TEMP-REPNAME
+    UPDATE (GETT2.)
+    END OF TRANSACTION
+  NONE            IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* #BROWSE
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFBRO-C
+INCLUDE RPFQRY-C
+INCLUDE RPFPRC-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE SYSTEM-INFORMATION
+************************************************************************
+IF G-MONITOR-NODE NE 0
+  FNDS. FIND SYSTEM-INFO WITH NODE = G-MONITOR-NODE
+    IF ERROR-CODE NE 0
+      G-NATRP-ERC := 5
+      COMPRESS ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE
+        TO G-NATRP-ERT
+      ESCAPE BOTTOM (FNDS.)
+    END-IF
+    EXAMINE FULL VALUE OF SPOOL-TYPE FOR H'00' REPLACE ' '
+    RTRACPS-SOURCE-TYPE := JES2 /*default VALUE 'JES2'  SU7
+    DECIDE ON FIRST SPOOL-TYPE
+      VALUE 'JES3' RTRACPS-SOURCE-TYPE := JES3
+      NONE
+        IF SYSTEM-TYPE = SCAN 'BS2' /*SU7
+          RTRACPS-SOURCE-TYPE := SEQUENTIAL-FILE-BS2
+        END-IF
+        /*SU7 VALUE 'JES2' RTRACPS-SOURCE-TYPE := JES2
+        /*SU10 VALUE 'POWR' RTRACPS-SOURCE-TYPE := POWER
+    END-DECIDE
+  END-FIND
+ELSE
+  SPOOL-TYPE          := 'UNIX'
+  RTRACPS-SOURCE-TYPE := SEQUENTIAL-FILE-UNIX
+END-IF
+*
+END-SUBROUTINE /* SYSTEM-INFORMATION
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-STEPLIB
+************************************************************************
+RESET STEPLIB-ADDED
+IF RTRACPS-EXIT-LIB = ' '
+  ESCAPE ROUTINE
+END-IF
+** check existence of po-exitlib in steplib table
+CALLNAT 'RLIBACT' RTRACPS-EXIT-LIB #STEPLIB-EXIST
+IF NOT #STEPLIB-EXIST
+  NAT00009-LIBRARY := RTRACPS-EXIT-LIB
+  RESET  NAT00009-FNR NAT00009-DBID
+  CALLNAT 'RGETLIB' NAT00009-APPLIC
+  NAT00009-FUNCTION := 08
+  CALLNAT 'NAT00009' NAT00009-PARMS
+  IF NAT00009-RESPONSE NE 0
+    WRITE NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Unable to add steplib' #NATLIB
+    ESCAPE ROUTINE
+  END-IF
+  STEPLIB-ADDED := TRUE
+END-IF
+*
+END-SUBROUTINE /* ADD-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE REMOVE-STEPLIB
+************************************************************************
+IF NOT STEPLIB-ADDED
+  ESCAPE ROUTINE
+END-IF
+CALLNAT 'RLIBACT' RTRACPS-EXIT-LIB #STEPLIB-EXIST
+IF #STEPLIB-EXIST
+  NAT00009-LIBRARY  := RTRACPS-EXIT-LIB
+  CALLNAT 'RGETLIB' NAT00009-APPLIC
+  NAT00009-FUNCTION := 16
+  CALLNAT 'NAT00009' NAT00009-PARMS
+END-IF
+STEPLIB-ADDED := FALSE
+*
+END-SUBROUTINE /* REMOVE-STEPLIB
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  PERFORM REMOVE-STEPLIB
+  PERFORM DELETE-TEMP-RECORDS
+END-ERROR
+*
+INCLUDE RPFSET-C /* set-pfkeys
+*
+END

@@ -1,0 +1,397 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* N-LISMEM - list and select a member of a natural library
+*
+* Lists a range of members of a Natural library if member name
+* contains wild characters '*', '?', '<', '>'. Lets user select
+* a member and returns the name. If member name is fully qualified,
+* this routine will only check for existence of this member without
+* selection.
+* No member found -> return code 1052
+* No member selected -> return code 1070
+*
+* Maintenance:
+* xsetoba 2001-09-11 p(208443) error if not selected
+* fhi     2002-02-06 p(208443) rewritten to get FUSER AND FNAT
+* sju     2002-09-02 p(224784) allow member names lt 8 characters
+* sju 02-12-04 p(231473) Honour steplib settings for printer exit
+* sju 03-03-06 qe        Handle wildcards that return no data
+* fhi     2005-11-25 P(272046) NAT1316 and wrong version for NATF0103
+* fhi     2005-11-30 P272723   NATF0103 not present in Natural Unix
+* fhi     2008-07-17 P296314   NAT 1316 in N-LISMEM under Unix
+* fhi     2009-03-18 p315479   perform close processing under unix
+* fhi     2010-09-02 NOMALL-97 Extend message line
+* SU1     2016-09-14           (NOM3.5) restruct+window size
+* SU2     2023-08-25 NOMALL-2647 more than 8 steplibs
+* -------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 P-LIBRARY                  (A8)
+1 P-MEMBER                   (A8)
+1 P-MEMBER-TYPE              (A8) /* Type of member to be checked:
+  /* SEPEXIT  separation exit
+  /* REPSEPST report start separator
+  /* REPSEPEN report end separator
+  /* BUNSEPST bundle start separator
+  /* BUNSEPEN bundle start separator
+  /* BUNPRTCO bundle print control exit
+  /* PRTEXIT  printer exit
+1 P-ERC                      (N4)
+1 P-ERT                      (A250)
+************************************************************************
+LOCAL USING SAT00009
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL
+1 PARMS-NATF0103
+  2 RANGES                             /* Input only:
+    3 RANGE-LIBRARY          (A8)      /* Library to be listed
+    3 RANGE-NAME             (A9)      /* with '?', '*', '>', '<'
+    3 RANGE-S/C              (A3)      /* '*' or 'S', 'C', 'S/C'
+  2 GET-LIST-PARAMETER                 /* Input only:
+    3 START-VALUE            (A8)      /* In: start with this value
+    3 NEW-RANGES             (L)       /* In: Create/use new range keys
+    3 RESTART                (L)       /* In: Restart if new-ranges
+  2 NUMBER-REQUESTED         (I2)      /* In: Nmbr of objects requested
+  2 NUMBER-RETURNED          (I2)      /* Out: Number of objects found
+  2 MAP-PARAMETER            (133)     /* Out: data of the found objects
+    3 M-COMMAND              (A2)
+    3 M-NAME                 (A8)
+    3 M-S/C                  (A3)
+    3 M-COMMAND-CV           (C)
+  2 WORK-AREA                (A250)     /* Internal, do not change
+  2 RETURN-CODE              (I4)      /*Out: 0=Ok / -4971=nothing found
+  2 ADDITIONALS              (A1/1:1)  /* for future use
+  2 REDEFINE ADDITIONALS
+    3 ADDITIONALS-VERSION    (I1)
+*
+1 V                  (I1)   CONST <12>
+1 NADA1700
+  2 OBJECT-KEY
+    3 DBID           (N5)
+    3 FNR            (N5)
+    3 PASSWORD       (A8)
+    3 CIPHERCODE     (N8)
+    3 OBJECT-CLASS   (I1)
+    3 LIBRARY        (A8)
+    3 OBJECT-FROM    (A33)
+    3 OBJECT-TO      (A33)
+    3 OBJECT-KIND    (A1)
+      /*
+  2 INPUTS
+    3 OPT-ACCESS     (A1)
+    3 OPT-TYPE-OP    (A1)
+    3 OPT-TYPE       (A24)
+    3 OPT-SCROLL     (A1)
+    3 OPT-WILDCARD   (A1)
+    3 OPT-ASTERISK   (A1)
+    3 OPT-AMOUNT     (I2)
+      /*
+  2 INPUT-OUTPUTS
+    3 INT-HANDLE     (I4)
+    3 NEXT-OBJ       (A32)
+  2 OUTPUTS
+    3 RETURNED       (I2)
+    3 LIST-OBJ       (A32/1:V)
+    3 LIST-TYPE-SRC  (A1/1:V)
+    3 LIST-TYPE-MOD  (A1/1:V)
+/*
+1 NATA1700
+  2 VERSION          (I1)     INIT <1>
+  2 V1-NSC-CHECK     (A1)     /* Check against NSC
+1 REDEFINE NATA1700
+  2 EXTENDED-PARMS
+    3 EXTENDED-DATA  (A1/1:2)
+*
+1 NAT23008-PARAMETER
+  2 NAT23008-LFILE-NR        (B1)
+  2 NAT23008-FUNCTION        (A1)
+  2 NAT23008-DBID            (B2)
+  2 NAT23008-FNR             (B2)
+  2 NAT23008-PASSWORD        (A8)
+  2 NAT23008-CIPHER          (A8)
+  2 NAT23008-VSAM-NAME       (A8)
+  2 NAT23008-DB-TYPE         (A1)
+  2 NAT23008-LFILE-IS-SET    (L)
+  2 NAT23008-RET_CODE        (I4)
+*
+1 CMSLFT-PARA                (A52)
+1 REDEFINE CMSLFT-PARA
+  2 CMSLFT-FUNCTION          (I4)
+  2 FILLER                   12X
+  2 CMSLFT-LFILE             (I4)      /* Lfile number
+  2 CMSLFT-DBID              (I4)
+  2 CMSLFT-FNR               (I4)
+  2 CMSLFT-PASSWORD          (A8)
+  2 CMSLFT-CIPHER            (A8)
+  2 FILLER                   4X
+  2 CMSLFT-DB-TYPE           (I1)
+*
+1 #LINES                     (I2) INIT  <12>    /* LINES ON MAP (WINDOW)
+1 L-MARK                     (A1/12)
+1 L-MEM                      (A8/12)
+1 L-MARK-CONTROL             (C/12)
+*
+1 #TOP-MEMBER                (A8/1:200)
+1 #PAGE                      (P3) INIT <1>
+1 #ESCAPE                    (L)
+1 #I                         (I2)
+1 #RANGE                     (A8) /* map field for new selection
+*
+1 #CTRL-OLISMMM1    (A20) INIT <'WC20L24B02/50F'> /*SU1
+1 #NO-WILDCARD      (L)
+1 #STEPLIB-DBID     (B2)
+1 #STEPLIB-FNR      (B2)
+1 #STEPLIB-PASSWORD (A8)
+1 #STEPLIB-CIPHER   (N8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY ALL
+IF *MACHINE-CLASS = 'MAINFRAME'
+  RESET ADDITIONALS-VERSION
+  RANGE-LIBRARY    := P-LIBRARY
+  RANGE-NAME       := P-MEMBER
+  RANGE-S/C        := '*'
+  NEW-RANGES       := TRUE
+  NUMBER-REQUESTED := #LINES
+  IF P-MEMBER-TYPE = 'PRTEXIT'
+    PERFORM CHECK-STEPLIBS
+  END-IF
+  IF NOT(RANGE-NAME = SCAN '*' OR=SCAN '?' OR=SCAN '<' OR=SCAN '>')
+    COMPRESS RANGE-NAME '*' TO RANGE-NAME LEAVING NO
+    #NO-WILDCARD:= TRUE
+  END-IF
+ELSE
+  LIBRARY          := P-LIBRARY
+  OBJECT-FROM      := P-MEMBER
+  RANGE-NAME       := P-MEMBER
+  OBJECT-KIND      := 'A'
+  OPT-TYPE         := 'N'
+  OPT-SCROLL       := 'D'
+  OPT-AMOUNT       := #LINES
+  V1-NSC-CHECK     := 'Y'
+  IF P-MEMBER-TYPE = 'PRTEXIT'
+    PERFORM CHECK-STEPLIBS
+  END-IF
+  IF NOT(OBJECT-FROM = SCAN '*' OR=SCAN '?' OR=SCAN '<' OR=SCAN '>')
+    COMPRESS OBJECT-FROM '*' TO OBJECT-FROM LEAVING NO
+    #NO-WILDCARD:= TRUE
+  END-IF
+END-IF
+* Set LFILE 219 to FNAT/FUSER - only IF P-MEMBER-TYPE = 'PRTEXIT' Ü?
+IF #STEPLIB-DBID NE 0 AND #STEPLIB-FNR NE 0
+  NAT23008-DBID     := #STEPLIB-DBID
+  NAT23008-FNR      := #STEPLIB-FNR
+  NAT23008-PASSWORD := #STEPLIB-PASSWORD
+  NAT23008-CIPHER   := #STEPLIB-CIPHER
+ELSE
+  CMSLFT-FUNCTION := 5 /* get information for LFILE
+  IF (RANGE-LIBRARY = MASK ('SYS')) AND RANGE-LIBRARY NE 'SYSTEM'
+    CMSLFT-LFILE := 255 /* FNAT
+  ELSE
+    CMSLFT-LFILE := 0 /*FUSER
+  END-IF
+  CALL 'CMSLFT' CMSLFT-PARA
+  NAT23008-DBID     := CMSLFT-DBID
+  NAT23008-FNR      := CMSLFT-FNR
+  NAT23008-PASSWORD := CMSLFT-PASSWORD
+  NAT23008-CIPHER   := CMSLFT-CIPHER
+END-IF
+NAT23008-LFILE-NR := 219
+NAT23008-FUNCTION := 'S' /* Set LFILE
+CALLNAT 'NAT23008' NAT23008-PARAMETER
+IF NAT23008-RET_CODE NE 0
+  P-ERC := 4007
+  P-ERT := NAT23008-RET_CODE
+  ESCAPE ROUTINE
+END-IF
+SET KEY PF3 = PGM PF7 = PGM PF8 = PGM
+*
+/*------------- Loop of member list ---------------
+RESET L-MEM (*) L-MARK (*) #ESCAPE P-ERC P-ERT
+#PAGE := 1
+IF *MACHINE-CLASS = 'MAINFRAME'
+  NLREP1. REPEAT
+    CALLNAT 'NATF0103' PARMS-NATF0103
+    DECIDE FOR FIRST CONDITION
+      WHEN RETURN-CODE = -4971
+        IF #NO-WILDCARD
+          P-ERC := 1052
+          P-ERT := 'Nothing found'
+          PERFORM RESET-LFILE-219
+          ESCAPE ROUTINE
+        END-IF
+      WHEN #NO-WILDCARD
+        IF P-MEMBER NE M-NAME (1)
+          P-ERC := 1052
+          P-ERT := 'Nothing found'
+        END-IF
+        PERFORM RESET-LFILE-219
+        ESCAPE ROUTINE
+      WHEN NUMBER-RETURNED = 1 AND #PAGE = 1
+        P-MEMBER := M-NAME (1)
+        PERFORM RESET-LFILE-219
+        ESCAPE ROUTINE
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+    PERFORM SELECT-MEMBER
+    IF #ESCAPE
+      PERFORM RESET-LFILE-219
+      ESCAPE ROUTINE
+    END-IF
+  END-REPEAT        /* (NLREP1.)
+ELSE
+  OPT-ACCESS := 'O' /* Open processing
+  NLREP2. REPEAT
+    CALLNAT 'NATA1700' NADA1700 NATA1700.EXTENDED-PARMS NAD-MSG NAD-FLD
+    NUMBER-REQUESTED := V
+    NUMBER-RETURNED := RETURNED
+    OPT-ACCESS := 'R' /* Read function for further processing
+    DECIDE FOR FIRST CONDITION
+      WHEN NAD-MSG.MSG-NR = 100 AND NAD-MSG.MSG = SCAN ('END')
+        IF #NO-WILDCARD
+          P-ERC := 1052
+          P-ERT := 'Nothing found'
+          PERFORM CLOSE-MEMBER
+          PERFORM RESET-LFILE-219
+          ESCAPE ROUTINE
+        END-IF
+      WHEN #NO-WILDCARD
+        IF P-MEMBER NE LIST-OBJ (1)
+          P-ERC := 1052
+          P-ERT := 'Nothing found'
+        END-IF
+        PERFORM CLOSE-MEMBER
+        PERFORM RESET-LFILE-219
+        ESCAPE ROUTINE
+      WHEN NUMBER-RETURNED = 1 AND #PAGE = 1
+        P-MEMBER := LIST-OBJ (1)
+        PERFORM CLOSE-MEMBER
+        PERFORM RESET-LFILE-219
+        ESCAPE ROUTINE
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+    M-NAME(1:12) := LIST-OBJ(1:12)
+    PERFORM SELECT-MEMBER
+    IF #ESCAPE
+      PERFORM CLOSE-MEMBER
+      PERFORM RESET-LFILE-219
+      ESCAPE ROUTINE
+    END-IF
+  END-REPEAT        /* (NLREP2.)
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SELECT-MEMBER
+************************************************************************
+RESET #ESCAPE L-MARK (*)
+#TOP-MEMBER (#PAGE) :=  M-NAME (1)
+SET CONTROL #CTRL-OLISMMM1
+L-MEM (*) := M-NAME (1:12)
+#RANGE    := RANGE-NAME
+FOR #I 1 TO #LINES
+  IF L-MEM (#I) = ' '
+    L-MARK-CONTROL (#I) := (AD=PN)
+  ELSE
+    L-MARK-CONTROL (#I) := (AD=D)
+  END-IF
+END-FOR
+INPUT USING MAP 'N-LSMEM&'
+SET CONTROL 'WB'
+IF #RANGE NE RANGE-NAME AND *PF-KEY NE 'PF3'
+  RESTART    := FALSE
+  NEW-RANGES := TRUE
+  RANGE-NAME := #RANGE
+  #PAGE      := 1
+  RESET START-VALUE #TOP-MEMBER (*)
+  ESCAPE ROUTINE
+END-IF
+*
+DECIDE ON FIRST VALUE OF *PF-KEY
+  VALUE 'PF3'
+    RESET P-MEMBER P-LIBRARY
+    P-ERC := 1070
+    P-ERT := 'No Member specified'
+    #ESCAPE := TRUE
+    ESCAPE ROUTINE
+  VALUE 'PF7'
+    SUBTRACT 1 FROM #PAGE
+    IF #PAGE = 0
+      #PAGE := 1
+    END-IF
+    START-VALUE := #TOP-MEMBER (#PAGE)
+    NEW-RANGES  := FALSE
+    RESTART     := FALSE
+  NONE VALUE
+    FOR #I 1 TO #LINES
+      IF L-MARK(#I) NE ' '
+        P-MEMBER := L-MEM(#I)
+        #ESCAPE := TRUE
+        ESCAPE ROUTINE
+      END-IF
+    END-FOR
+    IF NUMBER-RETURNED = NUMBER-REQUESTED
+      ADD 1 TO #PAGE
+      START-VALUE := M-NAME (NUMBER-RETURNED)
+    ELSE
+      START-VALUE := M-NAME (1)
+    END-IF
+END-DECIDE
+*
+END-SUBROUTINE /* SELECT-MEMBER
+*
+************************************************************************
+DEFINE SUBROUTINE RESET-LFILE-219
+************************************************************************
+IF *PF-KEY NE 'ENTR'
+  NAT23008-LFILE-NR := 219
+  NAT23008-FUNCTION := 'R'       /* Reset LFILE 219
+  CALLNAT 'NAT23008' NAT23008-PARAMETER
+END-IF
+*
+END-SUBROUTINE /* RESET-LFILE-219
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-MEMBER
+************************************************************************
+OPT-ACCESS := 'C' /* CLOSE MEMBER FOR UNIX ACCESS
+CALLNAT 'NATA1700' NADA1700 NATA1700.EXTENDED-PARMS NAD-MSG NAD-FLD
+*
+END-SUBROUTINE /* CLOSE-MEMBER
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-STEPLIBS
+************************************************************************
+FOR #I = 1 TO 20 /*SU2 20 should be enough; was 8
+  NAT00009-FUNCTION := 12
+  NAT00009-CURRENT-INDEX := #I
+  CALLNAT 'NAT00009' NAT00009-PARMS
+  IF #I > NAT00009-NUMBER-ACTIVE
+    ESCAPE BOTTOM
+  END-IF
+  IF NAT00009-LIBRARY = P-LIBRARY
+    #STEPLIB-DBID     := NAT00009-DBID
+    #STEPLIB-FNR      := NAT00009-FNR
+    #STEPLIB-PASSWORD := NAT00009-PASSWORD
+    #STEPLIB-CIPHER   := NAT00009-CIPHER
+    ESCAPE BOTTOM
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* CHECK-STEPLIBS
+*
+END

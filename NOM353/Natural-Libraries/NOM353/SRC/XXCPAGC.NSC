@@ -1,0 +1,79 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* ----------------------------------------------------------------------
+* Version   3.5
+* Function  Encode string with special char into named char
+*           for OPO and NPR Unix. Version with Unicode variables
+*
+* Copycode for XXCPAG* modules, implements logging routine LOG-ENC-ERROR
+*
+* fhi§SAG Sep 2018
+*
+* ----------------------------------------------------------------------
+*
+* Maintenance
+* -----------
+* uuuuuu  yyyy-mm-dd iTrac       Remark
+* fhi     2018-09-12 NOMALL-2125 created from XXCPAGU
+* ----------------------------------------------------------------------
+************************************************************************
+DEFINE SUBROUTINE LOG-ENC-ERROR
+************************************************************************
+IF #TRACING
+  COMPRESS 'XXMVENC returned' #ENC-ERC #ENC-ERT
+    TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+DECIDE FOR EVERY CONDITION
+  WHEN #ENC-ERC = 9170
+    COMPRESS '5' #ENC-ERT #LINE TO #ENC-ERT
+    PERFORM XXRLOG-WRITE-LOG 'W' #ENC-ERT
+    ESCAPE ROUTINE
+  WHEN #ENC-ERC NE 0
+    ERC := #ENC-ERC
+    ERT := #ENC-ERT
+* Get error text:
+    NATA2000.VERSION        := 0
+    NADA2000.ERROR-NUMBER   := ABS(#ENC-ERC) /* NOMALL-1918 ABS added
+    NADA2000.OPT-INSERT-DYN := TRUE
+    NADA2000.OBJECT-KIND    := 'N' /*NAT /'U'ser
+    NADA2000.LIBRARY        := ' ' /* #LIBRARY-ID
+    NADA2000.OPT-LANGUAGE := 1 /*NAT LUW only english SU2
+    CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+    MOVE EDITED NADA2000.ERROR-NUMBER (EM=9999) TO LG-MSG
+    COMPRESS 'NAT' LG-MSG TO LG-MSG LEAVING NO
+    COMPRESS LG-MSG SHORT-MSG TO LG-MSG
+    COMPRESS LG-MSG #LINE TO LG-MSG
+    DECIDE ON FIRST VALUE OF #ENC-ERC
+      VALUE 3413
+        EXAMINE LG-MSG FOR 'H'' ''' REPLACE WITH 'line'
+        EXAMINE LG-MSG FOR 'H''Subprogram''' REPLACE WITH 'line'
+      NONE
+        IGNORE
+    END-DECIDE
+    LG-USERID   := 'MAIN'
+    LG-FUNCTION := 'W'
+    LG-CODE     := 'MO'
+    CALLNAT 'RLOG'  PL-PARMS
+  WHEN #ENC-ERC = 3413 OR #TRACING
+    IF SRC-CP SPECIFIED AND SRC-CP NE ' '
+      COMPRESS 'Source Codepage:' SRC-CP TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+    IF TAR-CP SPECIFIED AND TAR-CP NE ' '
+      COMPRESS 'Target Codepage:' TAR-CP TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+  WHEN #ENC-ERC = 0 OR = 3413
+    RESET #ENC-ERC ERC ERT
+  WHEN NONE
+    ERC := 9168 /*NOM9168 Codepage :2: not convertable :1:
+    COMPRESS ERC #ENC-ERC #CODEPAGE TO ERT
+    ESCAPE MODULE
+END-DECIDE
+*
+END-SUBROUTINE /* LOG-ENC-ERROR
+*

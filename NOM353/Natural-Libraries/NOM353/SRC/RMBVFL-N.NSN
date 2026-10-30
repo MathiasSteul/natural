@@ -1,0 +1,371 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMBVFL-N - Flush Lines of a Bundle VTOC
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-02-25 s(999999) created
+* mrs 93-11-03 s(999999) old version saved, various changes
+* mrs 93-12-14 s(999999) message if report is archived
+* jvd 97-10-09 p(163166) Replace Callnat 'OUTDATE' with 'IODATE-N'
+*                        Y2C and use only one date routine for NOM
+* gw  98-03-24 s(279421) sort reports by repname-rnb within group-seqno
+*                        new superde BC-BUNDLE-RNB-GROUP-SEQNO-REPRNB
+*                        if not present (NAT3061) we use the old one
+* gw  98-07-16 p(172297) recat for build list active bundle redesign
+*                        to include prerequisites
+* xsisgg 00-05-31 p(191312) Sort reports in bundle-take out old code
+* xsiszha 2000-08-01 (CE7461) Extend Report and Bundle Names
+* sju 01-04-20 p(208757) User-exit to decide old or new sequence
+* xsetggr 04-03-10 p(250355) save evaluated lrecl in FLUSH-RECORD-LENGTH
+*                            if work file number = 2
+* sju     2004-04-22 p(250355) correct handling of recfm
+* NOTE: for performance reasons (WRITE WORK much faster than VARIABLE)
+*       RECFM=F is always written with LRECL 251
+* xsetggr 04-11-23 p(258871) recat due to changes in RMFL---P
+* sju 05-02-04 NOM31     NAT00021 instead of CMQ
+* fhi 06-07-07 p(280966) backout of NOM31(05-02-04) temporarily because
+*                        of malfunction of NAT00021. NAT00021 will be
+*                        replaced by NAT42021 for Natural 4.2 and above.
+*                        This is a special solution, no additional marks
+* xsetggr 2006-10-20 p(280966) use NAT42021 instead of NAT00021 for
+*                              NAT42 and above
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* xsetggr 2007-05-03 NOM3201   Support P11 format run numbers
+* fhi     2008-06-20 P306371   Redefintion misused, WKF-NUMBER destroyed
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* fhi     2009-11-12 P321566   Avoid *language = 0                      ONTENTS
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-12-21 NOMALL-865 restow due to changes in RMFL---P
+* xsetggr 2011-02-16 NOMALL-943 Save File Handle for NPR Unix, correct
+*                    CALLNAT
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* bli     2012-04-03 NOMALL-94   delete old version checks
+* fhi     2014-08-29 NOMALL-1454 Restowed due to changes in XXUX---P
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING RMBVFL-P
+PARAMETER USING RMFL---P
+PARAMETER
+1 LINE-PARMS
+  2 LINE-CURRENT         (P3)
+  2 LINE-TAB             (1:100)
+    3 LINE               (A251)
+    3 REDEFINE LINE
+      4 LINE-L           (A1/1:251)
+    3 LINE-NUMBER        (P10)
+1 P-ERROR-CODE           (N4)
+1 P-ERROR-TEXT           (A250)
+************************************************************************
+INDEPENDENT
+1 +G-L9-EXISTS                (L)
+1 +WKF-NUMBER                 (N2)
+************************************************************************
+LOCAL USING XXUX---P
+LOCAL USING RCCTYP-E
+LOCAL USING XXGMSG-A
+LOCAL USING RTXT---L
+LOCAL
+1 BUNDLE-CONTENTS VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-BUNDLE
+  2 BC-BUNDRNB
+  2 BC-REPNAME
+  2 BC-REPRNB
+  2 BC-REPNO
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPRNB
+  2 AR-DESC
+  2 AR-NUMBER-OF-LINES
+  2 AR-PROCESS-TIME
+  2 AR-CURRENT-LOCATION
+*
+1 REPORT VIEW OF NRM-REPORTS-NEW
+  2 R-DESC
+1 #MA-RNB-USER               (A14)
+1 REDEFINE #MA-RNB-USER
+  2 #MA-RNB                  (P11)
+  2 #MA-USERID               (A8)
+1 #AR-REPORT-RNB             (A31)
+1 REDEFINE #AR-REPORT-RNB
+  2 #AR-REPNAME              (A25)
+  2 #AR-REPRNB               (P11)
+1 #BC-BUNDLE-RNB-GROUP-SEQNO (A41)
+1 REDEFINE #BC-BUNDLE-RNB-GROUP-SEQNO
+  2 #BC-BUNDLE               (A25)
+  2 #BC-BUNDRNB              (P11)
+  2 #BC-GROUP                (A8)
+  2 #BC-SEQNO                (P3)
+1 VTOC-BUNDLE                (A37)
+1 VTOC-LINE
+  2 VTOC-REPNAME             (A25)
+  2 VTOC-REPRNB              (P11)
+  2 VTOC-DESC                (A50)
+  2 VTOC-NUMBER-OF-LINES     (P10)
+  2 VTOC-COPIES              (P3)
+  2 VTOC-CDATE               (A8)
+  2 VTOC-CTIME               (A8)
+  2 VTOC-REMARKS             (A20)
+1 #OUTREC                    (A251)
+1 REDEFINE #OUTREC
+  2 #OUTREC-1                (A1)
+  2 #OUTREC-2                (A250)
+1 #LINES-IN-BUFFER           (P3)  CONST <100>
+1 #OLD-LANGUAGE              (I1)
+1 #L                         (I2)
+1 #NOL                       (I2) CONST <3>
+1 #LAN-TAB (1:#NOL)
+  2 #LAN-IDENT               (I2)
+  2 #LAN-TEXT                (A20)
+1 #FORMATED-DATE             (A10)
+1 REDEFINE #FORMATED-DATE
+  2 #S-FORMATED-DATE         (A8)
+1 #ERROR-CODE                (N4)
+1 #ERROR-TEXT                (A250)
+1 NAT00053-PARMS
+  2 NAT00053-FUNCTION        (A1)     INIT <'O'>
+  2 NAT00053-MEMBER          (A8)     INIT <'RMBUNSEQ'>
+  2 NAT00053-LIBRARY         (A8)
+  2 NAT00053-DBID            (B2)
+  2 NAT00053-FNR             (B2)
+  2 NAT00053-RSP             (I2)
+  2 NAT00053-FIELDS          (A55)
+1 NAT42021-FUNCTION          (A1)
+1 NAT42021-LINE-START        (N5)
+1 NAT42021-LINE-NUMBER       (N2)
+1 NAT42021-SRC-LENGTH        (N3)
+1 NAT42021-SRC-SIZE          (N2)
+1 NAT42021-SRC-RSP           (I4)
+1 NAT42021-SRC-FOUND         (N2)
+1 NAT42021-SRC-LINES         (A1/1,1:250)
+1 REDEFINE NAT42021-SRC-LINES
+  2 NAT42021-SRC-GROUP       (1)
+    3 LINE-NUMBERS           (B2)
+    3 NAT42021-SOURCE-LINES  (A248)
+    3 REDEFINE NAT42021-SOURCE-LINES
+      4 SOURCE-LINES         (A72)
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE PRINTER (2) OUTPUT 'SOURCE'
+FORMAT (2) LS=133 PS=58
+*
+SET CONTROL 'Z'
+*
+#OLD-LANGUAGE := *LANGUAGE
+*LANGUAGE     := RMBVFL-LANGUAGE
+*
+PERFORM INIT-TEXT
+*
+FLUSH-SEG-BRACKET := 'F'
+IF +WKF-NUMBER NE 2  /* NOT RECFM=Fxx
+  FLUSH-RECORD-LENGTH := 133
+END-IF
+FLUSH-CC-TYPE := ASA-CODE
+*
+#BC-BUNDLE    := RMBVFL-BUNDLE
+#BC-BUNDRNB   := RMBVFL-BUNDRNB
+RESET #BC-GROUP #BC-SEQNO
+*
+COMPRESS RMBVFL-BUNDLE '/' RMBVFL-BUNDRNB TO VTOC-BUNDLE LEAVING NO
+*
+CALLNAT 'RGETLIB' NAT00053-LIBRARY
++G-L9-EXISTS:= TRUE
+CALLNAT 'NAT00053' NAT00053-PARMS
+IF NAT00053-RSP = 0
+  CALLNAT 'RMBUNSEQ' #BC-BUNDLE (AD=O) #BC-BUNDRNB (AD=O) +G-L9-EXISTS
+END-IF
+IF +G-L9-EXISTS
+  PERFORM READ-BUNDLE-CONTENTS-NEW
+ELSE
+  PERFORM READ-BUNDLE-CONTENTS-OLD
+END-IF
+*
+IF FLUSH-SEG-BRACKET = 'F'
+  FLUSH-SEG-BRACKET := 'A'
+ELSE
+  FLUSH-SEG-BRACKET := 'L'
+END-IF
+#OUTREC := '+'
+PERFORM FLUSH-RECORD
+*
+*LANGUAGE := #OLD-LANGUAGE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-BUNDLE-CONTENTS-NEW
+************************************************************************
+READ BUNDLE-CONTENTS BY BC-BUNDLE-RNB-GROUP-SEQNO-REPRNB
+    STARTING FROM #BC-BUNDLE-RNB-GROUP-SEQNO
+  IF BC-BUNDLE NE #BC-BUNDLE OR BC-BUNDRNB NE #BC-BUNDRNB
+    ESCAPE ROUTINE
+  END-IF
+  PERFORM BUNDLE-CONTENTS
+END-READ
+*
+END-SUBROUTINE /* READ-BUNDLE-CONTENTS-NEW
+*
+************************************************************************
+DEFINE SUBROUTINE READ-BUNDLE-CONTENTS-OLD
+************************************************************************
+READ BUNDLE-CONTENTS BY BC-BUNDLE-RNB-GROUP-SEQNO
+    STARTING FROM #BC-BUNDLE-RNB-GROUP-SEQNO
+  IF BC-BUNDLE NE #BC-BUNDLE OR BC-BUNDRNB NE #BC-BUNDRNB
+    ESCAPE ROUTINE
+  END-IF
+  PERFORM BUNDLE-CONTENTS
+END-READ
+*
+END-SUBROUTINE /* READ-BUNDLE-CONTENTS-OLD
+*
+************************************************************************
+DEFINE SUBROUTINE BUNDLE-CONTENTS
+************************************************************************
+IF BC-REPNO = 0
+  BC-REPNO := 1
+END-IF
+*
+#AR-REPNAME := BC-REPNAME
+#AR-REPRNB  := BC-REPRNB
+FNDAR. FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REPORT-RNB
+  IF NO RECORDS FOUND
+    ENTER
+  END-NOREC
+*
+  IF AR-DESC = ' '
+    RNDRP. FIND REPORT WITH R-REPNAME = BC-REPNAME
+      AR-DESC := R-DESC
+    END-FIND
+  END-IF
+  RESET VTOC-LINE
+  VTOC-DESC    := AR-DESC
+  VTOC-REPNAME := BC-REPNAME
+  VTOC-REPRNB  := BC-REPRNB
+  VTOC-COPIES  := BC-REPNO
+*
+  IF *NUMBER (FNDAR.) > 0
+    #MA-USERID := RMBVFL-USER-ID
+    #MA-RNB    := AR-REPRNB
+    VTOC-NUMBER-OF-LINES := AR-NUMBER-OF-LINES
+    MOVE EDITED AR-PROCESS-TIME (EM=YYYYMMDD)     TO VTOC-CDATE
+    MOVE EDITED AR-PROCESS-TIME (EM=HH':'II':'SS) TO VTOC-CTIME
+    CALLNAT 'IODATE-N' 'M' 'S' VTOC-CDATE #FORMATED-DATE
+      RMBVFL-DATE-FORMAT #ERROR-CODE #ERROR-TEXT
+    IF #ERROR-CODE = 0
+      VTOC-CDATE := #S-FORMATED-DATE
+    END-IF
+  ELSE
+    VTOC-REMARKS := #LAN-TEXT (1)
+  END-IF
+*
+  IF AR-CURRENT-LOCATION = 'A'
+    VTOC-REMARKS := #LAN-TEXT (3)
+  END-IF
+*
+  WRITE (2) NOTITLE USING FORM 'RMBVFL21'
+  PERFORM FLUSH-SRA
+*
+END-FIND
+*
+END-SUBROUTINE /* BUNDLE-CONTENTS
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-SRA
+************************************************************************
+PERFORM READ-SOURCE-42
+*
+END-SUBROUTINE /* FLUSH-SRA
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SOURCE-42
+************************************************************************
+NAT42021-FUNCTION    := 'R'
+NAT42021-LINE-NUMBER := 1
+NAT42021-SRC-LENGTH  := 250
+NAT42021-SRC-SIZE    := 1
+RESET NAT42021-LINE-START #OUTREC
+REPEAT
+  NAT42021-LINE-START:= NAT42021-LINE-START + 1
+  CALLNAT 'NAT42021' NAT42021-FUNCTION NAT42021-LINE-START
+    NAT42021-LINE-NUMBER NAT42021-SRC-LENGTH NAT42021-SRC-SIZE
+    NAT42021-SRC-RSP NAT42021-SRC-FOUND NAT42021-SRC-LINES(*,*)
+  DECIDE FOR FIRST CONDITION
+    WHEN NAT42021-SRC-RSP = 2
+      ESCAPE BOTTOM
+    WHEN NAT42021-SOURCE-LINES(1) = '*/'
+      #OUTREC-1 := '1'
+      ESCAPE TOP
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+  #OUTREC-2 := NAT42021-SOURCE-LINES(1)
+  PERFORM FLUSH-RECORD
+  RESET #OUTREC-1
+END-REPEAT
+SET CONTROL 'Z'
+*
+END-SUBROUTINE /* READ-SOURCE-42
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-RECORD
+************************************************************************
+ADD 1 TO LINE-CURRENT
+RESET LINE-NUMBER (LINE-CURRENT)
+LINE (LINE-CURRENT) := #OUTREC
+*
+IF LINE-CURRENT >= #LINES-IN-BUFFER OR FLUSH-SEG-BRACKET = 'L' OR = 'A'
+  CALLNAT FLUSH-PROGRAM FLUSH-PARMS LINE-PARMS
+    XXUX---P P-ERROR-CODE P-ERROR-TEXT
+/*RMPRVTM RMPRWKF RMPRWKF RMPRWKF RMPRNAF RMPRCMA
+/*RMPRTCP RMPRNAT RMPREML RMPRDSK RMPRWSP
+  RESET LINE-CURRENT
+  FLUSH-SEG-BRACKET := 'M'
+END-IF
+*
+END-SUBROUTINE /* FLUSH-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-TEXT
+************************************************************************
+#LAN-IDENT (1) := ##TXT-REPORT-DELETED
+#LAN-IDENT (2) := ##TXT-NOT-AUTHORIZED
+#LAN-IDENT (3) := ##TXT-ARCHIVED
+*
+FOR #L = 1 TO #NOL
+  IF #LAN-IDENT (#L) = 0
+    ESCAPE TOP
+  END-IF
+  #XX-ERROR-CODE := #LAN-IDENT (#L)
+  CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+  #LAN-TEXT (#L) := #XX-SHORT-TEXT
+END-FOR
+*
+END-SUBROUTINE /* INIT-TEXT
+*
+************************************************************************
+AT TOP OF PAGE (2)
+************************************************************************
+  WRITE (2) NOTITLE USING FORM 'RMBVFL-&'
+  PERFORM FLUSH-SRA
+*
+END-TOPPAGE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF #OLD-LANGUAGE > 0
+    *LANGUAGE := #OLD-LANGUAGE
+  END-IF
+*
+END-ERROR
+*
+END

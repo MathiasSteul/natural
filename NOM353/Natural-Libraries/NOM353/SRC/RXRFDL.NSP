@@ -1,0 +1,179 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RXRFDL
+* Function:  display related objects of a distribution List
+*            - authorization report
+*            -               bundle
+*            -               printer
+*            -               distribution list
+*            - distribute to report (Report definition)
+* xsiszha 2000-08-07 (CE7461) Extend Report and Bundle Names
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL
+1 GRANTS VIEW OF NRM-GRANTS
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+1 DISTRIBUTION-LIST VIEW OF NRM-DISTRIBUTION-LIST
+1 BUNDLES VIEW OF NRM-BUNDLES
+* *****
+1 #P-LIST                  (A8)
+1 #XREF                    (I2) CONST <6>
+1 #XREF-TAB                (1:#XREF)
+  2 #XREF-TYPE             (A40) INIT
+*        RT T Relation Type
+* (nn) <'-- - ----+----1----+----2----+----3----+'>
+    (01) <'AU R Authorization Report               '>
+    (02) <'AU B Authorization Bundle               '>
+    (03) <'AU P Authorization Printer              '>
+    (04) <'AU L Authorization Distribution List    '>
+    (05) <'DT   Report Definition (Distribute to)  '>
+    (06) <'LM   Member of a Distribution List      '>
+  2 REDEFINE #XREF-TYPE
+    3 #XREF-RELATION-TYPE (A2)
+    3 #XREF-FIL1          (A1)
+    3 #XREF-GRANT-TYPE    (A1)
+    3 #XREF-FIL2          (A1)
+    3 #XREF-TEXT          (A35)
+  2 #XREF-NUMBER           (P10)
+  2 #XREF-MARK             (A1)
+  2 #XREF-CV               (C)
+*
+1 #GR-START                (A34)
+1 REDEFINE #GR-START
+  2 #GRS-TYPE              (A1)
+  2 #GRS-USERID            (A8)
+  2 #GRS-OBJECT            (A25)
+1 #GR-END                  (A34)
+1 REDEFINE #GR-END
+  2 #GRE-TYPE              (A1)
+  2 #GRE-USERID            (A8)
+  2 #GRE-OBJECT            (A25)
+*
+1 #I                       (P2)
+1 END-OF-PROCESSING        (L)
+1 END-OF-DISPLAY           (L)
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#P-LIST := G-C-LIST
+*
+PERFORM PF-KEYS
+FOR #I = 1 TO #XREF
+  DECIDE ON FIRST #XREF-RELATION-TYPE (#I)
+    VALUE 'AU'   PERFORM XREF-NUMBER-GRANTS
+    VALUE 'DT'   PERFORM XREF-NUMBER-REPORTS
+    VALUE 'LM'   PERFORM XREF-NUMBER-DISTRIBUTION-LIST
+    NONE         IGNORE
+  END-DECIDE
+END-FOR
+REPEAT
+  UNTIL END-OF-PROCESSING
+  PERFORM SCREEN-IO
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE XREF-NUMBER-GRANTS
+************************************************************************
+#GRS-TYPE := #GRE-TYPE :=  #XREF-GRANT-TYPE (#I)
+#GRS-USERID := #GRE-USERID :=  #P-LIST
+MOVE ALL H'00'              TO #GRS-OBJECT
+MOVE ALL H'FF'              TO #GRE-OBJECT
+FNDG. FIND NUMBER GRANTS WITH GR-SUPER = #GR-START THRU #GR-END
+#XREF-NUMBER (#I) := *NUMBER (FNDG.)
+IF #XREF-NUMBER (#I) = 0
+  #XREF-CV (#I) := (AD=DP)
+ELSE
+  #XREF-CV (#I) := (AD=I)
+END-IF
+*
+END-SUBROUTINE /* XREF-NUMBER-GRANTS
+*
+************************************************************************
+DEFINE SUBROUTINE XREF-NUMBER-REPORTS
+************************************************************************
+FNDR. FIND NUMBER REPORTS WITH R-NATRPT-DIST = #P-LIST
+#XREF-NUMBER (#I) := *NUMBER (FNDR.)
+IF #XREF-NUMBER (#I) = 0
+  #XREF-CV (#I) := (AD=DP)
+ELSE
+  #XREF-CV (#I) := (AD=I)
+END-IF
+*
+END-SUBROUTINE /* XREF-NUMBER-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE XREF-NUMBER-DISTRIBUTION-LIST
+************************************************************************
+FNDD. FIND NUMBER DISTRIBUTION-LIST WITH D-USER-LIST = #P-LIST
+#XREF-NUMBER (#I) := *NUMBER (FNDD.)
+IF #XREF-NUMBER (#I) = 0
+  #XREF-CV (#I) := (AD=DP)
+ELSE
+  #XREF-CV (#I) := (AD=I)
+END-IF
+*
+END-SUBROUTINE /* XREF-NUMBER-DISTRIBUTION-LIST
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+REPEAT
+  SET CONTROL 'Y41'
+  SET CONTROL 'WFL55C15B02/07'
+  INPUT USING MAP 'RXRFDLM&'
+  SET CONTROL 'WMB'
+  SET CONTROL 'YB'
+  IF *PF-KEY = 'PF3'
+    END-OF-DISPLAY := TRUE
+    END-OF-PROCESSING := TRUE
+  ELSE
+    FOR #I = 1 TO #XREF
+      DECIDE FOR FIRST CONDITION
+        WHEN #XREF-MARK (#I) = ' '
+          IGNORE
+        WHEN #XREF-RELATION-TYPE (#I) = 'AU'
+          RESET #XREF-MARK (#I)
+          CALLNAT 'RXRFGR' #XREF-GRANT-TYPE (#I)
+            #P-LIST
+            G-DISPLAY-LONG-NAMES
+        WHEN #XREF-RELATION-TYPE (#I) = 'DT'
+          RESET #XREF-MARK (#I)
+          CALLNAT 'RXRFDT' #P-LIST
+            G-SUPPORT-LONG-NAMES
+            G-DISPLAY-LONG-NAMES
+        WHEN #XREF-RELATION-TYPE (#I) = 'LM'
+          RESET #XREF-MARK (#I)
+          CALLNAT 'RXRFLM' #P-LIST
+        WHEN #XREF-RELATION-TYPE (#I) = 'CI'
+          RESET #XREF-MARK (#I)
+          CALLNAT 'RXRFCI' #P-LIST
+            G-DISPLAY-LONG-NAMES
+        WHEN NONE
+          IGNORE
+      END-DECIDE
+    END-FOR
+  END-IF
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+*
+END-SUBROUTINE /* PF-KEYS
+*
+END

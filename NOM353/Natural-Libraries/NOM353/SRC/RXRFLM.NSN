@@ -1,0 +1,188 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RXRFLM - List User/list related to list
+*
+* Maintenance
+* mrs 91-12-27           display distribution-list description
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #P-USERID            (A8)
+************************************************************************
+LOCAL
+1 DISTRIBUTION-LIST VIEW OF NRM-DISTRIBUTION-LIST
+  2 D-LIST-NAME
+  2 D-LIST-DESC
+LOCAL
+1 #I                   (P2)
+1 #NOFLINES            (I2)   CONST <12>
+1 L-SCREEN (1:#NOFLINES)
+  2 L-LIST-NAME        (A17)
+  2 L-LIST-DESC        (A50)
+1 END-OF-PROCESSING    (L)
+1 END-OF-DISPLAY       (L)
+1 END-OF-DATA          (L)
+1 SORTED               (L)
+1 NEW-SEARCH           (L)
+1 #RETAIN-SET          (A8) INIT <'RXRFLM'>
+1 #MAX-REC             (P4) INIT <200>
+1 #ERC                 (N4)
+1 #PAGE                (P2)  INIT <1>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM PF-KEYS
+*
+FNDS. FIND NUMBER DISTRIBUTION-LIST WITH D-USER-LIST = #P-USERID
+  RETAIN AS #RETAIN-SET
+IF *NUMBER (FNDS.) > #MAX-REC
+  SORTED := FALSE
+ELSE
+  SORTED := TRUE
+END-IF
+MAIN. REPEAT UNTIL END-OF-PROCESSING
+  RESET #I
+  RESET INITIAL END-OF-DATA #PAGE NEW-SEARCH
+  IF SORTED
+    PERFORM FIND-SORTED
+  ELSE
+    PERFORM FIND-NORMAL
+  END-IF
+END-REPEAT
+RELEASE SET #RETAIN-SET
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE FIND-SORTED
+************************************************************************
+FND. FIND DISTRIBUTION-LIST WITH #RETAIN-SET SORTED BY D-LIST-NAME
+  IF #I = #NOFLINES
+    PERFORM SCREEN-IO
+    IF END-OF-PROCESSING OR NEW-SEARCH
+      ESCAPE BOTTOM (FND.)
+    END-IF
+  END-IF
+  ADD 1 TO #I
+  PERFORM LIST-TO-SCREEN
+END-FIND
+DECIDE FOR FIRST CONDITION
+  WHEN #I > 0
+    END-OF-DATA := TRUE
+  WHEN *NUMBER (FND.) = 0
+    END-OF-DATA := TRUE
+  WHEN ANY
+    PERFORM SCREEN-IO
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* FIND-SORTED
+*
+************************************************************************
+DEFINE SUBROUTINE FIND-NORMAL
+************************************************************************
+FNDN. FIND DISTRIBUTION-LIST WITH #RETAIN-SET
+  IF #I = #NOFLINES
+    PERFORM SCREEN-IO
+    IF END-OF-PROCESSING OR NEW-SEARCH
+      ESCAPE BOTTOM (FNDN.)
+    END-IF
+  END-IF
+  ADD 1 TO #I
+  PERFORM LIST-TO-SCREEN
+END-FIND
+DECIDE FOR FIRST CONDITION
+  WHEN #I > 0
+    END-OF-DATA := TRUE
+  WHEN *NUMBER (FNDN.) = 0
+    END-OF-DATA := TRUE
+  WHEN ANY
+    PERFORM SCREEN-IO
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* FIND-NORMAL
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+RESET END-OF-DISPLAY
+REPEAT
+  DECIDE FOR FIRST CONDITION
+    WHEN #ERC NE 0
+      IGNORE
+    WHEN END-OF-DATA AND #PAGE > 1
+      #ERC := 12                   /* bottom of data
+    WHEN END-OF-DATA AND #PAGE = 1
+      #ERC := 14                   /* all
+    WHEN NOT END-OF-DATA AND #PAGE = 1
+      #ERC := 11                   /* top of data
+    WHEN NONE
+      #ERC := 13                   /* more
+  END-DECIDE
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'Y41'
+  SET CONTROL 'WFL74C19B02/08'
+  SET CONTROL 'M15'
+  INPUT WITH TEXT *#ERC USING MAP 'RXRFLMM&'
+  SET CONTROL 'WMB'
+  SET CONTROL 'YB'
+  RESET #ERC
+  PERFORM COMMAND-PF-KEY
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+RESET #I L-SCREEN (*)
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE LIST-TO-SCREEN
+************************************************************************
+L-LIST-NAME (#I) := DISTRIBUTION-LIST.D-LIST-NAME
+L-LIST-DESC (#I) := DISTRIBUTION-LIST.D-LIST-DESC
+*
+END-SUBROUTINE /* LIST-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+DECIDE ON FIRST *PF-KEY
+  VALUE 'PF3'
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+  VALUE 'PF7'
+    IF #PAGE > 1
+      END-OF-DISPLAY := NEW-SEARCH := TRUE
+    END-IF
+  VALUE 'PF8'
+    IF NOT END-OF-DATA
+      ADD 1 TO #PAGE
+      END-OF-DISPLAY := TRUE
+    END-IF
+  VALUE 'PF11'
+    IF NOT SORTED
+      SORTED := END-OF-DISPLAY := NEW-SEARCH := TRUE
+    END-IF
+  NONE           IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+*
+END-SUBROUTINE /* PF-KEYS
+*
+END

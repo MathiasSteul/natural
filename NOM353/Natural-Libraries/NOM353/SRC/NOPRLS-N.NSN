@@ -1,0 +1,335 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOPRLS-N - NOM API Printer List
+*
+* Maintenance:
+* XSETHZ  2002-03-06   created
+* XSETGGR 2002-04-04   read header texts from SYSERR
+* XSETGGR 2002-06-07   change compressing the header texts
+* XSETGGR 2002-08-16   change length of noprls-name field to 30
+* XSETGGR 2002-11-14   use new parameter ES-APP-SERVER-LIBRARY
+* XSETGGR 2002-11-20   add number of options
+* XSETGGR 2002-11-25   check grants for non-administrator users
+* XSETHZ  2003-07-10   p(240729) Restrict Usage
+* XSETHZ  2003-09-01   p(241898)
+* XSETGGR 2007-10-25   NRT2185 default values for UNIXLP printers
+* xsetggr 2007-11-30   NRT2771 start/stop physical printers
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* XSETHZ  2008-08-07 P(304010) Selection "default" printers not allowed
+* xsetggr 2008-11-28 P311915  default unixlp printers DEFAULTA-DEFAULTZ
+* XSETHZ  2009-09-17 P314431  types NATUNIX or UNIXLP
+* xsetggr 2010-11-03 NOMALL-865 restow due to changes in EOMPHTYE
+* XSETHZ  2011-04-29 NOMALL-977
+* xsetggr 2012-04-23 NOMALL-1136 corrections of using grants
+* xsetggr 2012-09-28 NOMALL-89 implement copycode to check grants
+* CF1     2018-11-27 NOMALL-2178 Correct authorisation filter results
+* HEB1    2023-02-17 NOMALL-2608 Move printouts to another printer
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOPRLS-A
+************************************************************************
+LOCAL USING NOPRSL-A
+LOCAL USING ESMCONSL
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING EOMPHTYE
+LOCAL
+1 PRINTERS VIEW OF NRM-PRINTERS
+  2 P-ID
+  2 P-NAME
+  2 P-PHYSICAL-NAME
+  2 P-VOLSER
+  2 P-DSNAME
+1 PRINTERS-LS4 VIEW OF NRM-PRINTERS                     /* HEB1
+  2 P-PHYSICAL-NAME                                     /* HEB1
+1 PHYSICAL  VIEW  OF  NRM-PHYSICAL-PRINTERS
+  2 PH-VTAMID
+  2 PH-LOCATION
+  2 PH-STATUS
+  2 PH-PRINTER-TYPE
+* *****
+1 #I2             (I4)
+1 #IMAX           (I4)
+1 #PRINTER-S      (A8)
+1 #PRINTER-E      (A8)
+1 #PHYSICAL-S     (A8)
+1 #PHYSICAL-E     (A8)
+1 #MSG-NR         (N4)  CONST <6103>
+1 #I              (I2)
+1 #GRANTS          (A1/1:6)
+1 #LS-USERID       (A8)
+1 #OBJECT-NAME     (A25)
+1 #NEW-OPTIONS     (A2/1:8)
+1 #OPTIONS         (A2/1:10)
+1 #P-ID            (A8)  INIT <'DEFAULT'>
+1 REDEFINE #P-ID
+  2 #P-ID-1        (A7)
+  2 #SUFFIX        (A1)
+1 #P-ID-E          (A8)
+1 #P-ID-ED         (A8)
+1 I                (I2)
+1 #GRANTED         (L)
+*
+1 #LS4-SELECT   (A250)          /* HEB1 >
+1 REDEFINE #LS4-SELECT
+  2 #LS4-VERS          (N2)     /* not yet used
+  2 #LS4-SEL-PRT       (A32)
+1 #LS4-PRT-TYPE (A8)            /* HEB1 <
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-NUMBER ES-SORTKEY ES-SORTORDER ES-STARTINDEX
+COMPRESS #P-ID H'FF' TO #P-ID-ED LEAVING NO
+ES-OPTION-COUNT := 10
+IF ES-EXPAND = 'E'
+  #IMAX := 903
+  ES-FIELD-COUNT := 1
+  NOPREX-FIELD-LENGTH(1) := 8
+ELSE
+  DECIDE ON FIRST VALUE OF ES-FUNCTION
+    VALUE 'LS'
+      #IMAX := 202
+      ES-FIELD-COUNT := 6
+      NOPRLS-FIELD-LENGTH(1) := 8
+      NOPRLS-FIELD-LENGTH(2) := 8
+      NOPRLS-FIELD-LENGTH(3) := 30
+      NOPRLS-FIELD-LENGTH(4) := 8
+      NOPRLS-FIELD-LENGTH(5) := 1
+      NOPRLS-FIELD-LENGTH(6) := 50
+    VALUE 'LS1' , 'LS3'
+        , 'LS4'                     /* HEB1 >
+      IF ES-FUNCTION = 'LS4'
+        #LS4-SELECT := ES-SELECT
+        FIND PRINTERS-LS4 WITH P-ID = #LS4-SEL-PRT
+        END-FIND
+        FIND PHYSICAL WITH PH-VTAMID = PRINTERS-LS4.P-PHYSICAL-NAME
+          #LS4-PRT-TYPE := PH-PRINTER-TYPE
+        END-FIND
+        /* WRITE *PROGRAM *LINE '=' #LS4-SEL-PRT '=' #LS4-PRT-TYPE
+        RESET ES-SELECT
+      END-IF                        /* HEB1 <
+      ES-OPTION-COUNT := 0
+      #IMAX := 665
+      ES-FIELD-COUNT := 2
+      NOPRLS-FIELD-LENGTH(1) := 8
+      NOPRLS-FIELD-LENGTH(2) := 30
+    VALUE 'LS2'
+      ES-OPTION-COUNT := 0
+      #IMAX := 3162
+      ES-FIELD-COUNT := 1
+      NOPRLI-FIELD-LENGTH(1) := 8
+    NONE VALUE IGNORE
+  END-DECIDE
+END-IF
+#NOPRSL := ES-SELECT
+EXAMINE #NOPRSL.#ID FOR '*' DELETE
+EXAMINE #NOPRSL.#AUTH FOR '*' DELETE
+EXAMINE #NOPRSL.#PH-ID FOR '*' DELETE
+COMPRESS #NOPRSL.#ID H'FF' TO #PRINTER-E LEAVING NO
+#PHYSICAL-S := #NOPRSL.#PH-ID
+COMPRESS #NOPRSL.#PH-ID H'FF' TO #PHYSICAL-E LEAVING NO
+ES-EOF := 'X'
+RESET ES-NUMBER
+IF ES-NEXT-KEY-PARM(1) > #NOPRSL.#ID
+  #PRINTER-S := ES-NEXT-KEY-PARM(1)
+ELSE
+  #PRINTER-S := #NOPRSL.#ID
+  IF ES-EXPAND NE 'E'
+    IF ES-FUNCTION = 'LS'
+      ES-STARTINDEX := 2
+      #I2 := 1
+    END-IF
+    RESET NOPRLS-HEADER(1)
+    NADA2000.ERROR-NUMBER := #MSG-NR
+    PERFORM GET-MSG-TXT
+    NOPRLS-HEADER(1) := LONG-MSG(1)
+    FOR #I = 2 TO ES-FIELD-COUNT
+      COMPRESS NOPRLS-HEADER(1) C-HEADER-DELIMITER LONG-MSG(#I)
+        TO NOPRLS-HEADER(1) LEAVING NO
+    END-FOR
+  END-IF
+END-IF
+IF ES-USER-TYPE NE 'A' AND ES-FUNCTION NE 'LS2'
+  #NOPRSL.#AUTH := ES-USER
+END-IF
+IF ES-USER-TYPE = 'A'
+  #GRANTS (*) := 'Y'
+END-IF
+*
+IF (#NOPRSL.#AUTH = ' ' OR = 'ADMIN' OR = '*')
+  PERFORM READ-ALL-PRINTERS
+ELSE
+  PERFORM READ-GRANTED-PRINTERS
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+***********************************************************************
+DEFINE SUBROUTINE READ-ALL-PRINTERS
+***********************************************************************
+READ PRINTERS WITH P-ID = #PRINTER-S ENDING AT #PRINTER-E
+  ACCEPT IF PRINTERS.P-PHYSICAL-NAME = #PHYSICAL-S THRU #PHYSICAL-E
+    AND (ES-FUNCTION = 'LS' OR NOT P-ID = #P-ID THRU #P-ID-ED)
+  #LS-USERID := 'ADMIN'
+  PERFORM DATA-TO-PDA
+END-READ
+*
+END-SUBROUTINE /* READ-ALL-PRINTERS
+*
+***********************************************************************
+DEFINE SUBROUTINE READ-GRANTED-PRINTERS
+***********************************************************************
+READ PRINTERS BY P-ID = #PRINTER-S ENDING AT #PRINTER-E
+  ACCEPT IF PRINTERS.P-PHYSICAL-NAME = #PHYSICAL-S THRU #PHYSICAL-E
+    AND (ES-FUNCTION = 'LS' OR NOT P-ID = #P-ID THRU #P-ID-ED)
+  #OBJECT-NAME := P-ID
+  IF ES-FUNCTION = 'LS3'
+              OR = 'LS4'                                /* HEB1
+    CALLNAT 'NOGRRU-N' 'P' #OBJECT-NAME #NOPRSL.#AUTH #LS-USERID #GRANTED
+    IF  NOT #GRANTED
+      ESCAPE TOP
+    END-IF
+  ELSE
+    CALLNAT 'NOGROU-N'
+      'P' #OBJECT-NAME #NOPRSL.#AUTH #LS-USERID #GRANTS(*)
+  END-IF
+*   IF #LS-USERID > ' '                                /* CF1 ->
+  /* Note:
+  /* For a Non-Admin user show all printer with
+  /* any authorisation
+  /* (no selection for different authorisations available)
+  /*
+  /* For an Admin user show only the printer with
+  /* the selected authorisation.
+  /*
+  IF #LS-USERID NE ' ' AND ES-USER-TYPE NE 'A' OR
+     #LS-USERID = #NOPRSL.#AUTH AND ES-USER-TYPE = 'A' /* CF1 <-
+    IF ES-USER-TYPE = 'A'
+      #LS-USERID := 'ADMIN'
+    END-IF
+    PERFORM DATA-TO-PDA
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* READ-GRANTED-PRINTERS
+*
+**********************************************************************
+DEFINE SUBROUTINE DATA-TO-PDA
+***********************************************************************
+RESET #OPTIONS(*)
+ADD 1 TO #I2
+IF #I2 > #IMAX
+  ES-NEXT-KEY-PARM(1) := P-ID
+  ES-NUMBER := #IMAX
+  RESET ES-EOF
+  ESCAPE BOTTOM
+END-IF
+IF ES-EXPAND = 'E'
+  NOPREX-ID(#I2) := P-ID
+  PERFORM OPTIONS
+  NOPREX-OPTIONS(#I2,*) := #OPTIONS(*)
+  ES-NUMBER := #I2
+  ESCAPE ROUTINE
+END-IF
+DECIDE ON FIRST VALUE OF ES-FUNCTION
+  VALUE 'LS'
+    NOPRLS-ID(#I2) := P-ID
+    NOPRLS-AUTH(#I2) := #LS-USERID  /*GRANTS.GR-USERID
+    NOPRLS-NAME(#I2) := P-NAME
+    NOPRLS-PH-NAME(#I2) := PRINTERS.P-PHYSICAL-NAME
+    FIND PHYSICAL WITH PH-VTAMID = PRINTERS.P-PHYSICAL-NAME
+      NOPRLS-PH-STATUS(#I2) := PH-STATUS
+    END-FIND
+    DECIDE ON FIRST VALUE OF PRINTERS.P-PHYSICAL-NAME
+      VALUE 'TAPE'
+        NOPRLS-LOCATION(#I2) := P-VOLSER
+      VALUE 'DISK'
+        NOPRLS-LOCATION(#I2) := P-DSNAME
+      VALUE 'SYSPRINT'
+        NOPRLS-LOCATION(#I2) := 'MAIN SYSTEM PRINTER'
+      NONE VALUE
+        NOPRLS-LOCATION(#I2) := PH-LOCATION
+    END-DECIDE
+    PERFORM OPTIONS
+    NOPRLS-OPTIONS(#I2,*) := #OPTIONS(*)
+  VALUE 'LS1' , 'LS3'
+    FIND PHYSICAL WITH PH-VTAMID = PRINTERS.P-PHYSICAL-NAME
+    END-FIND
+    IF *MACHINE-CLASS = 'MAINFRAME' AND
+        PH-PRINTER-TYPE NE ##PHYS-NATUNIX  OR
+        *MACHINE-CLASS NE 'MAINFRAME' AND
+        (PH-PRINTER-TYPE = ##PHYS-NATUNIX OR = ##PHYS-DISKUNIX)
+      NOPRLN-ID(#I2) := P-ID
+      NOPRLN-NAME(#I2) := P-NAME
+    ELSE
+      SUBTRACT 1 FROM #I2
+    END-IF
+  VALUE 'LS2'
+    FIND PHYSICAL WITH PH-VTAMID = PRINTERS.P-PHYSICAL-NAME
+    END-FIND
+    IF NOT (*MACHINE-CLASS = 'MAINFRAME' AND PH-PRINTER-TYPE = 'NATUNIX'
+       OR  *MACHINE-CLASS NE 'MAINFRAME' AND PH-PRINTER-TYPE = 'UNIXLP')
+      NOPRLI-ID(#I2) := P-ID
+    ELSE
+      SUBTRACT 1 FROM #I2
+    END-IF
+  VALUE 'LS4'                                           /* HEB1 >
+    FIND PHYSICAL WITH PH-VTAMID = PRINTERS.P-PHYSICAL-NAME
+    END-FIND
+    IF PH-PRINTER-TYPE = #LS4-PRT-TYPE
+    AND P-ID NE #LS4-SEL-PRT
+      NOPRLN-ID(#I2) := P-ID
+      NOPRLN-NAME(#I2) := P-NAME
+    ELSE
+      SUBTRACT 1 FROM #I2
+    END-IF                                              /* HEB1 <
+  ANY VALUE
+    ES-NUMBER := #I2
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* DATA-TO-PDA
+*
+***********************************************************************
+DEFINE SUBROUTINE OPTIONS
+***********************************************************************
+RESET #NEW-OPTIONS(*)  I
+INCLUDE NOOPT--C
+#SUFFIX := 'Z'
+#P-ID-E := #P-ID
+#SUFFIX := 'A'
+IF PRINTERS.P-ID = #P-ID THRU #P-ID-E
+  #NEW-OPTIONS(1) := 'DL'
+  #NEW-OPTIONS(2) := 'CP'
+  #NEW-OPTIONS(3) := 'RN'
+  CALLNAT 'NOOPT--N' #NEW-OPTIONS(*) #OPTIONS(*)
+END-IF
+*
+END-SUBROUTINE /* OPTIONS
+*
+***********************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+***********************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+END

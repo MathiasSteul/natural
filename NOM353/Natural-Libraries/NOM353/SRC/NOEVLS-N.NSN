@@ -1,0 +1,103 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* --------------------------------------------------------------------
+* Subprogram  NOEVLS-N
+* Version     3.5.0
+* Function    EOM API Monitor Event Definition list
+*
+* Maintenance:
+* CF      2017-12-05  NOMALL-2062 created
+*
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOEVLS-A
+LOCAL
+1 #I2                   (I4)
+1 #IMAX                 (I4)
+1 EVENTS VIEW OF NRM-EMAIL-EVENTS
+  2 EM-MONITOR-ID        (A20)
+  2 REDEFINE EM-MONITOR-ID
+    3 EM-EV-PFX          (A2)    /* = 'E-'
+    3 EM-EVENT-ID        (A16)
+  2 EM-EMAIL-SUBJECT     (A50)
+  2 EM-CHECK-PERIOD      (N9.0)
+/*
+1 #EVENT-ID-E           (A18) INIT<'E-'>
+1 REDEFINE #EVENT-ID-E
+  2 #EV-PFX-E           (A2)
+  2 #EV-NAME-E          (A16)
+1 #EVENT-ID-S           (A18) INIT<'E-'>
+1 REDEFINE #EVENT-ID-S
+  2 #EV-PFX-S           (A2)
+  2 #EV-NAME-S          (A16)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-NUMBER ES-STARTINDEX
+ES-EOF          := 'X'
+ES-OPTION-COUNT := 10
+/*
+IF ES-EXPAND = 'E'
+  #IMAX := 702
+  ES-FIELD-COUNT := 1
+  NOEVL1-FIELD-LENGTH(1) := 16
+ELSE
+  #IMAX := 266
+  ES-FIELD-COUNT := 3
+  NOEVL2-FIELD-LENGTH(1) := 16
+  NOEVL2-FIELD-LENGTH(2) := 50
+  NOEVL2-FIELD-LENGTH(3) := 909
+END-IF
+/*
+IF ES-SELECT NE ' '
+  EXAMINE ES-SELECT FOR '*' DELETE
+  COMPRESS ES-SELECT H'FF' TO #EV-NAME-E LEAVING NO
+ELSE
+  MOVE H'FF' TO #EV-NAME-E
+END-IF
+IF ES-NEXT-KEY-PARM(1) > ' '
+  #EV-NAME-S := ES-NEXT-KEY-PARM(1)
+ELSE
+  #EV-NAME-S := ES-SELECT
+END-IF
+/*
+READ EVENTS BY EM-MONITOR-ID = #EVENT-ID-S ENDING AT #EVENT-ID-E
+  ADD 1 TO #I2
+  IF #I2 > #IMAX
+    ES-NEXT-KEY-PARM(1) := EM-EVENT-ID
+    ES-NUMBER := #IMAX
+    RESET  ES-EOF
+    ESCAPE BOTTOM
+  ELSE
+    IF ES-EXPAND = 'E'
+      NOEVL1-NAME(#I2) := EM-EVENT-ID
+      RESET NOEVL1-OPTIONS(#I2,*)
+    ELSE
+      NOEVL2-NAME(#I2)        := EM-EVENT-ID
+      NOEVL2-DESCRIPTION(#I2) := EM-EMAIL-SUBJECT
+      NOEVL2-CHECKPERIOD(#I2) := EM-CHECK-PERIOD
+      RESET NOEVL2-OPTIONS(#I2,*)
+    END-IF
+    ES-NUMBER := #I2
+  END-IF
+END-READ
+/*
+/* --------------------------------------------------------------------
+ON ERROR
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+/* --------------------------------------------------------------------
+/*
+END

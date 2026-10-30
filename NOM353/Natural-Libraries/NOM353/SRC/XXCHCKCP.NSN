@@ -1,0 +1,548 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Program   XXCHCKCP
+* Version   3.5
+* Function  Check string for existing codepage and convert
+*           Windows/Unix syntax to Natural syntax
+*
+* Maintenance
+* -----------
+* uuuuuu  yyyy-mm-dd iTrac       Remark
+* fhi     2016-01-20 NOMALL-1719 created.
+* fhi     2016-11-23 NOMALL-1962 Add better codepage support
+* fhi     2017-01-17 NOMALL-1962 same, no tags.
+* fhi     2017-02-06 NOMALL-1962 same, no tags.
+* fhi     2017-05-24 NOMALL-2022 BS2000 codepages added, no tags
+* SU1     2017-07-25 new functions:?/-/D
+* fhi     2018-03-21 NOMALL-1918 Allow individual codepages (XXTR2U16)
+* SU2     2018-03-26             cp longer 8 chars cant be user cp
+* fhi     2018-09-06 NOMALL-2125 Add format AAANNNN... of CP-Name
+* fhi     2018-11-23 NOMALL-1918 Honor Natural CP
+* fhi     2019-07-15 NOMALL-2275 No error returned if member name >8 chr
+* SU3     2019-10-30 NOMALL-2324 avoid XXCPAGU NOM9170
+* SU4     2020-11-10 NOMALL-2440 recat for VMONIT-L
+* ----------------------------------------------------------------------
+DEFINE DATA
+*
+PARAMETER
+1 FUNCTION        (A1) BY VALUE
+  /* '#' Get number from name
+  /* 'N' Get name from number
+  /* '?' help - select
+  /* '-' 'internal' function:check uniqueness of numbers and names
+  /* 'D' help for 'Defaults'
+1 CP-NUMBER       (A) DYNAMIC BY VALUE RESULT
+1 CP-NAME         (A) DYNAMIC BY VALUE RESULT
+1 CP-DESCRIPTION  (A) DYNAMIC BY VALUE RESULT
+1 ERC             (N4) BY VALUE RESULT
+*                      /* return code:
+*                      /* 0=CP found and can be converted by Natural
+*                      /* 1=CP not usable by Natural
+*                      /* 2=Invalid function
+*                      /* 3=help-nothing selected
+*                      /* 4=user codepage in SYSNOMU detected
+*                      /* 5=CP empty
+************************************************************************
+/*SU4 LOCAL USING VMONIT-L
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR /*SU4
+  2 M-EMAIL-RECIPIENTS    (A250/1:2)
+* *****                                                                 *****
+1 #CPMAX                           (I2) CONST <156>
+/* Table of Code pages and their numbers in Windows
+/* See:
+/* https://msdn.microsoft.com/de-de/library/windows/desktop/ ...
+/* dd317756(v=vs.85).aspx
+* *****
+** ....+'-'....+....1....+..'-'
+1 #CP-ENTRIES (A101/1:#CPMAX) CONST (V) <
+  '037  '-'IBM037            '-'ibm ebcdic us-canada',
+  '437  '-'IBM437            '-'oem united states',
+  '500  '-'IBM500            '-'ibm ebcdic international',
+  '708  '-'ASMO-708          '-'arabic (asmo 708)',
+  '709  '-'ASMO-449          '-'arabic (asmo-449+bcon v4)',
+  '710  '-'arabic-transparent'-'arabic - transparent arabic', /*SU1 wasX
+  '720  '-'DOS-720           '-
+  'arabic (transparent asmo); arabic (dos)',
+  '737  '-'IBM737            '-'oem greek (formerly 437g); greek (dos)',
+  '775  '-'IBM775            '-'oem baltic; baltic (dos)',
+/*-- 010 --
+  '850  '-'IBM850            '-
+  'oem multilingual latin 1; western european (dos)',
+  '852  '-'IBM852            '-'oem latin 2; central european (dos)',
+  '855  '-'IBM855            '-'oem cyrillic (primarily russian)',
+  '857  '-'IBM857            '-'oem turkish; turkish (dos)',
+  '858  '-'IBM00858          '-'oem multilingual latin 1 + euro symbol',
+  '860  '-'IBM860            '-'oem portuguese; portuguese (dos)',
+  '861  '-'IBM861            '-'oem icelandic; icelandic (dos)',
+  '862  '-'DOS-862           '-'oem hebrew; hebrew (dos)',
+  '863  '-'IBM863            '-
+  'oem french canadian; french canadian (dos)',
+  '864  '-'IBM864            '-'oem arabic; arabic (864)',
+/*-- 020 --
+  '865  '-'IBM865            '-'oem nordic; nordic (dos)',
+  '866  '-'CP866             '-'oem russian; cyrillic (dos)',
+  '869  '-'IBM869            '-'oem modern greek; greek, modern (dos)',
+  '870  '-'IBM870            '-
+  'ibm ebcdic multilingual/roece (latin 2); ibm ebcdic multilingual',
+  '874  '-'WINDOWS-874       '-
+  'ansi/oem thai (iso 8859-11); thai (windows)',
+  '875  '-'CP875             '-'ibm ebcdic greek modern',
+  '932  '-'SHIFT-JIS         '-
+  'shift_jis ansi/oem japanese; japanese (shift-jis)',
+  '936  '-'GB2312            '-
+  'ansi/oem simplified chinese (prc, singapore); chinese simplified',
+  '949  '-'KS-C-5601-1987    '-
+  'ks_c_5601-1987,ansi/oem korean (unified hangul code)',
+  '950  '-'BIG5              '-
+  'ansi/oem traditional chinese (taiwan; hong kong sar, prc);',
+/*-- 030 --
+  '1026 '-'IBM1026           '-'ibm ebcdic turkish (latin 5)',
+  '1047 '-'IBM01047          '-'ibm ebcdic latin 1/open system',
+  '1140 '-'IBM01140          '-
+  'ibm ebcdic us-canada (037 + euro symbol); ibm ebcdic',
+  '1141 '-'IBM01141          '-
+  'ibm ebcdic germany (20273 + euro symbol); ibm ebcdic',
+  '1142 '-'IBM01142          '-
+  'ibm ebcdic denmark-norway (20277 + euro symbol);ibm ebcdic',
+  '1143 '-'IBM01143          '-
+  'ibm ebcdic finland-sweden (20278 + euro symbol);ibm ebcdic',
+  '1144 '-'IBM01144          '-
+  'ibm ebcdic italy (20280 + euro symbol); ibm ebcdic (euro)',
+  '1145 '-'IBM01145          '-
+  'ibm ebcdic latin america-spain (20284 + euro symbol); ibm ebcdic',
+  '1146 '-'IBM01146          '-
+  'ibm ebcdic united kingdom (20285 + euro symbol);ibm ebcdic',
+  '1147 '-'IBM01147          '-
+  'ibm ebcdic france (20297 + euro symbol); ibm ebcdic',
+/*-- 040 --
+  '1148 '-'IBM01148          '-
+  'ibm ebcdic international (500 + euro symbol); ibm ebcdic',
+  '1149 '-'IBM01149          '-
+  'ibm ebcdic icelandic (20871 + euro symbol); ibm ebcdic',
+  '1200 '-'UTF-16            '-
+  'unicode utf-16, little endian byte order (bmp of iso 10646)',
+  '1201 '-'UTF-16BE          '-
+  'unicodefffe unicode utf-16, big endian byte order',
+  '1250 '-'WINDOWS-1250      '-
+  'ansi central european; central european (windows)',
+  '1251 '-'WINDOWS-1251      '-'ansi cyrillic; cyrillic (windows)',
+  '1252 '-'WINDOWS-1252      '-
+  'ansi latin 1; western european (windows)',
+  '1253 '-'WINDOWS-1253      '-'ansi greek; greek (windows)',
+  '1254 '-'WINDOWS-1254      '-'ansi turkish; turkish (windows)',
+  '1255 '-'WINDOWS-1255      '-'ansi hebrew; hebrew (windows)',
+/*-- 050 --
+  '1256 '-'WINDOWS-1256      '-'ansi arabic; arabic (windows)',
+  '1257 '-'WINDOWS-1257      '-'ansi baltic; baltic (windows)',
+  '1258 '-'WINDOWS-1258      '-
+  'ansi/oem vietnamese; vietnamese (windows)',
+  '1361 '-'johab             '-'johab korean (johab)', /*SU1 was X
+  '10000'-'mac-roman         '- /*SU1 was X
+  'macintosh mac roman; western european (mac)',
+  '10001'-'X-MAC-JAPANESE    '-'x-mac-japanese japanese (mac)',
+  '10002'-'X-MAC-CHINESETRAD '-
+  'x-mac-chinesetrad mac traditional chinese (big5); chinese trad.',
+  '10003'-'X-MAC-KOREAN      '-'x-mac-korean korean (mac)',
+  '10004'-'X-MAC-ARABIC      '-'x-mac-arabic arabic (mac)',
+  '10005'-'X-MAC-HEBREW      '-'x-mac-hebrew hebrew (mac)',
+/*-- 060 --
+  '10006'-'X-MAC-GREEK       '-'x-mac-greek greek (mac)',
+  '10007'-'X-MAC-CYRILLIC    '-'x-mac-cyrillic cyrillic (mac)',
+  '10008'-'X-MAC-CHINESESIMP '-
+  'x-mac-chinesesimp mac simplified chinese (gb 2312); chinese simpl.',
+  '10010'-'X-MAC-ROMANIAN    '-'x-mac-romanian romanian (mac)',
+  '10017'-'X-MAC-UKRAINIAN   '-'x-mac-ukrainian ukrainian (mac)',
+  '10021'-'X-MAC-THAI        '-'x-mac-thai thai (mac)',
+  '10029'-'X-MAC-CE          '-
+  'x-mac-ce mac latin 2; central european (mac)',
+  '10079'-'X-MAC-ICELANDIC   '-'x-mac-icelandic icelandic (mac)',
+  '10081'-'X-MAC-TURKISH     '-'x-mac-turkish turkish (mac)',
+  '10082'-'X-MAC-CROATIAN    '-'x-mac-croatian croatian (mac)',
+/*-- 070 --
+  '12000'-'UTF-32            '-
+  'unicode utf-32, little endian byte order',
+  '12001'-'UTF-32BE          '-'unicode utf-32, big endian byte order',
+  '20000'-'X-CHINESE-CNS     '-
+  'x-chinese_cns cns taiwan; chinese traditional (cns)',
+  '20001'-'X-CP20001         '-'x-cp20001 tca taiwan',
+  '20002'-'X-CHINESE-ETEN    '-
+  'x_chinese-eten eten taiwan; chinese traditional (eten)',
+  '20003'-'X-CP20003         '-'ibm5550 taiwan',
+  '20004'-'X-CP20004         '-'teletext taiwan',
+  '20005'-'X-CP20005         '-'wang taiwan',
+  '20105'-'X-IA5             '-
+  'ia5 (irv international alphabet no. 5, 7-bit); western europe',
+  '20106'-'X-IA5-GERMAN      '-'ia5 german (7-bit)',
+/*-- 080 --
+  '20107'-'X-IA5-SWEDISH     '-'ia5 swedish (7-bit)',
+  '20108'-'X-IA5-NORWEGIAN   '-'ia5 norwegian (7-bit)',
+  '20127'-'US-ASCII          '-'us-ascii (7-bit)',
+  '20261'-'X-CP20261         '-'t.61',
+  '20269'-'X-CP20269         '-'iso 6937 non-spacing accent',
+  '20273'-'IBM273            '-'ibm ebcdic germany',
+  '20277'-'IBM277            '-'ibm ebcdic denmark-norway',
+  '20278'-'IBM278            '-'ibm ebcdic finland-sweden',
+  '20280'-'IBM280            '-'ibm ebcdic italy',
+  '20284'-'IBM284            '-'ibm ebcdic latin america-spain',
+/*-- 090 --
+  '20285'-'IBM285            '-'ibm ebcdic united kingdom',
+  '20290'-'IBM290            '-'ibm ebcdic japanese katakana extended',
+  '20297'-'IBM297            '-'ibm ebcdic france',
+  '20420'-'IBM420            '-'ibm ebcdic arabic',
+  '20423'-'IBM423            '-'ibm ebcdic greek',
+  '20424'-'IBM424            '-'ibm ebcdic hebrew',
+  '20833'-'X-EBCDIC          '-'ibm ebcdic korean extended',
+  '20838'-'IBM-THAI          '-'ibm ebcdic thai',
+  '20866'-'KOI8-R            '-'russian (koi8-r); cyrillic (koi8-r)',
+  '20871'-'IBM871            '-'ibm ebcdic icelandic',
+/*-- 100 --
+  '20880'-'IBM880            '-'ibm ebcdic cyrillic russian',
+  '20905'-'IBM905            '-'ibm ebcdic turkish',
+  '20924'-'IBM00924          '-
+  'ibm ebcdic latin 1/open system (1047 + euro symbol)',
+  '20932'-'EUC-JP            '-'japanese (jis 0208-1990 and 0212-1990)',
+  '20936'-'X-CP20936         '-
+  'simplified chinese (gb2312); chinese simplified',
+  '21025'-'CP1025            '-'ibm ebcdic cyrillic serbian-bulgarian',
+  '21866'-'KOI8-U            '-'ukrainian (koi8-u); cyrillic (koi8-u)',
+  '28591'-'ISO-8859-1        '-'western european (iso)',
+  '28592'-'ISO-8859-2        '-'central european (iso)',
+  '28593'-'ISO-8859-3        '-'iso 8859-3 latin 3',
+/*-- 110 --
+  '28594'-'ISO-8859-4        '-'iso 8859-4 baltic',
+  '28595'-'ISO-8859-5        '-'iso 8859-5 cyrillic',
+  '28596'-'ISO-8859-6        '-'iso 8859-6 arabic',
+  '28597'-'ISO-8859-7        '-'iso 8859-7 greek',
+  '28598'-'ISO-8859-8        '-'iso 8859-8 hebrew; hebrew (iso-visual)',
+  '28599'-'ISO-8859-9        '-'iso 8859-9 turkish',
+  '28603'-'ISO-8859-13       '-'iso 8859-13 estonian',
+  '28605'-'ISO-8859-15       '-'iso 8859-15 latin 9',
+  '29001'-'X-EUROPA          '-'x-europa;europa 3',
+  '38598'-'ISO-8859-8-I      '-
+  'iso 8859-8 hebrew; hebrew (iso-logical)',
+/*-- 120 --
+  '50220'-'ISO-2022-JP       '-
+  'iso 2022 japanese with no halfwidth katakana; japanese',
+  '50221'-'CSISO2022JP       '-
+  'iso 2022 japanese with halfwidth katakana; japanese',
+  '50222'-'ISO-2022-JP2      '- /*SU2 was ISO-2022-JP
+  'iso 2022 japanese jis x 0201-1989; japanese',
+  '50225'-'ISO-2022-KR       '-'iso 2022 korean',
+  '50227'-'X-CP50227         '-
+  'iso 2022 simplified chinese; chinese simplified',
+  '50229'-'X-CP50229         '-'iso 2022 traditional chinese',
+  '50930'-'X-CP50930         '-'ebcdic japanese (katakana) extended',
+  '50931'-'X-CP50931         '-'ebcdic us-canada and japanese',
+  '50933'-'X-CP50933         '-'ebcdic korean extended and korean',
+  '50935'-'X-CP50935         '-
+  'ebcdic simplified chinese extended + simplified chinese',
+/*-- 130 --
+  '50936'-'X-CP50936         '-'ebcdic simplified chinese',
+  '50937'-'X-CP50937         '-
+  'ebcdic us-canada and traditional chinese',
+  '50939'-'X-CP50939         '-
+  'ebcdic japanese (latin) extended and japanese',
+  '51932'-'X-CP51932         '-'euc-jp euc japanese',
+  '51936'-'X-CP51936         '-
+  'euc-cn euc simplified chinese; chinese simplified (euc)',
+  '51949'-'X-CP51949         '-'euc-kr euc korean',
+  '51950'-'X-CP51940         '-'euc traditional chinese',
+  '52936'-'HZ-GB-2312        '-
+  'euc simplified chinese; chinese simplified (hz)',
+  '54936'-'GB18030           '-'gb18030 simplified chinese (4 byte)',
+  '57002'-'X-ISCII-DE        '-'iscii devanagari',
+/*-- 140 --
+  '57003'-'X-ISCII-BE        '-'iscii bangladesh',
+  '57004'-'X-ISCII-TA        '-'iscii tamil',
+  '57005'-'X-ISCII-TE        '-'iscii telugu',
+  '57006'-'X-ISCII-AS        '-'iscii assamese',
+  '57007'-'X-ISCII-OR        '-'iscii odia',
+  '57008'-'X-ISCII-KA        '-'iscii canada',
+  '57009'-'X-ISCII-MA        '-'iscii malayalam',
+  '57010'-'X-ISCII-GU        '-'iscii gujarati',
+  '57011'-'X-ISCII-PA        '-'iscii punjabi',
+  '65000'-'UTF-7             '-'unicode (utf-7)',
+/*-- 150 --
+  '65001'-'UTF-8             '-'unicode (utf-8)',
+  '60001'-'EDF03IRV          '-'bs2000-edf03irv',
+  '60002'-'EDF03DRV          '-'bs2000-edf03drv',
+  '60003'-'EDF04IRV          '-'bs2000-edf04irv',
+  '60004'-'EDF04DRV          '-'bs2000-edf04drv',
+  '60005'-'EDF041            '-'bs2000-edf041',
+  '60006'-'EDF04F            '-'bs2000-edf04f'>
+1 REDEFINE #CP-ENTRIES
+  2 #CP-GR                   (1:#CPMAX)
+    3 #CODEPAGE-NUMBERS      (A5)
+    3 #CODEPAGE-NAMES        (A18)
+    3 #CODEPAGE-DESCRIPTIONS (A78)
+* *****
+1 #INDEX                 (I2)
+1 #I                     (I2)
+1 #J                     (I2)
+1 #L                     (I2)
+1 #POS                   (I2)
+1 #POS-TOP               (I2)
+/*SU4 1 END-OF-PROCESSING      (L)
+1 END-OF-DATA            (L)
+1 #CODEPAGE              (A8) CONST <'CODEPAGE'>
+1 #CP-MAX                (I2) CONST <15>
+1 #CODEPAGE-TAB          (A250/1:2)
+1 REDEFINE #CODEPAGE-TAB
+  2 #CODEPAGES           (A25/1:#CP-MAX)
+1 #PAGE                  (P3)  INIT <1>
+1 #ERC                   (N4)
+1 #ERT                   (A250)
+1 #CP-MEMBER             (A8)
+/*SU4 1 #N                     (N5.3)
+1 #MAP                   (1:15)
+  2 CV-MARK              (C) INIT ALL <(AD=DP)>
+  2 CV-LINE              (C)
+  2 L-MARK               (A1)
+  2 L-NO                 (A5)
+  2 L-NAME               (A25) /*only 20 chars used
+  2 L-DESC               (A78)
+1 #TIT                   (A50/1:2) CONST <
+  '- Codepage Selection List -',
+  ' '>
+* fhi      2018-11-23   NOMALL-1918 start insertion
+1 #CHCK-MOVE-U           (U1) INIT <UH'0041'> /* Capital 'A'
+1 #CHCK-MOVE-A           (A4)
+1 #ENC-ERC               (I4)
+* fhi      2018-11-23   NOMALL-1918 end   insertion
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *LANGUAGE = 2
+  #L := 2
+ELSE
+  #L := 1
+END-IF
+DEFINE WINDOW SELCP SIZE 22*80 BASE 3/1 /*TOP LEFT
+  TITLE #TIT (#L) CONTROL WINDOW
+*
+RESET ERC
+DECIDE ON FIRST VALUE OF FUNCTION
+  VALUE 'D' /*help for default list
+    PERFORM #HELP-DEFAULT
+    ESCAPE ROUTINE IMMEDIATE
+  VALUE '?' /*help for complete list
+    PERFORM #HELP
+    ESCAPE ROUTINE IMMEDIATE
+  VALUE '-'
+    PERFORM #UNIQUE
+    ESCAPE ROUTINE IMMEDIATE
+  VALUE '#'
+    RESET CP-NUMBER CP-DESCRIPTION
+    IF CP-NAME = ' '
+      RESET CP-NUMBER CP-DESCRIPTION
+      ERC := 5
+      ESCAPE ROUTINE IMMEDIATE
+    END-IF
+    EXAMINE CP-NAME TRANSLATE INTO UPPER
+    EXAMINE CP-NAME FOR '_' REPLACE WITH '-'
+* fhi     2016-11-23 NOMALL-1962 start insertion
+    EXAMINE CP-NAME FOR ' ' REPLACE WITH '-'
+    DECIDE FOR FIRST CONDITION
+      WHEN CP-NAME = MASK('ISO'NNNN)
+        COMPRESS SUBSTR(CP-NAME,1,3) '-' SUBSTR(CP-NAME,4)
+          TO CP-NAME LEAVING NO
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+* fhi     2016-11-23 NOMALL-1962 end   insertion
+    SEPARATE CP-NAME INTO CP-NAME IGNORE WITH DELIMITER ':'
+    EXAMINE #CODEPAGE-NAMES(*)   FOR CP-NAME   GIVING INDEX IN #INDEX
+  VALUE 'N'
+    RESET CP-NAME CP-DESCRIPTION
+    EXAMINE #CODEPAGE-NUMBERS(*) FOR CP-NUMBER GIVING INDEX IN #INDEX
+  ANY
+    IF #INDEX NE 0
+      CP-NUMBER      := #CODEPAGE-NUMBERS(#INDEX)
+      CP-NAME        := #CODEPAGE-NAMES(#INDEX)
+      CP-DESCRIPTION := #CODEPAGE-DESCRIPTIONS(#INDEX)
+    END-IF
+    EXAMINE CP-NAME FOR ' ' GIVING LENGTH #I /*SU2
+    IF #I LE 8 /*SU3 > 8
+/*SU3 ERC := 2 ESCAPE MODULE END-IF
+      IF CP-NAME = ' '
+        ERC := 5
+        ESCAPE ROUTINE
+      END-IF
+      #CP-MEMBER := CP-NAME
+      CALLNAT 'XXTR2U16' 'T' #CP-MEMBER 2X ERC #ERT /*Test user codepage
+      IF ERC = 0
+        ERC := 4              /* Codepage found as user defined table
+        ESCAPE MODULE /*SU3
+      END-IF /*SU3
+    END-IF
+    MOVE ENCODED #CHCK-MOVE-U TO #CHCK-MOVE-A IN CODEPAGE CP-NAME
+      GIVING #ENC-ERC
+    IF (#ENC-ERC NE 0 AND #ENC-ERC NE 3413) OR *CODEPAGE = ' '
+      ERC := 1
+    ELSE
+      ERC := 0
+    END-IF
+  NONE
+    ERC := 2
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE #HELP-DEFAULT /*RDEFCP
+************************************************************************
+FIND-LOOP. FIND NRM-MONITOR WITH M-MONITOR-ID = #CODEPAGE
+  PERFORM PF-KEYS
+  #CODEPAGE-TAB (*) := M-EMAIL-RECIPIENTS (*)
+  FOR #POS=1 TO #CP-MAX
+    IF #CODEPAGES (#POS) = ' '
+      ESCAPE TOP
+    END-IF
+    ADD 1 TO #J
+    L-NAME  (#J) := #CODEPAGES (#POS)
+    FOR #I=1 TO #CPMAX
+      IF #CODEPAGE-NAMES (#I) = #CODEPAGES (#POS)
+        L-NO    (#J) := #CODEPAGE-NUMBERS      (#I)
+        L-DESC  (#J) := #CODEPAGE-DESCRIPTIONS (#I)
+        CV-MARK (#J) := (AD=I)
+      END-IF
+    END-FOR
+    END-OF-DATA := TRUE
+  END-FOR
+  PERFORM SCREEN-IO
+END-FIND /*(FIND-LOOP.)
+**IF *NUMBER(FIND-LOOP.)=0
+**    ..
+**END-IF
+*
+END-SUBROUTINE /* #HELP-DEFAULT
+*
+************************************************************************
+DEFINE SUBROUTINE #HELP
+************************************************************************
+PERFORM PF-KEYS
+RESET INITIAL #MAP (*) #I
+FOR #POS=1 TO #CPMAX
+  IF #I=0
+    #POS-TOP := #POS
+  END-IF
+  ADD 1 TO #I
+  L-NAME  (#I) := #CODEPAGE-NAMES        (#POS)
+  L-NO    (#I) := #CODEPAGE-NUMBERS      (#POS)
+  L-DESC  (#I) := #CODEPAGE-DESCRIPTIONS (#POS)
+  CV-MARK (#I) := (AD=I)
+  IF #I = *OCC(CV-MARK) OR #POS=#CPMAX
+    IF #POS=#CPMAX
+      END-OF-DATA := TRUE
+    END-IF
+    PERFORM SCREEN-IO
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* #HELP
+*
+************************************************************************
+DEFINE SUBROUTINE #UNIQUE
+************************************************************************
+WRITE '-- duplicate numbers --'
+FOR #POS=1 TO #CPMAX
+  EXAMINE FULL #CODEPAGE-NUMBERS (*) FOR FULL #CODEPAGE-NUMBERS (#POS)
+    GIVING NUMBER #J INDEX #I
+  IF #J > 1 /*AND #I = #POS
+    PERFORM #DISP
+  END-IF
+END-FOR
+WRITE '-- duplicate names --'
+FOR #POS=1 TO #CPMAX
+  EXAMINE FULL #CODEPAGE-NAMES (*) FOR FULL #CODEPAGE-NAMES (#POS)
+    GIVING NUMBER #J INDEX #I
+  IF #J > 1 /*AND #I = #POS
+    PERFORM #DISP
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* #UNIQUE
+*
+************************************************************************
+DEFINE SUBROUTINE #DISP
+************************************************************************
+DISPLAY ' ' #POS (NL=3) 'Name' #CODEPAGE-NAMES (#POS)
+  'Number' #CODEPAGE-NUMBERS (#POS)(NL=9)
+  'Description' #CODEPAGE-DESCRIPTIONS (#POS)(AL=30)
+  'num' #J(NL=3) 'ind' #I(NL=3)
+*
+END-SUBROUTINE /* #DISP
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+#REP. REPEAT
+  DECIDE FOR FIRST CONDITION
+    WHEN #ERC NE 0                    IGNORE
+    WHEN END-OF-DATA AND #PAGE > 1    #ERC := 12 /* bottom of data
+    WHEN END-OF-DATA AND #PAGE =1     #ERC := 14 /* all
+    WHEN NOT END-OF-DATA AND #PAGE=1  #ERC := 11 /* top of data
+    WHEN NONE                         #ERC := 13 /* more
+  END-DECIDE
+  PERFORM FLIP-DISPLAY
+  INPUT WINDOW='SELCP' WITH TEXT *#ERC USING MAP 'HSELCP&'
+* SET CONTROL 'WB'
+* SET CONTROL 'M21'
+* SET CONTROL 'YB'
+  RESET #ERC
+  PERFORM COMMAND-PF-KEY
+END-REPEAT /*(#REP.)
+RESET INITIAL #I #MAP (*) L-MARK (*)
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+DECIDE ON FIRST *PF-KEY
+  VALUE 'PF3' /* return to father-prog
+    ESCAPE MODULE IMMEDIATE /*XXCHCKCP
+  VALUE 'PF7' /*up
+    IF #PAGE > 1
+      #POS := #POS-TOP - *OCC(CV-MARK) - 1
+      SUBTRACT 1 FROM #PAGE
+      END-OF-DATA := FALSE
+      ESCAPE BOTTOM /*(#REP.)
+    END-IF
+  VALUE 'PF8' /*down
+    IF NOT END-OF-DATA
+      ADD 1 TO #PAGE
+    END-IF
+    ESCAPE BOTTOM /*(#REP.)
+  NONE  IGNORE
+END-DECIDE
+FOR #J=1 TO *OCC(L-MARK)
+  IF L-MARK (#J) NE ' '
+    CP-NUMBER      := L-NO   (#J)
+    CP-NAME        := L-NAME (#J)
+    CP-DESCRIPTION := L-DESC (#J)
+    ESCAPE MODULE IMMEDIATE /*XXCHCKCP
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+*
+END-SUBROUTINE /* PF-KEYS
+*
+END

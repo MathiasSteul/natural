@@ -1,0 +1,263 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* XXVNOM-N - NOM Service Routine: Test for and set to valid NOM file
+*   Verify if the given LFILE parameters (DBID, FNR) for a
+*   NOM LFILE (206, 91 or 158) point to an existing and valid NOM file.
+*   Functions:
+*     T = Test DBID/FNR for valid NOM file:
+*         Validate if new DBID is an ADABAS ID;
+*         Gets the current LFILE settings for reactivation later on;
+*         Sets the new DBID/FNR for LFILE;
+*         Test for existence of NOM basic value in  the new LFILE;
+*         Reactivate the former LFILE settings;
+*     S = Set as LFILE if NOM file valid:
+*         Same as for test "T", but no reactivation of
+*         former LFILE settings, if test is successful.
+*         Note: In any error case, the former LFILE
+*               settings are reactivated.
+*
+*   Return codes:
+*     0  =   Valid NOM file
+*     1  =   Invalid DBID or FNR (may not be 0)
+*     2  =   No valid ADABAS file
+*     3  =   No valid NOM file
+*     4  =   NOM file found, but not initialized
+*     5  =   Invalid function code
+*     6  =   LFILE number is not a NOM LFILE
+*     7 - 9  =   Error at LFILE maintenance
+*
+* Maintenance:
+* CF      2014-10-23 created
+* SU1     2020-04-23 NOMALL-2349 error handling (NPR)
+************************************************************************
+DEFINE DATA
+PARAMETER
+1 #FUNCTION            (A1)   /* T = Test DBID/FNR /* S = Set as LFILE
+1 #LFILE               (N5)   /* LFILE number to be tested/set
+1 #NEW-DBID            (N5)   /* DBID to be tested/set
+1 #NEW-FNR             (N5)   /* FNR to be tested/set
+1 #FORMER-DBID         (N5)   /* DBID set before
+1 #FORMER-FNR          (N5)   /* FNR set before
+1 #MSG                 (A250) /* Message text of return code
+1 #RETURNCODE          (N4)   /* Return code (see above)
+************************************************************************
+LOCAL USING NRM-028L       /* parameters for NAT00028
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR
+1 NRM-SUBTASK-INFO VIEW OF NRM-SUBTASK-INFO
+1 NRM-MIGRATE-REPORTS VIEW OF NRM-MIGRATE-REPORTS
+1 NAT23008-PARA
+  2 LFILE-NR           (B1)
+  2 FUNCTION           (A1)     /* 'S'=Set, 'R'=Reset
+  2 DBID               (B2)
+  2 FNR                (B2)
+  2 PASSWORD           (A8)
+  2 CIPHER             (A8)
+  2 VSAM-NAME          (A8)
+  2 DB-TYPE            (A1)
+  2 LFILE-IS-SET       (L)
+  2 RET_CODE           (I4)
+1 CMADA-CB             (A80)
+1 REDEFINE CMADA-CB
+  2 CB-RESERVED        (B2)
+  2 REDEFINE CB-RESERVED
+    3 CB-RES1          (B1)
+  2 CB-CMD             (A2)
+  2 CB-CID             (A4)
+  2 CB-FNEW            (B2)
+  2 REDEFINE CB-FNEW
+    3 CB-DBID          (B1)
+    3 CB-FNR           (B1)
+  2 CB-RSP             (B2)
+  2 CB-ISN             (B4)
+  2 CB-ISL             (B4)
+  2 CB-ISQ             (B4)
+  2 CB-FBL             (B2)
+  2 CB-RBL             (B2)
+  2 CB-SBL             (B2)
+  2 CB-VBL             (B2)
+  2 CB-IBL             (B2)
+  2 CB-COP1            (A1)
+  2 CB-COP2            (A1)
+  2 CB-ADD1            (A8)
+  2 CB-ADD2            (A4)
+  2 CB-ADD3            (A8)
+  2 CB-ADD4            (A8)
+  2 CB-ADD5            (A8)
+  2 CB-CT              (A4)
+  2 CB-UA              (A4)
+*
+1 #CMADA-RSP           (N4)
+1 #NUMBER              (I4)
+1 #MSG-TEXT            (A79)
+1 #ERRORNUMBER         (N4)
+1 #LANGCODE            (I1)
+1 #RESPCODE            (N1)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #RETURNCODE #MSG
+IF NOT #FUNCTION = 'S' OR= 'T'
+  #RETURNCODE := 5
+END-IF
+/* Check LFILE number is a NOM LFILE
+IF NOT #LFILE = 206 OR= 91 OR= 158
+  #RETURNCODE := 6
+END-IF
+/* Do not allow LFILE setting with DBID or FNR zero
+IF #NEW-DBID = 0 OR #NEW-FNR = 0
+  #RETURNCODE := 1
+END-IF
+/*
+IF #RETURNCODE = 0
+  /* Check if given DBID is of type ADABAS
+  PERFORM CHECK-ADABAS-DBID
+  IF #RETURNCODE = 0
+    /* Get and save the current DBID/FNR of LFILE 158
+    RESET PARM-NAT00028.RESPONSE
+    PARM-NAT00028.LFILE := #LFILE
+    CALLNAT 'NAT00028' PARM-NAT00028
+    IF PARM-NAT00028.RESPONSE = 0
+      #FORMER-DBID := PHYSICAL-DBID
+      #FORMER-FNR  := PHYSICAL-FNR
+    ELSE
+      #RETURNCODE := 8
+      COMPRESS 'NAT00028 response code:' PARM-NAT00028.RESPONSE TO #MSG
+    END-IF
+    IF #RETURNCODE = 0 /* Set LFILE 158 with the given DBID/FNR
+      FUNCTION := 'S'
+      LFILE-NR := #LFILE
+      DBID     := #NEW-DBID
+      FNR      := #NEW-FNR
+      CALLNAT 'NAT23008' NAT23008-PARA
+      IF RET_CODE NE 0
+        #RETURNCODE := 7        /* Set LFile error occured (RC=:1:)
+        COMPRESS 'NAT23008 response code:' RET_CODE TO #MSG
+      END-IF
+      IF #RETURNCODE = 0
+        /* Now test with the new LFILE settings
+        /* if the file is a valid NOM file
+        DECIDE ON FIRST #LFILE
+          VALUE 206
+            FMON. FIND NUMBER NRM-MONITOR WITH M-MONITOR-ID = 'SYSNOM'
+            #NUMBER := *NUMBER (FMON.)
+          VALUE 91
+            SB. FIND NUMBER NRM-SUBTASK-INFO WITH ST-SUBTASK-ID='SYSNOM'
+            #NUMBER := *NUMBER (SB.)
+          VALUE 158
+            FMIG. FIND NUMBER NRM-MIGRATE-REPORTS
+              WITH R-REPNAME = 'NOM-CONTROL-REC'
+            #NUMBER := *NUMBER (FMIG.)
+          ANY
+            IF #NUMBER = 0
+              #RETURNCODE := 4
+              COMPRESS 'NOM file not initialized ; LFILE=' #LFILE
+                ' (' #NEW-DBID ',' #NEW-FNR ')' TO #MSG LEAVING NO
+            ELSE
+              COMPRESS 'Valid NOM file ; LFILE=' #LFILE
+                ' (' #NEW-DBID ',' #NEW-FNR ')' TO #MSG LEAVING NO
+            END-IF
+          NONE #RETURNCODE := 6
+        END-DECIDE
+      END-IF
+      /* If Test requested, reset LFILE 158 to the former values
+      IF #FUNCTION = 'T' OR #RETURNCODE = 4
+        PERFORM ACTIVATE-ORIGINAL-LFILE
+      END-IF
+    END-IF
+  END-IF
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE ACTIVATE-ORIGINAL-LFILE
+************************************************************************
+IF #FORMER-DBID = 0 AND #FORMER-FNR = 0
+  FUNCTION := 'R'    /* Reset LFILE
+ELSE
+  FUNCTION := 'S'    /* Set back to former values
+END-IF
+LFILE-NR := #LFILE
+DBID     := #FORMER-DBID
+FNR      := #FORMER-FNR
+CALLNAT 'NAT23008' NAT23008-PARA
+IF RET_CODE NE 0
+  #RETURNCODE := 9
+  COMPRESS 'NAT23008 response code:' RET_CODE TO #MSG
+END-IF
+*
+END-SUBROUTINE /* ACTIVATE-ORIGINAL-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-ADABAS-DBID
+************************************************************************
+#RETURNCODE := 2   /* Being pessimistic at first...
+/*
+/* Test the DBID might be an ADABAS traget ID:
+/*   Response code   Description
+/*     34  H'0022'   ... seems to be an ADABAS target ID
+/*     22  H'0016'   (or other codes) ... seems to be
+/*                   any non ADABAS target ID
+/*    402  H'0192'   ... seems to be an ESY target ID
+/*                   that has to be CLOSEed to prevent misleading
+/*                   ADABAS error messages.
+/*
+CB-RES1 := H'30' /* for 2-byte DBID/FNR
+CB-CID  := H'FFFFFFFF'
+CB-CMD  := 'LF'
+CB-RSP  := #NEW-DBID
+CB-FNEW := #NEW-FNR
+CALL 'CMADA' CMADA-CB
+#CMADA-RSP := CB-RSP
+/*
+DECIDE ON FIRST #CMADA-RSP
+  VALUE 34     /* ...seems to be an ADABAS target ID
+    RESET #RETURNCODE
+    COMPRESS 'ADABAS target ID assumed' TO #MSG
+  VALUE 402    /* ... seems to be an ESY target ID
+    COMPRESS 'Unknown target ID (ADABAS Response' #CMADA-RSP ')' TO #MSG
+    /* Close this target ID to prevent ADABAS Resp 17
+    /* with the next ET in the system (if parameter ET=ON)
+    CB-RES1 := H'30' /* for 2-byte DBID/FNR
+    CB-CID  := H'FFFFFFFF'
+    CB-CMD  := 'CL'
+    CB-RSP  := #NEW-DBID
+    CB-FNEW := #NEW-FNR
+    CALL 'CMADA' CMADA-CB
+    #CMADA-RSP := CB-RSP
+    COMPRESS #MSG '; Closed target ID (ADABAS Response' #CMADA-RSP ')'
+      TO #MSG
+  NONE          /* ... seems to be any non ADABAS target ID
+    COMPRESS 'Unknown target ID (ADABAS Response' #CMADA-RSP ')' TO #MSG
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-ADABAS-DBID
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  #RETURNCODE  := 3
+  #ERRORNUMBER := *ERROR-NR
+  CALLNAT 'NAT00020' #ERRORNUMBER #LANGCODE #MSG-TEXT #RESPCODE
+  IF #RESPCODE NE 0
+    COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO #MSG
+  ELSE
+    COMPRESS #ERRORNUMBER #MSG-TEXT TO #MSG
+  END-IF
+  /* In error case, reset LFILE 158 to the former values
+  PERFORM ACTIVATE-ORIGINAL-LFILE
+  ESCAPE ROUTINE /*return to calling PGM Ü
+*
+END-ERROR
+*
+END

@@ -1,0 +1,384 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* N-NODES   return list of all nodes (MF + unix) + help
+*
+* MAINTENANCE:
+* User ID yyyy-mm-dd itrac       Comment
+* ------- ---------- ----------- ---------------------------------------
+* SU      2017-08-16 NOMALL-1620 Created
+* SU1     2018-02-02 ES-23787    allow input value
+* BLI     2019-01-24 NOMALL-1621 Use 'inactive: I' instead of 'down'
+* SU2     2019-02-13             select+nothing found->select all
+* SU3     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU4     2022-10-07 NOMALL-2580 do not show '_' if not selectable
+************************************************************************
+*
+DEFINE DATA
+PARAMETER
+1 FUNCTION                (A1)
+  /* '?' help - select
+  /* 'U' help - select unix nodes only
+  /* 'L' get whole list
+1 #TAB                    (*) /*out:1 entry for select / whole list
+  2 L-NAME                (A16)
+  2 L-NO                  (N5)
+  2 L-DESC                (A50)
+  2 L-SYSTEM              (A9)
+  2 L-PRODUCT-NAME        (A16)
+  2 L-STATUS              (A8) /*status
+  2 L-IS-MF               (L) /*true=MF/false=unix
+  2 L-MSG                 (A100)
+  2 L-TYPE                (A1)
+  2 L-ISN                 (P10) /*for delete
+1 #NODE-NAME-IN           (A16) OPTIONAL /*SU1
+************************************************************************
+LOCAL USING XXGMSG-A
+*
+LOCAL
+1 UX-NODES VIEW OF NRM-UX-NODES
+  2 UX-NODE-NAME          (A16)
+  2 UX-NODE-DESCRIPTION   (A50)
+  2 UX-NODE-SUSPEND
+/*2 UX-LAST-UPDATE
+1 MF-NODES VIEW OF NRM-MF-NODES /*SU3
+  2 MF-MONITOR-ID         (A20)
+  2 REDEFINE MF-MONITOR-ID
+    3 MF-TYPE-ID1         (A2)
+    3 MF-TYPE-ID2         (A16)
+  2 MF-MONITOR-DESCRIPTION(A50)
+/*2 MF-NPR-USERID         (A8)
+  2 MF-SYSTEM-TYPE        (A8)
+  2 MF-TYPE               (A1)
+  2 MF-MONITOR-NODE       (N5)
+  2 MF-PRODUCT-NAME       (A16)
+/*2 MF-LAST-UPDATE
+* *****
+1 #MAP                    (1:15)
+  2 CV-MARK               (C) INIT ALL <(AD=NP)> /*SU4 was (AD=DP)
+/*2 CV-LINE               (C)
+  2 L-MARK                (A1)
+  2 L-NAME                (A16)
+  2 L-NO                  (N5)
+  2 L-DESC                (A50)
+  2 L-SYSTEM              (A9)
+  2 L-PRODUCT-NAME        (A16)
+  2 L-STATUS              (A8) /*status
+  2 L-IS-MF               (L) /*true=MF/false=unix
+  2 L-MSG                 (A100)
+  2 L-TYPE                (A1)
+  2 L-ISN                 (P10) /*for delete
+1 #NR                     (I4) /*no of nodes
+1 #MASTER-FOUND           (L)
+1 #I                      (I4)
+1 #J                      (I4)
+1 #IND                    (I4)
+1 #IND1                   (I4)
+1 #TIT                    (A50/1:2) CONST <
+  '- Node Selection List -',
+  '- Knoten Auswahlliste -'>
+1 #L                      (I2)
+1 #POS                    (I2)
+1 #POS-TOP                (I2)
+1 END-OF-DATA             (L)
+1 #ERC                    (N4)
+1 #ERT                    (A40)
+1 #PAGE                   (P3)  INIT <1>
+1 #S-NODE                 (A25) /*SU1
+1 #S-NODE-F               (A25) /*SU1
+1 #S-NODE-T               (A25) /*SU1
+1 #LEN                    (N3)  /*SU1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *LANGUAGE = 2
+  #L := 2
+ELSE
+  #L := 1
+END-IF
+DEFINE WINDOW SEL SIZE 22*80 BASE 3/1 TITLE #TIT (#L) CONTROL WINDOW
+*
+RESIZE AND RESET ARRAY #TAB TO (1:1)
+*
+IF #NODE-NAME-IN SPECIFIED
+  #S-NODE := #NODE-NAME-IN
+END-IF
+#REP0. REPEAT /*select all if nothing found /*SU2
+  CALLNAT 'SELALPHA' #S-NODE #S-NODE-F #S-NODE-T #LEN
+  IF FUNCTION NE 'U'
+    PERFORM MF-NODES
+  END-IF
+  PERFORM UNIX-NODES
+  RESIZE ARRAY #TAB TO (1:#NR)
+  IF FUNCTION = '?' OR='U' /*help for complete list
+    IF #NODE-NAME-IN SPECIFIED AND #NR = 0 /*SU2
+      #ERC := 1076 /*No records found :1: .
+      COMPRESS '(' #S-NODE ')' TO #ERT LEAVING NO
+      #S-NODE := '*'
+      ESCAPE TOP
+    END-IF
+    PERFORM #HELP
+  END-IF
+  ESCAPE BOTTOM (#REP0.)
+END-REPEAT /*(#REP0.)
+************************************************************************
+** Activate coding for tracing ****************************************
+**FOR #I = 1 TO #NR
+**  DISPLAY 'Name' #tab.L-NAME (#I)(AL=015) 'No' #tab.L-NO (#I)
+**    'Desc' #tab.L-DESC (#I)(AL=10)
+**    'System' #tab.L-SYSTEM (#I)
+*  2 #TAB.L-PRODUCT-NAME   (A16)
+**    'Status' #TAB.L-STATUS (#I)
+*  2 #TAB.L-IS-MF          (L) /*true=MF/false=unix
+*  2 #TAB.L-MSG            (A100)
+*  2 #TAB.L-TYPE           (A1)
+*  2 #tab.L-ISN                 (P10) /*for delete
+**END-FOR
+************************************************************************
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE MF-NODES
+************************************************************************
+R-MF. READ MF-NODES BY MF-MONITOR-ID = 'R-'-H'00' THRU 'R-'-H'FF'
+  IF MF-NODES.MF-TYPE-ID2 < #S-NODE-F
+    ESCAPE TOP
+  END-IF
+  IF MF-NODES.MF-TYPE-ID2 > #S-NODE-T
+    ESCAPE BOTTOM
+  END-IF
+  RESET #IND1
+  ADD 1 TO #IND
+  PERFORM #ADD
+  IF MF-NODES.MF-TYPE = 'M' /*monitor is first entry
+    #IND1 := #IND
+    #IND := 1 /*first entry for monitor Ü
+    #MASTER-FOUND := TRUE
+    PERFORM #MOVE-ENTRIES
+  END-IF
+* IF NOT(MF-NODES.M-TYPE ='D' OR='S')
+*   PERFORM LOGON-TO-ESY
+*   DECIDE ON FIRST VALUE OF SATSL-ERROR-CODE
+*     VALUE 0     IGNORE
+*     VALUE 5999  MF-NODES.M-TYPE := '-'
+** ???? IF MF-NODES.M-TYPE = 'M' /*monitor - how to show mon.in err ????
+*     NONE        MF-NODES.M-TYPE := 'E'
+*   END-DECIDE
+* END-IF
+* #TAB.L-MSG        (#IND) := SATSL-ERROR-TEXT
+  PERFORM #MF-TYPE
+  #TAB.L-STATUS     (#IND) := #XX-SHORT-TEXT
+  #TAB.L-NAME       (#IND) := MF-NODES.MF-TYPE-ID2
+  #TAB.L-NO         (#IND) := MF-NODES.MF-MONITOR-NODE
+  #TAB.L-DESC       (#IND) := MF-NODES.MF-MONITOR-DESCRIPTION
+  #TAB.L-ISN        (#IND) := *ISN (R-MF.)
+  IF MF-NODES.MF-SYSTEM-TYPE = ' '
+    #TAB.L-SYSTEM (#IND) := 'Mainframe' /*better than nothing..
+  ELSE
+    #TAB.L-SYSTEM (#IND) := MF-NODES.MF-SYSTEM-TYPE
+  END-IF
+  IF MF-NODES.MF-PRODUCT-NAME = ' '
+    #TAB.L-PRODUCT-NAME (#IND) := 'Mainframe'
+  ELSE
+    #TAB.L-PRODUCT-NAME (#IND) := MF-NODES.MF-PRODUCT-NAME
+    EXAMINE #TAB.L-PRODUCT-NAME (#IND) FOR 'OSD' REPLACE WITH 'BS2000'
+  END-IF
+  #TAB.L-IS-MF      (#IND) := TRUE
+  #TAB.L-TYPE       (#IND) := MF-NODES.MF-TYPE
+**PRINT (AD=L) #IND #TAB.L-NO (#IND) 'sys:' #TAB.L-SYSTEM (#IND)
+**  #TAB.L-NAME (#IND) 'msg:' #TAB.L-MSG (#IND) (AL=30)
+  IF #IND1 NE 0
+    #IND := #IND1
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* MF-NODES
+*
+************************************************************************
+DEFINE SUBROUTINE #MF-TYPE
+************************************************************************
+DECIDE ON FIRST VALUE OF MF-NODES.MF-TYPE
+  VALUE 'M' #XX-ERROR-CODE := 2049 /* Monitor
+  VALUE 'S' #XX-ERROR-CODE := 2032 /* suspended
+  VALUE 'D' #XX-ERROR-CODE := 2047 /* deactivated
+  VALUE 'A' #XX-ERROR-CODE := 2030 /* active
+  VALUE 'E' #XX-ERROR-CODE := 2051 /* error
+* NONE      #XX-ERROR-CODE := 2008 /* down
+* BLI     2019-01-24 NOMALL-1621 line above out, below in
+  NONE      #XX-ERROR-CODE := 2031 /* inactive
+END-DECIDE
+CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+*
+END-SUBROUTINE /* #MF-TYPE
+*
+************************************************************************
+DEFINE SUBROUTINE UNIX-NODES
+************************************************************************
+RESET #IND /*sort both lists
+R-UX. READ UX-NODES BY UX-NODE-NAME
+  IF UX-NODES.UX-NODE-NAME < #S-NODE-F
+    ESCAPE TOP
+  END-IF
+  IF UX-NODES.UX-NODE-NAME > #S-NODE-T
+    ESCAPE BOTTOM
+  END-IF
+  RESET #IND1
+  PERFORM #ADD
+  IF UX-NODES.UX-NODE-SUSPEND ='M' OR='L' /*master is first entry
+    #IND1 := #IND
+    #IND := 1 /*first entry for monitor Ü
+    PERFORM #MOVE-ENTRIES
+  ELSE
+    #REP-SORT. REPEAT /*sort it into table
+      ADD 1 TO #IND
+      IF #TAB.L-NAME (#IND) = ' '
+        ESCAPE BOTTOM (#REP-SORT.)
+      END-IF
+      IF #IND = 1 AND #MASTER-FOUND
+        ESCAPE TOP
+      END-IF
+      IF #TAB.L-NAME (#IND) > UX-NODES.UX-NODE-NAME
+        PERFORM #MOVE-ENTRIES
+        ESCAPE BOTTOM (#REP-SORT.)
+      END-IF
+    END-REPEAT /*(#REP-SORT.)
+  END-IF
+  RESET #TAB.L-NO (#IND) #TAB.L-IS-MF (#IND)
+  #TAB.L-NAME (#IND) := UX-NODES.UX-NODE-NAME
+  #TAB.L-DESC (#IND) := UX-NODES.UX-NODE-DESCRIPTION
+  #TAB.L-ISN  (#IND) := *ISN (R-UX.)
+* *****
+* Show screen to user to be able to identify not responding node:
+* #L-MSG := #TAB.L-NAME (#IND)
+* SET CONTROL 'N'
+* INPUT WINDOW='WAIT' USING MAP 'RLISNOW&'
+* Get node info:
+* CALLNAT 'NODUST-N' #TAB.L-NAME (#IND) #LIBRARY-ID #LANGUAGE_N2
+*   #TAB.L-SYSTEM (#IND) #TAB.L-STATUS (#IND) #ES-MSG-NR
+*   #TAB.L-MSG (#IND)
+* *****
+  #TAB.L-SYSTEM (#IND) := 'Unix'
+  #TAB.L-PRODUCT-NAME (#IND) := #TAB.L-SYSTEM (#IND)
+  IF #IND1 NE 0
+    #IND := #IND1
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* UNIX-NODES
+*
+************************************************************************
+DEFINE SUBROUTINE #ADD
+************************************************************************
+ADD 1 TO #NR
+IF #NR GE *OCC(#TAB.L-NAME)
+  #I := *OCC(#TAB.L-NAME) + 20
+  EXPAND ARRAY #TAB TO (1:#I)
+END-IF
+*
+END-SUBROUTINE /* #ADD
+*
+************************************************************************
+DEFINE SUBROUTINE #MOVE-ENTRIES
+************************************************************************
+FOR #I = #NR TO #IND STEP -1
+  IF #I LE #IND
+    ESCAPE BOTTOM
+  END-IF
+  MOVE BY NAME #TAB (#I  - 1) TO #TAB (#I)
+END-FOR
+RESET #TAB (#IND)
+*
+END-SUBROUTINE /* #MOVE-ENTRIES
+*
+************************************************************************
+DEFINE SUBROUTINE #HELP
+************************************************************************
+PERFORM PF-KEYS
+RESET INITIAL #MAP (*) #I
+FOR #POS=1 TO #NR
+  IF #I=0
+    #POS-TOP := #POS
+  END-IF
+  ADD 1 TO #I
+  MOVE BY NAME #TAB (#POS) TO #MAP (#I)
+  CV-MARK (#I) := (AD=I)
+  IF #I = *OCC(CV-MARK) OR #POS=#NR
+    IF #POS=#NR
+      END-OF-DATA := TRUE
+    END-IF
+    PERFORM SCREEN-IO
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* #HELP
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+SET CONTROL 'MB' /*show msg-line in window SU2
+#REP. REPEAT
+  DECIDE FOR FIRST CONDITION
+    WHEN #ERC NE 0                    IGNORE
+    WHEN END-OF-DATA AND #PAGE > 1    #ERC := 12 /* bottom of data
+    WHEN END-OF-DATA AND #PAGE =1     #ERC := 14 /* all
+    WHEN NOT END-OF-DATA AND #PAGE=1  #ERC := 11 /* top of data
+    WHEN NONE                         #ERC := 13 /* more
+  END-DECIDE
+**PERFORM FLIP-DISPLAY /*S-FLIPD
+  INPUT WINDOW='SEL' WITH TEXT *#ERC, #ERT USING MAP 'HSELUX1&'
+  RESET #ERC
+  PERFORM COMMAND-PF-KEY
+END-REPEAT /*(#REP.)
+RESET INITIAL #I #MAP (*) L-MARK (*)
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+DECIDE ON FIRST *PF-KEY
+  VALUE 'PF3' /* return to father-prog
+    REDUCE ARRAY #TAB TO 0
+    ESCAPE MODULE IMMEDIATE /*N-NODES
+  VALUE 'PF7' /*up
+    IF #PAGE > 1
+      #POS := #POS-TOP - *OCC(CV-MARK) - 1
+      SUBTRACT 1 FROM #PAGE
+      END-OF-DATA := FALSE
+      ESCAPE BOTTOM /*(#REP.)
+    END-IF
+  VALUE 'PF8' /*down
+    IF NOT END-OF-DATA
+      ADD 1 TO #PAGE
+    END-IF
+    ESCAPE BOTTOM /*(#REP.)
+  NONE  IGNORE
+END-DECIDE
+FOR #J=1 TO *OCC(L-MARK)
+  IF L-MARK (#J) NE ' '
+    MOVE BY NAME #MAP (#J) TO #TAB (1)
+    RESIZE ARRAY #TAB TO (1:1) /*return only 1/selected entry
+    ESCAPE MODULE IMMEDIATE /*N-NODES
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+*
+END-SUBROUTINE /* PF-KEYS
+*
+END

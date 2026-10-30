@@ -1,0 +1,189 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMRP01N
+* Function  Report Maintenance API
+* Version 2.1.1
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* xsiszha  2000-05-30 s(CE7760) created
+* fhi      2000-08-24 QA03      Use NAT23006 for error values
+* xsetggr  2005-01-20 p(261181) use right library to get err msg
+* xsetggr  2005-03-30 nom31
+* xsetggr 2005-06-30 p(265613) evaluate eom-def-user
+* xsetggr 2007-05-18 p(289847) restore NOM lfile when error occurs
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-08-11 p(300323) add steplibs
+* xsetggr 2008-12-05 p(300323) change adding of steplibs
+* xsetggr 2009-02-10 P300323   delete steplib handling, get EOM-LIBRARY
+*                              by RGETLIB
+* fhi     2009-02-27 P300323 Rename RGETSTEP to NOMGSTEP delivered in SYSTEM
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* raya    2012-02-07 NOMALL-1096 error-text a250 in NOMRP--P stow only
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-11-12 NOMALL-1527 getting rid of coding for old versions-
+*                                only restruct
+* SU3     2020-02-11 NOMALL-2379 NAT0954 in EOMRPMGN(EOMRPM-LAST-UPDATE
+* SU4     2022-03-02 NOMALL-2537 recat: NOMRP--P changed
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER USING NOMRP--P
+*
+LOCAL USING NOMRP--E
+LOCAL USING EOM----P
+LOCAL USING EOMRPM-P
+LOCAL USING EOMMSG-P
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+*
+LOCAL
+1 #LFILE-CHANGED             (L)
+1 #NOM-DBID                  (N5)
+1 #NOM-FNR                   (N5)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET NOMRP-ERROR-CODE NOMRP-ERROR-TEXT
+*
+DECIDE FOR EVERY CONDITION
+  WHEN NOMRP-NOM-FNR NE 0 AND NOMRP-NOM-DBID NE 0
+    PERFORM GET-NOM-LFILE
+    PERFORM SET-NOM-LFILE
+    #LFILE-CHANGED := TRUE
+  WHEN SATLF-ERROR-CODE = 0
+    PERFORM REPORT-MAINTENANCE
+  WHEN #LFILE-CHANGED
+    PERFORM SET-OLD-NOM-LFILE
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NOM-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'GET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+#NOM-DBID := SATLF-DBID-N5
+#NOM-FNR  := SATLF-FNR-N5
+*
+END-SUBROUTINE /* GET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'SET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+*
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := NOMRP-NOM-DBID
+SATLF-FNR-N5  := NOMRP-NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-OLD-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := #NOM-DBID
+SATLF-FNR-N5  := #NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-OLD-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-INTERNAL-API
+************************************************************************
+RESET EOMMSG-PARMS
+CALLNAT 'EOMRPM-N' EOM-PARMS EOMRPM-PARMS EOMMSG-PARMS
+*
+IF EOMMSG-NR NE 0
+  NOMRP-ERROR-CODE := EOMMSG-NR
+  IF EOMMSG-TEXT = ' '
+    NOMRP-ERROR-TEXT := F#GETMSG (<NOMRP-ERROR-CODE, EOMMSG-TOKEN(1:3)>)
+  ELSE
+    NOMRP-ERROR-TEXT := EOMMSG-TEXT
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CALL-INTERNAL-API
+*
+************************************************************************
+DEFINE SUBROUTINE REPORT-MAINTENANCE
+************************************************************************
+RESET EOM-LOGGING EOM-LOG-TYPES (*)
+EOMRPM-I-ATTRIBUTE-TYPE     := NOMRP-ATTRIBUTE-TYPE
+EOMRPM-I-COPY-AUTHORIZATION := NOMRP-COPY-AUTHORIZATION
+EOMRPM-I-TARGET-DBID        := NOMRP-NOM-DBID
+EOMRPM-I-TARGET-FNR         := NOMRP-NOM-FNR
+EOMRPM-I-NAME               := NOMRP-NAME
+EOMRPM-I-NEWNAME            := NOMRP-NEWNAME
+IF NOT (NOMRP-LANGUAGE = 1 OR = 2)
+  EOM-LANGUAGE := *LANGUAGE
+ELSE
+  EOM-LANGUAGE := NOMRP-LANGUAGE
+END-IF
+EOM-USER                := NOMRP-USER-ID
+EOM-VERSION             := NOMRP-NOMVERS
+EOM-LOG-TYPES(1)        := NOMRP-LOG-TYP
+EOM-FUNCTION            := NOMRP-FUNCTION
+EOMRPM-I-CHECK-FUNCTION := NOMRP-FUNCTION
+EOMRPM-ATTRIBUTES (*)   := NOMRP-ATTR (*)
+CALLNAT 'RGETLIB' EOM-LIBRARY
+COMPRESS EOM-LIBRARY 'U' TO EOM-USER-LIBRARY LEAVING NO
+EOM-DEF-USER     := F#MONITOR-USER-AUTODEF (<>) /*SU 2018-04
+EOMRPM-DEF-OWNER := EOMRPM-DEF-EOM-USER-LIST(*) := EOM-DEF-USER
+IF NOMRP-FUNCTION = NOMRP-FCT-ADD /*SU3
+  RESET EOMRPM-INTERNAL-NODE-ID
+  EOMRPM-LAST-UPDATE      := *TIMX
+  EOMRPM-LAST-UPDATE-USER := EOM-USER
+END-IF
+PERFORM CALL-INTERNAL-API
+*
+IF EOMMSG-NR = 0 AND (NOMRP-FUNCTION=NOMRP-FCT-READ OR=NOMRP-FCT-INIT
+OR=NOMRP-FCT-READ-NEXT OR=NOMRP-FCT-READ-HOLD                         /*
+OR=NOMRP-FCT-READ-HOLD-NEXT)                                          /*
+  NOMRP-ATTR (*) := EOMRPM-ATTRIBUTES (*)
+  NOMRP-NAME     := EOMRPM-I-NAME
+  NOMRP-EOF      := EOMRPM-EOF
+END-IF
+*
+END-SUBROUTINE /* REPORT-MAINTENANCE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF #LFILE-CHANGED
+    PERFORM SET-OLD-NOM-LFILE
+  END-IF
+  IF *ERROR-NR = 3009 OR = 3145
+    NOMRP-ERROR-CODE := *ERROR-NR
+  ELSE
+    IF *ERROR-NR = 82
+      WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+        'Missing NOM steplibs' //
+      'Please call NOM steplib routine NOMGSTEP before call of NOM API.'
+    END-IF
+    NOMRP-ERROR-CODE := 21
+    CALLNAT 'C-NATERN' NOMRP-ERROR-TEXT
+  END-IF /*SU 2018-04
+  NOMRP-ERROR-TEXT :=F#GETMSG(<NOMRP-ERROR-CODE,NOMRP-ERROR-TEXT>)
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

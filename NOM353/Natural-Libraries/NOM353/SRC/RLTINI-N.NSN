@@ -1,0 +1,97 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RLTINI-N - Function  Language dependant Text
+*           Read the Text Definition from SYSERR only if it
+*           is not in the GLOBAL Pool
+*
+* Maintenance
+* UUU yy-mm-dd  s(999999) ...
+* SJU 05-05-09  s(264910) ... NAT1305 using NOMLOG to print 200,000+
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 G-TX-IDENT             (I2)
+1 G-TX-TEXT              (A250) BY VALUE RESULT
+1 G-TXB
+  2 G-TXB-NUM            (I2)
+  2 G-OBJECT-BUFFER      (1:50)
+    3 G-TXB-IDENT        (I2)
+    3 G-TXB-USE          (P5)
+    3 G-TXB-TEXT         (A65)
+************************************************************************
+LOCAL USING XXGMSG-A
+LOCAL
+ 1 #TXB-NUM                   (I2)   CONST <50>
+ 1 #FND-ENTRY                 (I2)
+ 1 #I                         (I2)
+ 1 #MIN-ENTRY                 (I2)
+ 1 #MIN-USE                   (P5)   INIT <99999>
+ 1 #START-VALUE               (P5)   INIT <99999>
+ 1 #LAN                       (A1)
+ 1 EXIST-IN-POOL              (L)
+ 1 #ERRN                      (N4)
+ 1 #ERT                       (A250)
+ 1 #MIN-VALUE                 (P5)   INIT <-99999>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#LAN := *LANGUAGE
+PERFORM CHECK-IF-EXIST
+IF NOT EXIST-IN-POOL
+  PERFORM REPLACE-AN-ENTRY
+END-IF
+G-TX-TEXT := G-TXB-TEXT (#FND-ENTRY)
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-IF-EXIST
+************************************************************************
+EXIST-IN-POOL := FALSE
+RESET INITIAL #MIN-USE
+FOR #I = 1 TO G-TXB-NUM
+  IF G-TXB-IDENT (#I) = G-TX-IDENT
+    #FND-ENTRY := #I
+    G-TXB-USE (#I) := #START-VALUE
+    EXIST-IN-POOL := TRUE
+  ELSE
+    IF G-TXB-USE(#I) GT #MIN-VALUE
+      G-TXB-USE (#I) := G-TXB-USE (#I) - 1
+    END-IF
+    IF G-TXB-USE (#I) < #MIN-USE
+      #MIN-USE := G-TXB-USE (#I)
+      #MIN-ENTRY := #I
+    END-IF
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* CHECK-IF-EXIST
+*
+************************************************************************
+DEFINE SUBROUTINE REPLACE-AN-ENTRY
+************************************************************************
+IF G-TXB-NUM < #TXB-NUM
+  ADD 1 TO G-TXB-NUM
+  #FND-ENTRY := G-TXB-NUM
+ELSE
+  #FND-ENTRY := #MIN-ENTRY
+END-IF
+G-TXB-IDENT (#FND-ENTRY) := G-TX-IDENT
+G-TXB-USE   (#FND-ENTRY) := #START-VALUE
+#ERRN                    := G-TX-IDENT
+#XX-ERROR-CODE := #ERRN
+CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+G-TXB-TEXT         (#FND-ENTRY) := #XX-SHORT-TEXT
+*
+END-SUBROUTINE /* REPLACE-AN-ENTRY
+*
+END

@@ -1,0 +1,320 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMEXP-C Copycode
+* Function  Common code for export program RMEXP*
+*
+* Maintenance
+* uuu   yyyy-mm-dd iTrac        Comment
+* SU1   2021-02-16 NOMALL-2443 created
+* GGS01 2021-06-23 NOMALL-2474 improve * and ? selection
+* GGS02 2021-08-16 NOMALL-2474 fix length for NAT41002
+* SU2   2021-08-20 NOMALL-2467 exp. only 1 related obj (FO) (no *)
+* SU3   2021-08-26 NOMALL-2484 MSG for node field without 'R-'
+* ----------------------------------------------------------------------
+*
+************************************************************************
+DEFINE SUBROUTINE #START
+************************************************************************
+IF #ID SPECIFIED /*related object without * or ?
+  IF #ID = ' '
+    ESCAPE MODULE
+  END-IF
+  #KEY-FROM := #ID /*SU2
+  IF #KEY-LEN2 > 0 /*len of 1. part of super-de
+    MOVE #KEY-FROM TO SUBSTR(#KEY-TO,1,#KEY-LEN2) /*#KEY-TO init=H'FF'
+  ELSE
+    #KEY-TO := #KEY-FROM
+  END-IF /*SU2 <-
+  RESET #KEY-MASK /*SU2 #KEY-LEN
+  /* GGS01 >
+/*SU2  EXAMINE #KEY-FROM FOR #OD-WILDCARD AND DELETE GIVING LENGTH #LEN
+/*SU2  IF #LEN > 0 MOVE #KEY-FROM TO SUBSTR(#KEY-TO,1,#LEN) END-IF
+  ESCAPE ROUTINE
+END-IF
+PERFORM OPEN-XML
+IF #TYPE = 'NO' /*RMEXPNO - node
+  COMPRESS 'R-' #OD-OBJECT-PREFIX TO #OD-OBJECT-PREFIX LEAVING NO
+END-IF
+#KEY-FROM := #KEY-MASK := #OD-OBJECT-PREFIX
+RESET #POS
+EXAMINE #KEY-FROM FOR #OD-WILDCARD GIVING POSITION #I
+EXAMINE #KEY-FROM FOR #OD-MASK-CHAR GIVING POSITION #J
+IF #I = 0 AND #J = 0
+  #KEY-TO := #KEY-FROM
+  RESET #KEY-MASK /*SU2 #KEY-LEN
+ELSE
+  IF #I = 0
+    #POS := #J
+  ELSE
+    IF #J = 0
+      #POS := #I
+    ELSE
+      IF #I < #J
+        #POS := #I
+      ELSE
+        #POS := #J
+      END-IF
+    END-IF
+  END-IF
+  DECIDE FOR FIRST CONDITION
+    WHEN #POS > 1
+      SUBTRACT 1 FROM #POS
+      #KEY-FROM := SUBSTR(#KEY-FROM,1,#POS)
+      MOVE #KEY-FROM TO SUBSTR(#KEY-TO,1,#POS)
+    WHEN #POS = 1
+      RESET #KEY-FROM
+/*SU2 WHEN ANY EXAMINE #KEY-MASK FOR ' ' GIVING LENGTH IN #KEY-LEN
+    WHEN NONE IGNORE
+  END-DECIDE
+END-IF
+RESET #I #J                                               /* < GGS01
+#WORK-LINE := '<?xml version="1.0" encoding="UTF-8"?>'
+PERFORM WRITE-XML
+COMPRESS '<NOM-EXPORT version="NOM-3.5.1.1"'
+  'xmlns="http://www.softwareag.com/nom35">' TO #WORK-LINE
+PERFORM WRITE-XML
+*
+END-SUBROUTINE /* #START
+*
+************************************************************************
+DEFINE SUBROUTINE #END-OBJ /*Close object + count nr
+************************************************************************
+COMPRESS '</' #TYPE '>' TO #WORK-LINE LEAVING NO
+PERFORM WRITE-XML
+*
+EXAMINE #CNT-TYPE (*) FOR #TYPE GIVING INDEX #POS
+IF #POS = 0
+  EXAMINE FULL #CNT-TYPE (*) FOR FULL '  ' GIVING INDEX #POS
+  #CNT-TYPE (#POS) := #TYPE
+END-IF
+ADD 1 TO #CNT (#POS)
+*
+END-SUBROUTINE /* #END-OBJ
+*
+************************************************************************
+DEFINE SUBROUTINE #END /*Close whole export
+************************************************************************
+IF NOT #ID SPECIFIED
+  COMPRESS '</NOM-EXPORT>' TO #WORK-LINE
+  PERFORM WRITE-XML
+  PERFORM CLOSE-XML
+END-IF
+*
+END-SUBROUTINE /* #END
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-MASK
+************************************************************************
+IF #KEY-MASK NE ' '
+  NAT41002-FIELD  := #KEY
+  NAT41002-MASK   := #KEY-MASK
+  /* NAT41002-LENGTH := #KEY-LEN                           /* GGS01
+  EXAMINE NAT41002-FIELD FOR ' ' LENGTH NAT41002-LENGTH    /* GGS02
+  CALLNAT 'NAT41002' #NAT41002
+  IF NAT41002-MATCHED NE 'Y'
+    ESCAPE TOP /*to READ-loop
+  END-IF
+END-IF
+IF #ID SPECIFIED
+  #DEP := 'true'
+ELSE
+  #DEP := 'false'
+END-IF
+*
+END-SUBROUTINE /* HANDLE-MASK
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-XML
+************************************************************************
+#FUNCTION := 'CLOSE'
+PERFORM CALL-NPR
+*
+END-SUBROUTINE /* CLOSE-XML
+*
+************************************************************************
+DEFINE SUBROUTINE OPEN-XML
+************************************************************************
+#FUNCTION := 'OPEN'
+PERFORM CALL-NPR
+*
+END-SUBROUTINE /* OPEN-XML
+*
+************************************************************************
+DEFINE SUBROUTINE CONVERT-XML
+************************************************************************
+RESET #I
+PERFORM CONVERT-XML1
+*
+END-SUBROUTINE /* CONVERT-XML
+*
+************************************************************************
+DEFINE SUBROUTINE CONVERT-XML1
+************************************************************************
+IF NOT(#VALUE=' ' OR='0') AND SUBSTR(#VALUE,1,6) NE '0000-0' /*NULL-DATE
+  OPTIONS TQMARK=OFF /*needed here; afterwards ??
+  EXAMINE #VALUE FOR '&'  REPLACE '&amp;'  GIVING LENGTH #LEN
+  EXAMINE #VALUE FOR '<'  REPLACE '&gt;'   GIVING LENGTH #LEN
+  EXAMINE #VALUE FOR '>'  REPLACE '&LT;'   GIVING LENGTH #LEN
+  EXAMINE #VALUE FOR '"'  REPLACE '&quot;' GIVING LENGTH #LEN
+  EXAMINE #VALUE FOR '''' REPLACE '&apos;' GIVING LENGTH #LEN
+  #PRINTABLE := SUBSTR (#MASK,1,#LEN)
+  IF #VALUE NE MASK #PRINTABLE
+    #OD-ERROR-CODE := 1572 /*Export: Field :2: invalid: :1:
+    #OD-ERROR-TEXT := #KEY
+    IF #TYPE = 'NO' AND #KEY = MASK('R-') /*RMEXPNO - node SU3
+      #OD-ERROR-TEXT := SUBSTR(#OD-ERROR-TEXT,3)
+    END-IF
+    COMPRESS SUBSTR(#PROGRAM,6,2) '/' #OD-ERROR-TEXT '/' #FIELD
+      TO #OD-ERROR-TEXT LEAVING NO
+    ESCAPE MODULE
+  END-IF
+  IF #FIELD=SCAN('-INTERNAL-NODE-ID') AND #VALUE IS (N11) /*SPECIAL
+    #J := VAL(#VALUE)
+    CALLNAT 'N-NODE-C' ' ' #VALUE #J #FIELD /*int.ID -> Monitor ID  SU2
+/*SU2 FIND NODE-SPOOL-DATA WITH M-INTERNAL-NODE-ID = #J
+/*SU2 #VALUE := NODE-SPOOL-DATA.M-MONITOR-ID
+/*SU2 #FIELD := 'M-MONITOR-ID' /* Use Monitor ID instead of internal ID
+/*SU2 END-FIND
+  END-IF
+  IF #LEN > 150 /* TAGS MUST BE SPLITTED
+    COMPRESS '<' #FIELD '><PORTION>' SUBSTR(#VALUE,1,150) '</PORTION>'
+      TO #WORK-LINE LEAVING NO
+    PERFORM WRITE-XML
+    COMPRESS '<PORTION>' SUBSTR(#VALUE,151) '</PORTION></' #FIELD '>'
+      TO #WORK-LINE LEAVING NO
+    PERFORM WRITE-XML
+  ELSE
+    COMPRESS '<' #FIELD '><VALUE>' #VALUE '</VALUE></' #FIELD '>'
+      TO #WORK-LINE LEAVING NO
+    PERFORM WRITE-XML
+  END-IF
+ELSE
+  IF #I > 0
+    COMPRESS '<' #FIELD '><VALUE> </VALUE></' #FIELD '>'
+      TO #WORK-LINE LEAVING NO
+    PERFORM WRITE-XML
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CONVERT-XML1
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-XML
+************************************************************************
+#FUNCTION := 'WRITE'
+REDUCE DYNAMIC B64-B TO 0
+EXAMINE #WORK-LINE FOR ' ' GIVING LENGTH IN #LEN
+B64-B := SUBSTR(#WORK-LINE,1,#LEN)
+MOVE ENCODED B64-B CODEPAGE *CODEPAGE TO B64-B CODEPAGE 'UTF-8'
+COMPRESS B64-B H'0A' TO B64-B LEAVING NO /* add a line feed
+IF #OD-NODE IS (N5)
+  #WORK-LINE := B64-B
+  PERFORM CALL-NPR
+ELSE
+  B64-FUNCTION := 'BA'
+  CALLNAT 'RMBAS64N' B64-PARMS
+  IF B64-RC NE 0
+    #OD-ERROR-CODE := 1573 /*Encoding failed in: :1:
+    #OD-ERROR-TEXT := #KEY
+    IF #TYPE = 'NO' AND #KEY = MASK('R-') /*RMEXPNO - node SU3
+      #OD-ERROR-TEXT := SUBSTR(#OD-ERROR-TEXT,3)
+    END-IF
+    COMPRESS SUBSTR(#PROGRAM,6,2) '/' #OD-ERROR-TEXT '/' #FIELD
+      TO #OD-ERROR-TEXT LEAVING NO
+    ESCAPE MODULE
+  END-IF
+  FOR #K := 1 TO *OCC(B64-TEXT-ARRAY)
+    #WORK-LINE := B64-TEXT-ARRAY (#K)
+    IF #WORK-LINE = ' '
+      ESCAPE BOTTOM
+    END-IF
+    PERFORM CALL-NPR
+  END-FOR
+END-IF
+*
+END-SUBROUTINE /* WRITE-XML
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-NPR
+************************************************************************
+IF #OD-NODE IS (N5)
+  DECIDE ON EVERY VALUE OF #FUNCTION
+    VALUE 'OPEN'
+      ESCAPE ROUTINE
+    VALUE 'CLOSE'
+      IGNORE
+    VALUE 'WRITE'
+      RESET #FUNCTION  /* is already default
+    ANY
+      EXAMINE #WORK-LINE FOR ' ' GIVING LENGTH #LEN
+      #NODE := VAL(#OD-NODE)
+      FIND (1) WRITE-FILE WITH NODE = #NODE AND  FUNCTION = #FUNCTION
+      AND DISP = 'NEW' AND DSNAME = #OD-FILE AND RECORD = #WORK-LINE  /*
+      AND RECORD-LENGTH = #LEN                                        /*
+        IF ERROR-CODE > 0
+          COMPRESS *PROGRAM ERROR-CODE ERROR-TEXT 'Node:' #NODE
+            'Function:' #FUNCTION 'Disp: NEW' 'dsname:' #OD-FILE
+            TO #TRACE-MSG
+          PRINT (AD=L) #TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+          END TRANSACTION
+          #OD-ERROR-CODE := ERROR-CODE
+          #OD-ERROR-TEXT := ERROR-TEXT
+        END-IF
+      END-FIND
+    NONE
+      IGNORE
+  END-DECIDE
+ELSE
+  IF XXUX---P.P-NODE-NAME = ' '
+    FIND (1) UX-NODES WITH UX-NODE-NAME = #OD-NODE
+      XXUX---P.P-NODE-NAME       := #OD-NODE
+      XXUX---P.P-USERID          := UX-NODE-USERID
+      XXUX---P.P-CIPHER-PASSWORD := UX-NODE-PASSWORD
+      XXUX---P.P-GROUP           := UX-NODE-GROUP
+      XXUX---P.P-NODE-SUSPEND    := UX-NODE-SUSPEND /* P319135 in
+    END-FIND
+  END-IF
+  XXUX---P.P-FUNCTION  := #FUNCTION
+  XXUX---P.P-FILE-NAME := #OD-FILE
+  XXUX---P.P-RECORD    := #WORK-LINE
+  XXUX---P.P-BINARY    := 'Y'
+  IF #TRACING
+    COMPRESS 'Executing Unix function:'
+      'Node:' XXUX---P.P-NODE-NAME '- User:' XXUX---P.P-USERID
+      '- Group:'       XXUX---P.P-GROUP
+      '- Node-Status:' XXUX---P.P-NODE-SUSPEND
+      '- Binary?'      XXUX---P.P-BINARY
+      '- Record:'      SUBSTR (XXUX---P.P-RECORD,1,30)
+      '- File:'        SUBSTR (XXUX---P.P-FILE-NAME,1,70) TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+  CALLNAT 'XXUX---N' XXUX---P
+  IF XXUX---P.P-ERC NE 0
+    COMPRESS *PROGRAM XXUX---P.P-ERC XXUX---P.P-ERT
+      'Node:' XXUX---P.P-NODE-NAME 'Function:' #FUNCTION
+      'filename:' #OD-FILE TO #TRACE-MSG
+    PRINT (AD=L) #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+  #OD-ERROR-CODE := XXUX---P.P-ERC
+  #OD-ERROR-TEXT := XXUX---P.P-ERT
+  IF #TRACING
+    COMPRESS 'Unix function returned:' 'ERC:' XXUX---P.P-ERC
+      '- ERT:'         XXUX---P.P-ERT
+      '- Record:'      SUBSTR (XXUX---P.P-RECORD,1,30) TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+END-IF
+IF #OD-ERROR-CODE NE 0
+  ESCAPE MODULE
+END-IF
+*
+END-SUBROUTINE /* CALL-NPR
+** End of Copycode RMIMP-C *********************************************

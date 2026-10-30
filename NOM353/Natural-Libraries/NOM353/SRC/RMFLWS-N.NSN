@@ -1,0 +1,166 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member       RMFLWS-N
+* Version      1.3
+* Function     Get attributes for flush via write-spool
+*
+* Creation and Maintenance History
+* uuu yy-mm-dd s(999999) ...
+* gw  93-04-01           created
+* xsetggr 2004-11-23 p(258871) recat due to changes in rmfl---p
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-12-21 NOMALL-865 rewrite - add write-spool again
+* fhi     2016-11-10 NOMALL-1917 use correct node number
+* SU1     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER  USING  RMFL---P
+PARAMETER
+1 P-ERROR-CODE          (N4)
+1 P-ERROR-TEXT          (A250)
+************************************************************************
+/*SU1 LOCAL USING VMONITUL            /* NOMALL-1917
+LOCAL
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU1
+  2 MF-MONITOR-NODE (N5.0)  /* The natural pro
+  2 MF-PRINT-CLASS (A1)  /* used as
+1 PRINTOUT VIEW OF NRM-PRINTOUTS
+  2 C*PO-ATTRIBUTES
+  2 PO-ATTRIBUTES       (A95/25)
+  2 REDEFINE PO-ATTRIBUTES
+    3 PO-ATTR           (25)
+      4 PO-ATTR-IDENT   (I1)
+      4 PO-ATTR-LENGTH  (N2)
+      4 PO-ATTR-PROMPT  (N4)
+      4 PO-ATTR-VAR     (A16)
+      4 PO-ATTR-VALUE   (A72)
+*
+1 NOE                   (I2)
+1 F                     (I2)
+1 #CNT                  (I1)
+1 #SIZE                 (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-ERROR-CODE P-ERROR-TEXT
+*
+PERFORM READ-PRINTOUT-RECORD
+PERFORM WRITE-SPOOL-INTERFACE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-PRINTOUT-RECORD
+************************************************************************
+FNDPR. FIND PRINTOUT WITH PO-ID = FLUSH-POID
+  IF NO RECORDS FOUND
+    P-ERROR-CODE := 0005
+    P-ERROR-TEXT := 'Printout Record not found'
+    ESCAPE BOTTOM (FNDPR.)
+  END-NOREC
+END-FIND
+*
+END-SUBROUTINE /* READ-PRINTOUT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-SPOOL-INTERFACE
+************************************************************************
+RESET WRTSPL-ATTRIBUTES
+READ(1) MF-NODE BY MF-TYPE-ID = 'MR-'
+END-READ
+*
+IF C*PO-ATTRIBUTES > 25
+  NOE := 25
+ELSE
+  NOE := PRINTOUT.C*PO-ATTRIBUTES
+END-IF
+*
+FOR F = 1 TO NOE
+  DECIDE ON FIRST PO-ATTR-VAR (F)
+    VALUE 'CHRS'
+      WRTSPL-CHARS              := PO-ATTR-VALUE (F)
+    VALUE 'CLSS'
+      IF PO-ATTR-VALUE(F) > ' '
+        WRTSPL-CLASS            := PO-ATTR-VALUE(F)
+      ELSE
+        WRTSPL-CLASS            := MF-PRINT-CLASS
+      END-IF
+    VALUE 'COMPACT'
+      WRTSPL-COMPACT            := PO-ATTR-VALUE(F)
+    VALUE 'REMOTE-USERID'
+      WRTSPL-REMOTE-USERID      := PO-ATTR-VALUE(F)
+    VALUE 'COPYMOD-MODULE'
+      WRTSPL-COPY-MODIFY-MODULE := PO-ATTR-VALUE(F)
+    VALUE 'COPYMOD-TABLE'
+      WRTSPL-COPY-MODIFY-TABLE  := PO-ATTR-VALUE(F)
+    VALUE 'DST'
+      WRTSPL-DESTINATION        := PO-ATTR-VALUE(F)
+    VALUE 'DISPOSITION'
+      WRTSPL-DISPOSITION        := PO-ATTR-VALUE(F)
+    VALUE 'FCBW'
+      WRTSPL-FCB                := PO-ATTR-VALUE(F)
+    VALUE 'FLSH'
+      WRTSPL-FLASH              := PO-ATTR-VALUE(F)
+    VALUE 'FLASHCNT'
+      IF NOT(PO-ATTR-VALUE(F) = ' ' OR = '40')
+        WRTSPL-FLASH-COUNT      := VAL(PO-ATTR-VALUE(F))
+      ELSE
+        RESET WRTSPL-FLASH-COUNT
+      END-IF
+    VALUE 'FRM'
+      WRTSPL-FORM               := PO-ATTR-VALUE(F)
+    VALUE 'HOLD'
+      WRTSPL-HOLD               := PO-ATTR-VALUE(F)
+    VALUE 'JOB-NAME'
+      WRTSPL-JOB-NAME           := PO-ATTR-VALUE(F)
+    VALUE 'NODE'
+      IF NOT(PO-ATTR-VALUE(F) = ' ' OR = '0')
+        WRTSPL-NODE             := VAL(PO-ATTR-VALUE(F))
+      ELSE
+        WRTSPL-NODE             := MF-MONITOR-NODE
+      END-IF
+    VALUE 'PASSWROD'
+      WRTSPL-PASSWORD           := PO-ATTR-VALUE(F)
+    VALUE 'PROGRAM'
+      WRTSPL-PROGRAM            := PO-ATTR-VALUE(F)
+    VALUE 'SEGMENTSIZE'
+      IF NOT(PO-ATTR-VALUE(F) = ' ' OR = '0')
+        #SIZE                   := VAL(PO-ATTR-VALUE(F))
+      ELSE
+        RESET #SIZE
+      END-IF
+      WRTSPL-SEGMENTATION-SIZE  := #SIZE
+    VALUE 'SEPPAGESCOPIES'
+      WRTSPL-SEP-PAGES-COPIES   := PO-ATTR-VALUE(F)
+    VALUE 'SEPPAGESCNT'
+      RESET #CNT
+      IF NOT(PO-ATTR-VALUE(F) = ' ' OR = '0')
+        #CNT                    := VAL(PO-ATTR-VALUE(F))
+      END-IF
+      WRTSPL-SEP-PAGES-COUNT    := #CNT
+    VALUE 'TARGET-NODE'
+      WRTSPL-TARGET-NODE        := PO-ATTR-VALUE(F)
+    VALUE 'UCS'
+      WRTSPL-UCS                := PO-ATTR-VALUE(F)
+    VALUE 'UCSOPTIONS'
+      WRTSPL-UCS-OPTIONS        := PO-ATTR-VALUE(F)
+    VALUE 'USERINFO'
+      WRTSPL-USER-INFO          := PO-ATTR-VALUE(F)
+    NONE VALUE IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* WRITE-SPOOL-INTERFACE
+*
+END

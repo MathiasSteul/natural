@@ -1,0 +1,501 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RTRACPS - trace - check printer and/or sysout class
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-05-12 s(999999) rewritten
+* mrs 93-12-08 s(999999) use rgrant-n instead of rgranted
+* mrs 94-03-04 s(999999) BS2
+* mrs 95-02-13 p(137078) stowed because of changes in RMSCPWAP
+* gw  96-10-15 s(255651) no trace for standard separation
+* jvd 98-05-04 p(168326) Increase display size to show lines > 10m
+*                        This program was re-cat to take the new
+*                        SPOOL-FILES ddm.
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+*                        p(168326) is now in p(164220) so I have removed
+*                        all refferance to P(168326) to make easier
+*                        reading
+* wcd 00-04-01 CE 7267   re-cat as changes made to EOMRPM-E
+* fhi     2005-04-14   NOM3107 Added Support for 7 byte jobnumbers
+* fhi     2005-06-23 p(266530) Make Monitor NPR Mainframe independent
+* fhi     2005-09-06 p(267354) Get real record count for JES2
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2017-01-27 NOMALL-1961 Show node name in errors
+* SU1     2019-12-03 NOMALL-2358 cosmetics
+* SU2     2020-04-24 NOMALL-2349 error handling (NPR)
+* SU3     2021-07-26 NOMALL-2480 BS2: show correct map(not JES2)
+* SU4     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING RTRACPSP
+PARAMETER
+1 P-ERROR-CODE        (N4)
+1 P-ERROR-TEXT        (A250)
+************************************************************************
+INDEPENDENT
+1 +NOD-CURRENT-NAME   (A16)
+* ---------------------------------------LDA's--------------------------
+LOCAL USING RCCTYP-E
+LOCAL USING RMSR---E
+LOCAL USING RMSR---L
+/*SU4 LOCAL USING RMSCPWAP
+LOCAL USING EOMRPM-E
+LOCAL
+1 REPORT VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-IDENT           (1:10)
+  2 REDEFINE R-IDENT
+    3 R-IDENT-TAB     (1:10)
+      4 R-IDENT-TYPE  (I2)
+      4 R-IDENT-VALUE (A8)
+  2 C*R-IDENT
+  2 R-EXITMEM
+  2 R-EXITLIB
+  2 R-ASM-EXIT
+  2 R-IDENT-FILES     (1:10)
+  2 R-UPARMS          (1:5)
+1 CATALOG VIEW OF CATALOG
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 DSNAME
+1 SPOOL-QUEUE VIEW OF SPOOL-QUEUE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 NODE
+  2 JOB-NAME
+  2 JOB-NUMBER
+  2 CLASS
+/*SU4 2 QUEUE 2 QUEUE-DISPLAY-RECORD 2 REAL-RECORD-COUNT 2 PAGE-COUNT
+/*SU4 2 USER 2 DESTINATION 2 DISP 2 SEGMENT-NUMBER
+/*SU4 1 POWER-SEGMENT VIEW OF SPOOL-QUEUE 2 ERROR-CODE 2 ERROR-TEXT
+/*SU4 2 QUEUE-DISPLAY-RECORD 2 REAL-RECORD-COUNT 2 PAGE-COUNT
+1 SPOOL-FILES VIEW OF SPOOL-FILES
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 NODE
+  2 JOB-NAME
+  2 JOB-NUMBER
+  2 TYPE
+  2 DATA-SET
+  2 DATA-SET-KEY
+  2 PROCNAME
+  2 STEPNAME
+  2 DDNAME
+  2 RECFM
+  2 RECORD-COUNT
+  2 LRECL
+1 RCOUNT VIEW OF READ-SPOOL
+  2 RECORD-NUMBER
+*
+1 #NOFLINES                   (I2) CONST <10>
+1 #COUNTER                    (P8)
+1 DI                          (P2)
+1 L-SCREEN                    (1:#NOFLINES)
+  2 L-MARK                    (A1)
+  2 L-LRECL                   (N3)
+  2 L-SOURCE-REC-COUNT        (P10)
+  2 L-SOURCE-CC-TYPE          (I2)
+  2 L-ATTRIBUTES              (A202)
+  2 REDEFINE L-ATTRIBUTES
+    3 L-JES-JOB-NAME          (A8)
+    3 L-JES-JOB-NUMBER        (N7)
+    3 L-JES-JOB-TYPE          (A2)
+    3 L-JES-DATA-SET          (N5)
+    3 L-JES-DATA-SET-KEY      (N7)
+    3 L-JES-DDNAME            (A8)
+    3 L-JES-STEPNAME          (A8)
+    3 L-JES-PROCNAME          (A8)
+/*SU4 ->  2 REDEFINE L-ATTRIBUTES 3 L-POWER-JOB-NAME        (A8)
+/*  3 L-POWER-JOB-NUMBER      (N7) 3 L-POWER-JOB-TYPE        (A2)
+/*  3 L-POWER-USER            (A8) 3 L-POWER-DEST            (A8)
+/*  3 L-POWER-DISP            (A1) 3 L-POWER-PAGE-COUNT      (N5)
+/*  3 L-POWER-SEGMENTS (N3) 3 L-POWER-SEG-LASTLINE (B4/1:40)
+/*SU4 <- 2 REDEFINE L-ATTRIBUTES 3 L-BS2-DSNAME            (A54)
+*
+1 CV-MARK                     (C/1:#NOFLINES)
+1 DATASET-FOUND               (L)
+1 #GR-OPTION                  (A1/1:6)
+1 GRANTED                     (L)
+1 #QUEUE                      (A3)
+1 I                           (P2)
+1 #IDENT-JOB-NAME             (A8)
+1 #USER-ID                    (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+SET KEY PF3 = PGM
+*
+RESET P-ERROR-CODE
+PERFORM CHANGE-REPORT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHANGE-REPORT
+************************************************************************
+FNDR. FIND REPORT WITH R-REPNAME = RTRACPS-REPNAME
+  IF NO RECORDS FOUND
+    P-ERROR-CODE := 4100
+    ESCAPE BOTTOM (FNDR.)
+  END-NOREC
+*
+  PERFORM CHECK-GRANTS
+  IF P-ERROR-CODE NE 0
+    ESCAPE BOTTOM (FNDR.)
+  END-IF
+*
+  PERFORM FILL-IDENT-FIELDS
+  IF P-ERROR-CODE NE 0
+    ESCAPE ROUTINE
+  END-IF
+*
+  RTRACPS-REPNAME := R-REPNAME
+  DECIDE FOR FIRST CONDITION
+    WHEN R-EXITMEM = MASK ('STD'N)
+      P-ERROR-CODE := 4114
+      ESCAPE ROUTINE
+    WHEN R-ASM-EXIT NE ' '
+      RTRACPS-EXIT-PGM := R-ASM-EXIT
+      RTRACPS-EXIT-LAN := 'ASM'
+    WHEN R-EXITMEM NE ' '
+      RTRACPS-EXIT-PGM := R-EXITMEM
+      RTRACPS-EXIT-LIB := R-EXITLIB
+      RTRACPS-EXIT-LAN := 'NAT'
+      RTRACPS-STEPLIB := *STEPLIB
+      IF R-EXITLIB = ' '
+        CALLNAT 'RGETLIB' R-EXITLIB
+      END-IF
+      RTRACPS-NEW-STEPLIB := R-EXITLIB
+    WHEN ANY
+      RTRACPS-UPARMS (1:5) := R-UPARMS (1:5)
+    WHEN NONE
+      P-ERROR-CODE := 4101
+      ESCAPE BOTTOM (FNDR.)
+  END-DECIDE
+  DECIDE ON FIRST RTRACPS-SOURCE-TYPE
+    VALUE SEQUENTIAL-FILE-BS2
+      PERFORM BS2-SPOOL-FILES
+    NONE VALUE
+      PERFORM CHANGE-SYSOUT-CLASS
+  END-DECIDE
+END-FIND
+*
+END-SUBROUTINE /* CHANGE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE CHANGE-SYSOUT-CLASS
+************************************************************************
+RESET DATASET-FOUND
+*
+DECIDE ON FIRST RTRACPS-SOURCE-TYPE
+  VALUE JES2, JES3  #QUEUE := 'OUT'
+/*SU4  VALUE POWER       #QUEUE := 'LST'
+  NONE
+    P-ERROR-CODE := 0005
+    COMPRESS 'Spool type not supported:' RTRACPS-SOURCE-TYPE
+      TO P-ERROR-TEXT
+    ESCAPE ROUTINE
+END-DECIDE
+*
+REPQ. REPEAT
+  RESET #COUNTER DI L-SCREEN (*)
+  FNDQ. FIND SPOOL-QUEUE WITH NODE = RTRACPS-NODE AND QUEUE = #QUEUE
+  AND CLASS = RTRACPS-CLASS AND JOB-NAME     = #IDENT-JOB-NAME        /*
+    IF ERROR-CODE NE 0
+      P-ERROR-CODE := 5
+      COMPRESS ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE
+        TO P-ERROR-TEXT
+      ESCAPE ROUTINE
+    END-IF
+    DECIDE ON FIRST RTRACPS-SOURCE-TYPE
+/*SU4 VALUE POWER      PERFORM POWER-SPOOL-FILES
+      VALUE JES2, JES3 PERFORM JES-SPOOL-FILES
+      NONE             IGNORE
+    END-DECIDE
+    IF P-ERROR-CODE NE 0
+      ESCAPE ROUTINE
+    END-IF
+  END-FIND
+  IF DI > 0
+    PERFORM SCREEN-IO
+  END-IF
+  IF P-ERROR-CODE NE 0 OR #COUNTER = 0
+    ESCAPE BOTTOM (REPQ.)
+  END-IF
+END-REPEAT
+*
+IF #COUNTER = 0
+  P-ERROR-CODE := 4103
+  P-ERROR-TEXT := RTRACPS-CLASS
+END-IF
+*
+END-SUBROUTINE /* CHANGE-SYSOUT-CLASS
+*
+/*SU4 DEFINE SUBROUTINE POWER-SPOOL-FILES
+*
+************************************************************************
+DEFINE SUBROUTINE JES-SPOOL-FILES
+************************************************************************
+IF RTRACPS-SOURCE-TYPE = JES3
+  FNDJES3. FIND SPOOL-FILES WITH NODE = RTRACPS-NODE
+  AND JOB-NUMBER = SPOOL-QUEUE.JOB-NUMBER                             /*
+  AND JOB-NAME = SPOOL-QUEUE.JOB-NAME                                 /*
+    PERFORM HANDLE-JES
+  END-FIND
+ELSE
+  FNDJES2. FIND SPOOL-FILES WITH NODE = RTRACPS-NODE
+  AND JOB-NUMBER = SPOOL-QUEUE.JOB-NUMBER                             /*
+  AND JOB-NAME = SPOOL-QUEUE.JOB-NAME AND CLASS = SPOOL-QUEUE.CLASS   /*
+    PERFORM HANDLE-JES
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* JES-SPOOL-FILES
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-JES
+************************************************************************
+IF SPOOL-FILES.ERROR-CODE NE 0
+  P-ERROR-CODE := 5
+  COMPRESS SPOOL-FILES.ERROR-TEXT '/' +NOD-CURRENT-NAME
+    '/' *PROGRAM '/' *LINE TO P-ERROR-TEXT
+  ESCAPE BOTTOM
+END-IF
+PERFORM TEST-IDENTIFICATIONS
+IF P-ERROR-CODE NE 0
+  ESCAPE BOTTOM
+END-IF
+*
+END-SUBROUTINE /* HANDLE-JES
+*
+************************************************************************
+DEFINE SUBROUTINE BS2-SPOOL-FILES
+************************************************************************
+IF RTRACPS-DSNAME = ' '
+  RTRACPS-DSNAME := '*'
+END-IF
+REPBS2. REPEAT
+  RESET #COUNTER DI L-SCREEN (*)
+  FNDBS2. FIND CATALOG WITH NODE =RTRACPS-NODE AND DSNAME=RTRACPS-DSNAME
+    IF ERROR-CODE NE 0
+      P-ERROR-CODE := 5
+      COMPRESS ERROR-TEXT '/' +NOD-CURRENT-NAME '/' *PROGRAM '/' *LINE
+        TO P-ERROR-TEXT
+      ESCAPE BOTTOM (REPBS2.)
+    END-IF
+    PERFORM TEST-IDENTIFICATIONS
+    IF P-ERROR-CODE NE 0
+      ESCAPE BOTTOM (REPBS2.)
+    END-IF
+  END-FIND
+  IF DI > 0
+    PERFORM SCREEN-IO
+  END-IF
+  IF P-ERROR-CODE NE 0 OR #COUNTER = 0
+    ESCAPE BOTTOM (REPBS2.)
+  END-IF
+END-REPEAT
+*
+IF #COUNTER = 0
+  P-ERROR-CODE := 4112
+  P-ERROR-TEXT := RTRACPS-CLASS
+END-IF
+*
+END-SUBROUTINE /* BS2-SPOOL-FILES
+*
+************************************************************************
+DEFINE SUBROUTINE TEST-IDENTIFICATIONS
+************************************************************************
+RESET DATASET-FOUND
+IF RTRACPS-SOURCE-TYPE = JES2 OR = JES3
+  CALLNAT 'RTRARID' DATASET-FOUND REPORT.R-IDENT-FILES (*)
+    SPOOL-FILES.TYPE SPOOL-FILES.DATA-SET SPOOL-FILES.DDNAME
+    SPOOL-FILES.STEPNAME SPOOL-FILES.PROCNAME
+ELSE
+  DATASET-FOUND := TRUE
+END-IF
+*
+IF DATASET-FOUND
+  ADD 1 TO DI
+  PERFORM DATA-TO-SCREEN
+  IF DI = #NOFLINES
+    PERFORM SCREEN-IO
+    RESET DI L-SCREEN (*)
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* TEST-IDENTIFICATIONS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-GRANTS
+************************************************************************
+IF RTRACPS-USER-TYPE = 'A'
+  ESCAPE ROUTINE
+END-IF
+#USER-ID := RTRACPS-USERID
+CALLNAT 'RGRANT-N' #USER-ID 'R' RTRACPS-REPNAME GRANTED #GR-OPTION(*)
+IF GRANTED
+  IF NOT(#GR-OPTION (1:3) = 'Y')
+    P-ERROR-CODE := 20
+  END-IF
+ELSE
+  P-ERROR-CODE := 20
+END-IF
+*
+END-SUBROUTINE /* CHECK-GRANTS
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-TO-SCREEN
+************************************************************************
+ADD 1 TO #COUNTER
+*
+DECIDE ON EVERY RTRACPS-SOURCE-TYPE
+  VALUE JES2
+    FIND RCOUNT WITH NODE = SPOOL-FILES.NODE
+    AND JOB-NAME     = SPOOL-FILES.JOB-NAME                           /*
+    AND JOB-NUMBER   = SPOOL-FILES.JOB-NUMBER                         /*
+    AND TYPE         = SPOOL-FILES.TYPE                               /*
+    AND DATA-SET     = SPOOL-FILES.DATA-SET                           /*
+    AND DATA-SET-KEY = SPOOL-FILES.DATA-SET-KEY                       /*
+    AND RECORD-NUMBER > SPOOL-FILES.RECORD-COUNT                      /*
+/* error handling ??
+    END-FIND
+    IF RCOUNT.RECORD-NUMBER >  SPOOL-FILES.RECORD-COUNT
+      SPOOL-FILES.RECORD-COUNT  := RCOUNT.RECORD-NUMBER
+    END-IF
+  VALUE JES2, JES3
+    L-JES-JOB-TYPE     (DI) := SPOOL-FILES.TYPE
+    L-JES-JOB-NUMBER   (DI) := SPOOL-FILES.JOB-NUMBER
+    L-JES-DATA-SET     (DI) := SPOOL-FILES.DATA-SET
+    L-JES-DATA-SET-KEY (DI) := SPOOL-FILES.DATA-SET-KEY
+    L-JES-DDNAME       (DI) := SPOOL-FILES.DDNAME
+    L-JES-STEPNAME     (DI) := SPOOL-FILES.STEPNAME
+    L-JES-PROCNAME     (DI) := SPOOL-FILES.PROCNAME
+    L-JES-JOB-NAME     (DI) := SPOOL-FILES.JOB-NAME
+    L-SOURCE-REC-COUNT (DI) := SPOOL-FILES.RECORD-COUNT
+    L-LRECL            (DI) := SPOOL-FILES.LRECL
+    DECIDE FOR FIRST CONDITION
+      WHEN SPOOL-FILES.RECFM = SCAN 'A'
+        L-SOURCE-CC-TYPE (DI) := ASA-CODE
+      WHEN SPOOL-FILES.RECFM = SCAN 'M'
+        L-SOURCE-CC-TYPE (DI) := MACHINE-CODE
+      WHEN NONE
+        L-SOURCE-CC-TYPE (DI) := NO-CC
+    END-DECIDE
+/*SU4 -> VALUE POWER
+/* VALUE SEQUENTIAL-FILE-BS2
+/*  L-BS2-DSNAME     (DI) := CATALOG.DSNAME
+/*  L-SOURCE-CC-TYPE (DI) := BS2000-CC
+/*SU4 <-  RESET L-LRECL    (DI) /*SU2
+  NONE  IGNORE /*SU4 MSG ?
+END-DECIDE
+*
+CV-MARK (DI) := (AD=I)
+*
+END-SUBROUTINE /* DATA-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-TO-PARAMETER
+************************************************************************
+DECIDE ON FIRST RTRACPS-SOURCE-TYPE
+  VALUE JES2, JES3
+    #JES-NODE         := RTRACPS-NODE
+    #JES-JOB-NAME     := L-JES-JOB-NAME    (DI)
+    #JES-TYPE         := L-JES-JOB-TYPE    (DI)
+    #JES-JOB-NUMBER   := L-JES-JOB-NUMBER  (DI)
+    #JES-DATA-SET     := L-JES-DATA-SET    (DI)
+    #JES-DATA-SET-KEY := L-JES-DATA-SET-KEY (DI)
+    #JES-DDNAME       := L-JES-DDNAME      (DI)
+    #JES-STEPNAME     := L-JES-STEPNAME    (DI)
+    #JES-PROCNAME     := L-JES-PROCNAME    (DI)
+/*SU4 -> VALUE POWER
+/*  VALUE SEQUENTIAL-FILE-BS2
+/*    #FBS2-NODE   := RTRACPS-NODE
+/*    #FBS2-DSNAME := L-BS2-DSNAME (DI)
+/*  CALLNAT 'RMRECN-N' RTRACPS-SOURCE-TYPE #SOURCE-ATTRIBUTES
+/*    L-SOURCE-REC-COUNT (DI) P-ERROR-CODE P-ERROR-TEXT
+/*  IF P-ERROR-CODE NE 0
+/*    ESCAPE ROUTINE
+/*SU4 <-    END-IF
+  NONE  IGNORE
+END-DECIDE
+*
+RTRACPS-SOURCE-ATTRIBUTES    := #SOURCE-ATTRIBUTES
+RTRACPS-SOURCE-REC-COUNT     := L-SOURCE-REC-COUNT (DI)
+RTRACPS-SOURCE-CC-TYPE       := L-SOURCE-CC-TYPE  (DI)
+RTRACPS-SOURCE-RECORD-LENGTH := L-LRECL                  (DI)
+*
+P-ERROR-CODE := 4104
+*
+END-SUBROUTINE /* DATA-TO-PARAMETER
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+IF DI = 1 AND #COUNTER = 1
+  PERFORM DATA-TO-PARAMETER
+  ESCAPE ROUTINE
+END-IF
+*
+IF DI < #NOFLINES
+  CV-MARK (DI+1:#NOFLINES) := (AD=DP)
+END-IF
+*
+DECIDE ON FIRST RTRACPS-SOURCE-TYPE
+  VALUE JES2, JES3
+    SET CONTROL 'MT'
+    SET CONTROL 'WFC19L73B03/04'
+    INPUT USING MAP 'RTRACPJ&'
+/*SU4 VALUE POWER VALUE SEQUENTIAL-FILE-BS2
+/*SU4 SET CONTROL 'MT' SET CONTROL 'WFC19L66B02/06'
+/*SU4 INPUT USING MAP 'RTRACPB&'
+  NONE  IGNORE
+END-DECIDE
+*
+SET CONTROL 'WMB'
+SET CONTROL 'M21'
+FOR. FOR DI = 1 TO #NOFLINES
+  IF L-MARK (DI) NE ' '
+    PERFORM DATA-TO-PARAMETER
+    ESCAPE BOTTOM (FOR.)
+  END-IF
+END-FOR
+*
+IF P-ERROR-CODE = 0 AND *PF-KEY = 'PF3'
+  P-ERROR-CODE := 29
+END-IF
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE FILL-IDENT-FIELDS
+************************************************************************
+FOR I = 1 TO C*R-IDENT
+  DECIDE ON FIRST RTRACPS-SOURCE-TYPE
+    VALUE JES2, JES3
+      IF NOT R-IDENT-TYPE (*) = REPORT-IDENT-JES-JOB-NAME
+        P-ERROR-CODE := 4115
+        ESCAPE ROUTINE
+      END-IF
+      IF R-IDENT-TYPE (I) = REPORT-IDENT-JES-JOB-NAME
+        #IDENT-JOB-NAME := R-IDENT-VALUE (I)
+      END-IF
+/*SU4  VALUE POWER
+    NONE VALUE
+      IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* FILL-IDENT-FIELDS
+*
+END

@@ -1,0 +1,751 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMCHKDWN - Check Monitor termination
+*
+* Maintenance
+* uuuuuu  yyyy-mm-dd s(999999) comment
+* ----------------------------------------------------------------------
+* mrs     1993-07-02           rewritten
+* mrs     1993-10-25 s(999999) escape from error loop
+* mrs     1993-11-04 s(182359) monitor won't close
+* jvd     1998-09-14 p(164220) NAT23ÖNOM141
+* sju     2000-03-24 p(191368) monitor multitasking
+* sju     2000-05-17 p(191368) NAT-USER first 5 chars unique, for BS2000
+* fhi     2000-08-22 QA01      write RDC statistics if available
+* sju     2000-09-21 p(191368) Delete event at shutdown
+* fhi     2002-04-05 p(200224) Improve error messages
+* fhi     2002-09-25 p(218246) Monitor error recovery
+* sju     2003-02-12 p(225405) Make takeover message more informative
+* sju 04-02-05 p(249262) Ensure all tasks terminate at shutdown
+* sju 04-07-15 NOM31     Extra parm for RMEVNT-N
+* sju 04-12-06 NOM31     Monitor tracing
+*  LP 2005-03-15 NOM31 CALL 'CMRDC' ONLY IF *MACHINE-CLASS='MAINFRAME'
+* sju     2005-05-19 p(265023) Monitor status not updated on BS2000
+* fhi     2005-08-29 p(266530) Make monitor independent from NPR MF
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* fhi     2005-11-15 P272724   End Transaction for Unix Eventing
+* fhi     2006-02-01 s(265403) shutdwn monitor if BS2 cancel failures>10
+* xsetggr 2007-05-07 NOM3201   Support 5 byte node numbers
+* fhi     2010-03-29 P324700   Pass correct file to GETHOLD
+* fhi     2010-08-18 NOMALL-853 Monitor multitasking for Unix           STEM
+* fhi     2010-08-25 NOMALL-853 Monitor multitasking, old tags deleted. STEM
+* fhi    2010-09-03 NOMALL-97 Call RMRDCDSP with correct trace variable
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* fhi     2010-11-05 NOMALL-97 Extend tracing
+* fhi     2010-12-02 NOMALL-929 END TRANSACTION for Unix layer RMSTX--N STEM
+* fhi     2011-02-01 NOMALL-922 Reuse of printer tasks                  STEM
+* fhi     2011-02-11 NOMALL-929 Avoid NAT3009 subcode 6                 STEM
+* fhi     2011-03-14 NOMALL-929 Improve passing parameters              STEM
+* fhi     2011-03-14 NOMALL-922 Correct taking over process             STEM
+* xsetggr 2011-06-30 NOMALL-1002 check status on;y for active subtasks
+* xsetggr 2011-07-07 NOMALL-1023 change msg 1515 to 1548 for tasks 2-5
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2 2014-02-10 NOMALL-1344 unix - daily cleanup does not delete orders
+*                            - just remove deactivated coding
+* fhi     2014-02-21 NOMALL-1333 Double check Unix Tasks                STEM
+* SU3     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU4     2015-02-09 NOMALL-1450 'ST'->'SI'
+* fhi     2015-05-20 NOMALL-1585 show additional system info at stop
+* SU5     2015-11-23 NOMALL-1784 avoid NAT1301 (P10->B4/I4 - big ISNs)
+* fhi     2016-01-18 NOMALL-1773 delete add system info at normal end
+* SU6     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-07-20 NOMALL-1606 Send console msgs, no tags
+* fhi     2016-09-15 NOMALL-1621 Use +NOD-LOCAL-NODE as monitor node
+* fhi     2016-11-15 NOMALL-1961 Duplicate monitor copy task, no tags
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi     2017-04-05 NOMALL-2009 same
+* fhi     2018-03-16 NOMALL-1918 Get it on Unix / Correct NPR Logons
+* fhi     2018-04-23 NOMALL-1918 Same. No tags
+* fhi     2018-07-23 NOMALL-1606 Add console message at shutdown
+* fhi     2018-12-14 NOM 3.5     Add CPU measure
+* fhi     2019-01-30 NOMALL-2222 Avoid CPU time unavailable message
+* SU7     2020-05-11 NOMALL-2349 error handling: no binary data in trace
+* SU8     2020-06-08 NOMALL-2349 use N-ESYLG / shutdown prt task unix
+* SU9     2020-08-27 NOMALL-2431 ESY logoff for active nodes only
+* SU10    2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU11    2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* BLI     2021-10-08 NOMALL-2498 ESY logoff for active nodes only
+* BLI1    2023-01-23 NOMALL-2586 set 1515 at the end
+************************************************************************
+*
+DEFINE DATA GLOBAL USING MONIT-GL
+* *****
+INDEPENDENT
+1 +NUMBER-CONSOLE-FAILED (I2)
+1 +NOD-LOCAL-NODE        (N5)
+1 +CMRDC                 (A1)
+* *****
+/*SU10 LOCAL USING VMONIT-L
+/*SU10 LOCAL USING VMONITUL
+LOCAL USING RLOG-L
+LOCAL USING RMSETSTE
+LOCAL USING SATSL--E
+LOCAL USING VSUBT-L
+LOCAL USING XXGMSG-A
+LOCAL USING RACTLF-A
+LOCAL USING RMSTX--P
+LOCAL USING RMTASK-P
+LOCAL USING NOMWK--P
+LOCAL
+1 NATURAL-SUB-TASK VIEW OF NATURAL-SUB-TASK
+  2 ERROR-CODE
+  2 NAT-USER
+  2 NAT-STATUS
+1 NRM-MONITOR VIEW OF NRM-MONITOR /*SU10
+/*SU10  2 M-MONITOR-NODE       (N5)
+  2 M-WAIT-CURRENT       (P9)
+  2 M-LAST-ACTIVE        (T)
+  2 M-STATUS             (A1)
+  2 M-WAIT-MINIMUM       (P9)
+  2 M-WAIT-MAXIMUM       (N9)
+  2 M-WAIT-INCREMENT     (N3)
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU10
+  2 MF-TYPE
+  2 MF-MONITOR-ID
+  2 MF-MONITOR-NODE
+  2 MF-NPR-USERID
+* *****
+1 #MONIT-ISN              (P10)
+1 #ADA-RC                 (N4)
+1 #FROM                   (A16)
+1 #TO                     (A16)
+1 #I                      (I2)
+1 #TASK-NR                (N3)
+1 #MAX-FUNC               (N3) CONST <12>
+1 #MAX-TASKS              (N3) CONST <59>
+1 #TASKNAME               (A16)
+1 #SHUTDOWN               (L)
+1 #WAIT-CURRENT           (N4)
+1 #EVENT-NAME             (A8)
+* SYSERR numbers for task names:
+1 #TASK-NAME              (N4/#MAX-TASKS) INIT < 8654, 8655, 8655,
+  8655, 8655, 8655, 8655, 8655, 8655, 8655, 8601, 8656 >
+1 #MAX-ATTEMPTS           (I4)  CONST <100>
+1 #TASK-ATTEMPTS          (I4)
+1 #CLOSE-LOOP             (I4)
+1 #WAIT-TIME              (I2)  CONST <1>
+1 #EVENT-MESSAGE          (A250)
+1 #ISN                    (P10)
+1 #TRACING                (L)
+1 #ENV                    (A250/2)
+1 #ENV_2                  (A)   DYNAMIC
+1 #POINT                  (A)   DYNAMIC
+1 P-ERT                   (A250)
+1 #LINE                   (I4)
+1 RMSETTIM
+  2 FUNCTION              (A1)
+  2 ERC                   (N4)
+  2 MSG                   (A250)
+1 #SPEC                   (L)
+1 #MF                     (L)
+1 #CALLER                 (A8) INIT <*PROGRAM>
+1 #SET-1515               (L) /* BLI1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *MACHINE-CLASS = 'MAINFRAME'
+  #MF := TRUE
+END-IF
+IF G-TRACE GE *LEVEL
+  #TRACING := TRUE
+  RMSETTIM.FUNCTION := 'S'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+END-IF
+INCLUDE CMRDC
+IF G-ERR-COUNT > 5
+  #POINT := 'escape from error loop'
+  PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    #POINT
+  PERFORM FINALIZE
+  IF #TRACING
+    RMSETTIM.FUNCTION := 'G'
+    PERFORM RMSETTIM-SETTIME RMSETTIM
+    PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+  END-IF
+  CALLNAT 'XXCONTRM' 'T' G-TASK-NUMBER 9969 P-ERT #TRACING
+END-IF
+*
+IF G-TASK-NUMBER LE 1
+  PERFORM CHECK-MAIN
+ELSE
+  PERFORM CHECK-SUBTASK
+END-IF
+IF #SET-1515 /* BLI1 start
+  LG-CODE   := 'M2'
+  LG-USERID := LG-OBJECT-NAME := G-MONITOR-ID
+  LG-MSG    := '1515' /* terminate monitor
+  CALLNAT 'RLOG' PL-PARMS
+  END TRANSACTION
+END-IF /* BLI1 end
+IF #TRACING
+  RMSETTIM.FUNCTION := 'G'
+  PERFORM RMSETTIM-SETTIME RMSETTIM
+  PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-MAIN
+************************************************************************
+**SU 2018-07-13 CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)
+CHECK-IF-DOWN. FIND NRM-MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+  IF NO RECORDS FOUND
+    LG-CODE   := 'M2'
+    LG-USERID := LG-OBJECT-NAME := G-MONITOR-ID
+    LG-MSG    := '1516' /* NOM not correctly installed
+    CALLNAT 'RLOG' PL-PARMS
+    END TRANSACTION
+    #POINT := 'installation incomplete'
+    PERFORM FINALIZE
+    IF #TRACING
+      RMSETTIM.FUNCTION := 'G'
+      PERFORM RMSETTIM-SETTIME RMSETTIM
+      PERFORM XXRLOG-WRITE-LOG 'T' RMSETTIM.MSG
+    END-IF
+    CALLNAT 'XXCONTRM' 'T' G-TASK-NUMBER 1516 P-ERT #TRACING
+  END-NOREC
+*
+  #MONIT-ISN := *ISN
+  CALLNAT 'GETHOLD' G-NATRP-DBID G-NATRP-FNR #MONIT-ISN 'BS' #ADA-RC
+  IF #ADA-RC = 145
+    BACKOUT TRANSACTION
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      '--> Monitor record' RMTASK-P.TASK-ID ' in hold: No'
+      'schedule tasks (Archive, Revive, Cleanup)'
+    ESCAPE ROUTINE
+  END-IF
+  IF +NUMBER-CONSOLE-FAILED > 10 /* BS2000 cancel did not work
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      '--> More than 10 failed cancel attempts on console'
+    LG-CODE := 'M2'
+    LG-USERID := LG-OBJECT-NAME := G-MONITOR-ID
+    LG-MSG := '1541' /* Too many CANCEL attempts
+    CALLNAT 'RLOG' PL-PARMS
+    END TRANSACTION
+    G-SHUTDOWN := TRUE
+  END-IF
+*
+  IF M-STATUS = 'D' OR G-SHUTDOWN
+    GETDOWN. GET NRM-MONITOR #MONIT-ISN
+    M-STATUS := 'C'
+    M-LAST-ACTIVE := *TIMX
+    UPDATE (GETDOWN.)
+    END TRANSACTION
+    #SET-1515 := TRUE    /* BLI1 start
+*   LG-CODE   := 'M2'
+*   LG-USERID := LG-OBJECT-NAME := G-MONITOR-ID
+*   LG-MSG    := '1515' /* terminate monitor
+*   CALLNAT 'RLOG' PL-PARMS
+*   END TRANSACTION      /* BLI1 end
+* Tell subtasks to shutdown
+    RESET #ISN
+    RMTASK-P.FUNCTION       := 'S'
+    RMTASK-P.SUBTASK-NUMBER := 21
+    #LINE                   := *LINE
+    CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+    #FROM := RMTASK-P.TASK-ID
+    RMTASK-P.SUBTASK-NUMBER := #MAX-TASKS
+    #LINE                   := *LINE
+    CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+    #TO   := RMTASK-P.TASK-ID
+    NSINFO. FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = #FROM THRU #TO
+      #ISN := *ISN (NSINFO.)
+      IF ST-EXEC-TYPE = 'N'    /* NOT IN USE
+        ESCAPE TOP
+      END-IF
+      RMTASK-P.FUNCTION := 'G'
+      RMTASK-P.TASK-ID  := ST-SUBTASK-ID
+      #LINE             := *LINE
+      CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+      #TASK-NR   := RMTASK-P.SUBTASK-NUMBER
+      ST-STATUS  := 'D'
+      G-SHUTDOWN := TRUE
+      ST-LAST-ACTIVE:= *TIMX
+      UPDATE (NSINFO.)
+      CALLNAT 'RMSETSTN' 'D' +NOD-LOCAL-NODE G-NATRP-DBID G-NATRP-FNR
+        #SHUTDOWN #TASK-NR
+      NOMWK-TASK-TYPE := '*'
+      CALLNAT 'NOMWK01N' NOMWK-NOMVERS NOMWK-PARMS (*)
+      END TRANSACTION
+      RMTASK-P.FUNCTION       := 'E'
+      RMTASK-P.SUBTASK-NUMBER := #TASK-NR
+      #LINE                   := *LINE
+      CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+      #EVENT-NAME           := RMTASK-P.TASK-ID
+* Subtask may not react to post if it is already awake and will not
+* shutdown until it next activates - if the monitor is restarted before
+* the subtask shuts down, we may get an NPR hang (on MVS). To avoid this
+* we check 100 times whether it has gone or not and if not, wait one
+* second and check another 100 times.
+      RMTASK-P.FUNCTION       := 'T'
+      RMTASK-P.SUBTASK-NUMBER := #TASK-NR
+      #LINE                   := *LINE
+      CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+      CLOSETASK. FOR #CLOSE-LOOP = 1 TO 2
+        FOR #TASK-ATTEMPTS = 1 TO #MAX-ATTEMPTS
+          CALLNAT 'RMEVNT-N' +NOD-LOCAL-NODE #EVENT-NAME 'POST    '
+            #WAIT-CURRENT G-NATRP-ERC G-NATRP-ERT #EVENT-MESSAGE
+          IF #MF
+            FIND NATURAL-SUB-TASK WITH NODE = +NOD-LOCAL-NODE
+            AND NAT-USER = RMTASK-P.TASK-ID AND FUNCTION = 'STATUS'   /*
+              IF NATURAL-SUB-TASK.ERROR-CODE = 663
+              OR NAT-STATUS NE 'ACTIVE'                               /*
+                ESCAPE BOTTOM (CLOSETASK.)
+              END-IF
+            END-FIND
+          ELSE
+            STX-TASK-NAME := ST-SUBTASK-ID
+            STX-FUNCTION  := 'STATUS'
+            CALLNAT 'RMSTX--N' STX-PARMS G-TRACE
+            END TRANSACTION
+            IF STX-ERROR-CODE NE 0 OR STX-TASK-STATUS NE 0
+              ESCAPE BOTTOM (CLOSETASK.)
+            END-IF
+            IF #ISN NE 0
+              GETNSINFO. GET NRM-SUBTASK-INFO #ISN
+              ST-MESSAGE-CODE := STX-MESSAGE-CODE
+              ST-MESSAGE      := STX-MESSAGE
+              UPDATE (GETNSINFO.)
+              END TRANSACTION
+            END-IF
+          END-IF
+          CALLNAT 'NAT00031' #WAIT-TIME
+        END-FOR
+        LG-CODE:= 'MO'
+        LG-USERID:= G-LG-USERID
+        COMPRESS '1582' #TASK-NR TO LG-MSG /*Monitor task :1: terminated
+        CALLNAT 'RLOG' PL-PARMS
+        END TRANSACTION
+      END-FOR
+    END-FIND
+    IF G-TASK-NUMBER = 1
+      CALLNAT 'XXCONTRM' 'C' G-TASK-NUMBER 1515 P-ERT #TRACING
+    END-IF
+    RMTASK-P.FUNCTION       := 'E'
+    RMTASK-P.SUBTASK-NUMBER := 1
+    #LINE                   := *LINE
+    CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+    #EVENT-NAME             := RMTASK-P.TASK-ID
+    CALLNAT 'RMEVNT-N' +NOD-LOCAL-NODE #EVENT-NAME 'DELETE  '
+      #WAIT-CURRENT G-NATRP-ERC G-NATRP-ERT #EVENT-MESSAGE
+    END TRANSACTION
+    #POINT := 'end of monitor task'
+    #SPEC := TRUE
+    #TASK-NR := 1
+    PERFORM FINALIZE
+    COMPRESS 'NOM1582' #TASK-NR TO P-ERT /*Monitor task :1: terminated
+    CALLNAT 'XXCONTRM' 'T' G-TASK-NUMBER 1582 P-ERT #TRACING
+  END-IF
+*
+* Check subtasks are still active
+* If any is not active, delete its event and take over its functions
+  FOR #TASK-NR = 1 TO #MAX-FUNC
+    IF G-TASK-TABLE(#TASK-NR) < 2
+      ESCAPE TOP
+    END-IF
+    IF #MF
+      RMTASK-P.FUNCTION       := 'T'
+      RMTASK-P.SUBTASK-NUMBER := G-TASK-TABLE(#TASK-NR)
+      #LINE                   := *LINE
+      CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+      FIND NATURAL-SUB-TASK WITH NODE = +NOD-LOCAL-NODE
+      AND NAT-USER = RMTASK-P.TASK-ID AND FUNCTION = 'STATUS'         /*
+        IF #TRACING
+          COMPRESS 'Subtask' G-TASK-TABLE (#TASK-NR) 'got status'
+            NAT-STATUS 'with NPR error code'
+            NATURAL-SUB-TASK.ERROR-CODE 'on node' +NOD-LOCAL-NODE
+            'and NAT-USER' NAT-USER TO G-TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END-IF
+        IF NATURAL-SUB-TASK.ERROR-CODE = 663
+          NAT-STATUS:= 'FAILED'
+        END-IF
+        IF NAT-STATUS NE 'ACTIVE'
+          IF #TRACING
+            COMPRESS 'subtask' G-TASK-TABLE (#TASK-NR)
+              'terminated - task 1 takes over' TO G-TRACE-MSG
+            PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+          END-IF
+          LG-CODE:= 'MO'
+          LG-USERID:= G-LG-USERID
+          #XX-ERROR-CODE:= #TASK-NAME(#TASK-NR)
+          CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+          COMPRESS '1560' G-TASK-TABLE(#TASK-NR) #XX-SHORT-TEXT TO LG-MSG
+          CALLNAT 'RLOG' PL-PARMS
+          COMPRESS 1560 #XX-SHORT-TEXT TO P-ERT
+          CALLNAT 'XXCONTRM' 'C' G-TASK-NUMBER 1560 P-ERT #TRACING
+          END TRANSACTION
+          FETCH RETURN 'RMRSETRP'
+          G-TASK-TABLE(#TASK-NR):= 1
+          RMTASK-P.FUNCTION       := 'E'
+          RMTASK-P.SUBTASK-NUMBER := G-TASK-TABLE(#TASK-NR)
+          #LINE                   := *LINE
+          CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+          #EVENT-NAME             := RMTASK-P.TASK-ID
+          CALLNAT 'RMEVNT-N' +NOD-LOCAL-NODE #EVENT-NAME 'DELETE  '
+            #WAIT-CURRENT G-NATRP-ERC G-NATRP-ERT #EVENT-MESSAGE
+          END TRANSACTION
+        END-IF
+      END-FIND
+    ELSE
+      RMTASK-P.FUNCTION       := 'S'
+      RMTASK-P.SUBTASK-NUMBER := G-TASK-TABLE(#TASK-NR)
+      #LINE                   := *LINE
+      CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+      STX-TASK-NAME           := RMTASK-P.TASK-ID
+      FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = STX-TASK-NAME
+      END-FIND
+      IF ST-EXEC-TYPE NE 'N'
+        STX-FUNCTION     := 'STATUS'
+        CALLNAT 'RMSTX--N' STX-PARMS G-TRACE
+        IF #TRACING
+          COMPRESS 'Subtask' G-TASK-TABLE (#TASK-NR)
+            'got Unix status code' STX-TASK-STATUS
+            'with error' STX-ERROR-CODE 'in task' STX-TASK-NAME
+            TO G-TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END-IF
+        END TRANSACTION
+        IF STX-ERROR-CODE NE 0
+          NAT-STATUS:= 'FAILED'
+        END-IF
+/* Double Check Unix Tasks
+        IF STX-TASK-STATUS NE 0
+          CALLNAT 'NAT00031' #WAIT-TIME
+          CALLNAT 'NAT00031' #WAIT-TIME
+          STX-FUNCTION     := 'STATUS'
+          CALLNAT 'RMSTX--N' STX-PARMS G-TRACE
+          IF #TRACING
+            COMPRESS 'Double Check Subtask' G-TASK-TABLE (#TASK-NR)
+              'got Unix status code' STX-TASK-STATUS
+              'with error' STX-ERROR-CODE 'in task' STX-TASK-NAME
+              TO G-TRACE-MSG
+            PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+          END-IF
+          END TRANSACTION
+        END-IF
+        IF STX-ERROR-CODE NE 0
+          NAT-STATUS:= 'FAILED'
+        END-IF
+        DECIDE ON FIRST VALUE OF STX-TASK-STATUS
+          VALUE 0  NAT-STATUS := 'ACTIVE'
+          VALUE 1  NAT-STATUS := 'CLOSED'
+          NONE     NAT-STATUS := 'FAILED'
+        END-DECIDE
+        IF #TRACING
+          COMPRESS 'Nat-Status' NAT-STATUS 'detected.' TO G-TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END-IF
+        IF NAT-STATUS NE 'ACTIVE'
+          IF #TRACING
+            COMPRESS 'subtask' G-TASK-TABLE(#TASK-NR)
+              'terminated - task 1 takes over' TO G-TRACE-MSG
+            PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+          END-IF
+          LG-CODE:= 'MO'
+          LG-USERID:= G-LG-USERID
+          #XX-ERROR-CODE:= #TASK-NAME(#TASK-NR)
+          CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+          COMPRESS '1560' G-TASK-TABLE(#TASK-NR) #XX-SHORT-TEXT TO LG-MSG
+          COMPRESS 1560 #XX-SHORT-TEXT TO P-ERT
+          CALLNAT 'XXCONTRM' 'C' G-TASK-NUMBER 1560 P-ERT #TRACING
+          CALLNAT 'RLOG' PL-PARMS
+          END TRANSACTION
+          FETCH RETURN 'RMRSETRP'
+          G-TASK-TABLE(#TASK-NR):= 1
+          RMTASK-P.FUNCTION       := 'E'
+          RMTASK-P.SUBTASK-NUMBER := #TASK-NR
+          #LINE                   := *LINE
+          CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+          #EVENT-NAME             := RMTASK-P.TASK-ID
+          CALLNAT 'RMEVNT-N' +NOD-LOCAL-NODE #EVENT-NAME 'DELETE  '
+            #WAIT-CURRENT G-NATRP-ERC G-NATRP-ERT #EVENT-MESSAGE
+          END TRANSACTION
+        END-IF      /* nat-status ne 'active'
+      END-IF
+    END-IF
+  END-FOR
+  GETTIME. GET NRM-MONITOR #MONIT-ISN
+  M-LAST-ACTIVE    := *TIMX
+  M-WAIT-CURRENT   := G-WAIT-FACTOR
+  G-WAIT-MINIMUM   := M-WAIT-MINIMUM
+  G-WAIT-MAXIMUM   := M-WAIT-MAXIMUM
+  G-WAIT-INCREMENT := M-WAIT-INCREMENT
+  UPDATE (GETTIME.)
+  END TRANSACTION
+END-FIND
+*
+IF G-MONITOR-CURRENT-DAY < *DATX
+  G-MONITOR-CURRENT-DAY := *DATX
+END-IF
+*
+FETCH RETURN 'RMARCSCH'  /* Schedule Tasks (Archive, Revive, Cleanup)
+*
+END-SUBROUTINE /* CHECK-MAIN
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-SUBTASK
+************************************************************************
+RMTASK-P.FUNCTION       := 'S'
+RMTASK-P.SUBTASK-NUMBER := G-TASK-NUMBER
+#LINE                   := *LINE
+CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+CHECK-SUBT. FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = RMTASK-P.TASK-ID
+  IF NO RECORDS FOUND
+    LG-CODE := 'M2'
+    LG-OBJECT-NAME := RMTASK-P.TASK-ID
+    RMTASK-P.FUNCTION       := 'L'
+    RMTASK-P.SUBTASK-NUMBER := G-TASK-NUMBER
+    #LINE                   := *LINE
+    CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+    LG-USERID               := RMTASK-P.TASK-ID
+    LG-MSG := '1516' /* NOM not correctly installed
+    CALLNAT 'RLOG' PL-PARMS
+    END TRANSACTION
+    #POINT := 'installation error (subtask)'
+    PERFORM FINALIZE
+    CALLNAT 'XXCONTRM' 'T' G-TASK-NUMBER 1516 P-ERT #TRACING
+  END-NOREC
+*
+  RESET RACTLF-ERROR-LOGGING RACTLF-LOGGING #ADA-RC
+  #MONIT-ISN     := *ISN
+  RACTLF-LFILE-1 := 91
+  CALLNAT 'RACTLF-N' RACTLF-PARMS
+  IF RACTLF-ERROR-CODE = 0
+    CALLNAT 'GETHOLD' RACTLF-DBID-1 RACTLF-FNR-1 #MONIT-ISN 'BS' #ADA-RC
+  END-IF
+  IF #ADA-RC = 145
+    BACKOUT TRANSACTION
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      '--> Subtask record' RMTASK-P.TASK-ID 'in hold: No'
+      'schedule tasks (Archive, Revive, Cleanup)'
+    ESCAPE ROUTINE
+  END-IF
+*
+  IF #MF
+    RMTASK-P.FUNCTION       := 'T'
+    RMTASK-P.SUBTASK-NUMBER := 1
+    #LINE                   := *LINE
+    CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+    FIND NATURAL-SUB-TASK WITH NODE = +NOD-LOCAL-NODE
+    AND NAT-USER = RMTASK-P.TASK-ID AND FUNCTION = 'STATUS'           /*
+      IF NAT-STATUS NOT = 'ACTIVE' OR NATURAL-SUB-TASK.ERROR-CODE = 663
+        G-SHUTDOWN:= TRUE
+        LG-CODE:= 'MO'
+        LG-USERID:= G-LG-USERID
+        COMPRESS '1562' G-TASK-NUMBER TO LG-MSG
+        CALLNAT 'RLOG' PL-PARMS
+        END TRANSACTION
+        IF #TRACING
+          G-TRACE-MSG := 'task 1 not active - subtask terminates'
+          PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END-IF
+      END-IF
+    END-FIND
+  ELSE
+    RMTASK-P.FUNCTION       := 'S'
+    RMTASK-P.SUBTASK-NUMBER := 1
+    #LINE                   := *LINE
+    CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+    STX-TASK-NAME := RMTASK-P.TASK-ID
+    STX-FUNCTION  := 'STATUS'
+    CALLNAT 'RMSTX--N' STX-PARMS G-TRACE
+    END TRANSACTION
+    IF STX-ERROR-CODE NE 0 OR STX-TASK-STATUS NE 0
+      G-SHUTDOWN:= TRUE
+      LG-CODE   := 'MO'
+      LG-USERID := G-LG-USERID
+      COMPRESS '1562' G-TASK-NUMBER TO LG-MSG
+      CALLNAT 'RLOG' PL-PARMS
+      END TRANSACTION
+      IF #TRACING
+        G-TRACE-MSG := 'task 1 not active - subtask terminates'
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+    END-IF
+  END-IF
+  IF #TRACING
+    #LINE := *LINE
+    MOVE EDITED ST-STATUS (EM=H) TO G-TRACE-MSG /*SU7
+    COMPRESS '(' G-TRACE-MSG ')' TO G-TRACE-MSG LEAVING NO /*SU7
+    COMPRESS 'ST-STATUS of' STX-TASK-NAME 'is' ST-STATUS G-TRACE-MSG
+      '- in line' #LINE '- G-SHUTDOWN is' TO G-TRACE-MSG
+    IF G-SHUTDOWN
+      COMPRESS G-TRACE-MSG 'TRUE' TO G-TRACE-MSG
+    ELSE
+      COMPRESS G-TRACE-MSG 'FALSE' TO G-TRACE-MSG
+    END-IF
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  IF ST-STATUS = 'D' OR G-SHUTDOWN
+    GETSUBT. GET NRM-SUBTASK-INFO #MONIT-ISN
+    ST-STATUS := 'C'
+    ST-LAST-ACTIVE := *TIMX
+    UPDATE (GETSUBT.)
+    END TRANSACTION
+    LG-CODE := 'M2'
+    COMPRESS '1548' RMTASK-P.TASK-ID TO LG-MSG  /* shutdown monitor task
+    CALLNAT 'RLOG' PL-PARMS
+    END TRANSACTION
+    RMTASK-P.FUNCTION       := 'E'
+    RMTASK-P.SUBTASK-NUMBER := 1
+    #LINE                   := *LINE
+    CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+    #EVENT-NAME             := RMTASK-P.TASK-ID
+    CALLNAT 'RMEVNT-N' +NOD-LOCAL-NODE #EVENT-NAME 'DELETE  '
+      #WAIT-CURRENT G-NATRP-ERC G-NATRP-ERT #EVENT-MESSAGE
+    END TRANSACTION
+    #POINT := 'end of monitor task'
+    #SPEC := TRUE
+    #TASK-NR:= G-TASK-NUMBER
+    PERFORM FINALIZE
+    RMTASK-P.FUNCTION       := 'S'
+    RMTASK-P.SUBTASK-NUMBER := G-TASK-NUMBER
+    #LINE                   := *LINE
+    CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+    COMPRESS '1548' RMTASK-P.TASK-ID TO P-ERT
+    CALLNAT 'XXCONTRM' 'T' G-TASK-NUMBER 0 P-ERT #TRACING
+  END-IF
+*
+  SUBTIME. GET NRM-SUBTASK-INFO #MONIT-ISN
+  ST-LAST-ACTIVE   := *TIMX
+  ST-WAIT-CURRENT  := G-WAIT-FACTOR
+  G-WAIT-MINIMUM   := ST-WAIT-MINIMUM
+  G-WAIT-MAXIMUM   := ST-WAIT-MAXIMUM
+  G-WAIT-INCREMENT := ST-WAIT-INCREMENT
+  UPDATE (SUBTIME.)
+  END TRANSACTION
+END-FIND
+*
+IF G-MONITOR-CURRENT-DAY < *DATX
+  G-MONITOR-CURRENT-DAY := *DATX
+END-IF
+*
+END-SUBROUTINE /* CHECK-SUBTASK
+*
+************************************************************************
+DEFINE SUBROUTINE SHUTDOWN-PRINTER-TASKS
+************************************************************************
+IF #MF /*SU8
+  ESCAPE ROUTINE
+END-IF
+FND. FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID = 'PRT0' THRU 'PRT9'
+  IF ST-MESSAGE-CODE NE 9995
+    GETSBT. GET NRM-SUBTASK-INFO *ISN(FND.)
+    ST-MESSAGE-CODE := 9995
+    ST-MESSAGE      := 'FIN'
+    UPDATE (GETSBT.)
+    END TRANSACTION
+  END-IF
+END-FIND
+END TRANSACTION
+*
+END-SUBROUTINE /* SHUTDOWN-PRINTER-TASKS
+*
+************************************************************************
+DEFINE SUBROUTINE LOGOFF-FROM-ESY
+************************************************************************
+IF NOT #MF
+  ESCAPE ROUTINE
+END-IF
+RMTASK-P.FUNCTION       := 'L'
+RMTASK-P.SUBTASK-NUMBER := G-TASK-NUMBER
+#LINE                   := *LINE
+CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+LG-USERID := RMTASK-P.TASK-ID
+LG-CODE   := 'MO'
+*
+NODES. READ MF-NODE BY MF-MONITOR-ID = 'R-'
+**IF (MF-TYPE='D' OR='E') /*deact. SU9,  BLI NOMALL-2498 see below
+  IF MF-MONITOR-ID NE MASK('R-')
+    ESCAPE BOTTOM(NODES.)
+  END-IF
+  IF (MF-TYPE='D' OR='E' OR='S' OR='I')  /* BLI NOMALL-2498
+    ESCAPE TOP
+  END-IF
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Logging off from ESY node' MF-MONITOR-NODE 'UserID' MF-NPR-USERID
+    'MF-TYPE' MF-TYPE                    /* BLI NOMALL-2498
+  #TASKNAME := SUBSTR(MF-MONITOR-ID,3)
+  CALLNAT 'N-ESYLG' SATSL-LOGOFF MF-MONITOR-NODE MF-NPR-USERID #CALLER
+    G-NATRP-ERC G-NATRP-ERT 2X #TRACING /*SU10
+  COMPRESS '1523' MF-NPR-USERID #TASKNAME TO LG-MSG
+  CALLNAT 'RLOG' PL-PARMS
+  END OF TRANSACTION
+*
+  IF G-NATRP-ERC NE 0
+    COMPRESS '0005' G-NATRP-ERT TO LG-MSG
+    CALLNAT 'RLOG' PL-PARMS
+    END OF TRANSACTION
+    SKIP 2
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      '--> Error logging off from ESY node' MF-MONITOR-NODE /*SU10
+      'with error' G-NATRP-ERC
+    PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      '-->' G-NATRP-ERT /*SU7 (AL=70)
+    RESET G-NATRP-ERC G-NATRP-ERT
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* LOGOFF-FROM-ESY
+*
+************************************************************************
+DEFINE SUBROUTINE SHOW-UNIX-PARAMETERS
+************************************************************************
+IF #MF
+  ESCAPE ROUTINE
+END-IF
+COMPRESS 'echo "Environment of&' G-MONITOR-ID
+  '&' G-NATRP-DBID '/' G-NATRP-FNR '&at&' #POINT '"'
+  '> $EOM_WORK/env.out.'                     *PID
+  ';date >> $EOM_WORK/env.out.'              *PID
+  ';env >> $EOM_WORK/env.out.'               *PID
+  ';id >> $EOM_WORK/env.out.'                *PID
+  ';uname -a >> $EOM_WORK/env.out.'          *PID
+  ';ps -f&' *PID '&>> $EOM_WORK/env.out.'    *PID
+  TO #ENV_2 LEAVING NO
+EXAMINE #ENV_2 FOR '&' REPLACE FULL ' '
+* script content
+#ENV(1) := '#Ü/bin/sh'
+#ENV(2) := #ENV_2
+DEFINE WORK FILE 1 '$EOM_WORK/env.sh' TYPE 'ascii'
+/* write script
+FOR #I 1 TO 2
+  WRITE WORK 1 #ENV(#I)
+END-FOR
+CLOSE WORK FILE 1
+/* set permisssions
+CALL 'SHCMD' 'chmod 775 $EOM_WORK/env.sh' 'NOSCREENIO'
+/* call script
+CALL 'SHCMD' '$EOM_WORK/env.sh' 'NOSCREENIO'
+*
+END-SUBROUTINE /* SHOW-UNIX-PARAMETERS
+*
+************************************************************************
+DEFINE SUBROUTINE FINALIZE
+************************************************************************
+PERFORM LOGOFF-FROM-ESY
+PERFORM SHOW-UNIX-PARAMETERS
+IF #SPEC
+  RESET #SPEC
+  CALLNAT 'RMSETSTN' 'D' +NOD-LOCAL-NODE G-NATRP-DBID G-NATRP-FNR
+    #SHUTDOWN #TASK-NR
+  G-SHUTDOWN := TRUE
+  END TRANSACTION
+END-IF
+PERFORM SHUTDOWN-PRINTER-TASKS
+*
+END-SUBROUTINE /* FINALIZE
+*
+END

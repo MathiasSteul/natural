@@ -1,0 +1,131 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* R-NSMCMP - CALL the Compression Utility NSMCMP
+*
+* Maintenance:
+* uuuuuuuu yyyy-mm-dd P999999 ....
+* fhi      2009-09-15 P320367 Created.
+* fhi      2011-10-19 NOMALL-73 Honour new nomcompr field types
+* SPLILDAV 2012-06-27 NOMALL-1078 SUPPORT COMPRESSION 16K BYTE RECORDS
+* RAYA     2012-09-12 NOMALL-1143 LOBFIELDS
+* fhi      2012-11-23 NOMALL-1143 Adapt call for Unix
+* RAYA     2013-06-23 NOMALL-1268 Trace
+* fhi      2013-12-18 NOMALL-1078 Correct different handling for Unix
+* SU1      2013-12-19 NOMALL-1078 Correct different handling for Unix
+* SU2      2014-01-15 NOMALL-1078 bypass interface difference
+* fhi      2014-03-24 NOMALL-1326 If NOMCOMPR not linked, issue error
+* fhi      2016-04-13 NOMALL-1858 Handle empty lines in buffer
+* SU3      2016-09-06 NOMALL-1912 unix:show NOM33 report from container
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 #NSMCOMP-PARMS
+  2 #NSMCOMP-CB                     (B40)
+  2 REDEFINE #NSMCOMP-CB
+    3 #NSMCOMP-CB_B4                (B4)
+  2 REDEFINE #NSMCOMP-CB
+    3 #COMP-COMMAND                 (A1)
+    3 #COMP-CODE                    (B1)
+    3 #COMP-INLENGTH-OLD            (B1)
+    3 #COMP-OUTLENGTH-OLD           (B1)
+    3 #COMP-INLENGTH                (B2)
+    3 #COMP-OUTLENGTH               (B2)
+  2 #NSMCOMP-LINE                   (A251)
+  2 #NSMCOMP-BUFFER-LENGTH          (B4)
+  2 #NSMCOMP-BUFFER                 (A16381)
+  2 #NSMCOMP-RC                     (B2)
+  2 #NSMCOMP-WORK                   (B4)
+************************************************************************
+LOCAL
+1 #TRACE (L) /*INIT <TRUE>
+1 #MSG   (A250)
+1 #I4    (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT AD=L
+IF #TRACE
+  PRINT *PROGRAM 'in : cmd:' #COMP-COMMAND 'code:' #COMP-CODE
+    'inlen_old:' #COMP-INLENGTH-OLD 'outlen_old:' #COMP-OUTLENGTH-OLD
+    'inlen:' #COMP-INLENGTH 'outlen:' #COMP-OUTLENGTH
+    'buf_len:' #NSMCOMP-BUFFER-LENGTH 'work:' #NSMCOMP-WORK
+    / 'line:' #NSMCOMP-LINE (AL=20) #NSMCOMP-LINE (EM=H(10))
+    / 'buffer:' #NSMCOMP-BUFFER (AL=20) #NSMCOMP-BUFFER (EM=H(10))
+END-IF
+IF *MACHINE-CLASS = 'MAINFRAME'
+  IF #TRACE AND #COMP-CODE NE 'N'
+    WRITE *PROGRAM 'OLD COMPRESSION CODE' #COMP-CODE
+  END-IF
+  CALL 'NSMCMP' #NSMCOMP-CB #NSMCOMP-LINE #NSMCOMP-BUFFER-LENGTH
+    #NSMCOMP-BUFFER #NSMCOMP-RC #NSMCOMP-WORK
+  IF #NSMCOMP-RC GT 4
+    PRINT (AD=L) *PROGRAM 'Return code from NSMCMP:' #NSMCOMP-RC
+  END-IF
+ELSE
+  IF #COMP-COMMAND = 'D' AND SUBSTR (#NSMCOMP-BUFFER,1,1) NE 'V'
+    IF #TRACE
+      PRINT 'old version'
+    END-IF
+    CALLNAT 'R-NSMCM3' #NSMCOMP-PARMS
+  ELSE
+    DECIDE ON FIRST VALUE OF #COMP-COMMAND
+      VALUE 'C'
+        IF #COMP-INLENGTH = 0
+          RESET #NSMCOMP-LINE /* empty line,
+          #COMP-INLENGTH := 1 /* but pass over one blank
+        END-IF
+      VALUE 'D'
+        RESET #COMP-INLENGTH
+        IF #TRACE
+          PRINT 'inlen set to 0'
+        END-IF
+      NONE
+        *ERROR-NR := 999 /* SHOULD NOT OCCUR
+    END-DECIDE
+    CALL 'NSMCMP2' #NSMCOMP-CB #NSMCOMP-LINE #NSMCOMP-BUFFER-LENGTH
+      #NSMCOMP-BUFFER #NSMCOMP-RC #NSMCOMP-WORK
+    IF RET('NSMCMP2') NE 0
+      #NSMCOMP-RC := RET('NSMCMP2')
+    END-IF
+    IF #NSMCOMP-RC = 4 AND #COMP-INLENGTH = 2 /* empty line in buffer
+        AND #COMP-COMMAND = 'D'
+      #I4 := #NSMCOMP-WORK
+      ADD 2 TO #I4                    /* proceed to next line in buffer
+      IF #I4 < #NSMCOMP-BUFFER-LENGTH
+        #NSMCOMP-WORK := #I4
+        RESET #NSMCOMP-LINE #NSMCOMP-RC
+      END-IF
+    END-IF
+  END-IF
+END-IF
+IF #TRACE
+  PRINT *PROGRAM 'out: cmd:' #COMP-COMMAND 'code:' #COMP-CODE
+    'inlen_old:' #COMP-INLENGTH-OLD 'outlen_old:' #COMP-OUTLENGTH-OLD
+    'inlen:' #COMP-INLENGTH 'outlen:' #COMP-OUTLENGTH
+    'buf_len:' #NSMCOMP-BUFFER-LENGTH 'work:' #NSMCOMP-WORK
+    / 'line:' #NSMCOMP-LINE (AL=20) #NSMCOMP-LINE (EM=H(10))
+    / 'buffer:' #NSMCOMP-BUFFER (AL=20) #NSMCOMP-BUFFER (EM=H(10))
+    / 'error:'#NSMCOMP-RC
+END-IF
+*
+************************************************************************
+ON ERROR /*no ESCAPE+always MSG to log
+************************************************************************
+  IF *ERROR-NR = 920
+    #MSG := '134' /* NOM0134 NOMCOMPR missing.
+  ELSE
+    CALLNAT 'C-NATERN' #MSG
+  END-IF
+  PERFORM XXRLOG-WRITE-LOG 'W' #MSG
+  END TRANSACTION
+* no escape to be able to show error to user
+END-ERROR
+*
+END

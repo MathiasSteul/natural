@@ -1,0 +1,376 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMARFLDN - Flush Lines of an Active Report with Location = 'D'
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-02-16 s(999999) created
+* mrs 93-11-01 s(999999) flush segments implemented
+* mrs 94-02-24 s(999999) check if records in buffer (should not occur)
+* mrs 94-05-09 s(999999) h'81' is a valid ff (write and skip) in BS2
+* gw  96-06-13 s(999999) reduce lines in buffer for VTAM mode 'ASIS'
+* jwo 96-12-09 s(258794) suppress printing of x'331200' and x'73'
+* gw  97-01-20 s(258794) suppress printing of x'331200' and x'73'
+*                        by replacing with H'01' (write without spacing)
+* fhi 99-11-05 s(188453) get correct CC codes to printstation.
+* fhi 00-03-03 S(192651) Line length > 253 not stored in DB
+* xsiszha 2000-08-01 (CE7461) Extend Report and Bundle Names
+* fhi     2002-10-30 fhi101   switch on optimizer compiler
+* xsetggr 2004-11-23 p(258871) recat due to changes in rmfl---p
+* sju     2004-12-14 TYPE=AL NOM31 support TYPE=AL
+* xsetggr 2007-05-02 NOM3201 Support 5 byte node numbers
+* xsetggr 2007-05-03 NOM3201   support 11 byte run numbers
+* fhi     2007-07-13 P295667 Support printing from page with SKIP nnnnnn
+*                            in jobcards of printout record.
+* fhi     2007-07-17 NRT2422 print binary documents
+* fhi     2008-02-27 P302167   Binary printing in BS2000
+* fhi     2008-03-10 P298301 SKIP does not work on Unix
+* fhi     2009-08-26 P319282 Binary files on Linux corrupted
+* fhi     2009-09-15 P320367 Use NOMCOMPR as compression routine
+* fhi     2010-02-16 P307403 Still wrong close processing
+* fhi     2010-02-22 P307403 Still wrong close processing
+* fhi     2010-03-01 P307403 Still wrong close processing
+* fhi     2010-03-05 P307403 Most issues backouted, new solution concept
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-11-03 NOMALL-865 restoe due to changes in RMFL---P
+* fhi     2010-12-20 NOMALL-97 Remember File Handle for NPR Unix
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* SPLILDAV 2012-06-27 NOMALL-1078 SUPPORT COMPRESSION 16K BYTE RECORDS
+* fhi     2014-08-21 NOMALL-1454 Restow, XXUX---P changed.
+* fhi     2014-08-29 NOMALL-1454 Restowed due to changes in XXUX---P
+* fhi     2016-12-21 NOMALL-1961 Use new task IDs
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU1     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* SU2     2023-01-13 NOMALL-2607 return error (print bundle)
+* ----------------------------------------------------------------------
+*
+DEFINE DATA PARAMETER
+1 RMARFL-PARMS
+  2 P-REPNAME                (A25)
+  2 P-REPRNB                 (P11)
+  2 P-LINE-FROM              (P10)
+  2 P-LINE-TO                (P10)
+  2 P-LAYOUT-HEADER-LINES    (N3)
+  2 P-LAYOUT-ENTRIES         (N2)
+  2 P-LAYOUT                 (1:10)
+    3 P-LAYOUT-FROM          (N3)
+    3 P-LAYOUT-TO            (N3)
+PARAMETER USING RMFL---P
+PARAMETER
+1 LINE-PARMS
+  2 LINE-CURRENT             (P3)
+  2 LINE-TAB                 (1:100)
+    3 LINE                   (A251)
+    3 REDEFINE LINE
+      4 LINE-L               (A1/1:251)
+    3 LINE-NUMBER            (P10)
+*
+1 SKIP-PAGES                 (P11)
+1 P-ERROR-CODE               (N4)
+1 P-ERROR-TEXT               (A250)
+************************************************************************
+LOCAL USING RCCTYP-E
+LOCAL USING RLOG-L
+LOCAL USING RMTASK-P
+LOCAL USING XXUX---P
+LOCAL
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-NUMBER-OF-LINES
+  2 AR-CC-TYPE
+1 REPORT-TEXT VIEW OF NRM-FILED-SYSOUTS
+  2 F-REPNAME
+  2 F-REPRNB
+  2 F-SEQ
+  2 F-TEXT (1:20)
+  2 C*F-TEXT
+* *****
+1 #F-REPNAME-RNB-SEQ         (A35)
+1 REDEFINE #F-REPNAME-RNB-SEQ
+  2 #F-REPNAME               (A25)
+  2 #F-REPRNB                (P11)
+  2 #F-SEQ                   (B4)
+1 #AR-REPNAME-RNB            (A31)
+1 REDEFINE #AR-REPNAME-RNB
+  2 #AR-REPNAME              (A25)
+  2 #AR-REPRNB               (P11)
+1 COMPCB                     (B40)
+1 REDEFINE    COMPCB
+  2 COMPCB-OP                (A1)
+  2 COMPCB-CHAR              (B1)
+  2 COMPCB-ILEN-OLD          (B1)
+  2 COMPCB-OLEN-OLD          (B1)
+  2 COMPCB-ILEN              (B2)
+  2 COMPCB-OLEN              (B2)
+1 #PAGE-START                (P10)
+1 #LINES-IN-BUFFER           (P3)  INIT <100>
+1 #CC                        (A1)
+1 #OBJECT-LINE               (P10)
+1 #START                     (P3)
+1 #SEQ                       (P10)
+1 W                          (P3)
+1 N                          (P3)
+1 S                          (P3)
+1 J                          (P3)
+1 K                          (P3)
+1 L                          (N5)
+1 M                          (P3)
+1 LAYOUT-SHIFT               (L)
+1 #WORK-LINE                 (A251)
+1 REDEFINE #WORK-LINE
+  2  #WORK-L                 (A1/1:251)
+1 #ASA-TO-EBCDIC             (A2/1:28)
+1 REDEFINE #ASA-TO-EBCDIC
+  2 #ASA-TO-EBCDIC-TAB1      (A32)
+  2 #ASA-TO-EBCDIC-TAB2      (A24)
+1 #FORMFEEDS                 (P3)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF FLUSH-PROGRAM = 'RMPRVTM' AND VTAM-MODE = MASK ('A')
+  #LINES-IN-BUFFER := 20
+END-IF
+PERFORM INIT-FUNCTION
+IF P-ERROR-CODE = 0
+  PERFORM FLUSH-REPORT-LINES
+END-IF
+/* Handle/show error in RMPRBU/RMPRBUB
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-FUNCTION
+************************************************************************
+#ASA-TO-EBCDIC-TAB1 :=
+  H'F181F282F383F484F585F686F787F888F989C18AC28BC38C4E004001F0026003'
+#ASA-TO-EBCDIC-TAB2 :=
+  H'F1C1F2C2F3C3F4C4F5C5F6C6F7C7F8C8F9C9C1CAC2CBC3CC'
+#AR-REPNAME := P-REPNAME
+#AR-REPRNB         := P-REPRNB
+*
+FNDAR. FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REPNAME-RNB
+  IF NO RECORDS FOUND
+    P-ERROR-CODE := 0005
+    P-ERROR-TEXT := 'Active Report not found'
+    ESCAPE ROUTINE
+  END-NOREC
+*
+  IF P-LINE-TO = 0 OR P-LINE-TO > AR-NUMBER-OF-LINES
+    P-LINE-TO := AR-NUMBER-OF-LINES
+  END-IF
+  IF P-LINE-FROM = 0
+    P-LINE-FROM := 1
+  END-IF
+  IF AR-CC-TYPE = NO-CC OR = BINARY
+    LAYOUT-SHIFT := FALSE
+  ELSE
+    LAYOUT-SHIFT := TRUE
+  END-IF
+*
+END-FIND
+FLUSH-SEG-BRACKET := 'F'
+*
+END-SUBROUTINE /* INIT-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-REPORT-LINES
+************************************************************************
+#F-REPNAME := P-REPNAME
+#F-REPRNB  := P-REPRNB
+#F-SEQ     := P-LINE-FROM
+#OBJECT-LINE := P-LINE-FROM
+COMPCB-CHAR := 'N'                  /* 'N' - New parm list
+COMPCB-OP   := 'D'
+*
+READ. READ REPORT-TEXT BY F-REPNAME-RNB-SEQ = #F-REPNAME-RNB-SEQ
+  IF F-REPNAME NE #F-REPNAME OR F-REPRNB  NE #F-REPRNB
+    ESCAPE BOTTOM
+  END-IF
+*
+  #SEQ := F-SEQ
+  IF *COUNTER = 1 AND #SEQ >= P-LINE-FROM
+    #START := C*F-TEXT - (#SEQ - P-LINE-FROM)
+  ELSE
+    #START := 1
+  END-IF
+  IF #START < 1
+    #START := 1
+  END-IF
+  FOR W = #START TO C*F-TEXT
+    ADD 1 TO LINE-CURRENT
+    LINE-NUMBER (LINE-CURRENT) := #OBJECT-LINE
+    IF F-TEXT (W) NE ' '
+      EXAMINE F-TEXT (W) FOR 'X' GIVING LENGTH IN L
+      RESET LINE (LINE-CURRENT)
+      COMPCB-ILEN := L
+      COMPCB-ILEN-OLD := L /* For compat
+      IF L > 251
+        COMPCB-ILEN := COMPCB-ILEN-OLD := 251 /* For compat
+        RMTASK-P.FUNCTION       := 'L'
+        RMTASK-P.SUBTASK-NUMBER := 1
+        CALLNAT 'RMTASKID' RMTASK-P
+        LG-USERID               := RMTASK-P.TASK-ID
+        LG-CODE := 'MO'
+        COMPRESS '7205' #OBJECT-LINE #F-REPNAME INTO LG-MSG
+        CALLNAT 'RLOG' PL-PARMS
+        END TRANSACTION
+      END-IF
+      CALLNAT 'R-NRMCMP' COMPCB F-TEXT(W) LINE (LINE-CURRENT)
+        P-ERROR-CODE P-ERROR-TEXT
+      RESET COMPCB-OLEN       /* Zero output length
+      IF P-ERROR-CODE NE 0
+        ESCAPE ROUTINE
+      END-IF
+    ELSE
+      LINE (LINE-CURRENT) := F-TEXT (W)
+    END-IF
+    IF AR-CC-TYPE EQ MACHINE-CODE
+      IF LINE-L (LINE-CURRENT,1) = H'73'
+      OR SUBSTR (LINE(LINE-CURRENT),1,3) = H'331200'                  /*
+        LINE (LINE-CURRENT) := H'01'   /* write without spacing
+      END-IF
+    END-IF
+    IF AR-CC-TYPE EQ ASA-CODE AND
+        ((LINE-L (LINE-CURRENT,1) > H'80' AND
+        LINE-L (LINE-CURRENT,1) < H'8D') OR
+        (LINE-L (LINE-CURRENT,1) > H'C0' AND
+        LINE-L (LINE-CURRENT,1) < H'CD') OR
+        LINE-L (LINE-CURRENT,1) < H'04')
+        AND FLUSH-TYPE-AL NE 'Y'
+      /* This means: Natural returns BS2000 CC on Siemens
+      /* instead of ASA
+      EXAMINE LINE-L (LINE-CURRENT,1) TRANSLATE
+        USING INVERTED #ASA-TO-EBCDIC(*)
+    END-IF
+    PERFORM BUILD-LINE
+    IF P-ERROR-CODE NE 0
+      ESCAPE ROUTINE /*SU2 was BOTTOM (READ.)
+    END-IF
+    ADD 1 TO #OBJECT-LINE
+    IF #OBJECT-LINE > P-LINE-TO
+      ESCAPE BOTTOM (READ.)
+    END-IF
+  END-FOR
+END-READ
+*
+IF LINE-CURRENT > 0
+  #OBJECT-LINE := P-LINE-TO
+  IF FLUSH-SEG-BRACKET = 'F'
+    FLUSH-SEG-BRACKET := 'A'
+  ELSE
+    FLUSH-SEG-BRACKET := 'L'
+  END-IF
+  PERFORM FLUSH-LINES
+END-IF
+*
+END-SUBROUTINE /* FLUSH-REPORT-LINES
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-LINES
+************************************************************************
+IF AR-CC-TYPE NE NO-CC AND AR-CC-TYPE NE BINARY
+  RESET #FORMFEEDS
+  DECIDE ON EVERY VALUE OF #FORMFEEDS
+    VALUE 0
+      EXAMINE LINE-L (*,1) FOR H'89'
+        GIVING NUMBER IN #FORMFEEDS /* mach.-code
+    VALUE 0
+      EXAMINE LINE-L (*,1) FOR H'8B'
+        GIVING NUMBER IN #FORMFEEDS /* mach.-code
+    VALUE 0
+      EXAMINE LINE-L (*,1) FOR '1'
+        GIVING NUMBER IN #FORMFEEDS /* ASA-code
+    NONE
+      IGNORE
+  END-DECIDE
+  SKIP-PAGES := SKIP-PAGES - #FORMFEEDS
+ELSE
+  RESET SKIP-PAGES
+END-IF
+IF SKIP-PAGES < 1
+  RESET SKIP-PAGES
+  CALLNAT FLUSH-PROGRAM FLUSH-PARMS LINE-PARMS XXUX---P
+    P-ERROR-CODE P-ERROR-TEXT
+/*RMPRVTM RMPRWKF RMPRWKF RMPRWKF RMPRNAF RMPRCMA
+/*RMPRTCP RMPRNAT RMPREML RMPRDSK RMPRWSP
+  FLUSH-SEG-BRACKET := 'M'
+END-IF
+*
+END-SUBROUTINE /* FLUSH-LINES
+*
+************************************************************************
+DEFINE SUBROUTINE BUILD-LINE
+************************************************************************
+IF #OBJECT-LINE >= P-LINE-TO
+  IF FLUSH-SEG-BRACKET = 'F'
+    FLUSH-SEG-BRACKET := 'A'
+  ELSE
+    FLUSH-SEG-BRACKET := 'L'
+  END-IF
+END-IF
+IF P-LAYOUT-ENTRIES > 0
+  PERFORM BUILD-LAYOUT-LINES
+END-IF
+*
+IF LINE-CURRENT >= #LINES-IN-BUFFER OR FLUSH-SEG-BRACKET = 'L' OR = 'A'
+  PERFORM FLUSH-LINES
+  RESET LINE-CURRENT
+END-IF
+*
+END-SUBROUTINE /* BUILD-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE BUILD-LAYOUT-LINES
+************************************************************************
+#CC := LINE-L (LINE-CURRENT, 1)
+IF (#CC = H'89' AND ACTIVE-REPORT.AR-CC-TYPE = MACHINE-CODE)
+OR (#CC = H'8B' AND ACTIVE-REPORT.AR-CC-TYPE = MACHINE-CODE)          /*
+OR (#CC = '1'   AND ACTIVE-REPORT.AR-CC-TYPE = ASA-CODE)              /*
+OR (#CC = H'81' AND ACTIVE-REPORT.AR-CC-TYPE = BS2000-CC)             /*
+OR (#CC = 'A'   AND ACTIVE-REPORT.AR-CC-TYPE = BS2000-CC)             /*
+  #PAGE-START := LINE-NUMBER (LINE-CURRENT)
+END-IF
+*
+IF P-LAYOUT-HEADER-LINES > 0 AND LINE-NUMBER (LINE-CURRENT)
+= #PAGE-START THRU #PAGE-START + P-LAYOUT-HEADER-LINES - 1            /*
+  IGNORE
+ELSE
+  PERFORM LAYOUT-LINE
+END-IF
+*
+END-SUBROUTINE /* BUILD-LAYOUT-LINES
+*
+************************************************************************
+DEFINE SUBROUTINE LAYOUT-LINE
+************************************************************************
+RESET #WORK-LINE
+IF LAYOUT-SHIFT
+  N := 2
+  S := 1
+  #WORK-L (1) := LINE-L (LINE-CURRENT, 1)
+ELSE
+  N := 1
+END-IF
+*
+FOR J = 1 TO P-LAYOUT-ENTRIES
+  IF NOT (P-LAYOUT-FROM (J) = 0 OR P-LAYOUT-TO (J) = 0)
+    K := P-LAYOUT-FROM (J)
+    L := P-LAYOUT-TO   (J)
+    M := L - K
+    #WORK-L (N : N + M) := LINE-L (LINE-CURRENT, S + K : S + L)
+    N := N + M + 2
+  END-IF
+END-FOR
+LINE (LINE-CURRENT) := #WORK-LINE
+*
+END-SUBROUTINE /* LAYOUT-LINE
+*
+END

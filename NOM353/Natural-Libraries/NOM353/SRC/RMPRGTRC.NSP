@@ -1,0 +1,93 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMPRGTRC
+* Version   : NOM 3.3
+* Function  : Purge trace messages for wrap around trace
+*
+* Template  : NOMLOG / SATLGD1N
+*
+* Maintenance
+* fhi     2011-06-07 NOMALL-77 Introduce wrap around trace
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2015-11-23 NOMALL-1784 avoid NAT1301 (P10->B4/I4 - big ISNs)
+* fhi     2019-03-07 NOMALL-2233 Use new SAT routines
+* ----------------------------------------------------------------------
+DEFINE DATA
+GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +TRACE-WRAP                (I2)
+LOCAL  USING  SATLGV1P
+* LOCAL  USING  SATLG01L
+* fhi     2019-03-07 NOMALL-2233 line above out, below in
+LOCAL  USING  SATLG04L
+LOCAL
+1 #FROM                      (T)
+1 #TO                        (T)
+1 #ERROR-TEXT                (A80)
+1 #ET-COUNT                  (I4)
+1 #ISN                       (P10) /*SU2 was I4
+* fhi     2019-03-07 NOMALL-2233 start commenting
+*  1 #ENV-START                 (A63)
+*  1 REDEFINE #ENV-START
+*    2 #ENV                     (A10)
+*    2 REDEFINE #ENV
+*      3 #ENV-DBID              (N5)
+*      3 #ENV-FNR               (N5)
+*    2 #STARTKEY                (B53)
+* fhi     2019-03-07 NOMALL-2233 end commenting, start insertion
+1 #ENV-START                 (A20)
+1 REDEFINE #ENV-START
+  2 #ENV                     (A10)
+  2 REDEFINE #ENV
+    3 #ENV-DBID              (N5)
+    3 #ENV-FNR               (N5)
+  2 #STARTKEY                (B10)
+* fhi     2019-03-07 NOMALL-2233 end insertion
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+* Input parameters
+IF +TRACE-WRAP = 0
+  ESCAPE ROUTINE      /* No wrap around trace
+END-IF
+#ENV-DBID := G-NATRP-DBID
+#ENV-FNR  := G-NATRP-FNR
+#TO       := *TIMX
+#TO       := #TO - (+TRACE-WRAP * 10)
+RESET #FROM #ERROR-TEXT #STARTKEY
+CALLNAT 'SATLGFVN' SATLGV-PARMS
+IF SATLGV-RC NE 0
+  WRITE *PROGRAM SATLGV-ERROR-TEXT
+  #ERROR-TEXT:= SATLGV-ERROR-TEXT
+  IF SATLGV-LOG-DBID NE 0 OR SATLGV-LOG-FNR NE 0
+    WRITE *PROGRAM 'Dbid:' SATLGV-LOG-DBID 'Fnr:' SATLGV-LOG-FNR
+    COMPRESS #ERROR-TEXT SATLGV-LOG-DBID SATLGV-LOG-FNR
+      INTO #ERROR-TEXT
+  END-IF
+  ESCAPE ROUTINE
+END-IF
+/* Following routine copied from SATLGD1N
+DELETE-LOG. READ SAT-LOG-FILE BY LOG-ENV-TIME = #ENV-START
+  ACCEPT IF LOG-NOM-TYPE = 'TR' /* only NOM trace records
+  IF LOG-ENVIRONMENT > #ENV OR (LOG-ENVIRONMENT=#ENV AND LOG-TIME > #TO)
+    ESCAPE BOTTOM
+  END-IF
+  #ISN := *ISN (DELETE-LOG.)
+  GET-LOG. GET SAT-LOG-FILE #ISN
+  DELETE (GET-LOG.)
+  ADD 1 TO #ET-COUNT
+  IF #ET-COUNT GE 50
+    RESET #ET-COUNT
+    END TRANSACTION
+  END-IF
+END-READ
+END TRANSACTION
+*
+END

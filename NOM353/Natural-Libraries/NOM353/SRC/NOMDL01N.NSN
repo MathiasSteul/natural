@@ -1,0 +1,174 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMDL01N
+* Function  Distribution list Maintenance API
+* Version   2.1.1
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* xsiszha 2000-04-19 s(999999) created
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* xsetggr 2002-10-21 (P229817) use right library to read err msg texts
+* xsetggr 2005-03-30  nom31
+* xsetggr 2005-06-30 p(265613) evaluate eom-def-user
+* xsetggr 2007-05-18 p(289847) restore NOM lfile when error occurs
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-08-11 p(300323) add steplibs, improve work of read-next
+* xsetggr 2008-12-05 p(300323) change adding of steplibs
+* xsetggr 2009-02-10 P300323   delete steplib handling, use RGETLIB to
+*                              get NOM library
+* fhi     2009-02-27 P300323 Rename RGETSTEP to NOMGSTEP delivered in SYSTEM
+* fhi    2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* xsetggr 2011-05-06 test module to check current NOM library
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2017-03-06 NOMALL-1961 Use new task IDs
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING NOMDL--P
+************************************************************************
+LOCAL USING NOMDL--E
+LOCAL USING EOM----P
+LOCAL USING EOMDLM-P
+LOCAL USING EOMMSG-P
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+LOCAL
+1  #NOM-DBID-OLD (N5)
+1  #NOM-FNR-OLD  (N5)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET NOMDL-ERROR-CODE NOMDL-ERROR-TEXT
+* *
+DECIDE FOR EVERY CONDITION
+  WHEN NOMDL-NOM-FNR NE 0 AND NOMDL-NOM-DBID NE 0
+    PERFORM GET-NOM-LFILE
+    PERFORM SET-NOM-LFILE
+  WHEN SATLF-ERROR-CODE = 0
+    PERFORM DL-MAINTENANCE
+  WHEN SATLF-ERROR-CODE = 0 AND #NOM-FNR-OLD NE 0 AND #NOM-DBID-OLD NE 0
+    PERFORM SET-OLD-NOM-LFILE
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NOM-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'GET'
+CALLNAT SAT-GET-SET-LFILE
+  SATLF-SATVERS SATLF-PARMS (*)
+#NOM-DBID-OLD := SATLF-DBID-N5
+#NOM-FNR-OLD  := SATLF-FNR-N5
+*
+END-SUBROUTINE /* GET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'SET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := NOMDL-NOM-DBID
+SATLF-FNR-N5  := NOMDL-NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-OLD-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := #NOM-DBID-OLD
+SATLF-FNR-N5  := #NOM-FNR-OLD
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-OLD-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-INTERNAL-API
+************************************************************************
+RESET EOMMSG-PARMS
+CALLNAT 'EOMDLM-N' EOM-PARMS EOMDLM-PARMS EOMMSG-PARMS
+IF EOMMSG-NR NE 0
+  NOMDL-ERROR-CODE := EOMMSG-NR
+  IF EOMMSG-TEXT = ' '
+    NOMDL-ERROR-TEXT := F#GETMSG (<NOMDL-ERROR-CODE, EOMMSG-TOKEN(1:3)>)
+  ELSE
+    NOMDL-ERROR-TEXT := EOMMSG-TEXT
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CALL-INTERNAL-API
+*
+************************************************************************
+DEFINE SUBROUTINE DL-MAINTENANCE
+************************************************************************
+RESET EOM-LOGGING EOM-LOG-TYPES (*)
+CALLNAT 'RGETLIB' EOM-LIBRARY
+COMPRESS EOM-LIBRARY 'U' TO EOM-USER-LIBRARY LEAVING NO
+*
+IF NOT (NOMDL-LANGUAGE = 1 OR = 2)
+  EOM-LANGUAGE := *LANGUAGE
+ELSE
+  EOM-LANGUAGE := NOMDL-LANGUAGE
+END-IF
+EOMDLM-TARGET-DBID   := NOMDL-NOM-DBID
+EOMDLM-TARGET-FNR    := NOMDL-NOM-FNR
+EOM-USER             := NOMDL-USER-ID
+EOM-VERSION          := NOMDL-NOMVERS
+EOM-LOG-TYPES(1)     := NOMDL-LOG-TYP
+EOM-FUNCTION         := NOMDL-FUNCTION
+EOMDLM-MEMB-FUNCTION := NOMDL-MEMB-FUNCTION
+EOMDLM-ATTR (*)      := NOMDL-ATTR (*)
+EOM-DEF-USER := F#MONITOR-USER-AUTODEF (<>) /*SU2 <-
+*
+PERFORM CALL-INTERNAL-API
+*
+IF EOMMSG-NR=0 AND NOMDL-FUNCTION=NOMDL-FCT-READ OR=NOMDL-FCT-READ-HOLD
+OR=NOMDL-FCT-READ-NEXT OR=NOMDL-FCT-READ-HOLD-NEXT                    /*
+  NOMDL-ATTR (*) := EOMDLM-ATTR (*)
+END-IF
+*
+END-SUBROUTINE /* DL-MAINTENANCE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF #NOM-FNR-OLD NE 0 AND #NOM-DBID-OLD NE 0
+    PERFORM SET-OLD-NOM-LFILE
+  END-IF
+  IF *ERROR-NR = 3009 OR = 3145
+    NOMDL-ERROR-CODE := *ERROR-NR
+  ELSE
+    IF *ERROR-NR = 82
+      WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+        'Missing NOM steplibs' //
+      'Please call NOM steplib routine NOMGSTEP before call of NOM API.'
+    END-IF
+    NOMDL-ERROR-CODE := 21
+    CALLNAT 'C-NATERN' NOMDL-ERROR-TEXT 'W' /*get dyn part
+  END-IF
+  NOMDL-ERROR-TEXT :=F#GETMSG(<NOMDL-ERROR-CODE,NOMDL-ERROR-TEXT>) /*SU2
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

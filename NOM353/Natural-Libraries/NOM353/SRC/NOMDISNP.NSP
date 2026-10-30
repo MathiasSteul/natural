@@ -1,0 +1,114 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+****************************************************************************
+***                                                                      ***
+*** fhi/SAG, 2007-05-11                                                  ***
+* SU1     2013-01-31 unused      Deactivate unused data areas
+***                                                                      ***
+****************************************************************************
+DEFINE DATA
+LOCAL USING SATLF02P
+LOCAL USING RMSPL--L
+LOCAL
+1 NOMPUT-QUEUE VIEW OF NRM-NOMPUT-QUEUE
+  2 NP-STATUS
+  2 NP-TYPE
+  2 NP-ATTRIBUTES-IDENT
+  2 NP-SPOOL-ATTRIBUTES
+  2 NP-CC-TYPE
+  2 NP-RECORD-LENGTH
+  2 NP-NUMBER-OF-LINES
+  2 NP-TEXT-ID
+  2 NP-SPOOL-ATTRIBUTES-EXTENDED (1:120)
+* 2 NP-OBJECT-TIME /*SU 2018-08-31 -> NAT30..:field not in container FDT
+1 #I                    (P3)
+1 #WAIT                 (I2)
+1 #END-TIME             (T) INIT <*TIMX>
+1 #RETRY                (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+INPUT 'Container File DB-ID:' SATLF-DBID-N5
+  'Container File File-No:' SATLF-FNR-N5
+SATLF-LFILE    := 158
+SATLF-FUNCTION := 'SET'
+CALLNAT 'SATLF02N' SATLF-SATVERS SATLF-PARMS (*)
+IF SATLF-ERROR-CODE NE 0 OR SATLF-DBID-N5 = 0 OR SATLF-FNR-N5 = 0
+  WRITE NOHDR *PROGRAM 'NOM Container File (LFILE 158) cannot be set:' /
+    'Container File DB-ID:  ' SATLF-DBID-N5 /
+    'Container File File-No:' SATLF-FNR-N5 /
+    'Error Code:            ' SATLF-ERROR-CODE /
+    *PROGRAM 'Execution terminates'
+  STOP
+END-IF
+FORMAT LS=250
+RD2. READ NOMPUT-QUEUE BY NP-QUEUE
+  WRITE  NOHDR 'Found ISN' *ISN(RD2.) 'in NOM System File on DB'
+    SATLF-DBID-N5 'and file number' SATLF-FNR-N5
+  WRITE (AL=70)
+    '=' *ISN (RD2.)      /
+    '=' NP-STATUS        /
+    '=' NP-TYPE          /
+    '=' NP-ATTRIBUTES-IDENT /
+    '=' NP-CC-TYPE       /
+    '=' NP-RECORD-LENGTH /
+    '=' NP-NUMBER-OF-LINES
+    '=' NP-TEXT-ID       /
+*   '=' NP-OBJECT-TIME (EM=YYYY'-'MM'-'DD' 'HH':'II) //
+  MOVE NP-SPOOL-ATTRIBUTES TO #SPOOL-ATTRIBUTES
+  WRITE (AL=70)
+    '='                                /
+    '=' #SPOOL-ATTRIB                  /
+    '=' #SPOOL-DI-ST-ID                /
+    '=' #SPOOL-DI-RPC-SERVER           /
+    '=' #SPOOL-DI-USERID               /
+    '=' #SPOOL-DI-PATH                 /
+    '=' #SPOOL-DI-FILENAME             /
+    '=' #SPOOL-DI-FILETYPE             /
+    '=' #SPOOL-DI-CONTAINER-DBID       /
+    '=' #SPOOL-DI-CONTAINER-FNR        /
+    '=' #SPOOL-DI-SIZE                 ///
+  FOR #I = 1 TO 120
+    IF NP-SPOOL-ATTRIBUTES-EXTENDED (#I) = ' '
+      ESCAPE BOTTOM
+    END-IF
+    PRINT '=' NP-SPOOL-ATTRIBUTES-EXTENDED (#I)
+  END-FOR
+END-READ
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE WAIT
+************************************************************************
+#WAIT := 5
+CALLNAT 'NAT00031' #WAIT
+*
+END-SUBROUTINE /* WAIT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF *ERROR-NR = 3145
+    #RETRY := TRUE
+    PERFORM WAIT /* 5 seconds before retry
+    RETRY
+  ELSE
+    NEWPAGE
+   WRITE NOHDR *PROGRAM 'Error' *ERROR-NR 'occurred in line' *ERROR-LINE
+      / *PROGRAM 'Execution terminates'
+    STOP
+  END-IF
+*
+END-ERROR
+*
+END

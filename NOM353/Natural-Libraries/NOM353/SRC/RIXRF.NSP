@@ -1,0 +1,225 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RIXRF - Cross reference report identification criteria
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* sju 04-12-10 NOM31     created
+* SU1 2015-01-09 NOMALL-1548 invoke map language dependent
+* SU2 2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* SU3 2024-01-24 NOMALL-???? NOM 3.6 remove: SAP/VSE(Power)
+*     removed from maps RIXRFM11/2:
+*      5 - Power Job Name  6 - Power Dest 7 - Power Form
+*     21 - SAP Dest       22 - SAP Userid
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  NRM-GL
+*
+LOCAL USING RPFK---L
+LOCAL USING XXGMSG-A
+*
+LOCAL
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+  2 R-REPNAME
+  2 R-IDENT       (1:14)
+* *****
+1 #USER           (A8)
+1 #MAX-TYPES      (I2) CONST <25>
+1 CV-MAP          (C) INIT < (AD=I CD=NE)>
+1 L-HEADER        (A78)
+1 L-XREF-TYPE     (I4)
+1 L-XREF-MATCH    (A20)
+1 L-REPORT-NAME   (A25)
+1 L-PRINT-OUTPUT  (A1) INIT <'N'>
+1 #IDENT          (A82)
+1 REDEFINE #IDENT
+  2 #IDENT-TYPE   (I2)
+  2 #IDENT-VALUE  (A80)
+1 #XREF-MATCH     (A25)
+1 #XREF-FROM      (A25)
+1 #XREF-TO        (A25)
+1 #I              (I2)
+1 L-OBJECT        (A25/1:15)
+1 L-IDENT         (A40/1:15)
+1 #OBJ-INDEX      (I4)
+*** For selection
+1 #LEN            (N3)
+1 #OBJECT-FROM    (A25)
+1 #OBJECT-TO      (A25)
+1 #ADACALL-COUNT  (I4)
+1 #MAX-ADACALLS   (I4) CONST <1000>
+1 #FATHER-PROG    (A8) INIT <'RMENU'>
+1 #LANGUAGE       (I1)
+*
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+/*SU2 OPTIONS MCG=OFF
+*
+DEFINE WINDOW WORKING-WAIT SIZE 5*40 BASE 08/15 CONTROL SCREEN
+*
+FORMAT (1) PS=60 LS=80
+*
+AT TOP OF PAGE (1)
+  WRITE (1) NOTITLE NOHDR 10T 'Reports with identification type'
+    L-XREF-TYPE (NL=2 SG=OFF) 'value' L-XREF-MATCH //
+    'Report Name' 30T 'Identification criterion' /
+END-TOPPAGE
+*
+RESET G-COMMIT
+CALLNAT 'RGETLIB' #XX-ERROR-APPL
+*
+#USER:= G-USERID
+*
+MAIN-LOOP. REPEAT
+  RESET G-NATRP-ERC G-NATRP-ERT
+  SCREEN-LOOP. REPEAT
+    IF #LANGUAGE NE *LANGUAGE
+      #LANGUAGE := *LANGUAGE
+      PERFORM INIT-PFKEYS
+      PERFORM SET-PFKEYS
+    END-IF
+*
+    PERFORM FLIP-DISPLAY
+    SET CONTROL 'L'
+    SET CONTROL 'WB'
+    CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RXREFM1&'
+    RESET G-MAP-MODIFIED
+*
+    INPUT WITH TEXT G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RIXRFM1&'
+    RESET G-NATRP-ERC G-NATRP-ERT
+    INCLUDE RPFKVA-C
+    INCLUDE C-DIRECT
+    DECIDE ON FIRST VALUE OF G-PF-FUNC
+      VALUE 'HELP'
+        REINPUT USING HELP
+      VALUE 'EXIT'
+        ESCAPE BOTTOM(MAIN-LOOP.)
+      VALUE 'FLIP'
+        PERFORM FLIP-HANDLE
+        ESCAPE BOTTOM(SCREEN-LOOP.)
+      VALUE 'MENU'
+        ESCAPE BOTTOM(MAIN-LOOP.)
+      ANY
+        RESET G-DIRECT-COMMAND
+      NONE    IGNORE
+    END-DECIDE
+    PERFORM VALIDATE-INPUT
+    RESET #ADACALL-COUNT
+    CLOSE PRINTER (1)
+*
+  END-REPEAT
+*
+END-REPEAT
+IF G-PF-FUNC = 'MENU'
+  FETCH #FATHER-PROG
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+IF NOT L-XREF-TYPE = 1 THRU #MAX-TYPES
+  REINPUT *0007 MARK *L-XREF-TYPE
+END-IF
+IF NOT L-PRINT-OUTPUT = 'Y' OR = 'N'
+  REINPUT *0183 MARK *L-PRINT-OUTPUT
+END-IF
+*
+PERFORM XREF-IDENT
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE XREF-IDENT
+************************************************************************
+* Init selection keys
+#LEN:= 8
+#XREF-MATCH:= L-XREF-MATCH
+CALLNAT 'SELALPHA' #XREF-MATCH
+  #XREF-FROM
+  #XREF-TO
+  #LEN
+IF G-DISPLAY-LONG-NAMES
+  #LEN:= 25
+ELSE
+  #LEN:= 17
+END-IF
+CALLNAT 'SELALPHA' L-REPORT-NAME #OBJECT-FROM #OBJECT-TO #LEN
+READ REPORTS BY R-REPNAME = #OBJECT-FROM
+  IF R-REPNAME GT #OBJECT-TO
+    ESCAPE BOTTOM
+  END-IF
+  PERFORM CHECK-ADACALLS
+  FOR #I = 1 TO 14
+    #IDENT:= R-IDENT(#I)
+    IF #IDENT-TYPE = L-XREF-TYPE
+      IF L-XREF-MATCH = ' '
+          OR #IDENT-VALUE = #XREF-FROM THRU #XREF-TO
+        IF L-PRINT-OUTPUT = 'Y'
+          WRITE (1) NOTITLE NOHDR R-REPNAME 30T #IDENT-VALUE(AL=40)
+        ELSE
+          ADD 1 TO #OBJ-INDEX
+          L-OBJECT(#OBJ-INDEX)  := R-REPNAME
+          L-IDENT (#OBJ-INDEX)  := #IDENT-VALUE
+          IF #OBJ-INDEX GE 15
+            PERFORM OBJECT-WINDOW
+            IF *PF-KEY = 'PF3'
+              ESCAPE ROUTINE
+            END-IF
+          END-IF
+        END-IF
+      END-IF
+    END-IF
+  END-FOR
+END-READ
+IF #OBJ-INDEX GT 0
+  PERFORM OBJECT-WINDOW
+END-IF
+*
+END-SUBROUTINE /* XREF-IDENT
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-ADACALLS
+************************************************************************
+ADD 1 TO #ADACALL-COUNT
+IF #ADACALL-COUNT GE #MAX-ADACALLS
+  RESET #ADACALL-COUNT
+  SET CONTROL 'N'
+  INPUT WINDOW = 'WORKING-WAIT' (AD=OI)
+    /  'Working ...Please Wait'
+END-IF
+*
+END-SUBROUTINE /* CHECK-ADACALLS
+*
+************************************************************************
+DEFINE SUBROUTINE OBJECT-WINDOW
+************************************************************************
+SET CONTROL 'WC22L74B01/6F'
+INPUT USING MAP 'RIXRFM2&' /*SU1 '1' -> '&'
+RESET #OBJ-INDEX L-OBJECT(*) L-IDENT(*) #ADACALL-COUNT
+*
+END-SUBROUTINE /* OBJECT-WINDOW
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+* --------------------------------------- set pfkeys -------------------
+*
+INCLUDE RPFSET-C
+*
+END

@@ -1,0 +1,155 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMFLEMLN - Get attributes for flush via EMAIL
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* fhi     2002-06-13 p(225125) created from RMFLEC-N
+* sju     2003-05-20 p(240452) fix email printing
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* SPLIAR 05-03-2009 P308277 - replace Recipient10  with Lib/Member(TEXT)
+* SPLIAR 27-08-2009 P308277 - Lib/Member(TEXT)-corrected names(QE requirement)
+* fhi    10-09-2009 P308277 - Give warning for old recipient 10 fields
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-12-21 NOMALL-865 restow due to changes in RMFL---P
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* SU1     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING RMFL---P
+PARAMETER
+1 P-ERROR-CODE         (N4)
+1 P-ERROR-TEXT         (A250)
+************************************************************************
+LOCAL USING EOMPHTYE
+LOCAL USING XXGMSG-A
+LOCAL USING RLOG-L
+LOCAL USING RMTASK-P              /* NOMALL-1961 fhi in
+LOCAL
+1 PRINTOUT    VIEW  OF  NRM-PRINTOUTS
+  2 PO-ID
+  2 PO-ATTRIBUTES      (1:25)
+  2 REDEFINE PO-ATTRIBUTES
+    3 PO-ATTRIB        (1:25)
+      4 PO-IDENT       (I1)
+      4 PO-LENGTH      (N2)
+      4 PO-PROMPT      (N4)
+      4 PO-VAR         (A16)
+      4 PO-VALUE       (A72)
+  2 C*PO-ATTRIBUTES
+1 F                    (I2)
+1 NOE                  (I2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-ERROR-CODE P-ERROR-TEXT
+*
+PERFORM READ-PRINTOUT-RECORD
+IF P-ERROR-CODE = 0
+  PERFORM EMAIL-INTERFACE
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+*
+************************************************************************
+DEFINE SUBROUTINE READ-PRINTOUT-RECORD
+************************************************************************
+FNDPR. FIND PRINTOUT WITH PO-ID = FLUSH-POID
+  IF NO RECORDS FOUND
+    P-ERROR-CODE := 0005
+    P-ERROR-TEXT := 'Printout Record not found'
+    ESCAPE BOTTOM (FNDPR.)
+  END-NOREC
+END-FIND
+*
+END-SUBROUTINE /* READ-PRINTOUT-RECORD
+*
+************************************************************************--
+DEFINE SUBROUTINE EMAIL-INTERFACE
+************************************************************************
+RESET EMAIL-ATTRIBUTES
+*
+IF PRINTOUT.C*PO-ATTRIBUTES > 25
+  NOE := 25
+ELSE
+  NOE := PRINTOUT.C*PO-ATTRIBUTES
+END-IF
+*
+FOR F = 1 TO NOE
+* PRINT *PROGRAM '(0785)' '=' F '=' PO-VAR (F) '=' PO-VALUE (F)
+  DECIDE ON FIRST PO-VAR (F)
+    VALUE 'Node','NODE'
+      IF PO-VALUE (F) IS (N5)
+        EMAIL-NODE := VAL(PO-VALUE (F))
+      END-IF
+    VALUE 'Subject'        EMAIL-SUBJECT            := PO-VALUE (F)
+    VALUE 'Encrypt'        EMAIL-ENCRYPT            := PO-VALUE (F)
+    VALUE 'From','FROM','Reply','REPLY' EMAIL-REPLY := PO-VALUE (F)
+    VALUE 'Recipient-01'   EMAIL-RECIPIENT1         := PO-VALUE (F)
+    VALUE 'Recipient-02'   EMAIL-RECIPIENT2         := PO-VALUE (F)
+    VALUE 'Recipient-03'   EMAIL-RECIPIENT3         := PO-VALUE (F)
+    VALUE 'Recipient-04'   EMAIL-RECIPIENT4         := PO-VALUE (F)
+    VALUE 'Recipient-05'   EMAIL-RECIPIENT5         := PO-VALUE (F)
+    VALUE 'Recipient-06'   EMAIL-RECIPIENT6         := PO-VALUE (F)
+    VALUE 'Recipient-07'   EMAIL-RECIPIENT7         := PO-VALUE (F)
+    VALUE 'Recipient-08'   EMAIL-RECIPIENT8         := PO-VALUE (F)
+    VALUE 'Recipient-09'   EMAIL-RECIPIENT9         := PO-VALUE (F)
+    VALUE 'Recipient-10'   PERFORM CHECK-OLD
+    VALUE 'RecipientCC-01' EMAIL-RECIPIENT1-CC      := PO-VALUE (F)
+    VALUE 'RecipientCC-02' EMAIL-RECIPIENT2-CC      := PO-VALUE (F)
+    VALUE 'RecipientCC-03' EMAIL-RECIPIENT3-CC      := PO-VALUE (F)
+    VALUE 'RecipientCC-04' EMAIL-RECIPIENT4-CC      := PO-VALUE (F)
+    VALUE 'RecipientCC-05' EMAIL-RECIPIENT5-CC      := PO-VALUE (F)
+    VALUE 'RecipientCC-06' EMAIL-RECIPIENT6-CC      := PO-VALUE (F)
+    VALUE 'RecipientCC-07' EMAIL-RECIPIENT7-CC      := PO-VALUE (F)
+    VALUE 'RecipientCC-08' EMAIL-RECIPIENT8-CC      := PO-VALUE (F)
+    VALUE 'RecipientCC-09' EMAIL-RECIPIENT9-CC      := PO-VALUE (F)
+    VALUE 'RecipientCC-10' PERFORM CHECK-OLD
+    VALUE 'TEXT-LIBRARY'
+      PERFORM CHECK-OLD
+      EMAIL-LIBRARY := PO-VALUE (F)
+    VALUE 'TEXT-MEMBER'
+      PERFORM CHECK-OLD
+      EMAIL-MEMBER  := PO-VALUE (F)
+    NONE VALUE
+      IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* EMAIL-INTERFACE
+*
+************************************************************************--
+DEFINE SUBROUTINE CHECK-OLD
+************************************************************************
+IF PO-VALUE (F) = SCAN('(a)') OR = SCAN('§')
+* LG-USERID := 'MAIN'
+* fhi     2016-11-15 NOMALL-1961 line above out, start insertion
+  RMTASK-P.FUNCTION       := 'L'
+  RMTASK-P.SUBTASK-NUMBER := 1
+  CALLNAT 'RMTASKID' RMTASK-P
+  LG-USERID := RMTASK-P.TASK-ID
+* fhi     2016-11-15 NOMALL-1961 end   insertion
+  LG-CODE := 'MO'
+  LG-MSG  := '1584'
+  CALLNAT 'RLOG' PL-PARMS
+  END TRANSACTION
+  #XX-ERROR-CODE := 1584
+  CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+  LG-MSG := #XX-SHORT-TEXT
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    LG-MSG (AL=70) / 26T 'Addressee:' PO-VALUE(F) / 26T '=' PO-ID
+END-IF
+*
+END-SUBROUTINE /* CHECK-OLD
+*
+END

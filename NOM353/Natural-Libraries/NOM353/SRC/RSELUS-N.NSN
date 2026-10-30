@@ -1,0 +1,116 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RSELUS-N  USERS SELECTION LIST DISPLAY
+*
+* MAINTENANCE:
+*
+* GW  91-07-31  rewritten to sort by user-id and allow selection
+*               by user-id
+* gw  95-01-18 s(239638) above line replaced by the following
+* xsiszha 2000-08-04 (CE7461) Extend Report and Bundle Names
+* xsetggr 2003-08-18 p(240465) do not allow select userid 'DEFAULT'
+* SU1     2018-01-16 NOM 3.5: restruct
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER
+1 #USERID           (A8)
+************************************************************************
+LOCAL
+1 USERS VIEW OF NRM-USERS
+  2 USER-ID
+  2 FIRST-NAME
+  2 LAST-NAME
+* *****
+1 #S-USERID         (A25)
+1 #USERID-F         (A25)
+1 #USERID-T         (A25)
+1 #LEN              (N3)
+1 #SCREEN
+  2 L-ID            (A8/10)
+  2 L-MARK          (A1/10)
+  2 L-NAME          (A40/10)
+  2 L-LIST          (A8/10)
+1 #PF-KEY           (A4)
+1 I                 (N3)
+1 #TOP              (N3)
+1 #MAXREC           (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF #USERID = SCAN '*'
+  #S-USERID := #USERID
+END-IF
+*
+SET KEY PF3=PGM PF7 PF8
+DEFINE WINDOW SELECT-USER SIZE 20*51 BASE 02/05 CONTROL SCREEN
+*
+RESET I
+#TOP := 1
+MAIN. REPEAT
+  RESET #SCREEN
+  PERFORM GET-RECORDS
+  INPUT WINDOW = 'SELECT-USER' USING MAP 'RSELUSM&'
+  #PF-KEY := *PF-KEY
+  FOR I 1 TO 10
+    IF L-MARK(I) NE ' '
+      #USERID := L-ID(I)
+      ESCAPE BOTTOM (MAIN.)
+    END-IF
+  END-FOR
+  DECIDE ON EVERY VALUE OF #PF-KEY
+    VALUE 'PF3'
+      ESCAPE BOTTOM (MAIN.)
+    VALUE 'PF7'
+      SUBTRACT 10 FROM #TOP
+      IF #TOP < 1
+        #TOP := 1
+      END-IF
+    VALUE 'PF8'
+      IF #TOP <= #MAXREC - 10
+        ADD 10 TO #TOP
+      END-IF
+    NONE VALUE IGNORE
+  END-DECIDE
+END-REPEAT
+SET CONTROL 'WMB'
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-RECORDS
+************************************************************************
+IF #S-USERID = SCAN '*'
+  #LEN := 8
+  CALLNAT 'SELALPHA'  #S-USERID  #USERID-F  #USERID-T #LEN
+ELSE
+  #USERID-F := #S-USERID
+  MOVE ALL H'FF' TO #USERID-T
+END-IF
+FIND NUMBER USERS WITH USER-ID = #USERID-F THRU #USERID-T
+#MAXREC := *NUMBER
+*
+RESET I
+USERS1. READ USERS BY USER-ID = #USERID-F THRU #USERID-T
+  ACCEPT IF *COUNTER >= #TOP
+    AND USER-ID NE 'DEFAULT'
+  ADD 1 TO I
+  IF I > 10
+    ESCAPE BOTTOM
+  END-IF
+  L-ID(I) := USER-ID
+  COMPRESS LAST-NAME ',' TO L-NAME(I) LEAVING NO
+  COMPRESS L-NAME(I) FIRST-NAME TO L-NAME(I)
+END-READ
+*
+END-SUBROUTINE /* GET-RECORDS
+*
+END

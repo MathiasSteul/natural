@@ -1,0 +1,109 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* PRDVER-N - Show a product version. Template: NOMVER-N, for general
+*            purposes. The version is being obtained from SYSPROD.
+*
+* User Id yyyy-mm-ss Mark       Comment
+* fhi     2008-11-17 created    Get NOM system file version
+* fhi     2009-01-17 FHI257     Avoid loop
+* fhi     2009-02-02 P300323    Don't ask for development env on Unix
+* fhi     2010-09-03 NOMALL-97  Extend message line
+* bli     2012-09-19 NOMALL-94  2 digit versions, comment dev env Unix
+* ------- ---------- ---------  -------------------------------------------
+DEFINE DATA
+PARAMETER USING NOMVER-A
+PARAMETER
+1 P-ERC (N4)
+1 P-ERT (A250)
+************************************************************************
+LOCAL
+1 PROD-TABLE  (15)
+  2 PROD-FUNCTION      (A1)
+  2 PROD-RETURN        (N4)
+  2 PROD-ERRTXT        (A72)
+  2 PROD-ID            (A3)
+  2 PROD-PROD          (A27)
+  2 PROD-ACTIVE        (A1)
+  2 PROD-EXTENT        (I2)
+  2 PROD-VERSION       (I1)
+  2 PROD-RELEASE       (I1)
+  2 PROD-VS            (A5)
+  2 PROD-SMLEVEL       (I1)
+  2 PROD-UPDLEVEL      (I1)
+  2 PROD-DATE          (N8)
+  2 REDEFINE PROD-DATE
+    3 PD-JT            (A2)
+    3 PD-JD            (A2)
+    3 PD-MO            (A2)
+    3 PD-DY            (A2)
+  2 PROD-TIME          (N7)
+  2 PROD-OPTS          (I1)
+  2 PROD-USER          (A8)
+  2 PROD-REMARK        (A16)
+1 FIRST-CALL           (L)   /* IN:     TRUE for first call
+  /*         (return Natural first)
+  /* IN/OUT: FALSE for consecutive calls
+  /* OUT:    TRUE for last call
+1 SEARCH-OPTION        (A1)  /* product options
+  /* IN:  '='  return product from
+  /*           SEARCH-PRODUCT
+  /*      'S'  get next subcomponent
+  /*      else return product following
+  /*           SEARCH-PRODUCT
+  /* OUT: 0    not installed
+  /*      1    C/ASS part
+  /*      2    has ctrl record (inpl)
+  /*      3    1 + 2
+  /*      4    has update level
+  /*      5    1 + 4
+  /*      6    2 + 4
+  /*      7    3 + 4
+1 SEARCH-PRODUCT       (A3)  /* product code (e.g. NAT)
+1 RESPONSE             (I4)  /* = 0  product table returned, there are
+  /*      more products in the table
+  /* = 4  end of product table or no products
+  /*      found, PROD-TABLE(*) may contain
+  /*      data
+/*
+1 #POS   (I2) /* position in table
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET FIRST-CALL RESPONSE PROD-TABLE (*) P-ERC P-ERT
+/*FIRST-CALL := TRUE
+REPEAT
+  SEARCH-OPTION  := '='
+  SEARCH-PRODUCT := NOMVER-PRODUCTNAME
+  RESET PROD-TABLE(*) RESPONSE
+  CALLNAT 'NATF0400' FIRST-CALL SEARCH-OPTION SEARCH-PRODUCT
+    PROD-TABLE(*) RESPONSE
+* WRITE '=' SEARCH-OPTION '=' PROD-ID (*) '=' RESPONSE
+  IF SEARCH-OPTION = '0'
+    P-ERC := 1
+    P-ERT := 'Product not installed.'
+  ELSE
+    EXAMINE PROD-ID (*) FOR NOMVER-PRODUCTNAME
+      GIVING INDEX IN #POS
+    IF #POS = 0
+      RESET NOMVER-PARMS
+      P-ERC := 1
+      P-ERT := 'Product not installed.'
+    ELSE
+      NOMVER-VERSION := PROD-VERSION  (#POS)
+      NOMVER-RELEASE := PROD-RELEASE  (#POS)
+      NOMVER-SP      := PROD-SMLEVEL  (#POS)
+      NOMVER-CF      := PROD-UPDLEVEL (#POS)
+      NOMVER-DATE    := PROD-DATE     (#POS)
+      ESCAPE BOTTOM
+    END-IF
+  END-IF
+  UNTIL RESPONSE = 4
+END-REPEAT
+*
+END

@@ -1,0 +1,704 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOPROP-N - NOM API Printer Maintenance
+*
+* Maintenance:
+* XSETGGR 2002-06-28  created
+* XSETGGR 2002-08-16  changes
+* XSETGGR 2002-09-24  changes in CHECK subroutine
+* XSETGGR 2002-10-29  changes in variable format in PDA
+* XSETHZ  2002-11-05  modified
+* XSETGGR 2002-11-14  use new parameter ES-APP-SERVER-LIBRARY
+* XSETGGR 2002-12-30  changes
+* XSETGGR 2003-01-15  changes
+* XSETHZ  2003-01-18  ESCAPE ROUTINE
+* XSETHZ  2003-06-10  p(240729) Restrict Usage
+* XSETGGR 2006-03-10  changes returned code from nosfex-n
+* XSETGGR 2007-03-22  replace call of ES...-N to direct call of module
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2007-10-25 NRT2185   default values for UNIXLP printers
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* XSETHZ  2008-08-07 P(304018) PH-STATUS added
+* XSETHZ  2008-10-29 P(304018) Function "read PH attributes" (RPH) added
+* xsetggr 2008-11-28 P311915   default unixlp printers DEFAULTA-DEFAULTZ
+* XSETHZ  2009-09-29 P(320231) check UNIXLP and NATUNIX
+* XSETHZ  2009-11-19 P(321639) JOBCARDS for DISKUNIX
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-10-07 NOMALL-865 add printer type WRTSPOOL
+* fhi     2011-01-11 NOMALL-936 Member name into message 1079
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* xsetggr 2013-03-12    correct assigning of values of NOPH-ATTR-NAME
+* SU1     2014-06-06 NOMALL-1281 show last update user+date
+* SU2     2014-06-26 NOMALL-1281 show last update user+date
+* CF1     2015-06-17 NOMALL-1638 Rework printer maintenance
+* SU3     2024-05-07 NOM 3.6     remove unused
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING NOPROP-A
+* *****
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING NOMODE-A
+LOCAL USING RLOG-L
+LOCAL USING EOMMSG-P
+LOCAL USING EOMPHTYE
+LOCAL USING EOMPHATP
+*
+LOCAL
+1 PRINTERS VIEW OF NRM-PRINTERS
+  2 P-ID
+  2 P-NAME
+  2 P-PHYSICAL-NAME
+  2 P-EXITMEM
+  2 P-EXITLIB
+  2 P-COPIES
+  2 P-PRIORITY
+  2 P-JOBCARD               (3)
+  2 P-ATTRIBUTES            (25)
+  2 REDEFINE P-ATTRIBUTES
+    3 P-ATTR                (25)
+      4 P-ATTR-IDENT        (I1)
+      4 P-ATTR-LENGTH       (N2)
+      4 P-ATTR-PROMPT       (N4)
+      4 P-ATTR-VAR          (A16)
+      4 P-ATTR-VALUE        (A72)
+  2 C*P-ATTRIBUTES
+  2 P-VOLSER
+  2 P-DSNAME
+  2 P-DISP
+  2 P-LAST-UPDATE-USER /*SU1 ->
+  2 P-LAST-UPDATE
+1 PHYSICAL-PRINTERS  VIEW  OF  NRM-PHYSICAL-PRINTERS
+  2 PH-JCL-SKELETON
+  2 PH-ATTRIBUTES           (1:25)
+  2 REDEFINE PH-ATTRIBUTES
+    3 PH-ATTR               (25)
+      4 PH-ATTR-IDENT       (I1)
+      4 PH-ATTR-L-P-V       (A22)
+      4 REDEFINE PH-ATTR-L-P-V
+        5 PH-ATTR-LENGTH    (N2)
+        5 PH-ATTR-PROMPT    (N4)
+        5 PH-ATTR-VAR       (A16)
+      4 PH-ATTR-VALUE       (A72)
+  2 C*PH-ATTRIBUTES
+  2 PH-PRINTER-TYPE
+  2 PH-LOCATION
+  2 PH-STATUS               (A1)
+* *****
+1 #ES-CONTROL               (A250)
+1 #ES-INPUT-AREA            (A253/1:3)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1  REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+1 #ES-MSG-TXT               (A250)
+1 #OCC-MAX                  (I2)  CONST <25>
+1 #TXT                      (A20)
+1 #I                        (I2)
+1 #FIX-VAR                  (A1)
+1 #USER-LIB                 (A8)
+1 #LIBRARY-ID               (A8)
+1 #GRANTS                   (A1/6)
+1 #GR-OBJECT                (A25)
+1 #P-ID-E                   (A8)
+1 #P-ID                     (A8)  INIT <'DEFAULT'>
+1 REDEFINE #P-ID
+  2 #P-ID-1                 (A7)
+  2 #P-ID-2                 (A1)
+1 #J                        (I2)
+1 #K                        (I2)
+1 #LRECL                    (A5)
+1 REDEFINE #LRECL
+  2 #LRECL-A1               (A1/5)
+1 #LRECL-N                  (N5)
+1 #ATTR-TEXT                (L)
+1 #PHYS-PRINTER-TYPE        (A8)                           /* CF1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC
+#ES-CONTROL := ES-CONTROL
+#ES-INPUT-AREA(*) := ES-INPUT-AREA(*)
+NOMOD-PARMS := ES-SELECT
+#LIBRARY-ID := ES-APP-SERVER-LIBRARY
+DECIDE ON FIRST VALUE OF ES-FUNCTION
+  VALUE 'OP'
+    DECIDE ON FIRST VALUE OF ES-EXTEND-FUNCTION
+      VALUE ' '
+        PERFORM READ-RECORD
+/*SU3 -> VALUE 'NEW','NW2'  /* This function is deprecated
+/* PERFORM NEW-RECORD IF ES-RC = 0 PERFORM WRITE-LOG-RECORD
+/*SU3 <- END TRANSACTION ELSE BACKOUT TRANSACTION END-IF
+      VALUE 'NWN'                                          /* CF1 ->
+        PERFORM NEW-RECORD-NEW
+        IF ES-RC = 0
+          PERFORM WRITE-LOG-RECORD
+          END TRANSACTION
+        ELSE
+          BACKOUT TRANSACTION
+        END-IF                                             /* CF1 <-
+      VALUE 'UPD'
+        PERFORM UPDATE-RECORD
+        IF ES-RC = 0
+          PERFORM WRITE-LOG-RECORD
+          END TRANSACTION
+        END-IF
+      VALUE 'CHK'
+        PERFORM CHECK
+/*SU3 VALUE 'RPH' PERFORM READ-PH-ATTR /* Function deprecated
+      VALUE 'RPN'                                          /* CF1
+        PERFORM READ-PH-ATTR-NEW                           /* CF1
+      NONE VALUE IGNORE
+    END-DECIDE
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-RECORD
+************************************************************************
+RESET NOPR-PARMS
+RESET #ES-MSG-FIELD #ES-MSG-NR
+FNDPR. FIND PRINTERS WITH P-ID = ES-KEY-PARM(1)
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0108            /* printer not defined
+    #ES-MSG-FIELD-NAME := 'NAME'
+    ESCAPE BOTTOM (FNDPR.)
+  END-NOREC
+  NOPR-NAME             := P-ID
+  NOPR-PHYSICAL-NAME    := P-PHYSICAL-NAME
+  NOPR-DESC             := P-NAME
+  NOPR-EXITMEM          := P-EXITMEM
+  NOPR-EXITLIB          := P-EXITLIB
+  NOPR-COPIES           := P-COPIES
+  NOPR-PRIORITY         := P-PRIORITY
+  NOPR-JOBCARDS   (*)   := P-JOBCARD    (*)
+  NOPR-RESTRICT-USAGE   := P-DISP
+  NOPR-ATTRIBUTES-OCC   := C*P-ATTRIBUTES
+  NOPR-LAST-UPDATE-USER := PRINTERS.P-LAST-UPDATE-USER /*SU1 ->
+  IF PRINTERS.P-LAST-UPDATE NE 0
+    MOVE EDITED PRINTERS.P-LAST-UPDATE (EM=YYYYMMDDHHIISST)
+      TO NOPR-LAST-UPDATE
+  END-IF /*SU1 <-
+  FOR #I = 1 TO NOPR-ATTRIBUTES-OCC
+    NOPR-ATTR-IDENT(#I)  := P-ATTR-IDENT(#I)
+    NOPR-ATTR-LENGTH(#I) := P-ATTR-LENGTH(#I)
+    NOPR-ATTR-PROMPT(#I) := P-ATTR-PROMPT(#I)
+    NOPR-ATTR-VAR(#I)    := P-ATTR-VAR(#I)
+    NOPR-ATTR-VALUE(#I)  := P-ATTR-VALUE(#I)
+    #ES-MSG-NR           := P-ATTR-PROMPT(#I)
+    PERFORM GET-ATTR-NAME
+  END-FOR
+  PERFORM PHYSICAL-PRINTER-DATA
+  RESET ES-RC #ES-MSG-NR
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* LOGICAL-PRINTER-MAINTENANCE
+/*SU3 DEFINE SUBROUTINE NEW-RECORD /*This routine is deprecated
+*
+************************************************************************
+DEFINE SUBROUTINE NEW-RECORD-NEW                           /* CF1 ->
+************************************************************************
+FNNEWN. FIND NUMBER PRINTERS WITH P-ID = NOPR-NAME
+IF *NUMBER(FNNEWN.) = 0
+  PERFORM VALIDATION-S
+  IF #ES-MSG-NR NE 0
+    PERFORM GET-MSG-TXT
+    ESCAPE ROUTINE
+  END-IF
+  /* Store the logical printer record
+  PERFORM ASSIGN-ATTRIBUTE-VALUES
+  FOR #I = 1 NOPR-ATTRIBUTES-OCC
+    P-ATTR-IDENT (#I) := NOPR-ATTR-IDENT(#I)
+    P-ATTR-LENGTH(#I) := NOPR-ATTR-LENGTH(#I)
+    P-ATTR-PROMPT(#I) := NOPR-ATTR-PROMPT(#I)
+    P-ATTR-VAR(#I)    := NOPR-ATTR-VAR(#I)
+    P-ATTR-VALUE(#I)  := NOPR-ATTR-VALUE(#I)
+  END-FOR
+  STORE PRINTERS
+  /* Store authorization/granting record(s)
+  ES-EXTEND-FUNCTION := 'NEW'
+  IF ES-USER NE MASK ('NOMPR'NN'N')
+    ES-OBJECT        := 'GR'
+    ES-FUNCTION      := 'FF'
+    ES-ORIG-FUNCTION := 'NW'
+    ES-KEY-CODE(1)   := 'P'
+    ES-KEY-PARM(1)   := NOPR-NAME
+    ES-KEY-PARM(2)   := ES-USER
+    ES-KEY-PARM(3)   := 'YYYYYY'
+    CALLNAT 'NOGRFF-N' ES-CONTROL ES-INPUT-AREA(*)
+    IF ES-USER-TYPE NE 'A'
+      NOPR-AUTH := ES-USER
+    END-IF
+  END-IF
+  ES-OBJECT        := 'GR'
+  ES-FUNCTION      := 'FF'
+  ES-ORIG-FUNCTION := 'NW'
+  ES-KEY-CODE(1)   := 'P'
+  ES-KEY-PARM(1)   := NOPR-NAME
+  ES-KEY-PARM(2)   := 'PUBLIC'
+  IF ES-USER = MASK('NOMPR'NN'N')
+    ES-KEY-PARM(3) := 'YYYYYY'
+    IF ES-USER-TYPE NE 'A'
+      NOPR-AUTH := 'PUBLIC'
+    END-IF
+  ELSE
+    ES-KEY-PARM(3) := 'NNNYNN'
+  END-IF
+  CALLNAT 'NOGRFF-N' ES-CONTROL ES-INPUT-AREA(*)
+  ES-CONTROL := #ES-CONTROL
+  ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+ELSE
+  #ES-MSG-NR := 0104     /* Printer is already defined
+  #ES-MSG-FIELD-NAME := 'NAME'
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* NEW-RECORD-NEW                           /* CF1 <-
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-RECORD
+************************************************************************
+FNDMOD. FIND PRINTERS WITH P-ID = NOPR-NAME
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 0108   /* Printer not defined
+    ESCAPE BOTTOM (FNDMOD.)
+  END-NOREC
+  PERFORM VALIDATION-S
+  IF #ES-MSG-NR = 0
+    GETMOD. GET PRINTERS *ISN(FNDMOD.)
+    PERFORM ASSIGN-ATTRIBUTE-VALUES
+    P-ATTR-VALUE(*)  := NOPR-ATTR-VALUE(*)
+    P-ATTR-VAR(*)    := NOPR-ATTR-VAR(*)
+    UPDATE (GETMOD.)
+  END-IF
+END-FIND
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* UPDATE-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK
+************************************************************************
+FND. FIND NUMBER PRINTERS WITH P-ID = NOPR-NAME
+DECIDE FOR FIRST CONDITION
+  WHEN *NUMBER(FND.) > 0 AND ES-ORIG-FUNCTION = 'NW'
+    #ES-MSG-NR := 0104   /* Printer is already defined
+    #ES-MSG-FIELD-NAME := 'NAME'
+  WHEN NONE
+    PERFORM VALIDATION-S
+END-DECIDE
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+END-IF
+*
+END-SUBROUTINE /* CHECK
+*
+/*SU3 DEFINE SUBROUTINE READ-PH-ATTR /* This routine is deprecated
+*
+************************************************************************
+DEFINE SUBROUTINE READ-PH-ATTR-NEW                           /* CF1 ->
+************************************************************************
+/* Validate physical printer and get template data
+IF NOPR-PHYSICAL-NAME = ' '
+  #ES-MSG-NR := 0105          /* Enter printer id
+  #ES-MSG-FIELD-NAME := 'PHYSICAL-NAME'
+  ESCAPE ROUTINE
+END-IF
+FNDPHN. FIND PHYSICAL-PRINTERS WITH PH-VTAMID = NOPR-PHYSICAL-NAME
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 2114  /* Physical printer not defined
+    #ES-MSG-FIELD-NAME := 'PHYSICAL-NAME'
+    ESCAPE ROUTINE
+  END-NOREC
+  /*
+  NOPR-PH-JCL-SKELETON := PH-JCL-SKELETON
+  NOPR-PH-STATUS       := PH-STATUS
+  NOPR-PH-TYPE         := PH-PRINTER-TYPE
+  DECIDE ON FIRST VALUE OF NOPR-PHYSICAL-NAME
+    VALUE 'SYSPRINT'
+      NOPR-LOCATION := 'MAIN SYSTEM PRINTER'
+    NONE VALUE
+      NOPR-LOCATION := PH-LOCATION
+  END-DECIDE
+  /*
+  NOPR-ATTRIBUTES-OCC := PHYSICAL-PRINTERS.C*PH-ATTRIBUTES
+  FOR #I = 1 NOPR-ATTRIBUTES-OCC
+    NOPR-ATTR-IDENT (#I) := PH-ATTR-IDENT  (#I)
+    NOPR-ATTR-LENGTH(#I) := PH-ATTR-LENGTH (#I)
+    NOPR-ATTR-PROMPT(#I) := PH-ATTR-PROMPT (#I)
+    NOPR-ATTR-VAR   (#I) := PH-ATTR-VAR    (#I)
+    NOPR-ATTR-VALUE (#I) := PH-ATTR-VALUE  (#I)
+    #ES-MSG-NR := PH-ATTR-PROMPT(#I)
+    PERFORM GET-ATTR-NAME
+    RESET ES-RC
+  END-FOR
+  /*
+END-FIND
+/*
+END-SUBROUTINE /* READ-PH-ATTR-NEW                           /* CF1 <-
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-ATTRIBUTE-VALUES
+************************************************************************
+P-ID               := NOPR-NAME
+P-PHYSICAL-NAME    := NOPR-PHYSICAL-NAME
+P-EXITMEM          := NOPR-EXITMEM
+P-EXITLIB          := NOPR-EXITLIB
+P-COPIES           := NOPR-COPIES
+P-PRIORITY         := NOPR-PRIORITY
+P-JOBCARD      (*) := NOPR-JOBCARDS   (*)
+P-DISP             := NOPR-RESTRICT-USAGE
+P-LAST-UPDATE-USER := ES-USER /*SU1
+P-LAST-UPDATE      := *TIMX /*SU1
+IF NOT (NOPR-NAME = #P-ID THRU #P-ID-E)
+  P-NAME := NOPR-DESC
+END-IF
+/*
+/* Set attribute values to upper case for some phys.printer types
+/*EXAMINE ##PHYS-TYPES (*) FOR PHYSICAL-PRINTERS.PH-PRINTER-TYPE /* CF1
+EXAMINE ##PHYS-TYPES (*) FOR #PHYS-PRINTER-TYPE GIVING INDEX #I  /* CF1
+IF #I > 0 AND NOT ##PHYS-TYPE-LOWER (#I)
+  EXAMINE NOPR-ATTR-VAR(*) TRANSLATE INTO UPPER
+  EXAMINE NOPR-ATTR-VALUE (*) TRANSLATE INTO UPPER
+END-IF
+/*
+/* Get options for context menu of list item
+/* (return value for new/updated list item of this logical printer)
+RESET NOPR-OPTIONS(*)
+IF ES-USER-TYPE NE 'A' AND ES-EXTEND-FUNCTION = 'UPD'
+  #GR-OBJECT := NOPR-NAME
+  CALLNAT 'NOGROU-N' 'P' #GR-OBJECT ES-USER NOPR-AUTH #GRANTS(*)
+  IF #GRANTS(1) NE 'Y' AND #GRANTS(3) NE 'Y'
+    NOPR-OPTIONS(1) := 'DL'
+  END-IF
+END-IF
+IF ES-USER-TYPE = 'A'
+  NOPR-AUTH := 'ADMIN'
+END-IF
+IF NOPR-NAME = #P-ID THRU #P-ID-E
+  NOPR-OPTIONS(2) := 'DL'
+  NOPR-OPTIONS(3) := 'CP'
+  NOPR-OPTIONS(4) := 'RN'
+END-IF
+*
+END-SUBROUTINE /* ASSIGN-ATTRIBUTE-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE PHYSICAL-PRINTER-DATA
+************************************************************************
+FIND PHYSICAL-PRINTERS WITH PH-VTAMID = P-PHYSICAL-NAME
+  NOPR-PH-JCL-SKELETON := PH-JCL-SKELETON
+  NOPR-PH-STATUS := PH-STATUS
+  NOPR-PH-TYPE   := PH-PRINTER-TYPE
+  DECIDE ON FIRST VALUE OF P-PHYSICAL-NAME
+    VALUE 'TAPE'
+      NOPR-LOCATION := P-VOLSER
+    VALUE 'DISK'
+      NOPR-LOCATION := P-DSNAME
+    VALUE 'SYSPRINT'
+      NOPR-LOCATION := 'MAIN SYSTEM PRINTER'
+    NONE VALUE
+      NOPR-LOCATION := PHYSICAL-PRINTERS.PH-LOCATION
+  END-DECIDE
+END-FIND
+*
+END-SUBROUTINE /* PHYSICAL-PRINTER-DATA
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION-S
+************************************************************************
+PERFORM VALIDATION
+ES-CONTROL := #ES-CONTROL
+ES-INPUT-AREA(*) := #ES-INPUT-AREA(*)
+*
+END-SUBROUTINE /* VALIDATION-S
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+RESET #ES-MSG-NR #ES-MSG-FIELD
+/*
+/* Name and object verification
+#P-ID-2 := 'Z'
+#P-ID-E := #P-ID
+#P-ID-2 := 'A'
+IF NOPR-NAME = ' '
+  #ES-MSG-NR := 0106     /* Please enter a printer name
+  #ES-MSG-FIELD-NAME := 'NAME'
+  ESCAPE ROUTINE
+END-IF
+IF NOPR-NAME NE MASK (P.......)
+  #ES-MSG-NR := 0019     /* Object name must start with a letter
+  #ES-MSG-FIELD-NAME := 'NAME'
+  ESCAPE ROUTINE
+END-IF
+IF ES-EXTEND-FUNCTION = 'NEW' OR = 'NW2' OR = 'RPH'
+  IF NOPR-NAME = #P-ID THRU #P-ID-E
+    #ES-MSG-NR := 0166   /* Names DEFAULTx reserved for default UNIX pr.
+    #ES-MSG-FIELD-NAME := 'NAME'
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+IF NOPR-PHYSICAL-NAME = ' '
+  #ES-MSG-NR := 0105     /* Please enter a printer id
+  #ES-MSG-FIELD-NAME := 'PHYSICAL-NAME'
+  ESCAPE ROUTINE
+END-IF
+FNDPH. FIND PHYSICAL-PRINTERS WITH PH-VTAMID = NOPR-PHYSICAL-NAME
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 2114   /* Physical printer does not exist
+    #ES-MSG-FIELD-NAME := 'PHYSICAL-NAME'
+    ESCAPE ROUTINE
+  END-NOREC
+  /*
+  #PHYS-PRINTER-TYPE := PHYSICAL-PRINTERS.PH-PRINTER-TYPE  /* CF1
+  /*
+END-FIND
+IF NOT (NOPR-RESTRICT-USAGE = ' ' OR = 'Y' OR = 'N')
+  #ES-MSG-NR := 1099     /* Please enter 'Y' or 'N'
+  #ES-MSG-FIELD-NAME := 'RESTRICT-USAGE'
+  ESCAPE ROUTINE
+END-IF
+/*
+/* Exit routine verification
+COMPRESS #LIBRARY-ID 'U' TO #USER-LIB LEAVING NO
+DECIDE FOR FIRST CONDITION
+  WHEN NOPR-EXITMEM NE ' ' AND NOPR-EXITLIB = ' '
+    ES-KEY-PARM(1) := #USER-LIB
+    ES-KEY-PARM(2) := NOPR-EXITMEM
+    ES-KEY-PARM(3) := 'PRTEXIT'
+    CALLNAT 'NOSFEX-N' ES-CONTROL ES-INPUT
+    PERFORM CHECK-RC
+    IF #ES-MSG-NR NE 0
+      ESCAPE ROUTINE
+    END-IF
+  WHEN NOPR-EXITMEM NE ' ' AND NOPR-EXITLIB NE ' '
+    ES-KEY-PARM(1) := NOPR-EXITLIB
+    ES-KEY-PARM(2) := NOPR-EXITMEM
+    ES-KEY-PARM(3) := 'PRTEXIT'
+    CALLNAT 'NOSFEX-N' ES-CONTROL ES-INPUT
+    PERFORM CHECK-RC
+    IF #ES-MSG-NR NE 0
+      ESCAPE ROUTINE
+    END-IF
+  WHEN NOPR-EXITMEM = ' ' AND NOPR-EXITLIB NE ' '
+    #ES-MSG-NR := 4101   /* No exit member defined
+    #ES-MSG-FIELD := 'EXITMEM'
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+/*
+/* Verify if jobcards allowed
+IF NOPR-PH-JCL-SKELETON =' '
+AND NOT(NOPR-PH-TYPE ='UNIXLP' OR='NATUNIX' OR='DISKUNIX' OR='WRTSPOOL')
+  RESET NOPR-JOBCARDS (*)
+END-IF
+/* Printer specific attributes verification
+EOMPHAT-ATTR-IDENT(*)   := NOPR-ATTR-IDENT(*)
+EOMPHAT-ATTR-LENGTH(*)  := NOPR-ATTR-LENGTH(*)
+EOMPHAT-ATTR-PROMPT(*)  := NOPR-ATTR-PROMPT(*)
+EOMPHAT-ATTR-VAR(*)     := NOPR-ATTR-VAR(*)
+EOMPHAT-ATTR-DEFAULT(*) := NOPR-ATTR-VALUE(*)
+CALLNAT 'EOMPHATN' PHYSICAL-PRINTERS.PH-PRINTER-TYPE #OCC-MAX
+  EOMPHAT-ATTRIBUTES(*) EOMMSG-PARMS
+IF EOMMSG-NR NE 0
+  #ES-MSG-NR := EOMMSG-NR  /* Attribute has incorrect value
+  #ES-MSG-FIELD-NAME := 'ATTR'
+  #TXT := EOMPHAT-ATTR-VAR(EOMMSG-IND1)
+  #ES-MSG-FIELD-INDEX := EOMMSG-IND1
+  ESCAPE ROUTINE
+END-IF
+FOR #I 1 #OCC-MAX
+  IF NOPR-ATTR-VAR (#I) = ' '
+    ESCAPE TOP
+  END-IF
+  IF NOPR-ATTR-VAR     (#I) = 'DCB1' OR = 'DCB2'
+    EXAMINE NOPR-ATTR-VALUE(#I) FOR 'RECFM'
+      GIVING POSITION IN #J
+    IF #J GT 0
+      #J:= #J + 6
+      MOVE SUBSTRING (NOPR-ATTR-VALUE(#I),#J,1) TO #FIX-VAR
+    END-IF
+  END-IF
+  IF NOPR-ATTR-VAR     (#I) = 'RECFM'
+    IF NOPR-ATTR-VALUE(#I) NE ' '
+      #FIX-VAR := NOPR-ATTR-VALUE (#I)
+    END-IF
+  END-IF
+  IF NOPR-ATTR-VAR     (#I) = 'WKF'
+    IF #FIX-VAR = 'V' OR = 'v' OR = ' '
+      NOPR-ATTR-VALUE (#I) := '01'
+    ELSE
+      NOPR-ATTR-VALUE (#I) := '02'
+    END-IF
+  END-IF
+END-FOR
+IF NOT #FIX-VAR = 'V' OR = 'v' OR = ' '
+  EXAMINE NOPR-ATTR-VAR(*) FOR 'LRECL' GIVING INDEX IN #I
+  IF #I GT 0
+    #LRECL:= NOPR-ATTR-VALUE(#I)
+  END-IF
+  IF #LRECL = ' '
+    EXAMINE NOPR-ATTR-VAR(*) FOR 'DCB1' GIVING INDEX IN #I
+    IF #I GT 0
+      EXAMINE NOPR-ATTR-VALUE(#I) FOR 'LRECL=' GIVING POSITION IN #J
+      IF #J GT 0
+        #J:= #J + 6
+        #K:= 73 - #J
+        IF #K GT 5
+          #K:= 5
+        END-IF
+        MOVE SUBSTRING (NOPR-ATTR-VALUE(#I), #J, #K) TO #LRECL
+        FOR #K = 1 TO 5
+          IF NOT #LRECL-A1(#K) IS (N1)
+            RESET #LRECL-A1(#K)
+          END-IF
+        END-FOR
+      END-IF
+    END-IF
+    IF #LRECL = ' '
+      EXAMINE NOPR-ATTR-VAR(*) FOR 'DCB2' GIVING INDEX IN #I
+      IF #I GT 0
+        EXAMINE NOPR-ATTR-VALUE(#I) FOR 'LRECL=' GIVING POSITION IN #J
+        IF #J GT 0
+          #J:= #J + 6
+          #K:= 73 - #J
+          IF #K GT 5
+            #K:= 5
+          END-IF
+          MOVE SUBSTRING (NOPR-ATTR-VALUE(#I), #J, #K) TO #LRECL
+          FOR #K = 1 TO 5
+            IF NOT #LRECL-A1(#K) IS (N1)
+              RESET #LRECL-A1(#K)
+            END-IF
+          END-FOR
+        END-IF
+      END-IF
+    END-IF
+  END-IF
+  IF #LRECL NE ' '
+    IF #LRECL IS (N5)
+      #LRECL-N:= VAL(#LRECL)
+      IF #LRECL-N GT 0 AND #LRECL-N LT 251
+        EOMMSG-NR:= 0107 /* LRECL must be 251 or omitted for RECFM F..
+      END-IF
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-RC
+************************************************************************
+DECIDE ON FIRST ES-RC
+  VALUE 1
+    #ES-MSG-FIELD-NAME := 'EXITMEM'
+    #ES-MSG-NR  := 1079    /* library or member not found
+    #ES-MSG-TXT := NOPR-EXITMEM /* NOMALL-936 in
+    ESCAPE ROUTINE
+  VALUE 2
+    #ES-MSG-FIELD-NAME := 'EXITLIB'
+    #ES-MSG-NR := 1078   /* Error adding steplib :1:.Steplib table full
+    RESET #TXT
+    #TXT := ES-KEY-PARM(1)
+    ESCAPE ROUTINE
+  VALUE 3
+    #ES-MSG-NR := 4007   /* Set LFile error occured (lfile 219)
+    ESCAPE ROUTINE
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-RC
+*
+************************************************************************
+DEFINE SUBROUTINE GET-ATTR-NAME
+************************************************************************
+#ATTR-TEXT := TRUE
+PERFORM GET-MSG-TXT
+NOPR-ATTR-NAME(#I) := SHORT-MSG
+RESET #ATTR-TEXT #ES-MSG-NR
+*
+END-SUBROUTINE /* GET-ATTR-NAME
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #LIBRARY-ID /*'NOM221'
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+IF NOT #ATTR-TEXT
+  ES-MSG-NR    := #ES-MSG-NR
+  ES-MSG-TXT   := SHORT-MSG
+  EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+  IF #ES-MSG-NR = 0125 OR = 1078
+    EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #TXT
+  ELSE
+    EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+  END-IF
+  EXAMINE ES-MSG-TXT FOR ':2:' REPLACE ' '
+  ES-MSG-FIELD := #ES-MSG-FIELD
+  ES-RC := 1
+END-IF
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+IF NOMOD-LOG-TYPES (*) = 'P'
+  DECIDE ON FIRST ES-EXTEND-FUNCTION
+    VALUE 'NEW','NW2', 'RPH'
+      COMPRESS '2510' NOPR-NAME TO LG-MSG
+    VALUE 'UPD'
+      COMPRESS '2511' NOPR-NAME TO LG-MSG
+    ANY VALUE
+      LG-USERID      := ES-USER
+      LG-CODE        := 'PM'
+      LG-OBJECT-NAME := NOPR-NAME
+      CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+    NONE VALUE IGNORE
+  END-DECIDE
+END-IF
+*
+END-SUBROUTINE /* VALIDATION
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-MSG-NR := *ERROR-NR
+  COMPRESS 'Error' *ERROR-NR 'in' *PROGRAM 'line' *ERROR-LINE
+    TO ES-MSG-TXT
+  ES-RC := 1
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

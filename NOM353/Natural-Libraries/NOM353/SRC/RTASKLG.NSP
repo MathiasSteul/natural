@@ -1,0 +1,361 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RTASKLG - List log for a monitor task
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* sju 00-03-21 p(191368) created from RLISLGL1
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* sju 00-11-14 s(999999) SAT logging
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* xsetggr 2008-05-03 p(303852) use SATLGR2P/N
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2011-09-02 NOMALL-1018 use RSUBMSGN to get msg from syserr
+* xsetggr 2012-02-02 NOMALL-1100 extract text of msgs - not depends on
+*                                the form they are written in log
+* raya    2013-06-13 NOMALL-1259  use SATLGR3P/N
+* SU1     2015-01-26 NOMALL-1388 avoid S0C7/(SAT-288:SATLGR3P changed)
+* fhi     2017-01-04 NOMALL-1913 Use microseconds for logging
+* fhi     2018-04-26 NOMALL-1918 Extend time fields
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  NRM-GL
+LOCAL USING RLC----L
+LOCAL USING RPFK---L
+LOCAL USING ROT----L
+LOCAL USING SATLGR4P
+LOCAL USING SATLG01E
+LOCAL
+1 #PANEL                  (I1) INIT <1>
+1 #OBJECT-TYPE            (A32)
+1 #FATHER-PROG            (A8) INIT <'RHANMT'>
+1 #NOFLINES               (P2) INIT <015 >
+1 #NOFPAGES               (P3) CONST <0100 >
+1 #END-OF-DATA            (L)
+1 #CP                     (P3)
+1 #MAXP                   (P3)
+1 #MAXAP                  (P3)
+1 #NEWVAL                 (L)
+1 #BACKWARD               (L)
+1 #FORWARD                (L)
+1 #TOP                    (L)
+1 #BOT                    (L)
+1 GET-SCREEN              (L)
+1 #LAST-KEY               (A21)
+1 REDEFINE    #LAST-KEY
+  2 #LK-USER              (A8)
+  2 #LK-TIMEINV           (P13)
+  2 #LK-ISN               (P10)
+1 #PAGES                  (A21/#NOFPAGES)
+1 REDEFINE    #PAGES
+  2 #PAGES1               (1:#NOFPAGES)
+    3 #PK-USER            (A8)
+    3 #PK-TIMEINV         (P13)
+    3 #PK-ISN             (P10)
+1 L-HEADER                (A78)
+1 L-SCREEN                (15)
+  2 #L-MSG                (A65)
+  2 #L-USERID             (A8)
+  2 #L-DATE               (A8)
+  2 #L-TIME               (A10)
+  2 #L-TIME-ZONE          (A5)
+  2 L-ISN                 (P10)
+1 L-LCMD                  (15)
+  2 L-MARK                (A2)
+  2 L-IDENT               (I2)
+  2 CV-MARK               (C)
+1 I                       (N5)
+1 #SCROLL-AMOUNT          (N3)
+1 F                       (P2)
+1 #LANGUAGE               (I1)
+1 #ADMIN                  (L)
+1 #START                  (L)
+1 #STOP                   (L)
+1 #MESSAGE-TEXT           (A250)
+1 #FORMATED-DATE          (A10)
+1 REDEFINE #FORMATED-DATE
+  2 #S-FORMATED-DATE      (A8)
+1 #ERROR-CODE             (N4)
+1 #ERROR-TEXT             (A250)
+1 #WRAP-MESSAGE           (A65/*)
+1 #LOG-USER               (A8)
+1 #MSG-NR-A               (A4)
+1 REDEFINE #MSG-NR-A
+  2 #MSG-NR               (N4)
+1 #PREFIX-ERC             (A7)
+1 REDEFINE #PREFIX-ERC
+  2 #PREFIX               (A3)
+  2 #ERC                  (A4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *DATA = 1
+  INPUT #LOG-USER
+END-IF
+CALLNAT 'NARPSEC' G-USER-PROFILE 'ADM' #ADMIN
+CALLNAT 'NARPSEC' G-USER-PROFILE 'STA' #START
+CALLNAT 'NARPSEC' G-USER-PROFILE 'STP' #STOP
+IF NOT (#ADMIN OR #START OR #STOP)
+  G-NATRP-ERC := 0020
+  FETCH 'RMENU'
+END-IF
+*
+SATLGR-START-USERID      := #LOG-USER
+SATLGR-END-USERID        := #LOG-USER
+SATLGR-PRODUCT           := 'NOM'
+SATLGR-LANGUAGE          := *LANGUAGE
+SATLGR-SEARCH-KEY        := SATLG-ENV-USERID-TIMEINV
+SATLGR-ACCESS-TYPE       := SATLG-READ
+SATLGR-NUMBER-OF-RECORDS := #NOFLINES    /* or #NOFLINES+1?
+COMPRESS '     NOM-Monitor -' H'01' TO #OBJECT-TYPE
+*
+RESET G-LINECOM (*)
+G-LINECOM (1) := '<DE#Delete>'
+#NEWVAL := TRUE
+*
+MAIN-LOOP. REPEAT
+  RESET L-MARK(*)
+  IF #LANGUAGE NE *LANGUAGE
+    #LANGUAGE := *LANGUAGE
+    SATLGR-LANGUAGE:= #LANGUAGE
+    CALLNAT 'ROTINI-N' ##EQO-LOG-RECORD G-OBJ-TYPE G-OTB
+    PERFORM INIT-LINECOM
+    PERFORM INIT-PFKEYS
+    GET-SCREEN := TRUE
+  END-IF
+  PERFORM SET-PFKEYS
+  INCLUDE RMVHLP-C
+*
+  PERFORM GET-SCREEN
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RLISLGM&'
+  INCLUDE C-TOPBOT
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'WB'
+*
+  IF #PANEL = 1
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RLISLGM&'
+  ELSE
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RLISLG2&'
+  END-IF
+*
+  INCLUDE RPFKVA-C
+*
+  RESET G-NATRP-ERC G-NATRP-ERT
+  RESET #FORWARD #BACKWARD #NEWVAL G-NATRP-ERT G-NATRP-ERC
+*
+  INCLUDE C-DIRECT
+*
+  RESET #TOP #BOT #SCROLL-AMOUNT
+  INCLUDE C-LOCCMD
+*
+  DECIDE ON FIRST VALUE OF G-PF-FUNC
+    VALUE 'HELP'
+      REINPUT USING HELP
+    VALUE 'EXIT'
+      PERFORM COMMIT-WORK
+      ESCAPE BOTTOM(MAIN-LOOP.)
+    VALUE 'FLIP'
+      PERFORM FLIP-HANDLE
+    VALUE 'UP'
+      #BACKWARD := TRUE
+    VALUE 'DOWN'
+      #FORWARD := TRUE
+    VALUE 'RIGHT'
+      IF #PANEL = 1
+        #PANEL := 2
+      END-IF
+    VALUE 'LEFT'
+      IF #PANEL = 2
+        #PANEL := 1
+      END-IF
+    VALUE 'MENU'
+      INCLUDE C-MENU
+    VALUE 'ENTR'
+      IF NOT (L-MARK (*) NE ' ')
+        #NEWVAL := TRUE
+      END-IF
+    NONE VALUE
+      IGNORE
+  END-DECIDE
+*
+  PERFORM LINE-COMMANDS
+*
+END-REPEAT
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SCREEN
+************************************************************************
+IF G-DIRECT-COMMAND = 'TOP'
+  #TOP := TRUE
+ELSE
+  RESET #TOP
+END-IF
+*
+RESET G-NATRP-ERT
+DECIDE FOR EVERY  CONDITION
+  WHEN #NEWVAL OR #TOP
+    RESET  #PAGES (*) #MAXP #MAXAP
+    #PK-USER(1):= #LOG-USER
+    RESET #PK-TIMEINV(1) #PK-ISN(1)
+    #CP := #MAXAP := 1
+  WHEN #BOT
+    #CP := #MAXAP
+  WHEN #FORWARD
+    IF #END-OF-DATA
+      ESCAPE ROUTINE
+    END-IF
+    IF #CP = #NOFPAGES
+      #PAGES (1:#NOFPAGES - 1) := #PAGES (2:#NOFPAGES)
+      RESET #PAGES (#CP)
+      #PAGES (#CP) := #LAST-KEY
+    ELSE
+      IF #SCROLL-AMOUNT < 1
+        #SCROLL-AMOUNT := 1
+      END-IF
+      IF #CP + #SCROLL-AMOUNT <= #MAXAP
+        #CP := #CP + #SCROLL-AMOUNT
+      ELSE
+        IF #SCROLL-AMOUNT > 1
+          #CP := #MAXAP
+        ELSE
+          ADD 1 TO #CP
+        END-IF
+      END-IF
+      IF #CP > #MAXAP
+        #PAGES(#CP) := #LAST-KEY
+      END-IF
+    END-IF
+  WHEN #BACKWARD
+    IF #CP < 2
+      IGNORE
+    ELSE
+      IF #SCROLL-AMOUNT < 1
+        #SCROLL-AMOUNT := 1
+      END-IF
+      SUBTRACT #SCROLL-AMOUNT FROM #CP
+      IF #CP < 1
+        #CP := 1
+      END-IF
+    END-IF
+  WHEN GET-SCREEN
+    IGNORE
+  WHEN NONE
+    ESCAPE ROUTINE
+END-DECIDE
+*
+IF #CP >= #MAXAP
+  #MAXAP := #CP
+END-IF
+*
+SATLGR-START-USERID  := #PK-USER(#CP)
+SATLGR-START-TIMEINV6:= #PK-TIMEINV(#CP)
+SATLGR-START-ISN     := #PK-ISN(#CP)
+*
+CV-MARK (*) := (AD=P)
+RESET I L-SCREEN (*) #END-OF-DATA
+*
+* CALLNAT 'SATLGR2N' SATLGR-PARMS /*raya nomall-1259 out
+CALLNAT 'SATLGR4N' SATLGR-PARMS /* NOMALL-1913 was SATLGR3N
+FOR I = 1 TO #NOFLINES
+  IF I GT SATLGR-RECORDS-FOUND
+    #END-OF-DATA:= TRUE
+    ESCAPE BOTTOM
+  END-IF
+  L-ISN(I):= SATLGR-ISN(I)
+  #L-USERID(I):= SATLGR-EXEC-USERID(I)
+*
+  PERFORM PREPARE-MESSAGE
+*
+  #L-MSG (I) := #MESSAGE-TEXT
+  MOVE EDITED SATLGR-TIME(I) (EM=HH':'II':'SS) TO #L-TIME(I)
+  MOVE EDITED SATLGR-TIME(I) (EM=YYYYMMDD) TO #L-DATE(I)
+  MOVE SATLGR-TIME-ZONE(I) TO #L-TIME-ZONE(I)
+  CALLNAT 'IODATE-N' 'M' 'S' #L-DATE(I) #FORMATED-DATE
+    G-DATE-FORMAT #ERROR-CODE #ERROR-TEXT
+  IF #ERROR-CODE = 0
+    #L-DATE(I) := #S-FORMATED-DATE
+  END-IF
+  RESET CV-MARK(I)
+*
+END-FOR
+IF NOT #END-OF-DATA
+  #LK-USER := SATLGR-EXEC-USERID(#NOFLINES)
+  #LK-TIMEINV:= SATLGR-TIME-INV(#NOFLINES)
+  #LK-ISN    := SATLGR-ISN(#NOFLINES)
+ELSE
+  #MAXP := #CP
+END-IF
+*
+END-SUBROUTINE /* GET-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE PREPARE-MESSAGE
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN SATLGR-MESSAGE(I) = MASK(9999)
+    #MSG-NR-A := SUBSTR(SATLGR-MESSAGE(I),1,4)
+  WHEN SATLGR-MESSAGE(I) = MASK('NOM'NNNN' ')
+    #PREFIX-ERC := SATLGR-MESSAGE(I)
+    #MSG-NR-A := #ERC
+  WHEN NONE IGNORE
+END-DECIDE
+*
+#MESSAGE-TEXT := SATLGR-MESSAGE(I)
+CALLNAT 'RSUBMSGN' #MESSAGE-TEXT
+IF #MSG-NR = 5
+  COMPRESS #MESSAGE-TEXT SATLGR-MESSAGE(I) TO #MESSAGE-TEXT
+END-IF
+*
+IF #MESSAGE-TEXT NE ' '
+  PERFORM XXWRAP-WORD-WRAP 'L' #MESSAGE-TEXT #WRAP-MESSAGE (*) 65
+  #MESSAGE-TEXT := #WRAP-MESSAGE (1)
+END-IF
+*
+END-SUBROUTINE /* PREPARE-MESSAGE
+*
+************************************************************************
+DEFINE SUBROUTINE LINE-COMMANDS
+************************************************************************
+RESET L-IDENT (*)
+INCLUDE RLCMTI-C
+*
+FOR I 1 TO #NOFLINES
+  IF L-IDENT (I) = ##EQU-INFO
+    FETCH RETURN 'RINFLO' L-ISN (I)
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* LINE-COMMANDS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-LINECOM
+************************************************************************
+G-LC-IDENT (01) := ##EQU-INFO
+G-LC-NUM        := 1
+CALLNAT 'RLCINI-N' G-OBJ-TYPE G-LC G-LCB
+CALLNAT 'RFLIPG-N' G-LC G-LINECOM (*)
+*
+END-SUBROUTINE /* INIT-LINECOM
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFBRW-C
+INCLUDE RPFLR--C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+* --------------------------------------- set pfkeys -------------------
+INCLUDE RPFSET-C
+*
+END

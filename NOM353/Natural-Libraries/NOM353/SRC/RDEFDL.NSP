@@ -1,0 +1,215 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RDEFDL
+* Version   1.3
+* Function  Distribution List Maintenance
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 91-05-27 f(218)    grant-options not checked correctly
+* gw  91-08-06           show message line
+* mrs 91-12-27 s(141159) support languages other than english
+* mrs 92-06-16           mod list * corrected
+* gw  95-10-16 s(234259) reset user list with function add
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsiszha 2000-08-07 (CE7461) Extend Report and Bundle Names
+* xsetggr 2012-02-01 NOMALL-1100 write language independant msgs to log
+* xsetggr 2012-05-16 NOMALL-1136 change NOM error when empty list name
+* xsetggr 2012-12-18 NOMALL-89 implement security check subroutine
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-06-10 NOMALL-1281 show last update user+date
+* SU3     2018-12-03 NOMALL-2182 Reject reserved names 'ADMIN'+'PUBLIC'
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING RPFK---L
+LOCAL USING VDISTS-L
+LOCAL USING RLOG-L
+LOCAL USING EOM----E               /* xsetggr 2012-12-18 NOMALL-89 start
+LOCAL USING EOMGRM-P
+LOCAL USING EOMMSG-P               /* xsetggr 2012-12-18 NOMALL-89 end
+* *****
+LOCAL
+1 USERS VIEW OF NRM-USERS
+1 L-HEADER          (A30) INIT <'      List Addition     '>
+1 CV-MAP            (C) INIT < (AD=I CD=NE)>
+1 CV-LIST           (C) INIT <(CD=NE)>
+1 #FUNC             (A1)
+1 #CTRL-ODEFNOM1    (A20) INIT <'WC11L76B07/04F'>
+1 #FATHER-PROG      (A8) INIT <'RLISDL'>
+1 #ALLOWED          (L)
+1 #GR-N             (A25)
+1 #LANGUAGE         (I1)
+1 #LIST             (A8)
+1 #PROG             (A8) /* xsetggr 2012-09-21 NOMALL-89 in
+1 #LAST-MOD         (A40) /*SU2
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET G-COMMIT
+#PROG := *PROGRAM
+#GR-N := G-C-LIST
+PERFORM XXSECURITY-CHECK #PROG #GR-N #ALLOWED
+INCLUDE C-NALLOW
+*
+IF G-C-FUNC = 'P'
+  FETCH RETURN 'RDELDL'
+  INCLUDE C-ESCAPE
+END-IF
+IF G-C-LIST = SCAN '*'
+  #LIST := G-C-LIST
+  CALLNAT 'RSELDL-N' #LIST
+  IF #LIST = G-C-LIST
+    INCLUDE C-ESCAPE
+  ELSE
+    G-C-LIST := #LIST
+  END-IF
+END-IF
+#FUNC := G-C-FUNC
+MAIN-LOOP. REPEAT
+  FIND-LOOP. FIND DISTRIBUTION-LIST WITH D-LIST-NAME = G-C-LIST
+    IF NO RECORDS FOUND
+      IF #FUNC = 'M' OR='D'
+        G-NATRP-ERC := 0604
+        G-NATRP-ERT := G-C-NODE-NO
+        INCLUDE C-ESCAPE
+      END-IF
+    END-NOREC
+    DECIDE ON FIRST VALUE OF #FUNC
+      VALUE 'A'
+        RESET G-C-LIST DISTRIBUTION-LIST.D-LIST-NAME
+          DISTRIBUTION-LIST.D-LIST-DESC
+        RESET CV-LIST
+        CV-LIST := CV-MAP := (CD=NE)
+      VALUE 'M'
+        CV-LIST := (AD=P CD=NE)
+        CV-MAP := (CD=NE)
+      VALUE 'D'
+        CV-LIST := CV-MAP := (AD=P CD=NE)
+      NONE IGNORE
+    END-DECIDE
+    L-HEADER := '       List Definition'
+*
+    SCREEN-LOOP. REPEAT
+      IF #LANGUAGE NE *LANGUAGE
+        PERFORM INIT-PFKEYS
+        #LANGUAGE := *LANGUAGE
+      END-IF
+      PERFORM SET-PFKEYS
+      SET CONTROL #CTRL-ODEFNOM1
+      SET CONTROL 'M6'
+      CALLNAT 'N-HEAD2' D-LAST-UPDATE-USER D-LAST-UPDATE /*SU2
+        #LAST-MOD G-DATE-FORMAT /*SU2
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+        MARK *G-DIRECT-COMMAND USING MAP 'RDEFDLM&'
+      SET CONTROL #CTRL-ODEFNOM1
+      RESET G-NATRP-ERC G-NATRP-ERT
+      INCLUDE RPFKVA-C
+      INCLUDE C-DIRECT
+*
+      INCLUDE RPFKED-C
+      DECIDE ON FIRST VALUE OF G-C-LIST
+        VALUE ' '       REINPUT *0606 MARK *G-C-NODE-NO ALARM
+        VALUE 'ADMIN'   REINPUT *0517 MARK *G-C-NODE-NO ALARM /*SU3
+        VALUE 'PUBLIC'  REINPUT *0518 MARK *G-C-NODE-NO ALARM /*SU3
+        NONE IGNORE
+      END-DECIDE
+*
+      IF CV-MAP MODIFIED  OR G-MAP-MODIFIED OR CV-LIST MODIFIED
+        DECIDE ON FIRST VALUE OF #FUNC
+          VALUE 'A'
+            FINDNUM.  FIND NUMBER DISTRIBUTION-LIST
+              WITH D-LIST-NAME = G-C-LIST
+            IF *NUMBER(FINDNUM.) > 0
+              REINPUT *0605 MARK *G-C-NODE-NO ALARM
+            END-IF
+            FINDNUMU. FIND NUMBER USERS WITH USER-ID  = G-C-LIST
+            IF *NUMBER(FINDNUMU.) > 0
+              REINPUT *0507  MARK *G-C-NODE-NO ALARM
+            END-IF
+            DISTRIBUTION-LIST.D-LIST-NAME := G-C-LIST
+            RESET DISTRIBUTION-LIST.D-USER-LIST (*)
+            DISTRIBUTION-LIST.D-LAST-UPDATE-USER := G-USERID /*SU2
+            DISTRIBUTION-LIST.D-LAST-UPDATE      := *TIMX /*SU2
+            STORE. STORE DISTRIBUTION-LIST
+*
+            G-NATRP-ERC := 31
+            #FUNC := 'M'
+            PERFORM ADD-GRANTS
+* -- LOG RECORD
+            IF G-LOG-LIST
+              LG-CODE := 'LM'
+              LG-USERID := G-USERID
+              LG-OBJECT-NAME := G-C-LIST
+              COMPRESS '0761' G-C-LIST TO LG-MSG
+              CALLNAT 'RLOG' PL-PARMS
+            END-IF
+* ---
+            INCLUDE C-COMMIT
+            INCLUDE REXDO--C
+            ESCAPE BOTTOM (FIND-LOOP.)
+* *****
+          VALUE 'M'
+            DISTRIBUTION-LIST.D-LAST-UPDATE-USER := G-USERID /*SU2
+            DISTRIBUTION-LIST.D-LAST-UPDATE      := *TIMX /*SU2
+            UPDATE
+            G-NATRP-ERC := 32
+* -- LOG RECORD
+            IF G-LOG-LIST
+              LG-CODE := 'LM'
+              LG-USERID := G-USERID
+              LG-OBJECT-NAME := G-C-LIST
+              COMPRESS '0762' G-C-LIST TO LG-MSG
+              CALLNAT 'RLOG' PL-PARMS
+            END-IF
+            INCLUDE C-COMMIT
+          NONE VALUE IGNORE
+        END-DECIDE
+      END-IF
+*
+      INCLUDE REXDO--C
+    END-REPEAT
+  END-FIND /*(FIND-LOOP.)
+END-REPEAT /*(MAIN-LOOP.)
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-GRANTS /*xsetggr 2012-12-18 NOMALL-89 in
+************************************************************************
+EOMGRM-I-TYPE := 'L'
+EOMGRM-I-NAME := G-C-LIST
+*
+EOMGRM-I-USER    := G-USERID
+EOMGRM-OPTION(*) := 'Y'
+CALLNAT 'EOMGRM-N' EOM-ADD EOMGRM-PARMS EOMMSG-PARMS
+*
+RESET EOMMSG-PARMS
+EOMGRM-I-USER    := 'PUBLIC'
+EOMGRM-OPTION(*) := 'N'
+EOMGRM-OPTION(4) := 'Y'
+CALLNAT 'EOMGRM-N' EOM-ADD EOMGRM-PARMS EOMMSG-PARMS
+*
+END-SUBROUTINE /* ADD-GRANTS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFADD-C
+INCLUDE RPFCOM-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSET-C
+*
+END

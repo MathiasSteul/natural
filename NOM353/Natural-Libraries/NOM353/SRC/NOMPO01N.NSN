@@ -1,0 +1,244 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMPO01N
+* Function  Printouts Maintenance
+* Version   3.1
+*
+* Maintenance:
+* uuu     yyyy-mm-dd s(999999) ....
+* xsetggr 2007-06-03 p(294790) created
+* xsetggr 2007-06-27 NOM3201   support 5 byte node and 11 byte run numbe
+*                              numbers, restow - changes in eompom-parms
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-08-11 p(300323) add steplibs
+* xsetggr 2008-12-05 p(300323) change adding of steplibs
+* xsetggr 2009-01-21 P313531   change steplib handling
+* xsetggr 2009-02-10 P300323   delete steplib handling, get EOM-LIBRARY
+*                              by RGETLIB
+* fhi     2009-02-27 P300323 Rename RGETSTEP to NOMGSTEP delivered in SYSTEM
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* raya    2012-02-01 NOMALL-1096 error-text a250 NOMPO--P stow only
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-11-12 NOMALL-1527 getting rid of coding for old versions-
+*                                only restruct
+* SU3     2018-04-05 NOMALL-1961 Use new task IDs
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER USING NOMPO--P
+*
+LOCAL USING EOM----P
+LOCAL USING EOMMSG-P
+LOCAL USING NOMPO--E
+LOCAL USING EOMPOM-P
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+LOCAL USING RACTLF-A
+LOCAL
+1 USER VIEW OF NRM-USERS
+  2 USER-PROFILE
+1 #LFILE-CHANGED             (L)
+1 #NOM-DBID                  (N5)
+1 #NOM-FNR                   (N5)
+1 #LFILE-ACTIVE-CHANGED      (L)
+1 #NOM-DBID-ACTIVE           (N5)
+1 #NOM-FNR-ACTIVE            (N5)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET NOMPO-ERROR-CODE NOMPO-ERROR-TEXT
+*
+DECIDE FOR EVERY CONDITION
+  WHEN NOMPO-NOM-FNR NE 0 AND NOMPO-NOM-DBID NE 0
+    SATLF-LFILE := 206
+    PERFORM GET-NOM-LFILE
+    #NOM-DBID := SATLF-DBID-N5
+    #NOM-FNR  := SATLF-FNR-N5
+    PERFORM SET-NOM-LFILE
+    #LFILE-CHANGED := TRUE
+  WHEN SATLF-ERROR-CODE = 0 AND
+      NOMPO-NOM-FNR-ACTIVE NE 0 AND NOMPO-NOM-DBID-ACTIVE NE 0
+    PERFORM SET-ACTIVE-LFILE
+  WHEN NOMPO-ERROR-CODE = 0 AND SATLF-ERROR-CODE = 0
+    PERFORM OBJECT-MAINTENANCE
+  WHEN #LFILE-CHANGED
+    SATLF-LFILE := 206
+    PERFORM SET-OLD-NOM-LFILE
+  WHEN #LFILE-ACTIVE-CHANGED
+    SATLF-LFILE   := 91
+    SATLF-DBID-N5 := #NOM-DBID-ACTIVE
+    SATLF-FNR-N5  := #NOM-FNR-ACTIVE
+    PERFORM SET-LFILE
+  WHEN NOMPO-ERROR-CODE NE 0
+    PERFORM GET-ERR-TXT
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE OBJECT-MAINTENANCE
+************************************************************************
+EOMPOM-I-ATTRIBUTE-TYPE := NOMPO-ATTRIBUTE-TYPE
+EOMPOM-I-ID := NOMPO-ID
+IF NOT (NOMPO-LANGUAGE = 1 OR = 2)
+  EOM-LANGUAGE := *LANGUAGE
+ELSE
+  EOM-LANGUAGE := NOMPO-LANGUAGE
+END-IF
+EOM-USER := NOMPO-USERID
+FIND USER WITH USER-ID = EOM-USER
+  EOM-USER-PROFILE := USER-PROFILE
+END-FIND
+EOM-VERSION     := NOMPO-NOMVERS
+EOM-FUNCTION    := NOMPO-FUNCTION
+EOMPOM-ATTR (*) := NOMPO-ATTRIBUTES (*)
+*
+CALLNAT 'RGETLIB' EOM-LIBRARY
+COMPRESS EOM-LIBRARY 'U' TO EOM-USER-LIBRARY LEAVING NO
+/*SU3 FIND MONITOR WITH M-MONITOR-ID = EOM-LIBRARY
+EOM-DEF-USER := F#MONITOR-USER-AUTODEF (<>) /*SU3
+*
+DECIDE ON FIRST NOMPO-FUNCTION
+  VALUE NOMPO-FCT-READ, NOMPO-FCT-READHOLD,
+      NOMPO-FCT-READ-NEXT, NOMPO-FCT-READHOLD-NEXT
+    RESET NOMPO-ATTRIBUTES(*) NOMPO-SCHEDULED NOMPO-PRINTED
+      NOMPO-CREATED
+    PERFORM CALL-INTERNAL-API
+    NOMPO-ATTRIBUTES (*) := EOMPOM-ATTR (*)
+    NOMPO-ID := EOMPOM-I-ID
+    NOMPO-EOF := EOMPOM-EOF
+  VALUE NOMPO-FCT-MODIFY
+    EOMPOM-ATTR (*) := NOMPO-ATTRIBUTES (*)
+    PERFORM CALL-INTERNAL-API
+  VALUE NOMPO-FCT-DELETE, NOMPO-FCT-HOLD-PRINT, NOMPO-FCT-RELEASE,
+      NOMPO-FCT-RESTART-PRINT, NOMPO-FCT-COMMIT, NOMPO-FCT-BACKOUT
+    PERFORM CALL-INTERNAL-API
+  NONE VALUE
+    EOMMSG-NR := 20
+    PERFORM GET-ERR-TXT
+END-DECIDE
+*
+IF EOMMSG-NR NE 0
+  PERFORM GET-ERR-TXT
+END-IF
+*
+END-SUBROUTINE /* OBJECT-MAINTENANCE
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-INTERNAL-API
+************************************************************************
+RESET EOMMSG-PARMS
+CALLNAT 'EOMPOM-N' EOM-PARMS EOMPOM-PARMS EOMMSG-PARMS
+*
+IF EOMMSG-NR NE 0
+  NOMPO-ERROR-CODE := EOMMSG-NR
+  IF EOMMSG-TEXT = ' '
+    PERFORM GET-ERR-TXT
+  ELSE
+    NOMPO-ERROR-TEXT := EOMMSG-TEXT
+  END-IF
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* CALL-INTERNAL-API
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NOM-LFILE
+************************************************************************
+SATLF-FUNCTION := 'GET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+*
+END-SUBROUTINE /* GET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+SATLF-FUNCTION := 'SET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := NOMPO-NOM-DBID
+SATLF-FNR-N5  := NOMPO-NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-OLD-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := #NOM-DBID
+SATLF-FNR-N5  := #NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-OLD-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-ACTIVE-LFILE
+************************************************************************
+IF NOMPO-NOM-DBID-ACTIVE NE 0 AND NOMPO-NOM-FNR-ACTIVE NE 0
+  SATLF-LFILE := 91
+  PERFORM GET-NOM-LFILE
+  #NOM-DBID-ACTIVE := SATLF-DBID-N5
+  #NOM-FNR-ACTIVE  := SATLF-FNR-N5
+  SATLF-DBID-N5    := NOMPO-NOM-DBID-ACTIVE
+  SATLF-FNR-N5     := NOMPO-NOM-FNR-ACTIVE
+  PERFORM SET-LFILE
+  #LFILE-ACTIVE-CHANGED:= TRUE
+  ESCAPE ROUTINE
+END-IF
+RESET RACTLF-LOGGING
+  RACTLF-ERROR-LOGGING
+RACTLF-LFILE-1 := 91
+RACTLF-LFILE-2 := 206
+CALLNAT 'RACTLF-N' RACTLF-PARMS
+IF RACTLF-ERROR-CODE NE 0
+  NOMPO-ERROR-CODE := 4
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* SET-ACTIVE-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE GET-ERR-TXT
+************************************************************************
+NOMPO-ERROR-TEXT := F#GETMSG (<EOMMSG-NR, EOMMSG-TOKEN(1:3)>)
+*
+END-SUBROUTINE /* GET-ERR-TXT
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF #LFILE-CHANGED
+    SATLF-LFILE := 206
+    PERFORM SET-OLD-NOM-LFILE
+  END-IF
+  IF #LFILE-ACTIVE-CHANGED
+    SATLF-LFILE   := 91
+    SATLF-DBID-N5 := #NOM-DBID-ACTIVE
+    SATLF-FNR-N5  := #NOM-FNR-ACTIVE
+    PERFORM SET-LFILE
+  END-IF
+  IF *ERROR-NR = 82
+    WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Missing NOM steplibs' //
+      'Please call NOM steplib routine NOMGSTEP before call of NOM API.'
+  END-IF
+  NOMPO-ERROR-CODE := NOMPO-ERROR-TEXT := 21
+  CALLNAT 'C-NATERN' NOMPO-ERROR-TEXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

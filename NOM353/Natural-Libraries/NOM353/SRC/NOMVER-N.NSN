@@ -1,0 +1,108 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMVER-N
+* Version   1.3
+* Function  Return version and date of any valid product code.
+*           The version info is taken from the control record, but
+*           if the information is requested for an ESM product which
+*           is not executed in a SYSxxx library, the version data is
+*           extracted from the library name, e.g. NOM211 will return
+*           version 211 to caller. This feature allows several versions
+*           to be executed from the same FNAT environment.
+*
+* Maintenance
+* fhi 00-01-26 s(191368) 2110
+* jwo 00-11-15 s(999999) adapted to take info from system-file
+* jwo 01-01-23 s(999999) rewritten see comment above
+* fhi 09-06-04 P315875   This old module reactivated for NOM 3.2, only
+*                        to ensure that old applications work. No more
+*                        used by NOM 3.2.1.4
+* splildav 2012-08-30 NOMALL-94
+* fhi/bli  2012-09-13 NOMALL-94 Introduce 2 digit versions
+* SU1     2016-08-05 NOM 3.5: remove unused code
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER USING NOMVER-A   /* NOMALL-94 bli was NOMVER-P
+LOCAL  USING INTSAT-L
+LOCAL
+1 #ESM-PRODUCTS   (A3/3) INIT <'EOM', 'EOR' , 'EEM'>
+1 #ESM-PRODUCT    (L)
+1 #INDEX          (I2)
+1 #APPLIC-ID      (A8) INIT <*APPLIC-ID>
+1 REDEFINE #APPLIC-ID
+  2 #APPLIC-SYS   (A3)
+  2 #APPLIC-VE    (A1)
+  2 #APPLIC-RL    (A1)
+  2 #APPLIC-SP    (A2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF NOMVER-PRODUCTNAME = ' '
+  NOMVER-PRODUCTNAME := 'EOM'
+END-IF
+*
+* Check whether we are invoked for an ESM product
+*
+EXAMINE #ESM-PRODUCTS (*) FOR NOMVER-PRODUCTNAME GIVING INDEX #INDEX
+IF #INDEX EQ 0
+  #ESM-PRODUCT := FALSE
+ELSE
+  #ESM-PRODUCT := TRUE
+END-IF
+*
+IF #APPLIC-SYS EQ 'SYS' OR NOT #ESM-PRODUCT
+  INT-FUNCTION      := 'R'             /* Read Version Info
+  INT-PRODUCTNAME   := NOMVER-PRODUCTNAME
+  PERFORM  CALL-INTSUB2
+  NOMVER-VERSION    := INT-VERSION
+  NOMVER-RELEASE    := INT-RELEASE
+  NOMVER-SP         := INT-SMLEVEL   /* NOMALL-94 was SM-LEVEL
+  NOMVER-CF         := INT-IUPDLEVEL /* NOMALL-94 was IUPD-LEVEL
+  NOMVER-DATE       := INT-DATE
+ELSE /*Extract version information from library name
+*
+* fhi      2012-09-13 NOMALL-94 start commenting
+* RESET NOMVER-VERSION NOMVER-RELEASE NOMVER-SMLEVEL NOMVER-IUPDLEVEL
+* IF #APPLIC-VE IS (N1) NOMVER-VERSION  := VAL (#APPLIC-VE) END-IF
+* IF #APPLIC-RL IS (N1) NOMVER-RELEASE  := VAL (#APPLIC-RL) END-IF
+* IF #APPLIC-SM IS (N1) NOMVER-SMLEVEL  := VAL (#APPLIC-SM) END-IF
+* IF #APPLIC-UL IS (N1) * NOMALL-94 Replace 1 line
+*   NOMVER-IUPDLEVEL:= VAL (#APPLIC-UL) * NOMVER-IUPDLEVEL:= #APPLIC-UL
+* END-IF NOMVER-DATE       := *DATN
+* fhi      2012-09-13 NOMALL-94 end commenting, start insertion
+  RESET NOMVER-VERSION NOMVER-RELEASE NOMVER-SP NOMVER-CF
+  IF #APPLIC-VE IS (N1) /* Only one digit in library nameÜ
+    NOMVER-VERSION  := VAL (#APPLIC-VE)
+  END-IF
+  IF #APPLIC-RL IS (N1) /* Only one digit in library nameÜ
+    NOMVER-RELEASE  := VAL (#APPLIC-RL)
+  END-IF
+  IF #APPLIC-SP IS (N2)
+    NOMVER-SP       := VAL (#APPLIC-SP)
+  END-IF
+  NOMVER-DATE       := *DATN
+* fhi      2012-09-13 NOMALL-94 end insertion
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-INTSUB2 /*SU1 from INTSAT-C
+************************************************************************
+CALLNAT 'INTSUB2' INT-FUNCTION INT-RESP INT-TEXT INT-PRODUCTNAME
+  INT-ACTIVE INT-EXTENT INT-VERSION INT-RELEASE INT-SMLEVEL
+  INT-IUPDLEVEL INT-DATE INT-TIME INT-USER INT-REM INT-SAG (*)
+  INT-PRODS (*)
+*
+END-SUBROUTINE /* CALL-INTSUB2
+*
+/*SU1 INCLUDE INTSAT-C /*SU1 move coding from CC into pgm
+END

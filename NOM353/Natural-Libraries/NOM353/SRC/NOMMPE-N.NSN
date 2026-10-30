@@ -1,0 +1,328 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMMPE-N - Purge NOM Monitor task buffer pool or singlr entry
+* Input Keys: ES-KEY-PARM(1) - task number
+*             ES-KEY-PARM(2) - library of purged entry
+*             ES-KEY-PARM(3) - object name of purged entry
+*             ES-KEY-PARM(4) - dbid
+*             ES-KEY-PARM(5) - fnr
+*             if es-key-parm(2) - es-key-parm(5) not specified - purge
+*             all task buffer pool
+*             if es-key-parm(1) not specified - main monitor
+* Maintenance:
+* XSETGGR 2004-12-09   created
+* fhi     2005-06-23 p(266530) Monitor must be NPR Mainf independent
+* xsetggr 2005-07-08 p(266530) additional changes
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-08-15 p(307976) err msg for subtasks if node=0
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2012-01-12 NOMALL-1020 write language independant msgs to log
+* xsetggr 2012-03-11 NOMALL-1099 use interface to call RLOG from NGC
+* fhi     2016-11-11 NOMALL-1961 Duplicate monitor copy task
+* fhi     2018-08-06 NOMALL-2135 Use internal node id in orders
+* SU1     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* ------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+INDEPENDENT
+1 +NOD-CURRENT-INTERNAL-ID (P11) /* Internal node id of the curr. node
+************************************************************************
+LOCAL USING NOMODE-A
+LOCAL USING VSUBT-L
+LOCAL USING RMSETSTE
+LOCAL USING RLOG-L
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING RMTASK-P            /* NOMALL-1961 fhi in
+LOCAL
+1 MONITOR VIEW OF NRM-MONITOR
+  2 M-MONITOR-ID
+  2 M-MAX-RETRIES
+  2 M-RETRY-INTERVAL
+1 ORDER VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-PARAMETER (1)
+  2 OD-TYPE
+  2 OD-MONITOR-ID
+  2 OD-USER-ID
+  2 OD-TIME-CREATED
+  2 OD-TIME-SCHEDULED
+  2 OD-MAX-RETRIES
+  2 OD-RETRY-INTERVAL
+  2 OD-INTERNAL-NODE-ID               (P15)  /* NOMALL-2135 fhi in
+1 #OD-PARAMETER              (A250)
+1 REDEFINE #OD-PARAMETER
+  2 #OD-PRM-OBJ-LIB          (A8)
+  2 #OD-PRM-OBJ-NAME         (A40)
+  2 #OD-PRM-OBJ-DBID         (N3)
+  2 #OD-PRM-OBJ-FNR          (N3)
+  2 #OD-PRM-OBJ-DBID-N5      (N5)
+  2 #OD-PRM-OBJ-FNR-N5       (N5)
+1 EVENTING VIEW OF EVENTING
+  2 ERROR-CODE
+  2 EVENT-NAME
+1 #EVENT-NAME               (A8)
+1 REDEFINE #EVENT-NAME
+  2 #EVENT-PREFIX           (A3)
+  2 #EVENT-TASK             (I1) /* NOMALL-1961 fhi was (A1)
+  2 #EVENT-DBID             (I2)
+  2 #EVENT-FNR              (I2)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-FIELD             (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+1 #ES-MSG-TXT               (A250)
+1 #FROM                     (A16)
+1 #LIBRARY-ID               (A8)
+1 #TT                       (T)
+1 #I                        (I2)
+1 #STATUS-TEXT              (A24)
+1 #USER-LIB                 (A8)
+1 #MAX-TASKS                (I1)  CONST <59> /* NOMALL-1961 fhi in
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+RESET ES-RC #TT #OD-PARAMETER
+NOMOD-PARMS := ES-SELECT
+#LIBRARY-ID := ES-APP-SERVER-LIBRARY
+COMPRESS ES-APP-SERVER-LIBRARY 'U' TO #USER-LIB LEAVING NO
+IF NOMOD-MONITOR-NODE = 0
+  #ES-MSG-NR := 2603     /* Function only possible with Mainframe NPR
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+*
+DECIDE ON FIRST VALUE OF ES-KEY-PARM-COUNT
+  VALUE 0                        /* purge all monitor buffer pool
+    RMTASK-P.SUBTASK-NUMBER := 1
+    PERFORM PURGE-ALL-MAIN
+  VALUE 1                        /* purge all task buffer pool
+    RMTASK-P.SUBTASK-NUMBER := VAL(ES-KEY-PARM(1))
+    PERFORM PURGE-ALL-TASK
+  VALUE 4                       /* purge monitor buffer pool entry
+    RMTASK-P.SUBTASK-NUMBER := 1
+    PERFORM PURGE-ENTRY
+  VALUE 5                       /* purge task buffer pool entry
+    RMTASK-P.SUBTASK-NUMBER := VAL(ES-KEY-PARM(1))
+    PERFORM PURGE-ENTRY
+  NONE VALUE IGNORE
+END-DECIDE
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+ELSE
+  END TRANSACTION
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE PURGE-ALL-MAIN
+************************************************************************
+#OD-PRM-OBJ-LIB  := #OD-PRM-OBJ-NAME := '*'
+IF *MACHINE-CLASS = 'MAINFRAME'
+  FIND EVENTING WITH NODE = NOMOD-MONITOR-NODE AND FUNCTION = 'LIST'
+      AND EVENT-NAME = 'NOM*'
+    IF ERROR-CODE NE 0
+      ESCAPE BOTTOM
+    END-IF
+    #EVENT-NAME:= EVENT-NAME
+    IF #EVENT-DBID = NOMOD-NATRPT-DBID AND #EVENT-FNR = NOMOD-NATRPT-FNR
+      IF #EVENT-TASK = 1
+        RMTASK-P.SUBTASK-NUMBER := 1
+        PERFORM PURGE-ALL-TASK
+        IF ES-RC NE 0
+          ESCAPE ROUTINE
+        END-IF
+      ELSE
+        RMTASK-P.SUBTASK-NUMBER := #EVENT-TASK
+        PERFORM PURGE-ALL-TASK
+        IF ES-RC NE 0
+          ESCAPE ROUTINE
+        END-IF
+      END-IF
+    END-IF
+  END-FIND
+ELSE
+  IF NOMOD-MONITOR-NODE NE 0
+    RMTASK-P.SUBTASK-NUMBER := 1
+    PERFORM PURGE-ALL-TASK                 /* for main monitor task
+    RMTASK-P.FUNCTION       := 'S'
+    RMTASK-P.SUBTASK-NUMBER := 2
+    CALLNAT 'RMTASKID' RMTASK-P
+    #FROM := RMTASK-P.TASK-ID
+    RMTASK-P.SUBTASK-NUMBER := #MAX-TASKS
+    CALLNAT 'RMTASKID' RMTASK-P
+    FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID=#FROM THRU RMTASK-P.TASK-ID
+      ACCEPT IF ST-SUBTASK-ID = MASK('NOM'NNNNNNNNNN'-'NN)
+      IF ST-LAST-ACTIVE = #TT
+        ESCAPE TOP
+      END-IF
+      IF ST-STATUS NE ' '           /* get status text of task
+        EXAMINE #EQU-STATUS-V (*) FOR ST-STATUS GIVING INDEX #I
+        IF #I NE 0
+          IF ES-LANGUAGE = 2
+            #STATUS-TEXT := #EQ2-STATUS-V (#I)
+          ELSE
+            #STATUS-TEXT := #EQN-STATUS-V (#I)
+          END-IF
+        END-IF
+        IF ST-EXEC-TYPE = 'N'                  /* task not used
+        AND (#STATUS-TEXT =#EQN-CLOSED OR=#EQ2-CLOSED OR= #EQN-NOTACTIVE
+        OR = #EQ2-NOTACTIVE)                                          /*
+          ESCAPE TOP
+        END-IF
+      END-IF
+      RMTASK-P.TASK-ID  := ST-SUBTASK-ID
+      RMTASK-P.FUNCTION := 'G'
+      CALLNAT 'RMTASKID' RMTASK-P
+      PERFORM PURGE-ALL-TASK
+      IF ES-RC NE 0
+        ESCAPE ROUTINE
+      END-IF
+    END-FIND
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* PURGE-ALL-MAIN
+*
+************************************************************************
+DEFINE SUBROUTINE PURGE-ALL-TASK
+************************************************************************
+#OD-PRM-OBJ-LIB  := #OD-PRM-OBJ-NAME := '*'
+PERFORM WRITE-LOG-MSG
+PERFORM STORE-ORDER
+*
+END-SUBROUTINE /* PURGE-ALL-TASK
+*
+************************************************************************
+DEFINE SUBROUTINE PURGE-ENTRY
+************************************************************************
+* set od parms
+IF ES-KEY-PARM(ES-KEY-PARM-COUNT - 3) = ' '              /* library
+  #OD-PRM-OBJ-LIB := #LIBRARY-ID
+ELSE
+  #OD-PRM-OBJ-LIB := ES-KEY-PARM(ES-KEY-PARM-COUNT - 3)
+END-IF
+#OD-PRM-OBJ-NAME  := ES-KEY-PARM(ES-KEY-PARM-COUNT - 2)
+IF ES-KEY-PARM(ES-KEY-PARM-COUNT - 1) > ' '              /* dbid
+  #OD-PRM-OBJ-DBID-N5   := VAL(ES-KEY-PARM(ES-KEY-PARM-COUNT - 1))
+ELSE
+  RESET #OD-PRM-OBJ-DBID-N5
+END-IF
+IF ES-KEY-PARM(ES-KEY-PARM-COUNT) > ' '                  /* fnd
+  #OD-PRM-OBJ-FNR-N5    := VAL(ES-KEY-PARM(ES-KEY-PARM-COUNT))
+ELSE
+  RESET #OD-PRM-OBJ-FNR-N5
+END-IF
+* validation of parms
+DECIDE FOR FIRST CONDITION
+  WHEN #OD-PRM-OBJ-LIB = ' ' OR = '*'
+    #ES-MSG-NR := 1530                /* Please enter library
+    #ES-MSG-FIELD := 'LIBRARY'
+  WHEN #OD-PRM-OBJ-NAME = ' ' OR = '*'
+    #ES-MSG-NR := 1531                /* Please enter object name
+    #ES-MSG-FIELD := 'OBJECT'
+  WHEN #OD-PRM-OBJ-DBID-N5 = 0
+    #ES-MSG-NR := 1532                /* Please enter DBID
+    #ES-MSG-FIELD := 'DBID'
+  WHEN #OD-PRM-OBJ-FNR-N5 = 0
+    #ES-MSG-NR := 1533                /* Please enter FNR
+    #ES-MSG-FIELD := 'FNR'
+  WHEN ANY
+    ESCAPE ROUTINE
+  WHEN NONE IGNORE
+END-DECIDE
+PERFORM WRITE-LOG-MSG
+PERFORM STORE-ORDER
+*
+END-SUBROUTINE /* PURGE-ENTRY
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-MSG
+************************************************************************
+RMTASK-P.FUNCTION       := 'L'
+CALLNAT 'RMTASKID' RMTASK-P
+LG-USERID := RMTASK-P.TASK-ID
+LG-CODE   := 'MO'
+LG-MSG := '1517'
+CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+END TRANSACTION
+*
+END-SUBROUTINE /* WRITE-LOG-MSG
+*
+************************************************************************
+DEFINE SUBROUTINE STORE-ORDER
+************************************************************************
+CALLNAT 'RMODID-N' ORDER.OD-ID #ES-MSG-NR #ES-MSG-TXT
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ESCAPE ROUTINE
+END-IF
+RMTASK-P.FUNCTION       := 'S'
+RMTASK-P.SUBTASK-NUMBER := 1
+CALLNAT 'RMTASKID' RMTASK-P
+FIND MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+  IF NO RECORDS FOUND
+    #ES-MSG-NR := 1516   /* Monitor not installed correctly
+    ESCAPE BOTTOM
+  END-NOREC
+END-FIND
+IF #ES-MSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+ORDER.OD-PARAMETER (1)  := #OD-PARAMETER
+ORDER.OD-TYPE           := 0020            /* OD-PURGE-BUFFERPOOL
+ORDER.OD-MONITOR-ID     := RMTASK-P.TASK-ID
+ORDER.OD-USER-ID        := ES-USER
+ORDER.OD-TIME-CREATED   := *TIMX
+ORDER.OD-TIME-SCHEDULED := *TIMX
+ORDER.OD-MAX-RETRIES    := MONITOR.M-MAX-RETRIES
+ORDER.OD-RETRY-INTERVAL := MONITOR.M-RETRY-INTERVAL
+ORDER.OD-INTERNAL-NODE-ID  := +NOD-CURRENT-INTERNAL-ID
+STORE ORDER
+*
+END-SUBROUTINE /* STORE-ORDER
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := #LIBRARY-ID
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR    := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+ES-RC := 1
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+END

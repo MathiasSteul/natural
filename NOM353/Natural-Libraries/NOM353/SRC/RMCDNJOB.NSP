@@ -1,0 +1,1005 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 5
+* <Natural Source Header
+* RMCDNJOB - Submit Condense Job
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  93-11-29 s(999999) rewritten, old version saved
+* mrs 94-05-30 s(999999) BS2000
+* gw  94-10-24 s(999999) log message when no job-number at CLOSE submit
+* gw  95-12-04 s(237389) avoid loop when member doesn't exist
+* gw  96-11-08 s(246571) ESY5510 in RJGETVOL
+* gw  97-01-13 s(260138) condense returns ESY5510
+*                        previous change was nonsense
+* gw  97-01-23 s(999999) &DATE and &DISP for VSE
+* gw  97-02-07 s(260138) error in previous correction ESY5510
+* jwo 97-10-06 p(165738) set expiration date for every cdn step
+*                        under test only
+* jwo 97-12-04 p(165738) solution is ok for customer, but not as a
+*                        general solution. Special version can be found
+*                        in lib NOM135SP.
+*                        Fix taken out again.
+* gw  98-07-22 p(172438) allow separate prefix for condense data set
+* jvd 98-09-10 p(164220) NOM141ÖNAT23
+* sju     2000-03-24 p(191368) monitor multitasking
+* xsetggr 2001-10-18 p(206311) add error message if submit fails
+* sju     2002-03-22 p(222013) EXPDT on every step of condense job
+* sju     2002-04-02 p(205358) Condense to disk without volsers
+* sju     2002-08-12 NOM221    User defined archive types
+* fhi     2002-10-30 fhi101    switch on optimizer compiler
+* sju     2003-06-06 p(241158) Condense doesn't work on VSE
+* sju     2004-12-07 NOM31     Tracing
+* sju     2005-02-04 NOM31     NAT00021 instead of CMQ
+* fhi     2005-04-14 NOM3107   Added Support for 7 byte jobnumbers
+* fhi     2005-06-23 p(266530) Make Monitor NPR Mainframe independent
+* xsetggr 2007-05-04 NOM3201   Support 5 byte node numbers
+* fhi     2007-06-04 FHI232    Don't trace if started online.
+* xsetggr 2008-02-07 p(300495) process-bprint-card not to be used here
+* xsetggr 2008-04-23 p(304175) Do not fill RMJBST parms if use Unix
+* fhi     2008-05-07 p(304334) Start of Condense fails under Unix
+* fhi     2010-08-25 NOMALL-853 Monitor Multitasking under Unix
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* fhi     2010-11-08 NOMALL-95  Improve names of log files              STEM
+* fhi     2010-12-02 NOMALL-929 END TRANSACTION for Unix layer RMSTX--N STEM
+* fhi     2011-12-02 NOMALL-1073 Correct condensing for Unix            STEM
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* fhi     2014-03-03 NOMALL-1363 Get cat cate into trace messages
+* BLI     2016-04-08 NOMALL-1844 Difference logic-physic expiration
+* BLI     2016-04-27 NOMALL-1844 Datasets in-/out sequence
+* SU2     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* BLI     2017-07-11 NOMALL-2027 sporadic abends, more than one job
+* BLI     2017-09-20 NOMALL-1477 z/OS archive w/o predefined volsers
+* fhi     2018-03-08 NOMALL-1918 Get it on Unix / Correct NPR Logons
+* BLI     2018-03-21 Monitor/Spool: not all values exist as AIV
+* BLI     2020-01-07 NOMALL-2369 Datasets in-/out sequence
+* BLI     2020-05-28 NOMALL-2415 use today, if expiration is not set
+* SU3     2020-04-27 NOMALL-2349 use N-ESYLG
+* SU4     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU5     2021-04-22 NOMALL-2454 recat for VMONIT-L M-NATRPT-DBID/-FNR
+* SU6     2024-03-07 ES-34613    NOM 3.6 Remove power / BS2
+* ----------------------------------------------------------------------
+*
+DEFINE DATA GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +CMRDC (A1)
+* *****
+/*SU4 LOCAL USING VMONIT-L
+LOCAL USING VARCIV-L
+LOCAL USING RMJBST-P
+LOCAL USING RMJBSK-A
+LOCAL USING RLOG-L
+LOCAL USING RMDASD-P
+LOCAL USING RMSTX--P
+LOCAL USING VUSARC-L
+/*SU4 LOCAL USING VMONITUL /* NOMALL-1961 fhi in
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR
+  2 M-MONITOR-ID             (A20)
+/*SU5  2 M-NATRPT-DBID            (N3)
+/*SU5  2 M-NATRPT-FNR             (N3)
+  2 M-NATRPT-DBID-N5         (N5)
+  2 M-NATRPT-FNR-N5          (N5)
+1 MF-NODE VIEW OF NRM-MF-NODES
+  2 MF-TYPE                  (A1)
+  2 MF-SYSTEM-TYPE           (A8)
+  2 MF-MONITOR-ID            (A20)
+1 ARCHIVE-DATASET    VIEW  OF  NRM-ARCHIVE-DATASET
+  2 AD-ARCHIVE-DSNAME
+  2 AD-EXPIRATION-DATE
+  2 AD-EXPIRATION-DATE-PHYS             /* BLI 16-04-08 NOMALL-1844 in
+  2 AD-ARCHIVE-TYPE
+1 SUBMIT    VIEW  OF  SUBMIT
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 JOB-NUMBER
+  2 JOB-ID
+*
+1 #LOGON-LINE                  (A50)
+1 #JOBCARD                     (A72/1:3)
+1 #DBID                        (N5)
+1 REDEFINE    #DBID
+  2 #DBID-A                    (A5)
+1 #FNR                         (N5)
+1 REDEFINE    #FNR
+  2 #FNR-A                     (A5)
+1 #CRUN-X                      (A20) /* NOMALL-1073 in
+1 #CRUN                        (N4)
+1 REDEFINE    #CRUN
+  2 #CRUN-A                    (A4)
+1 #PRUN                        (N4)
+1 REDEFINE    #PRUN
+  2 #PRUN-A                    (A4)
+1 #SYSNR                       (N3)
+1 REDEFINE    #SYSNR
+  2 #SYSNR-A                   (A3)
+1 #DSNAME                      (A54)
+1 REDEFINE    #DSNAME
+  2 #DSNAME-TAPE               (A17)
+1 #JOB-NUMBER                  (A7)
+1 #JOB-NAME                    (A8)
+1 REDEFINE    #JOB-NAME
+  2 #J-N                       (A1/1:8)
+1 #JOB-NAME-ENTRY              (I2)
+1 #TEMP-LINE                   (A90)
+1 REDEFINE    #TEMP-LINE
+  2 #TEMP-L                    (A1/1:90)
+1 #F                           (P2)
+1 #I                           (P2)
+*
+1 #NODE                        (N5)
+1 REDEFINE    #NODE
+  2 #NODE-A                    (A5)
+*
+1 #LAST-STEP                   (L)
+1 LINE-SUBMITTED               (L)
+1 #N                           (I2)
+1 #NCARDS1                     (I2) CONST <12>
+* BLI 16-04-27 NOMALL-1844 see below dataset sequence for mainframe:
+* &DSNAMEIN (source) before &DSNAMEOUT (target)
+1 #NATCARDS1                   (A72/1:#NCARDS1) INIT
+  (01) <'&NATLOGON '>
+  (02) <'SETNRMLF &DBID &FNR '>
+  (03) <'GLOBALS IM=F'>
+  (04) <'RJCONDNS'>
+  (05) <'&JOBNAME'>
+  (06) <'&NODE '>
+  (07) <'&DSNAMEIN'>
+  (08) <'&DSNAMEOUT'>
+  (09) <'&EXPDATE'>
+  (10) <'&ESYUSER'>
+  (11) <'&ARCTYPE'>
+  (12) <'FIN '>
+*
+1 #NCARDS2                     (I2) CONST <4>
+1 #NATCARDS2                   (A72/1:#NCARDS2) INIT
+  (01) <'&NATLOGON '>
+  (02) <'SETNRMLF &DBID &FNR '>
+  (03) <'RJGETVOL &DSNAMEOUT &NODE &ESYUSER &ARCTYPE'>
+  (04) <'FIN '>
+*
+1 #EOMSTEP                     (N4)
+1 REDEFINE #EOMSTEP
+  2 #EOMSTEP-A4                (A4)
+1 #INDEX-EOMSTEP               (I4)
+1 #INDEX-DSNAMEIN              (I4)
+1 #INDEX-DISP                  (I4)
+1 #INDEX-DATE                  (I4)
+1 #INDEX-EXPDATE               (I4)
+*
+1 #EXPIRATION-DATE-YYYYJJJ     (A8)
+1 #EXPIRATION-DATE-YYYYMMDD    (A8)
+1 #EXPIRATION-DATE-D           (D)
+1 RMJBST-CARD                  (A72)
+1 SUPPRESS-NULL-SUBST          (L)
+1 #STRING1                     (A253)
+1 REDEFINE    #STRING1
+  2 #FILLER                    (A71)
+  2 #CONTINUATION              (A1)
+1 REDEFINE    #STRING1
+  2 #STRING1-A1                (A1/1:253)
+/*SU6 1 #DAYS                        (N10)
+1 #LINE-CNT                    (I4)
+1 DEVICE-NAMES VIEW OF DEVICE-NAMES
+  2 ADDRESS
+1 UNIT-ATTRIBUTES VIEW OF UNIT-ATTRIBUTES
+  2 CLASS
+1 #ARCHIVE-DASD-NOVOLS         (L)
+1 #ARCHIVE-TABLE               (10)
+  2 #ARCHIVE-TYPE              (N1)
+  2 #ARCHIVE-NAME              (A8)
+  2 #TO-BE-CONDENSED           (I4)
+1 #ARCHIVE-IND                 (I2)
+1 #MAX-ARCHIVE-TYPES           (I2)
+1 #USERARC-ID                  (A10)  INIT <'USERARC00'>
+1 REDEFINE #USERARC-ID
+  2 #USERARC-FIXED             (A8)
+  2 #USERARC-NUMBER            (N1)
+1 #CURRENT-CONDENSE-COUNT      (I4)
+1 #G-NPR-USERID                (A8)
+1 #TRACING                     (L)
+1 #CATDATE                     (A19)
+1 #LIBRARY-ID                  (A8)
+1 #CALLER                      (A8) INIT <*PROGRAM>
+1 #MONITOR-ID                  (A20)
+1 #LINE                        (N4)
+1 REDEFINE #LINE
+  2 #LINE-A                    (A4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=133 PS=60
+IF G-TRACE GE *LEVEL
+  #TRACING := TRUE
+  PERFORM XXCATAL-GET-CATDATE #CATDATE
+  COMPRESS 'Start' *PROGRAM 'cataloged at'  #CATDATE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+INCLUDE CMRDC
+PERFORM INIT-FUNCTION
+*
+FIND NUMBER ARCHIVE-DATASET WITH AD-MARK-ARCHIVE-DSNAME NE ' '
+IF *NUMBER = 0
+  G-NATRP-ERC := 413
+  PERFORM WRITE-ERROR-LOG
+  ESCAPE ROUTINE
+END-IF
+*
+#ARCHIVE-IND:= #MAX-ARCHIVE-TYPES:= 1
+#ARCHIVE-NAME(#ARCHIVE-IND):= 'Standard'
+READ NRM-USER-DEFINED-ARCHIVE BY M-MONITOR-ID = 'USERARC01'
+  IF M-MONITOR-ID GT 'USERARC09'
+    ESCAPE BOTTOM
+  END-IF
+  ADD 1 TO #ARCHIVE-IND
+  ADD 1 TO #MAX-ARCHIVE-TYPES
+  #ARCHIVE-TYPE(#ARCHIVE-IND):= M-USERARC-NUMBER
+  #ARCHIVE-NAME(#ARCHIVE-IND):= M-USERARC-NAME
+END-READ
+PERFORM CHECK-NATURAL-SECURITY
+*
+PERFORM READ-MONITOR-DEFINITION
+IF G-NATRP-ERC NE 0
+  PERFORM WRITE-ERROR-LOG
+  ESCAPE ROUTINE
+END-IF
+*
+IF MF-SYSTEM-TYPE = SCAN 'BS2' AND G-NPR-CURRENT-USERID NE G-BS2-USERID
+  G-NPR-CURRENT-USERID := G-BS2-USERID
+  PERFORM LOGON-TO-ESY
+  IF G-NATRP-ERC NE 0
+    PERFORM WRITE-ERROR-LOG
+    G-NPR-CURRENT-USERID := G-NPR-USERID
+    PERFORM LOGON-TO-ESY
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+* Find out how many datasets of each type
+FIND ARCHIVE-DATASET WITH AD-MARK-ARCHIVE-DSNAME NE ' '
+  #ARCHIVE-IND:= AD-ARCHIVE-TYPE + 1
+  ADD 1 TO #TO-BE-CONDENSED(#ARCHIVE-IND)
+END-FIND
+*
+* Now submit a condense job for each archive type to be condensed
+FOR #ARCHIVE-IND = 1 TO #MAX-ARCHIVE-TYPES
+  IF #TO-BE-CONDENSED(#ARCHIVE-IND) = 0
+    ESCAPE TOP
+  END-IF
+  PERFORM READ-ARCHIVE-DEFINITION
+  IF G-NATRP-ERC NE 0
+    BACKOUT TRANSACTION
+    PERFORM WRITE-ERROR-LOG
+    ESCAPE ROUTINE
+  ELSE
+    END TRANSACTION
+  END-IF
+  IF #ARCHIVE-IND GT 1                      /* user defined archive
+    #USERARC-NUMBER:= #ARCHIVE-TYPE(#ARCHIVE-IND)
+    PERFORM READ-USER-DEFINED-ARCHIVE
+    IF G-NATRP-ERC NE 0
+      BACKOUT TRANSACTION
+      PERFORM WRITE-ERROR-LOG
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+  RESET #JCSK-EOF #JCSK-IN-SOURCE #LINE-CNT #LAST-STEP #EOMSTEP
+    LINE-SUBMITTED
+  SET CONTROL 'Z'
+  IF *MACHINE-CLASS = 'MAINFRAME'
+    PERFORM SUBMIT-CONDENSE-STEPS
+  ELSE
+    PERFORM START-CONDENSE-SCRIPT
+  END-IF
+  IF LINE-SUBMITTED AND G-NATRP-ERC = 0 AND *MACHINE-CLASS = 'MAINFRAME'
+    PERFORM SUBMIT-GETVOL-STEP
+    PERFORM CLOSE-SUBMIT
+  END-IF
+  SET CONTROL 'Z'                /* clear source area
+  IF G-NATRP-ERC = 0
+    PERFORM WRITE-LOG-RECORDS
+    END OF TRANSACTION
+  ELSE
+    BACKOUT TRANSACTION
+    PERFORM WRITE-ERROR-LOG
+  END-IF
+END-FOR
+*
+IF G-NPR-CURRENT-USERID NE G-NPR-USERID
+  G-NPR-CURRENT-USERID := G-NPR-USERID
+  PERFORM LOGON-TO-ESY
+END-IF
+IF #TRACING
+  G-TRACE-MSG := 'End'
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-FUNCTION
+************************************************************************
+RESET G-NATRP-ERC G-NATRP-ERT
+SET CONTROL 'Z'                /* clear source area
+#NODE := G-MONITOR-NODE
+*
+END-SUBROUTINE /* INIT-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE SUBMIT-CONDENSE-STEPS
+************************************************************************
+RMJBST-ENTRIES := 1
+RMJBST-VAR  (RMJBST-ENTRIES) := '&JOBCARD01'
+RMJBST-TEXT (RMJBST-ENTRIES) := #JOBCARD (1)
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&JOBCARD02'
+RMJBST-TEXT (RMJBST-ENTRIES) := #JOBCARD (2)
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&JOBCARD03'
+RMJBST-TEXT (RMJBST-ENTRIES) := #JOBCARD (3)
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&NODE'
+RMJBST-TEXT (RMJBST-ENTRIES) := #NODE-A
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&DBID'
+RMJBST-TEXT (RMJBST-ENTRIES) := #DBID-A
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&FNR'
+RMJBST-TEXT (RMJBST-ENTRIES) := #FNR-A
+ADD 1 TO RMJBST-ENTRIES
+#INDEX-DATE := RMJBST-ENTRIES
+DECIDE FOR FIRST CONDITION
+  WHEN MF-SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP'
+    RMJBST-VAR  (RMJBST-ENTRIES) := '&DATE'
+    RMJBST-TEXT (RMJBST-ENTRIES) := #EXPIRATION-DATE-YYYYJJJ
+    PERFORM CHECK-UNIT-TYPE
+/*SU6 -> WHEN MF-SYSTEM-TYPE = SCAN 'VSE' OR = SCAN 'DOS'
+/*  RMJBST-VAR  (RMJBST-ENTRIES) := '&DATE'
+/*  RMJBST-TEXT (RMJBST-ENTRIES) := #EXPIRATION-DATE-YYYYJJJ
+/*WHEN MF-SYSTEM-TYPE = SCAN 'BS2'
+/*  RMJBST-VAR  (RMJBST-ENTRIES) := '&RETPD'
+/*  #DAYS := #EXPIRATION-DATE-D - *DATX
+/*SU6 <-  RMJBST-TEXT (RMJBST-ENTRIES) := ABS (#DAYS)
+  WHEN NONE
+    IGNORE
+END-DECIDE
+ADD 1 TO RMJBST-ENTRIES
+#INDEX-EXPDATE := RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&EXPDATE'
+RMJBST-TEXT (RMJBST-ENTRIES) := #EXPIRATION-DATE-YYYYMMDD
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&SYSNR'
+RMJBST-TEXT (RMJBST-ENTRIES) := #SYSNR-A
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&CRUN'
+RMJBST-TEXT (RMJBST-ENTRIES) := #CRUN-A
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&PRUN'
+RMJBST-TEXT (RMJBST-ENTRIES) := #PRUN-A
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&JOBNAME'
+RMJBST-TEXT (RMJBST-ENTRIES) := 'NOMARC'
+#JOB-NAME-ENTRY := RMJBST-ENTRIES
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&ESYUSER'
+RMJBST-TEXT (RMJBST-ENTRIES) := G-NPR-USERID
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&NATLOGON'
+RMJBST-TEXT (RMJBST-ENTRIES) := #LOGON-LINE
+*
+DECIDE FOR FIRST CONDITION
+  WHEN ARCHIVE-TASK.M-ARCHIVE-STORAGE-CLASS NE ' '
+    ADD 1 TO RMJBST-ENTRIES
+    RMJBST-VAR  (RMJBST-ENTRIES) := '&STORCLAS'
+    RMJBST-TEXT (RMJBST-ENTRIES) := ARCHIVE-TASK.M-ARCHIVE-STORAGE-CLASS
+* BLI 2017-09-20 NOMALL-1477 comment next line
+** WHEN ARCHIVE-TASK.M-ARCHIVE-VOLSERS (*) NE ' ' OR
+  WHEN ARCHIVE-TASK.M-GDG = 'Y' OR #ARCHIVE-DASD-NOVOLS
+    PERFORM ARCHIVE-TO-DISK
+    IF G-NATRP-ERC NE 0
+      ESCAPE ROUTINE
+    END-IF
+    ADD 1 TO RMJBST-ENTRIES
+    RMJBST-VAR  (RMJBST-ENTRIES) := '&VOLSERS'
+    RMJBST-TEXT (RMJBST-ENTRIES) := RMDASD-VOLSER-STRING
+    ADD 1 TO RMJBST-ENTRIES
+    RMJBST-VAR  (RMJBST-ENTRIES) := '&SPACE'
+    RMJBST-TEXT (RMJBST-ENTRIES) := RMDASD-SPACE-STRING
+    ADD 1 TO RMJBST-ENTRIES
+    RMJBST-VAR  (RMJBST-ENTRIES) := '&UNIT'
+    RMJBST-TEXT (RMJBST-ENTRIES) := ARCHIVE-TASK.M-TAPE-GENERIC
+  WHEN NONE
+    ADD 1 TO RMJBST-ENTRIES
+    RMJBST-VAR  (RMJBST-ENTRIES) := '&TAPE-DSNAME'
+    RMJBST-TEXT (RMJBST-ENTRIES) := #DSNAME-TAPE
+    ADD 1 TO RMJBST-ENTRIES
+    RMJBST-VAR  (RMJBST-ENTRIES) := '&UNIT'
+    RMJBST-TEXT (RMJBST-ENTRIES) := ARCHIVE-TASK.M-TAPE-GENERIC
+END-DECIDE
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&DSNAMEOUT'
+RMJBST-TEXT (RMJBST-ENTRIES) := #DSNAME
+ADD 1 TO RMJBST-ENTRIES
+#INDEX-DSNAMEIN := RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&DSNAMEIN'
+RMJBST-TEXT (RMJBST-ENTRIES) := #DSNAME
+ADD 1 TO RMJBST-ENTRIES
+#INDEX-EOMSTEP := RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&EOMSTEP'
+RMJBST-TEXT (RMJBST-ENTRIES) := #EOMSTEP-A4
+ADD 1 TO RMJBST-ENTRIES
+#INDEX-DISP    := RMJBST-ENTRIES
+DECIDE FOR FIRST CONDITION
+  WHEN MF-SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP'
+    RMJBST-VAR  (RMJBST-ENTRIES) := '&DISP'
+    RMJBST-TEXT (RMJBST-ENTRIES) := '(NEW,CATLG,CATLG)'
+/*SU6 ->  WHEN MF-SYSTEM-TYPE = SCAN 'VSE' OR = SCAN 'DOS'
+/*    RMJBST-VAR  (RMJBST-ENTRIES) := '&DISP'
+/*  RMJBST-TEXT (RMJBST-ENTRIES) := 'NEW'
+/*WHEN MF-SYSTEM-TYPE = SCAN 'BS2'
+/*  RMJBST-VAR  (RMJBST-ENTRIES) := '&OPEN'
+/*SU6 <-  RMJBST-TEXT (RMJBST-ENTRIES) := 'OUTPUT'
+  WHEN NONE IGNORE
+END-DECIDE
+ADD 1 TO RMJBST-ENTRIES
+RMJBST-VAR  (RMJBST-ENTRIES) := '&ARCTYPE'
+RMJBST-TEXT (RMJBST-ENTRIES) := #USERARC-NUMBER
+IF #ARCHIVE-TYPE(#ARCHIVE-IND) GT 0
+  FOR #I = 1 TO #MAX-SYMBOLS
+    IF M-USERARC-SYMBOLS(#I) = ' '
+      ESCAPE BOTTOM
+    END-IF
+    ADD 1 TO RMJBST-ENTRIES
+    COMPRESS '&' M-USERARC-SYMBOL-NAME(#I) TO
+      RMJBST-VAR (RMJBST-ENTRIES) LEAVING NO
+    RMJBST-TEXT(RMJBST-ENTRIES):= M-USERARC-SYMBOL-VALUE(#I)
+  END-FOR
+END-IF
+CALLNAT 'RGETLIB' #JCSK-LIBRARY
+COMPRESS #JCSK-LIBRARY  'U' TO #JCSK-LIBRARY LEAVING NO
+IF #ARCHIVE-TYPE(#ARCHIVE-IND) GT 0
+  #JCSK-MEMBER := M-USERARC-CONDENSE-SKEL
+ELSE
+  #JCSK-MEMBER := 'JCDNSKEL'
+END-IF
+*
+FNDAD. FIND ARCHIVE-DATASET WITH AD-MARK-ARCHIVE-DSNAME NE ' '
+  ACCEPT IF AD-ARCHIVE-TYPE = #ARCHIVE-TYPE(#ARCHIVE-IND)
+* BLI 20-01-07 NOMALL-2369 set highest expiration date
+  IF AD-EXPIRATION-DATE-PHYS = MASK (YYYYMMDD)
+      AND AD-EXPIRATION-DATE-PHYS > #EXPIRATION-DATE-YYYYMMDD
+    #EXPIRATION-DATE-YYYYMMDD := AD-EXPIRATION-DATE-PHYS
+  END-IF
+  IF AD-EXPIRATION-DATE = MASK (YYYYMMDD)
+      AND AD-EXPIRATION-DATE > #EXPIRATION-DATE-YYYYMMDD
+    #EXPIRATION-DATE-YYYYMMDD := AD-EXPIRATION-DATE
+  END-IF
+*
+END-FIND
+IF #EXPIRATION-DATE-YYYYMMDD NE MASK (YYYYMMDD)  /* NOMALL-2415 start
+  MOVE EDITED *DATX (EM=YYYYMMDD) TO #EXPIRATION-DATE-YYYYMMDD
+END-IF                                           /* NOMALL-2415 end
+MOVE EDITED #EXPIRATION-DATE-YYYYMMDD TO
+  #EXPIRATION-DATE-D (EM=YYYYMMDD)
+RMJBST-TEXT (#INDEX-EXPDATE) := #EXPIRATION-DATE-YYYYMMDD
+RESET #CURRENT-CONDENSE-COUNT
+*
+FIND ARCHIVE-DATASET WITH AD-MARK-ARCHIVE-DSNAME NE ' '
+  ACCEPT IF AD-ARCHIVE-TYPE = #ARCHIVE-TYPE(#ARCHIVE-IND)
+  ADD 1 TO #CURRENT-CONDENSE-COUNT
+  IF #CURRENT-CONDENSE-COUNT = #TO-BE-CONDENSED(#ARCHIVE-IND)
+      OR ARCHIVE-TASK.M-LAST-VOLSER = 'Y'
+    DECIDE FOR FIRST CONDITION
+      WHEN MF-SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP'
+        MOVE EDITED #EXPIRATION-DATE-D (EM=YYYY'/'JJJ) TO #EXPIRATION-DATE-YYYYJJJ
+        RMJBST-TEXT (#INDEX-DATE) := #EXPIRATION-DATE-YYYYJJJ
+/*SU6 -> WHEN MF-SYSTEM-TYPE = SCAN 'VSE' OR = SCAN 'DOS'
+/*      MOVE EDITED #EXPIRATION-DATE-D (EM=YYYY'/'JJJ) TO #EXPIRATION-DATE-YYYYJJJ
+/*      RMJBST-TEXT (#INDEX-DATE) := #EXPIRATION-DATE-YYYYJJJ
+/*    WHEN MF-SYSTEM-TYPE = SCAN 'BS2'
+/*      #DAYS := #EXPIRATION-DATE-D - *DATX
+/*SU6 <-      RMJBST-TEXT (#INDEX-DATE) := ABS (#DAYS)
+      WHEN NONE IGNORE
+    END-DECIDE
+  ELSE
+    RESET  RMJBST-TEXT (#INDEX-DATE)
+  END-IF
+*
+  IF #CURRENT-CONDENSE-COUNT = 1
+    PERFORM PROCESS-UNTIL-EOMSTARTSTEP
+    IF G-NATRP-ERC NE 0
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+*
+  PERFORM PROCESS-STEP
+* BLI 2017-07-11 NOMALL-2027 insert begin
+  IF G-NATRP-ERC NE 0
+    ESCAPE ROUTINE
+  END-IF
+* BLI 2017-07-11 NOMALL-2027 insert end
+*
+END-FIND
+*
+END-SUBROUTINE /* SUBMIT-CONDENSE-STEPS
+*
+************************************************************************
+DEFINE SUBROUTINE START-CONDENSE-SCRIPT
+************************************************************************
+FNDAD2. FIND ARCHIVE-DATASET WITH AD-MARK-ARCHIVE-DSNAME NE ' '
+  ACCEPT IF AD-ARCHIVE-TYPE = #ARCHIVE-TYPE(#ARCHIVE-IND)
+* BLI 20-01-07 NOMALL-2369 set highest expiration date
+  IF AD-EXPIRATION-DATE-PHYS = MASK (YYYYMMDD)
+      AND AD-EXPIRATION-DATE-PHYS > #EXPIRATION-DATE-YYYYMMDD
+    #EXPIRATION-DATE-YYYYMMDD := AD-EXPIRATION-DATE-PHYS
+  END-IF
+  IF AD-EXPIRATION-DATE = MASK (YYYYMMDD)
+      AND AD-EXPIRATION-DATE > #EXPIRATION-DATE-YYYYMMDD
+    #EXPIRATION-DATE-YYYYMMDD := AD-EXPIRATION-DATE
+  END-IF
+*
+END-FIND
+IF #EXPIRATION-DATE-YYYYMMDD NE MASK (YYYYMMDD)  /* NOMALL-2415 start
+  MOVE EDITED *DATX (EM=YYYYMMDD) TO #EXPIRATION-DATE-YYYYMMDD
+END-IF                                           /* NOMALL-2415 end
+MOVE EDITED #EXPIRATION-DATE-YYYYMMDD TO #EXPIRATION-DATE-D (EM=YYYYMMDD)
+RESET #CURRENT-CONDENSE-COUNT
+*
+FNDARC. FIND ARCHIVE-DATASET WITH AD-MARK-ARCHIVE-DSNAME NE ' '
+  ACCEPT IF AD-ARCHIVE-TYPE = #ARCHIVE-TYPE(#ARCHIVE-IND)
+  ADD 1 TO #CURRENT-CONDENSE-COUNT
+  EXAMINE #DSNAME FOR '..' AND REPLACE WITH '.'
+  #G-NPR-USERID := G-NPR-USERID
+  IF #G-NPR-USERID = ' '
+    #G-NPR-USERID := 'N'
+  END-IF
+  RESET STX-TASK-NUMBER    /* NOMALL-853 in
+  COMPRESS #CRUN-A '-' *COUNTER (FNDARC.) TO #CRUN-X LEAVING NO
+  COMPRESS
+    '$NOMDIR/$NOMVERS/nomcdn.bsh' 'RJCONDNS'
+* BLI 2016-04-27 NOMALL-1844 due to nomcdn.bsh script we have to use
+* the 'interchanged' sequence compared to mainframe, first the 'out'
+* #DSNAME and then the 'in' = old (to be condensed) AD-ARCHIVE-DSNAME.
+* The 'RJCONDNS' has to handle the difference between Mainframe/Unix.
+    'NOMCDN' #NODE-A #DSNAME ARCHIVE-DATASET.AD-ARCHIVE-DSNAME
+    #EXPIRATION-DATE-YYYYMMDD #G-NPR-USERID #USERARC-NUMBER
+    #CRUN-X
+    TO STX-START-SCRIPT
+  COMPRESS
+    '$EOM_WORK/' 'nomcdn.' #CRUN-X '.stdout'
+    TO STX-LOGFILE  LEAVING NO
+  MOVE
+    'NOMCDN' TO STX-TASK-NAME
+  STX-FUNCTION       := 'START'
+  CALLNAT 'RMSTX--N' STX-PARMS G-TRACE
+  END TRANSACTION
+  IF STX-ERROR-CODE NE 0
+    PRINT *PROGRAM *DATX *TIMX STX-ERROR-TEXT /*SU3 (AL=70)
+    G-NATRP-ERT := STX-ERROR-CODE
+    G-NATRP-ERC := 1534
+  ELSE
+    IF #TRACING
+      COMPRESS ' Condense task started for' #CRUN-A '/' #PRUN-A
+        TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* START-CONDENSE-SCRIPT
+*
+************************************************************************
+DEFINE SUBROUTINE GET-CARDS
+************************************************************************
+RESET #JCSK-EOF
+REPEAT
+  CALLNAT 'RMJBSK-N' #JCSK-PARMS
+  ADD 1 TO #LINE-CNT
+  IF #JCSK-EOF
+    IF #LINE-CNT = 1
+      G-NATRP-ERC := 721
+      PERFORM WRITE-ERROR-LOG
+      G-NATRP-ERC := 0117
+* BLI 2017-07-11 NOMALL-2027 insert begin
+    ELSE                              /* end of skeleton (EOF) with ..
+      IF #JCSK-END NE ' ' AND         /* 'defined' end card ..
+          #JCSK-ACCEPT EQ TRUE        /* but it doesn't exist
+        RESET #JCSK-ACCEPT            /* don't accept this incomplete
+        G-NATRP-ERC := 0960           /* Missing jobcard in job skeleto
+      END-IF
+* BLI 2017-07-11 NOMALL-2027 insert end
+    END-IF
+    ESCAPE BOTTOM
+  END-IF
+  #STRING1 := #JCSK-CARD
+  PERFORM PROCESS-LINE
+END-REPEAT
+*
+END-SUBROUTINE /* GET-CARDS
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-UNTIL-EOMSTARTSTEP
+************************************************************************
+RESET  #JCSK-START
+RESET #JCSK-LINE-NUMBER /* start at beginning each time
+#JCSK-END := '&EOMSTARTSTEP'
+PERFORM GET-CARDS
+*
+END-SUBROUTINE /* PROCESS-UNTIL-EOMSTARTSTEP
+*
+************************************************************************
+DEFINE SUBROUTINE SUBMIT-GETVOL-STEP
+************************************************************************
+RESET #JCSK-LINE-NUMBER /* start at beginning each time
+#JCSK-START := '&EOMENDSTEP'
+RESET  #JCSK-END
+#LAST-STEP := TRUE
+PERFORM GET-CARDS
+*
+END-SUBROUTINE /* SUBMIT-GETVOL-STEP
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-STEP
+************************************************************************
+ADD 1 TO #EOMSTEP
+RMJBST-TEXT (#INDEX-EOMSTEP)  := #EOMSTEP-A4
+RMJBST-TEXT (#INDEX-DSNAMEIN) := ARCHIVE-DATASET.AD-ARCHIVE-DSNAME
+RESET #JCSK-LINE-NUMBER /* start at beginning each time
+#JCSK-START := '&EOMSTARTSTEP'
+#JCSK-END   := '&EOMENDSTEP'
+PERFORM GET-CARDS
+* BLI 2017-07-11 NOMALL-2027 insert begin
+IF G-NATRP-ERC NE 0
+  ESCAPE ROUTINE
+END-IF
+* BLI 2017-07-11 NOMALL-2027 insert end
+DECIDE FOR FIRST CONDITION
+  WHEN MF-SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP'
+    RMJBST-TEXT (#INDEX-DISP) := '(MOD,KEEP,KEEP)'
+/*SU6 -> WHEN MF-SYSTEM-TYPE = SCAN 'VSE' OR = SCAN 'DOS'
+/*  RMJBST-VAR  (#INDEX-DISP) := '&DISP'
+/*  RMJBST-TEXT (#INDEX-DISP) := 'OLD'
+/*WHEN MF-SYSTEM-TYPE = SCAN 'BS2'
+/*SU6 <-  RMJBST-TEXT (#INDEX-DISP) := 'EXTEND'
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* PROCESS-STEP
+*
+************************************************************************
+DEFINE SUBROUTINE SUBSTITUTE-VARIABLES
+************************************************************************
+RMJBST-CARD := #STRING1
+CALLNAT 'RMJBST-N' RMJBST-PARMS RMJBST-CARD
+#STRING1 := RMJBST-CARD
+*
+END-SUBROUTINE /* SUBSTITUTE-VARIABLES
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-LINE
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN #STRING1 = MASK (.'EOMSTARTSTEP') OR = MASK (.'EOMENDSTEP')
+    IGNORE
+  WHEN #STRING1 = MASK (.'EOMSTARTWKF')
+    SUPPRESS-NULL-SUBST := TRUE
+  WHEN #STRING1 = MASK (.'EOMENDWKF')
+    SUPPRESS-NULL-SUBST := FALSE
+  WHEN #STRING1 = MASK (.'EOMNATCARDS')
+    PERFORM PROCESS-NAT-CARDS
+  WHEN NONE
+    PERFORM SUBMIT-LINE
+END-DECIDE
+*
+END-SUBROUTINE /* PROCESS-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE SUBMIT-LINE
+************************************************************************
+PERFORM SUBSTITUTE-VARIABLES
+IF (SUPPRESS-NULL-SUBST AND RMJBST-NULL-SUBSTITUTION) OR #STRING1 = ' '
+  ESCAPE ROUTINE
+END-IF
+*
+IF NOT LINE-SUBMITTED AND MF-SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP'
+  PERFORM EVALUATE-JOB-NAME
+END-IF
+*
+FIND (1) SUBMIT WITH NODE = G-MONITOR-NODE AND CARD = #STRING1
+  IF SUBMIT.ERROR-CODE > 0
+    G-NATRP-ERC := SUBMIT.ERROR-CODE
+    G-NATRP-ERT := SUBMIT.ERROR-TEXT
+    COMPRESS '0414' G-NATRP-ERT #ARCHIVE-NAME(#ARCHIVE-IND) TO LG-MSG
+    PERFORM WRITE-ERROR-LOG
+  END-IF
+END-FIND
+*
+LINE-SUBMITTED := TRUE
+*
+END-SUBROUTINE /* SUBMIT-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-SUBMIT
+************************************************************************
+FIND (1) SUBMIT WITH NODE = G-MONITOR-NODE AND FUNCTION = 'CLOSE'
+  IF JOB-NUMBER = 0 AND JOB-ID = ' '
+    G-NATRP-ERC := 0721
+    ESCAPE BOTTOM
+  END-IF
+  IF SUBMIT.ERROR-CODE > 0
+    G-NATRP-ERC := 0414
+    G-NATRP-ERT := SUBMIT.ERROR-TEXT
+    ESCAPE BOTTOM
+  END-IF
+*
+  IF MF-SYSTEM-TYPE = SCAN 'BS2'
+    #JOB-NUMBER := JOB-ID
+  ELSE
+    #JOB-NUMBER := JOB-NUMBER
+  END-IF
+  IF #TRACING
+    COMPRESS #ARCHIVE-NAME(#ARCHIVE-IND) 'condense job submitted:'
+      #JOB-NUMBER TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* CLOSE-SUBMIT
+*
+************************************************************************
+DEFINE SUBROUTINE PROCESS-NAT-CARDS
+************************************************************************
+IF #LAST-STEP
+  FOR #N = 1 TO #NCARDS2
+    #STRING1 := #NATCARDS2 (#N)
+    PERFORM SUBMIT-LINE
+  END-FOR
+ELSE
+  FOR #N = 1 TO #NCARDS1
+    #STRING1 := #NATCARDS1 (#N)
+    PERFORM SUBMIT-LINE
+  END-FOR
+END-IF
+*
+END-SUBROUTINE /* PROCESS-NAT-CARDS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-NATURAL-SECURITY
+************************************************************************
+CALLNAT 'RGETLIB' #LIBRARY-ID
+IF G-NSC-ACTIVE
+  COMPRESS #LIBRARY-ID G-ARC-NSC-USERID G-ARC-NSC-PASSWORD
+    TO #LOGON-LINE
+ELSE
+  COMPRESS 'LOGON' #LIBRARY-ID TO #LOGON-LINE
+END-IF
+*
+END-SUBROUTINE /* CHECK-NATURAL-SECURITY
+*
+************************************************************************
+DEFINE SUBROUTINE READ-MONITOR-DEFINITION
+************************************************************************
+#MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+FNDMO. FIND NRM-MONITOR WITH M-MONITOR-ID = #MONITOR-ID
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 0448
+    #LINE := *LINE
+    ESCAPE ROUTINE
+  END-NOREC
+  DECIDE FOR FIRST CONDITION
+    WHEN M-NATRPT-DBID-N5 > 0
+      #DBID := M-NATRPT-DBID-N5
+      #FNR  := M-NATRPT-FNR-N5
+/*SU5  WHEN M-NATRPT-DBID > 0
+/*SU5      #DBID := M-NATRPT-DBID
+/*SU5      #FNR  := M-NATRPT-FNR
+    WHEN NONE
+      G-NATRP-ERC := 0448
+      #LINE := *LINE
+      ESCAPE ROUTINE
+  END-DECIDE
+END-FIND
+IF *MACHINE-CLASS = 'MAINFRAME'
+/*SU5  RESET NODE-SPOOL-DATA
+  READ(1) MF-NODE BY MF-TYPE-ID = 'MR-'
+  END-READ
+  IF MF-TYPE NE 'M' OR MF-MONITOR-ID NE MASK('R-')
+    G-NATRP-ERC := 0448
+    #LINE := *LINE
+    ESCAPE ROUTINE
+/*SU5  ELSE MOVE BY NAME NODE-SPOOL-DATA TO NRM-MONITOR
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* READ-MONITOR-DEFINITION
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ARCHIVE-DEFINITION
+************************************************************************
+FNDAR. FIND ARCHIVE-TASK WITH M-MONITOR-ID = 'ARCHIVE'
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 0448
+    #LINE := *LINE
+    ESCAPE BOTTOM (FNDAR.)
+  END-NOREC
+  IF NOT (M-JOBCARD (*) NE ' ') AND *MACHINE-CLASS = 'MAINFRAME'
+    G-NATRP-ERC := 450
+    ESCAPE ROUTINE
+  END-IF
+  #SYSNR := M-ARCHIVE-VSE-SYSNR
+  #JOBCARD (1:3) := M-JOBCARD (1:3)
+  #PRUN          := M-LAST-ARCHIVE-NO
+  IF M-LAST-ARCHIVE-NO = 9999
+    RESET M-LAST-ARCHIVE-NO
+  END-IF
+  ADD 1 TO  M-LAST-ARCHIVE-NO
+  #CRUN := M-LAST-ARCHIVE-NO
+*
+  IF M-CONDENSE-PREFIX = ' '
+    COMPRESS M-ARCHIVE-PREFIX '.' 'NOM' #CRUN-A TO #DSNAME LEAVING NO
+  ELSE
+    COMPRESS M-CONDENSE-PREFIX '.' 'NOM' #CRUN-A TO #DSNAME LEAVING NO
+  END-IF
+*
+  UPDATE
+END-FIND
+*
+END-SUBROUTINE /* READ-ARCHIVE-DEFINITION
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-ERROR-LOG
+************************************************************************
+LG-USERID := G-LG-USERID
+LG-CODE := 'MO'
+MOVE EDITED G-NATRP-ERC (EM=9999) TO LG-MSG
+DECIDE ON FIRST VALUE OF G-NATRP-ERC
+  VALUE 0414
+    COMPRESS LG-MSG G-NATRP-ERT #ARCHIVE-NAME(#ARCHIVE-IND) TO LG-MSG
+  VALUE 0448
+    COMPRESS LG-MSG #ARCHIVE-NAME(#ARCHIVE-IND) TO LG-MSG
+  NONE VALUE
+    COMPRESS LG-MSG G-NATRP-ERT TO LG-MSG
+END-DECIDE
+CALLNAT 'RLOG' PL-PARMS
+END OF TRANSACTION
+IF #TRACING
+  IF #LINE-A NE ' '
+    COMPRESS LG-MSG '(' #LINE-A ')' TO LG-MSG LEAVING NO
+  END-IF
+  COMPRESS 'Error: --->' G-NATRP-ERC-A LG-MSG TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+*
+END-SUBROUTINE /* WRITE-ERROR-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORDS
+************************************************************************
+COMPRESS '(' #EXPIRATION-DATE-YYYYJJJ ')'   TO LG-MSG LEAVING NO
+COMPRESS #EXPIRATION-DATE-YYYYMMDD LG-MSG TO LG-MSG
+COMPRESS #ARCHIVE-NAME(#ARCHIVE-IND) LG-MSG TO LG-MSG
+COMPRESS '0447' LG-MSG TO LG-MSG
+LG-USERID := G-LG-USERID
+LG-CODE   := 'MO'
+CALLNAT 'RLOG' PL-PARMS
+COMPRESS '0422' #JOB-NUMBER #ARCHIVE-NAME(#ARCHIVE-IND) TO LG-MSG
+LG-USERID := G-LG-USERID
+LG-CODE   := 'MO'
+CALLNAT 'RLOG' PL-PARMS
+*
+END TRANSACTION
+*
+END-SUBROUTINE /* WRITE-LOG-RECORDS
+*
+************************************************************************
+DEFINE SUBROUTINE EVALUATE-JOB-NAME
+************************************************************************
+#TEMP-LINE := #STRING1
+IF #TEMP-LINE = MASK ('//')
+  RESET #TEMP-L (1:2)
+END-IF
+MOVE LEFT #TEMP-LINE TO #TEMP-LINE
+#F := #I := 1
+REPEAT UNTIL #I > 8 OR #TEMP-L (#F) = ' ' OR = ','
+  #J-N (#I) := #TEMP-L (#F)
+  ADD 1 TO #I
+  ADD 1 TO #F
+END-REPEAT
+RMJBST-TEXT (#JOB-NAME-ENTRY) := #JOB-NAME
+*
+END-SUBROUTINE /* EVALUATE-JOB-NAME
+*
+************************************************************************
+DEFINE SUBROUTINE ARCHIVE-TO-DISK
+************************************************************************
+RMDASD-GENERIC-NAME    := ARCHIVE-TASK.M-TAPE-GENERIC
+RMDASD-NODE            := G-MONITOR-NODE
+RMDASD-ARCHIVE-PREFIX  := ARCHIVE-TASK.M-ARCHIVE-PREFIX
+RMDASD-LAST-ARCHIVE-NO := #CRUN
+RMDASD-GDG             := ARCHIVE-TASK.M-GDG
+* BLI 2017-09-20 NOMALL-1477 comment next line
+** RMDASD-VOLSERS (1:6)   := ARCHIVE-TASK.M-ARCHIVE-VOLSERS (1:6)
+RMDASD-FULLDSNAME      := #DSNAME
+CALLNAT 'RMDASD-N' RMDASD-PARMS
+IF RMDASD-ERC = 0
+  #DSNAME := RMDASD-FULLDSNAME
+ELSE
+  G-NATRP-ERC := RMDASD-ERC
+  COMPRESS 'CONDENSE-' RMDASD-ERT TO G-NATRP-ERT LEAVING NO
+  EXAMINE G-NATRP-ERT FOR ' ' REPLACE H'00' /* so variable replacement
+/* includes the whole message, not just the message code
+END-IF
+*
+END-SUBROUTINE /* ARCHIVE-TO-DISK
+*
+************************************************************************
+DEFINE SUBROUTINE LOGON-TO-ESY
+************************************************************************
+CALLNAT 'N-ESYLG' 1X G-MONITOR-NODE G-NPR-CURRENT-USERID #CALLER
+  G-NATRP-ERC G-NATRP-ERT 1X
+IF G-NATRP-ERC NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Error logging on to ESY ' G-NPR-CURRENT-USERID  G-NATRP-ERC
+  G-NATRP-ERC := 1534
+  RESET G-NPR-CURRENT-USERID
+END-IF
+*
+END-SUBROUTINE /* LOGON-TO-ESY
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-UNIT-TYPE
+************************************************************************
+RESET #ARCHIVE-DASD-NOVOLS
+IF ARCHIVE-TASK.M-ARCHIVE-STORAGE-CLASS NE ' ' OR ARCHIVE-TASK.M-GDG='Y'
+* BLI 2017-09-20 NOMALL-1477 comment next line
+**    ARCHIVE-TASK.M-ARCHIVE-VOLSERS (*) NE ' ' OR
+  ESCAPE ROUTINE
+END-IF
+FIND (1) DEVICE-NAMES WITH NODE = G-MONITOR-NODE
+AND NAME = ARCHIVE-TASK.M-TAPE-GENERIC                                /*
+  FIND (1) UNIT-ATTRIBUTES WITH NODE = G-MONITOR-NODE
+  AND UNIT-HEX = DEVICE-NAMES.ADDRESS                                 /*
+    IF UNIT-ATTRIBUTES.CLASS = 'DASD'
+      #ARCHIVE-DASD-NOVOLS:= TRUE
+    END-IF
+  END-FIND
+END-FIND
+*
+END-SUBROUTINE /* CHECK-UNIT-TYPE
+*
+************************************************************************
+DEFINE SUBROUTINE READ-USER-DEFINED-ARCHIVE
+************************************************************************
+READUDA. FIND NRM-USER-DEFINED-ARCHIVE WITH M-MONITOR-ID = #USERARC-ID
+  IF NO RECORDS FOUND
+    LG-USERID := G-LG-USERID
+    LG-CODE := 'MO'
+    COMPRESS '0448' #USERARC-ID TO LG-MSG   /* user defined archive
+    G-NATRP-ERC := 0448      /* not found
+    G-NATRP-ERT := 'CONDENSE'
+    #LINE := *LINE
+    ESCAPE BOTTOM (READUDA.)
+  END-NOREC
+  IF M-USERARC-ARCHIVE-JOBCARDS(1) NE ' '
+    #JOBCARD(*):= M-USERARC-ARCHIVE-JOBCARDS(*)
+  END-IF
+  IF M-USERARC-PREFIX NE ' '
+    COMPRESS M-USERARC-PREFIX '.' 'NOM' #CRUN-A TO #DSNAME LEAVING NO
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-USER-DEFINED-ARCHIVE
+*
+END

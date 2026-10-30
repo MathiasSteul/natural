@@ -1,0 +1,130 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+**********************************************************************
+*                            XXDUMP
+*
+* Read the first part of a CSECT of the Natural nucleus
+*
+* KKR/SAG, 07/2014
+* Adapted for NOM by FHI/SAG, 07/2014
+*
+* MAINTENANCE:
+*
+* fhi     2014-07-02 NOMALL-1415 Initial
+*
+**********************************************************************
+*
+DEFINE DATA
+PARAMETER
+*
+1 CSECT-NAME      (A8)    BY VALUE
+1 CSECT-VERSION   (A4)
+1 ERC             (N4)    BY VALUE RESULT
+*                         0: OK
+*                         1: CSECT not found
+*                         2: version not found (hex offset 0D)
+1 ERT             (A250)  BY VALUE RESULT
+1 CSECT-CONTENTS  (B1024) OPTIONAL
+*
+LOCAL
+1        GLOBAL-AREA
+  2      GLOBAL-PARMS
+    3    GLBPARMS (B4)
+    3    REDEFINE GLBPARMS
+      4  GLBTSKID (B4)        /*   NATURAL TASK ID
+    3    GLBTHDA  (I4)        /* THREAD START (IOCB)
+    3    GLBTHDL  (I4)        /* THREAD SIZE
+    3    GLBLOCA  (A4)        /* CMMPP LOCA SUB-FUNCTION
+    3    GLBNUC               /* NUCLEUS RELATED INFO
+      4  GLBNUCNM (A8)        /* NATURAL NUCLEUS NAME
+      4  GLBNUCA  (I4)        /* NATURAL NUCLEUS LOAD POINT
+      4  GLBNUCL  (I4)        /* NATURAL NUCLEUS LENGTH
+      4  GLBNUCEP (I4)        /* NATURAL NUCLEUSENTRY POINT
+    3    GLBABUF  (I4)        /* CMMPP ABUF SUB-FUNCTION
+    3    GLBLODA  (I4)        /* NUCLEUS RELATED CORRECTION
+    3    GLBBASE  (I4)        /* BASE ADDRESS
+    3    GLBDISP  (I4)        /* DISPLACEMENT
+    3    RELOPRMS             /* RELOCATION PARAMETERS
+      4  RELOLOCA (A4)        /* CMMPP LOCA SUB-FNC
+      4  RELONAME (A8)        /* MPP LOCA ARGUMENT NAME
+      4  RELOABUF (I4)        /* CMMPP ABUF SUB-FNC
+      4  RELOLODA (I4)        /* MODULE RELATED CORRECTION
+      4  RELOBASE (I4)        /* RELO BASE ADDRESS
+      4  RELODISP (I4)        /* RELO DISPLACEMENT
+    3    GLBKEY   (A4)        /* MPP LOCA KEYWORD
+    3    GLBARG   (A8)        /* MPP LOCA ARGUMENT
+    3    GLBCOMRG (I4)        /* ADDRESS OF COM-PLETE COMREG
+    3    GLBFNC   (A1)        /* GLOBAL FUNCTION CODE
+    3    GLBRSP   (A1)        /* GLOBAL RESPONSE CODE
+    3    GLBRSVD  (A2)        /* FOR FUTURE USE
+    3    GLBDSPC              /* DATA SPACE RELATED INFO
+      4  GLBALET  (B4)
+      4  GLBORIG  (I4)
+    3    GLBRSV   (A20)
+*
+1        CORE     (B1024)
+1        REDEFINE CORE
+  2      COREWORD (B4/256)
+1        REDEFINE CORE
+  2      CORELINE (A16/16)
+1        REDEFINE CORE
+  2      COREBYTE (B1/1024)
+1        COREADDR (I4)
+1        CORESIZE (I4) INIT <64>
+*
+*   PARAMETERS ARE SET UP FOR INQUIRY FUNCTIONS
+*
+1        INQUIRY                    /* USED FOR INQUIRY FUNCTIONS
+  2      OCC      (I2)    INIT <1>
+  2      LEN      (I2)    INIT <4>
+  2      FUNC
+    3    FNC      (A1)
+    3    RSP      (A1)              /* IF ' ' FUNCTION SUCCESFUL
+    3    LGTH     (I2)    INIT <4>
+    3    NAME     (A8)              /* NAME OF CSECT / NUCLEUS NAME
+    3    BASE     (I4)              /* ABSOLUTE CSECT / NUCLEUS ADDRESS
+    3    DISP     (I4)              /*
+    3    ABUF     (I4)              /*
+    3    LODA     (I4)              /*
+* Added by FHI:
+1        #VERSION (A2)
+END-DEFINE
+*
+******************************
+*  LOOK FOR A CSECT
+******************************
+NAME     := CSECT-NAME
+FNC      := 'S'
+GLBTSKID := H'FFFFFFFF'
+CALL 'NATDUMP' GLBPARMS OCC
+*
+IF RSP  = ' '                  /* CSECT  FOUND
+  GLBDISP  := BASE
+  COREADDR := GLBBASE := GLBDISP + GLBNUCA
+  CALL 'CMMPP' 'CORE' COREADDR CORE CORESIZE
+  IF CSECT-CONTENTS SPECIFIED
+    CSECT-CONTENTS := CORE
+  END-IF
+  #VERSION := SUBSTR(CORELINE (1),13,2)
+  IF #VERSION IS (N2)
+    COMPRESS
+      '0' SUBSTR(#VERSION,1,1)
+      '0' SUBSTR(#VERSION,2,1)
+      TO CSECT-VERSION LEAVING NO
+  ELSE
+    ERC := 2
+    COMPRESS *PROGRAM 'Could not detect the version of' CSECT-NAME
+      'in nucleus' GLBNUCNM
+      TO ERT
+  END-IF
+ELSE
+  ERC := 1
+  COMPRESS *PROGRAM 'Failed to find CSECT' CSECT-NAME
+    'in nucleus' GLBNUCNM  'RC was' RSP
+    TO ERT
+END-IF
+*
+END

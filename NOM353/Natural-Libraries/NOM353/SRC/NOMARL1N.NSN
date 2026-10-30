@@ -1,0 +1,475 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMARL1N - List Active reports by creation time and perform function  s
+*
+* Maintenance:
+* uuuuuuu yyyy-mm-dd s(999999) ....
+* xsetggr 2012-06-01 NOMALL-1140 created
+* xsetggr 2013-03-03 NOMALL-1140 corrected
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* raya    2013-11-03 NOMALL-1278 new mail key with process-time
+* SU2     2014-04-23 NOMALL-1407 backout raya - superde only used here Ü
+*         (see NOARLS1N -> do not use MAIL -> use AR direct)
+* fhi     2019-05-13 NOMALL-2272 Correct evaluation of time inverted
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER USING NOMARL-P
+************************************************************************
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+LOCAL USING RACTLF-A
+LOCAL USING PROF-LOC
+LOCAL USING CONST-L
+LOCAL
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-CURRENT-LOCATION
+  2 AR-PROCESS-TIME
+  2 AR-PROCESS-TIME-INV
+1 USER VIEW OF NRM-USERS
+  2 USER-PROFILE
+1 MAIL VIEW OF NRM-MAIL
+  2 MA-REPNAME
+  2 MA-REPRNB
+  2 MA-USERID
+  2 MA-INV-TIME
+*
+1 #DATE-TIME                  (A15)
+1 REDEFINE #DATE-TIME
+  2 #DATE                     (A8)
+  2 #TIME                     (A7)
+1 #TIME-F                     (T)
+1 #TIME-T                     (T)
+1 #TIME-FP                    (P13)
+1 #TIME-TP                    (P13)
+1 #TIME-INV-FP                (P13)
+1 #TIME-INV-TP                (P13)
+1 #MAX-INV-TIME               (P13)
+1 #REP-TIME-INV               (A32)
+1 REDEFINE #REP-TIME-INV
+  2 #REPORT                   (A25)
+  2 #TIME-INV                 (P13)
+1 #REP-TIME-INV-E             (A32)
+1 REDEFINE #REP-TIME-INV-E
+  2 #REPORT-E                 (A25)
+  2 #TIME-INV-E               (P13)
+1 #MA-USER-REP-TIME           (A40)
+1 REDEFINE #MA-USER-REP-TIME
+  2 #MA-USER                  (A8)
+  2 #MA-REPORT                (A25)
+  2 #MA-INV-TIME              (P13)
+1 #MA-USER-REP-TIME-E         (A40)
+1 REDEFINE #MA-USER-REP-TIME-E
+  2 #MA-USER-E                (A8)
+  2 #MA-REPORT-E              (A25)
+  2 #MA-INV-TIME-E            (P13)
+1 #AR-REPORT-RNB              (A31)
+1 REDEFINE #AR-REPORT-RNB
+  2 #AR-REPNAME               (A25)
+  2 #AR-RNB                   (P11)
+1 #TIME-0                     (T)
+1 #TIME-FORMATTED             (A16) INIT <'          /     '>
+1 REDEFINE #TIME-FORMATTED
+  2 #DD                       (A10)
+  2 #FIL                      (A1)
+  2 #TT                       (A5)
+*
+1 #LFILE-CHANGED              (L)
+1 #LFILE-ACTIVE-CHANGED       (L)
+1 #NOM-DBID                   (N5)
+1 #NOM-FNR                    (N5)
+1 #NOM-DBID-ACTIVE            (N5)
+1 #NOM-FNR-ACTIVE             (N5)
+*
+1 #MAX-ENTRIES                (N2) CONST <17>
+*
+1 #DATE-A8                    (A8)
+1 #REPORT-S                   (A25)
+1 #REPORT-F                   (A25)
+1 #REPORT-T                   (A25)
+1 #LEN                        (N3)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#MAX-INV-TIME := #CONST-INV-TIME
+RESET NOMARL-ERROR-CODE NOMARL-ERROR-TEXT NOMARL-NUM-ENTRIES
+  NOMARL-REPORT-TAB(*) #TIME-0
+*
+DECIDE FOR EVERY CONDITION
+  WHEN NOMARL-NOM-FNR NE 0 AND NOMARL-NOM-DBID NE 0
+    SATLF-LFILE    := 206
+    PERFORM GET-NOM-LFILE
+    PERFORM SET-NOM-LFILE
+    #LFILE-CHANGED := TRUE
+  WHEN SATLF-ERROR-CODE = 0 AND
+      NOMARL-NOM-DBID-ACTIVE NE 0 AND NOMARL-NOM-FNR-ACTIVE NE 0
+    PERFORM SET-ACTIVE-LFILE
+  WHEN NOMARL-ERROR-CODE = 0
+    PERFORM SELECT-ACTIVE-REPORTS
+  WHEN #LFILE-CHANGED
+    SATLF-LFILE := 206
+    PERFORM SET-OLD-NOM-LFILE
+  WHEN #LFILE-ACTIVE-CHANGED
+    SATLF-LFILE   := 91
+    SATLF-DBID-N5 := #NOM-DBID-ACTIVE
+    SATLF-FNR-N5  := #NOM-FNR-ACTIVE
+    PERFORM SET-LFILE
+  WHEN NONE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NOM-LFILE
+************************************************************************
+SATLF-LFILE           := 206
+SATLF-FUNCTION := 'GET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+#NOM-DBID := SATLF-DBID-N5
+#NOM-FNR  := SATLF-FNR-N5
+*
+END-SUBROUTINE /* GET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+SATLF-FUNCTION := 'SET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := NOMARL-NOM-DBID
+SATLF-FNR-N5  := NOMARL-NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-OLD-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := #NOM-DBID
+SATLF-FNR-N5  := #NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-OLD-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-ACTIVE-LFILE
+************************************************************************
+IF NOMARL-NOM-DBID-ACTIVE NE 0 AND NOMARL-NOM-FNR-ACTIVE NE 0
+  SATLF-LFILE      := 91
+  PERFORM GET-NOM-LFILE
+  #NOM-DBID-ACTIVE := SATLF-DBID-N5
+  #NOM-FNR-ACTIVE  := SATLF-FNR-N5
+  SATLF-DBID-N5    := NOMARL-NOM-DBID-ACTIVE
+  SATLF-FNR-N5     := NOMARL-NOM-FNR-ACTIVE
+  PERFORM SET-LFILE
+  #LFILE-ACTIVE-CHANGED:= TRUE
+  ESCAPE ROUTINE
+END-IF
+RESET RACTLF-LOGGING RACTLF-ERROR-LOGGING
+RACTLF-LFILE-1:= 91
+RACTLF-LFILE-2:= 206
+CALLNAT 'RACTLF-N' RACTLF-PARMS
+IF RACTLF-ERROR-CODE NE 0
+  NOMARL-ERROR-CODE:= 4
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* SET-ACTIVE-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SELECT-ACTIVE-REPORTS
+************************************************************************
+PERFORM INIT-SELECTION-KEYS
+IF NOMARL-ERROR-CODE NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+IF NOMARL-REPORT-SELECTION > ' '
+  PERFORM READ-BY-REPORT-TIME-INV
+ELSE
+  PERFORM READ-BY-TIME-INV
+END-IF
+*
+END-SUBROUTINE /* SELECT-ACTIVE-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-BY-TIME-INV
+************************************************************************
+IF PROF-TYPE NE 'A'
+  PERFORM READ-MAILED-REPORTS
+  ESCAPE ROUTINE
+END-IF
+RDAR. READ AR BY AR-PROCESS-TIME-INV STARTING FROM #TIME-INV-FP
+  IF  AR-PROCESS-TIME-INV > #TIME-INV-TP
+    ESCAPE BOTTOM(RDAR.)
+  END-IF
+  IF NOMARL-ISN-NEXT > 0
+    IF *ISN(RDAR.) NE NOMARL-ISN-NEXT
+      ESCAPE TOP
+    END-IF
+    RESET NOMARL-ISN-NEXT
+  END-IF
+*
+  ACCEPT IF AR-PROCESS-TIME = #TIME-FP THRU #TIME-TP
+  NOMARL-NUM-ENTRIES := NOMARL-NUM-ENTRIES + 1
+*
+  IF NOMARL-NUM-ENTRIES > #MAX-ENTRIES
+    NOMARL-REPORT-NEXT   := AR-REPNAME
+    NOMARL-TIME-INV-NEXT := AR-PROCESS-TIME-INV
+    NOMARL-ISN-NEXT      := *ISN(RDAR.)
+    NOMARL-NUM-ENTRIES   := #MAX-ENTRIES
+    ESCAPE BOTTOM (RDAR.)
+  END-IF
+*
+  PERFORM SET-#TIME-FORMATTED
+  IF NOMARL-ERROR-CODE > 0
+    ESCAPE BOTTOM(RDAR.)
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* READ-BY-TIME-INV
+*
+************************************************************************
+DEFINE SUBROUTINE READ-BY-REPORT-TIME-INV
+************************************************************************
+IF PROF-TYPE NE 'A'
+  PERFORM READ-MAILED-REPORTS
+  ESCAPE ROUTINE
+END-IF
+*
+#REPORT     := #REPORT-F
+#REPORT-E   := #REPORT-T
+#TIME-INV   := #TIME-INV-FP
+*
+RDAR1. READ AR BY AR-REPORT-TIME-INV STARTING FROM #REP-TIME-INV
+  IF AR-REPNAME > #REPORT-E
+    ESCAPE  BOTTOM(RDAR1.)
+  END-IF
+  IF NOMARL-ISN-NEXT > 0
+    IF *ISN(RDAR1.) NE NOMARL-ISN-NEXT
+      ESCAPE TOP
+    END-IF
+    RESET NOMARL-ISN-NEXT
+  END-IF
+*
+  ACCEPT IF AR-PROCESS-TIME = #TIME-FP THRU #TIME-TP
+  NOMARL-NUM-ENTRIES := NOMARL-NUM-ENTRIES + 1
+*
+  IF NOMARL-NUM-ENTRIES > #MAX-ENTRIES
+    NOMARL-REPORT-NEXT   := AR-REPNAME
+    NOMARL-TIME-INV-NEXT := AR-PROCESS-TIME-INV
+    NOMARL-ISN-NEXT      := *ISN(RDAR1.)
+    NOMARL-NUM-ENTRIES   := #MAX-ENTRIES
+    ESCAPE BOTTOM (RDAR1.)
+  END-IF
+*
+  PERFORM SET-#TIME-FORMATTED
+  IF NOMARL-ERROR-CODE > 0
+    ESCAPE BOTTOM(RDAR1.)
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* READ-BY-REPORT-TIME-INV
+*
+************************************************************************
+DEFINE SUBROUTINE READ-MAILED-REPORTS
+************************************************************************
+RDMA. READ MAIL BY MA-USER-REP-TIME = #MA-USER-REP-TIME
+  IF MA-USERID NE #MA-USER OR MA-REPNAME NE #MA-REPORT AND
+      MA-INV-TIME > #TIME-INV-TP
+    ESCAPE BOTTOM(RDMA.)
+  END-IF
+*
+  #AR-REPNAME := MA-REPNAME
+  #AR-RNB     := MA-REPRNB
+  FNDAR. FIND AR WITH AR-REPORT-RNB = #AR-REPORT-RNB
+    IF NOMARL-ISN-NEXT > 0
+      IF *ISN(FNDAR.) NE NOMARL-ISN-NEXT
+        ESCAPE BOTTOM(FNDAR.)
+      END-IF
+      RESET NOMARL-ISN-NEXT
+    END-IF
+    ADD 1 TO NOMARL-NUM-ENTRIES
+    IF NOMARL-NUM-ENTRIES > #MAX-ENTRIES
+      NOMARL-REPORT-NEXT   := AR-REPNAME
+      NOMARL-TIME-INV-NEXT := AR-PROCESS-TIME-INV
+      NOMARL-ISN-NEXT      := *ISN(FNDAR.)
+      NOMARL-NUM-ENTRIES   := #MAX-ENTRIES
+      ESCAPE BOTTOM (RDMA.)
+    END-IF
+    IF AR-PROCESS-TIME = #TIME-FP THRU #TIME-TP
+      PERFORM SET-#TIME-FORMATTED
+      IF NOMARL-ERROR-CODE > 0
+        ESCAPE BOTTOM(RDMA.)
+      END-IF
+    END-IF
+  END-FIND
+END-READ
+*
+END-SUBROUTINE /* READ-MAILED-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-SELECTION-KEYS
+************************************************************************
+IF NOMARL-USERID = ' '
+  NOMARL-USERID := *USER
+END-IF
+FIND(1) USER WITH USER-ID = NOMARL-USERID
+  PROFILE-STRING := USER-PROFILE
+END-FIND
+*
+IF NOMARL-DATE-FORMAT > ' ' AND
+    NOT (NOMARL-DATE-FORMAT = 'I' OR = 'J' OR = 'A' OR = 'B' OR = 'E'
+    OR = 'F' OR = 'G' OR = 'H')
+  NOMARL-ERROR-CODE := 2
+  NOMARL-ERROR-TEXT := 'Invalid date format'
+  ESCAPE ROUTINE
+END-IF
+*
+RESET #DATE-TIME
+DECIDE FOR FIRST CONDITION
+/*    reports created after specified time
+  WHEN NOMARL-DATE-FROM > ' ' AND NOMARL-DATE-TO = ' '
+    #DATE := NOMARL-DATE-FROM
+    PERFORM CHECK-DATE-FORMAT
+    IF NOMARL-ERROR-CODE NE 0
+      ESCAPE ROUTINE
+    END-IF
+    #TIME := '2359999'
+    MOVE EDITED #DATE-TIME  TO #TIME-F (EM=YYYYMMDDHHII)
+    #TIME-FP := #TIME-F
+    #TIME-TP := #MAX-INV-TIME
+    #TIME-INV-TP := #MAX-INV-TIME - #TIME-FP
+    #TIME-INV-FP := #MAX-INV-TIME - #TIME-TP
+/* reports created before specified time
+  WHEN NOMARL-DATE-FROM = ' ' AND NOMARL-DATE-TO > ' '
+    #DATE := NOMARL-DATE-TO
+    PERFORM CHECK-DATE-FORMAT
+    IF NOMARL-ERROR-CODE NE 0
+      ESCAPE ROUTINE
+    END-IF
+    #TIME := '0000000'
+    MOVE EDITED #DATE-TIME TO #TIME-T (EM=YYYYMMDDHHII)
+    #TIME-TP := #TIME-T
+    RESET #TIME-FP
+    #TIME-INV-FP := #MAX-INV-TIME - #TIME-TP
+    #TIME-INV-TP := #MAX-INV-TIME - #TIME-FP
+/* reports created on the date or in the time period
+  WHEN NOMARL-DATE-FROM > ' ' AND NOMARL-DATE-TO > ' ' AND
+      NOMARL-DATE-FROM <= NOMARL-DATE-TO
+    #DATE := NOMARL-DATE-FROM
+    PERFORM CHECK-DATE-FORMAT
+    IF NOMARL-ERROR-CODE NE 0
+      ESCAPE ROUTINE
+    END-IF
+    #TIME := '0000000'
+    MOVE EDITED #DATE-TIME  TO #TIME-F (EM=YYYYMMDDHHII)
+    #TIME-FP := #TIME-F
+    #TIME-INV-TP := #MAX-INV-TIME - #TIME-FP
+*
+    #DATE := NOMARL-DATE-TO
+    #TIME := '2359599'
+    MOVE EDITED #DATE-TIME TO #TIME-T (EM=YYYYMMDDHHII)
+    #TIME-TP := #TIME-T
+    #TIME-INV-FP := #MAX-INV-TIME - #TIME-TP
+  WHEN NOMARL-DATE-FROM = ' ' AND NOMARL-DATE-TO = ' '
+    #TIME-INV-TP := #MAX-INV-TIME
+    #TIME-TP     := #MAX-INV-TIME
+    RESET #TIME-INV-FP #TIME-FP
+  WHEN NONE
+    NOMARL-ERROR-CODE := 1
+    NOMARL-ERROR-TEXT := 'wrong time frame specified'
+    ESCAPE ROUTINE
+END-DECIDE
+IF NOMARL-TIME-INV-NEXT > 0
+  #TIME-INV-FP := NOMARL-TIME-INV-NEXT
+END-IF
+*
+IF NOMARL-REPORT-SELECTION > ' '
+  IF NOMARL-REPORT-SELECTION NE SCAN '*'
+    #REPORT-F := NOMARL-REPORT-SELECTION
+    #REPORT-T := #REPORT-F
+  ELSE
+    #REPORT-S := NOMARL-REPORT-SELECTION
+    #LEN := 25
+    CALLNAT 'SELALPHA' #REPORT-S #REPORT-F #REPORT-T #LEN
+    IF NOMARL-REPORT-NEXT > ' '
+      #REPORT-F := NOMARL-REPORT-NEXT
+    END-IF
+  END-IF
+END-IF
+*
+IF PROF-TYPE NE 'A'
+  #MA-USER       := NOMARL-USERID
+  #MA-REPORT     := #REPORT-F
+  #MA-INV-TIME   := #TIME-FP
+  #MA-USER-E     := #MA-USER
+  #MA-REPORT-E   := #REPORT-T
+  #MA-INV-TIME-E := #TIME-FP
+END-IF
+*
+RESET NOMARL-REPORT-NEXT NOMARL-TIME-INV-NEXT
+*
+END-SUBROUTINE /* INIT-SELECTION-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-DATE-FORMAT
+************************************************************************
+IF #DATE NE MASK(YYYYMMDD)
+  NOMARL-ERROR-CODE := 3
+  NOMARL-ERROR-TEXT := 'Specify date in format YYYYMMDD'
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* CHECK-DATE-FORMAT
+*
+************************************************************************
+DEFINE SUBROUTINE SET-#TIME-FORMATTED
+************************************************************************
+NOMARL-REPNAME (NOMARL-NUM-ENTRIES) := AR-REPNAME
+NOMARL-REPRNB (NOMARL-NUM-ENTRIES)  := AR-REPRNB
+NOMARL-LOCATION (NOMARL-NUM-ENTRIES) := AR-CURRENT-LOCATION
+IF AR-PROCESS-TIME NE #TIME-0
+  MOVE EDITED AR-PROCESS-TIME (EM=YYYYMMDD) TO #DATE-A8
+  CALLNAT 'IODATE-N' 'M' 'L' #DATE-A8 #DD /*mask date/long format
+    NOMARL-DATE-FORMAT NOMARL-ERROR-CODE NOMARL-ERROR-TEXT
+  MOVE EDITED AR-PROCESS-TIME (EM=HH':'II) TO #TT
+  NOMARL-TIME (NOMARL-NUM-ENTRIES) := #TIME-FORMATTED
+ELSE
+  RESET NOMARL-TIME (NOMARL-NUM-ENTRIES)
+END-IF
+*
+END-SUBROUTINE /* SET-#TIME-FORMATTED
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF #LFILE-CHANGED
+    PERFORM SET-OLD-NOM-LFILE
+  END-IF
+  IF *ERROR-NR = 82
+    WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Missing NOM steplibs' //
+      'Please call NOM steplib routine NOMGSTEP before call of NOM API.'
+  END-IF
+  NOMARL-ERROR-CODE := 21
+  CALLNAT 'C-NATERN' NOMARL-ERROR-TEXT
+  ESCAPE ROUTINE
+*
+END-ERROR
+*
+END

@@ -1,0 +1,174 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Program  N-CP-TAB
+* Function codepage support: return CP lists:fixed list+default list
+* Version  3.5
+*
+* MAINTENANCE:
+* User ID yyyy-mm-dd itrac       Comment
+* ------- ---------- ----------- ---------------------------------------
+* SU      2017-08-22             NOM 3.5 Created
+* SU1     2017-12-11             length changed: A50->A64 + last-upd
+* SU2     2018-04-30             avoid loop if no record exist + 'D'
+* SU3     2021-09-01 NOMALL-2488 add some BS2000 code pages
+************************************************************************
+*
+DEFINE DATA
+PARAMETER
+1 FUNC              (A1)
+  /* 'F' return fix list defined within this pgm
+  /* 'D' return default list defined in NOM 8.1 11-Default Codepage
+  /* 'H' ='D' with HOLD
+  /* 'U' update default list - no ET Ü
+  /* '+' get descripton
+1 CP-TAB            (*)
+  2 CP-NAME         (A) DYNAMIC BY VALUE RESULT /*max. length is A64 Ü
+  2 CP-DESC         (A) DYNAMIC BY VALUE RESULT
+1 #LAST-UPDATE      (T) OPTIONAL /*required for FUNC=D/H
+  /*OUT for FUNC=D/for FUNC=U store with *TIMX
+1 #LAST-UPDATE-USER (A16) OPTIONAL /*required for FUNC=D/H/U
+  /*OUT for FUNC=D/IN for FUNC=U (G-USERID)
+************************************************************************
+LOCAL
+1 DEFAULT-CP VIEW OF NRM-MONITOR /*was VMONIT-L
+  2 M-MONITOR-ID
+  2 M-EMAIL-RECIPIENTS       (A250/1:4)
+  2 M-LAST-UPDATE
+  2 M-LAST-UPDATE-USER
+*
+1 #CPMAX-FIX                 (I2) CONST <17>
+/* Table of Code pages and their numbers in Windows
+* *****
+* See NAT Docu: "Enabling Unicode and Code Page Support".
+* Maybe the desc can be read via CP API:
+1 #CP-ENTRIES                (A96/1:#CPMAX-FIX) CONST (V) <
+  'IBM01140          '-'English', /*NAT manual: CP Parameter:
+  'IBM01141          '-'German',  /*default CPs(for ULANG)
+  'IBM01145          '-'Spanish',
+  'IBM01147          '-'French',
+  'EDF03DRV          '-'BS2000', /*SU4
+  'EDF03IRV          '-'BS2000',
+  'EDF04DRV          '-'BS2000', /*SU4
+  'EDF04IRV          '-'BS2000', /*SU4
+  'EDF041            '-'BS2000', /*SU4
+  'EDF04F            '-'BS2000', /*SU4
+  'UTF-8             '-'unicode utf-8',
+  'UTF-16            '-'unicode utf-16',
+  'UTF-16BE          '-'unicode utf-16, big endian byte order',
+  'WINDOWS-1250      '-'ansi central european (windows)',
+  'WINDOWS-1252      '-'ansi latin 1; western european (windows)',
+  'ISO-8859-1        '-'western european (iso)',
+/*'ISO_8859-1:1987   '-'central european (iso)',
+  'ISO-8859-2        '-'central european (iso)'>
+1 REDEFINE #CP-ENTRIES
+  2 #CP-GR                   (1:#CPMAX-FIX)
+    3 #CP-FIX-NAME           (A18)
+    3 #CP-FIX-DESC           (A78)
+* *****
+1 #ISN                       (N10)
+1 #I                         (I2)
+1 #J                         (I2)
+1 #POS                       (I2)
+1 #CODEPAGE                  (A8) CONST <'CODEPAGE'>
+1 #CPMAX-DEF                 (I2) CONST <15>
+1 #CP-TAB                    (A250/1:4)
+1 REDEFINE #CP-TAB
+  2 #CODEPAGES               (A64/1:#CPMAX-DEF)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DECIDE ON FIRST VALUE OF FUNC
+  VALUE 'F' /*return fix list defined within this pgm
+    RESIZE AND RESET ARRAY CP-TAB TO (1:#CPMAX-FIX)
+    CP-NAME (1:#CPMAX-FIX):=#CP-FIX-NAME (1:#CPMAX-FIX)
+    CP-DESC (1:#CPMAX-FIX):=#CP-FIX-DESC (1:#CPMAX-FIX)
+  VALUE '+' /*get description
+    PERFORM GET-DESC
+  VALUE 'D','H','U' /*return default list/with HOLD/update List
+    IF FUNC = 'D' OR='H'
+      RESIZE AND RESET ARRAY CP-TAB TO (1:#CPMAX-DEF)
+    END-IF
+    MAIN-LOOP. REPEAT
+      FIND-LOOP. FIND DEFAULT-CP WITH M-MONITOR-ID = #CODEPAGE
+        IF NO RECORDS FOUND
+          IF FUNC = 'H' OR='U'
+            M-MONITOR-ID := #CODEPAGE
+            STOR. STORE DEFAULT-CP
+            END TRANSACTION
+            ESCAPE BOTTOM (FIND-LOOP.) /*READ again SU2
+          END-IF
+          ESCAPE BOTTOM (MAIN-LOOP.) /*no CP defined -> leave SU2
+        END-NOREC
+        #ISN := *ISN (FIND-LOOP.)
+        IF FUNC = 'U' /*update
+          /*???? SU check if removed CP still used in node or report
+          UPD. GET DEFAULT-CP #ISN
+          FOR #POS=1 TO #CPMAX-DEF
+            IF CP-NAME (#POS) = ' '
+              ESCAPE TOP
+            END-IF
+            ADD 1 TO #J
+            #CODEPAGES (#J) := CP-NAME (#POS)
+          END-FOR
+          M-EMAIL-RECIPIENTS (*) := #CP-TAB (*)
+          M-LAST-UPDATE          := *TIMX
+          M-LAST-UPDATE-USER     := #LAST-UPDATE-USER /*must specified
+          UPDATE (UPD.)
+          ESCAPE MODULE /*(N-CP-TAB)
+        END-IF
+        IF #LAST-UPDATE SPECIFIED
+          #LAST-UPDATE      := M-LAST-UPDATE
+        END-IF
+        IF #LAST-UPDATE-USER SPECIFIED
+          #LAST-UPDATE-USER := M-LAST-UPDATE-USER
+        END-IF
+        #CP-TAB (*)       := M-EMAIL-RECIPIENTS (*)
+        FOR #POS=1 TO #CPMAX-DEF
+          IF #CODEPAGES (#POS) = ' '
+            ESCAPE TOP
+          END-IF
+          ADD 1 TO #J
+          CP-NAME  (#J) := #CODEPAGES (#POS)
+        END-FOR
+        PERFORM GET-DESC
+        ESCAPE BOTTOM (MAIN-LOOP.)
+      END-FIND /*(FIND-LOOP.)
+    END-REPEAT /*(MAIN-LOOP.)
+    REDUCE ARRAY CP-TAB TO (1:#J)
+    IF FUNC = 'H' /*read with hold
+      HOLD. GET DEFAULT-CP #ISN
+      IF TRUE = FALSE /*never
+        UPDATE (HOLD.)
+      END-IF
+    END-IF
+  NONE IGNORE
+    REDUCE ARRAY CP-TAB TO 0
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-DESC
+************************************************************************
+RESET CP-DESC (*)
+FOR #POS=1 TO *OCC(CP-NAME) /*#CPMAX-DEF
+  FOR #I=1 TO #CPMAX-FIX /*try to find desc from fixed table
+    IF #CP-FIX-NAME (#I) = CP-NAME (#POS)
+      CP-DESC (#POS) := #CP-FIX-DESC (#I)
+    END-IF
+  END-FOR
+END-FOR
+/*???? SU use XXCHCKCP to get description ?
+*
+END-SUBROUTINE /*GET-DESC
+*
+END

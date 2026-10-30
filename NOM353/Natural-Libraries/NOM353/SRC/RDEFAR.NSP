@@ -1,0 +1,875 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDEFAR - Modify/Display Active Report attributes
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-06-26 s(999999) created
+* mrs 93-10-15 s(999999) NAF Interface implemented
+* mrs 94-03-02 s(999999) BS2 implemented
+* mrs 94-05-03 s(999999) protect OWNER if user-type = 'G'
+* mrs 94-06-23 s(999999) CMASPOOL implemented
+* gw  94-11-17 s(214318) SAP-Spool implemented
+* mrs 95-02-08 s(217959) stowed because of changes in eomarm-p
+* mrs 95-11-28 s(999999) extended spool attributes
+* mrs 97-05-27 p(162705) recompiled (changes in rdefary& and eomarm-p)
+* mrs 97-05-27 p(162737) recompiled (changes in rdefary& and eomarm-p)
+* jwo 97-06-04 p(162705) new map rdefarz& fro bs2000 ext. attr. added
+* jvd 98-10-08 s(999999) Spool Attributes
+* gw  98-10-31 s(999999) EOMARM-P change for NAF dbid/fnr compatibility
+* gw  98-11-03 s(300070) stowed because spool-jes-dsno  N5 instead of N3
+* sju 98-11-24 r(284191) immediate archiving
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsiszha 2000-08-15 CE7461    Extend Report and Bundle Names
+* fhi     2000-09-28 s(196560) Add Unix File Support
+* sju     2002-10-09 nom221    XML Stylesheet
+* xsetggr 2002-10-14 CE7553    add nondefined userid as DEFAULT userid
+* sju     02-10-31 NOM221    Long records (Jes2 only)
+* xsetggr 2003-07-24 p(240465) correct  CE7553
+* sju     03-10-09 p(203612) NAF create date and time
+* sju     05-03-16 NOM31     NAT AM=NOM
+* sju     05-03-16 NOM31     NAT AM=NOM
+* xsetggr 2005-11-28 p(271774) Support more than 40 Power segments
+* xsetggr 2006-01-02 p(266299) Treat EXIT command as PF3, prevent
+*                              committing when no changes are done
+* xsetggr 2007-06-26 NOM3201   Support P11 format run numbers
+* fhi     2007-07-31 NRT2422   Support direct input
+* xsetggr 2008-01-17 NRT2768   Show size of binary docs in kbytes
+* fhi     2008-01-18 P300675   Meta data of OPO are corrupted
+* xsetggr 2008-02-24 add parm  to RBINSZ-N
+* xsetggr 2008-03-11 p(302778) change format of RBINSZ-N parms
+* xsetggr 2008-05-05 p(304350) store size of binary reports in spool
+*                              attributes if missing
+* bli     2009-01-21 P(307959) back to 50 char,EOMARM-P mod.
+* fhi     2009-05-19 N3463     Extend metadata for OPO
+* xsetggr 2009-10-09 P320826   use rmspl7-n to convert node & job number
+* fhi     2010-03-02 P323539   Allow META PFKey PF02 in UNIX-SEQ-File
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* XSETHZ  2011-04-14 NOMALL-949 keywords in lowercase, MAPs chaenged
+* xsetggr 201206-19 NOMALL-1163 add reaction on error NOM0415
+* xsetggr 2012-06-19 NOMALL-1163 add reaction to error NOM0415
+* raya    2012-08-15 NOMALL-78 disable maintenance of long record
+* fhi     2012-08-20 NOMALL-1004 Add report formatting attributes
+* fhi     2012-08-22 NOMALL-1004 Add report formatting attributes
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* raya    2013-03-13 NOMALL-1192 avoid wrong naf destination
+* SU2     2014-07-04 NOMALL-1279 fill fields for Adabas Vista
+* fhi     2014-10-21 NOMALL-79   Introduce long filenames
+* SU3     2015-02-27 NOMALL-1569 USR0320N (SYSEXT) => NAT00064 (SYSLIBS)
+* fhi     2015-05-18 NOMALL-1552 Show real size, not base64 size
+* SU4     2015-06-01 NOMALL-1552 Show size 1 (instead 0)
+* SU5     2015-08-11 NOMALL-1690 XXHASH restructure
+* SU6     2015-12-30 NOMALL-1722 XXHASH-P changed->recat
+* SU7     2016-01-18 NOMALL-1802 do not update Adabas Vista fields
+* SU8     2016-02-24 NOMALL-1722 support long path names
+* fhi     2016-08-01 NOMALL-1748 Backout Report Formatting
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-01-20 NOMALL-1620 Display codepage
+* fhi     2018-10-10 NOMALL-2154 Display both,remote and local codepages
+* SU9     2020-01-03 NOMALL-2370 new field:NAF: OUTPUT -store as attr.
+* SU10    2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU11    2023-04-13 ES-33831    act. help for keyword
+* SU12    2024-03-07 ES-34613    NOM 3.6 Remove power / sap
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING  NRM-GL
+*
+LOCAL USING RPFK---L
+LOCAL USING EOM----E
+LOCAL USING EOM----P
+LOCAL USING EOMARM-P
+LOCAL USING EOMARM-E
+LOCAL USING EOMMSG-P
+LOCAL USING RMSR---E
+LOCAL USING RDEFUSRL
+LOCAL USING RDEFAE-A
+LOCAL USING RMSPL--L
+LOCAL USING XXHASH-P
+*
+LOCAL
+1 ACT-REP VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-SPOOL-ATTRIBUTES
+* *****
+1 #GETOUT                    (L)
+1 #FUNC                      (A1)
+1 #REPORT                    (A25)
+1 #REPRNB                    (P11)
+1 #M-REPORT                  (A25)
+1 REDEFINE #M-REPORT
+  2 #M-REPORT-17             (A17)
+  2 #M-REPORT-R              (A8)
+1 CV-OWN                     (C)
+1 CV-RET                     (C)
+1 CV-EXP                     (C)
+1 CV-KEY                     (C)
+1 CV-MAP                     (C) INIT < (AD=I CD=NE)>
+1 L-HEADER                   (A78)
+1 READ-RECORD                (L)
+1 #FATHER-PROG               (A8) INIT <'RLISAC'>
+1 #LANGUAGE                  (I1)
+1 #PANEL                     (I2)
+1 #SUB-PANEL                 (I2)
+1 #START                     (N7)    INIT <1>
+1 #I                         (I4)
+1 #NUM-OF-ATTR               (I4)
+1 #MAP-IND                   (I4)
+1 #CP                        (I2) INIT <1>
+1 #END-OF-DATA               (L)
+1 ATTRIBUTES-PREPARED        (L)
+1 GET-PROMPT-INIT-DONE       (L)
+1 #SPOOL-TYPE-N3             (N3)
+1 REDEFINE #SPOOL-TYPE-N3
+  2 #NOMUSR-INTERFACE-A3     (A3)
+1 #M-NOMUSR-GROUP            (24)
+  2 #M-NOMUSR-PROMPT         (A22)
+  2 #M-NOMUSR-VALUE          (A54)
+1 #NAT00064
+  2 ERROR-NUMBER             (N4)
+  2 LIBRARY                  (A8)
+  2 LANG-CODE                (I1)
+  2 SHORT-TEXT                (A79)
+  2 RESPONSE                 (N4)
+1 #STYLE-TEXT                (A7)    CONST <'Style..'>
+1 #CV-STYLE                  (C)
+1 #YES                       (L)
+1 #AUTODEF                   (A1)
+1 #DEF-USER                  (L)
+1 #EXIST                     (L)
+1 #CHK-USER                  (L)
+1 #OWNER                     (A8)
+1 #NAF-TIME                  (A15)
+1 REDEFINE #NAF-TIME
+  2 #NAF-TIMX                (T)
+1 #HEX-ZEROS                 (B15)
+1 #DATE-UNFORMATTED          (A8)
+1 #NAF-DISPLAY-DATE          (A10)
+1 #NAF-DISPLAY-TIME          (A8)
+1 REDEFINE #NAF-DISPLAY-TIME
+  2 #NAF-DISPLAY-HH          (A2)
+  2 FILLER                   1X
+  2 #NAF-DISPLAY-II          (A2)
+  2 FILLER                   1X
+  2 #NAF-DISPLAY-SS          (A2)
+1 #TIME-UNFORMATTED          (A6)
+1 REDEFINE #TIME-UNFORMATTED
+  2 #TIME-HH                 (A2)
+  2 #TIME-II                 (A2)
+  2 #TIME-SS                 (A2)
+1 #NAF-OR-NAT                (A3)
+/*SU12 1 #SEGMENT-COUNT             (N3)
+1 #LINES                     (A9)
+1 #ERC                       (N4)
+1 #ERT                       (A250)
+1 #BIN-SIZE                  (I4)
+1 #RECNUM                    (I4)
+1 #A4                        (A4)
+1 REDEFINE #A4
+  2 #I4                      (I4)
+1 #KBYTES                    (I4)
+1 #AR-REP-RNB                (A31)
+1 REDEFINE #AR-REP-RNB
+  2 #AR-REPNAME              (A25)
+  2 #AR-REPRNB               (P11)
+1 #FILE-NAME                 (A250)
+1 REDEFINE #FILE-NAME
+  2 #FILE-NAME-ARRAY         (A50/5)
+1 #PATH_A280                 (A280)
+1 REDEFINE #PATH_A280
+  2 #PATH_A70                (A70/1:4)
+1 #PATH-IND                  (I1) INIT <1>
+1 #I2                        (I2)
+1 #I3                        (I2)
+1 #OLD-KY                    (A15/1:3) /*SU11
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *DATA > 0
+  INPUT (AD=MIT) G-C-FUNC G-C-REPORT G-C-REPRNB #PANEL
+END-IF
+*
+CV-KEY := (AD=I)
+RESET G-COMMIT G-LINECOM(*)
+*
+IF G-C-FUNC = 'S'
+  #FUNC := 'D'
+ELSE
+  #FUNC := G-C-FUNC
+END-IF
+#REPORT := G-C-REPORT
+#REPRNB := G-C-REPRNB
+#AUTODEF := F#MONITOR-USER-AUTODEF (<>)
+EOM-USER-PROFILE := G-USER-PROFILE
+EOM-USER         := G-USERID
+EOM-USER-TYPE    := G-USER-TYPE
+EOM-DATE-FORMAT  := G-DATE-FORMAT
+EOM-LANGUAGE     := *LANGUAGE
+*
+RESET  EOM-LOGGING                          /* ????????????????
+IF G-LOG-REP                                /* ????????????????
+  EOM-LOG-TYPES (1) := 'R'                 /* ????????????????
+END-IF                                      /* ????????????????
+*
+IF #PANEL = 0
+  #PANEL := ACTIVE-REPORT-GENERAL-ATTRIBUTES
+END-IF
+IF G-C-FUNC = 'S'
+  #PANEL  := ACTIVE-REPORT-SPOOL-ATTRIBUTES
+  #GETOUT := FALSE
+END-IF
+PERFORM READ-SPOOL-ATTR
+*
+MAIN-LOOP. REPEAT
+  IF #GETOUT
+    ESCAPE BOTTOM (MAIN-LOOP.)
+  END-IF
+*
+  EOMARM-I-NAME           := #REPORT
+  EOMARM-I-RNB            := #REPRNB
+  EOMARM-I-ATTRIBUTE-TYPE := #PANEL
+*
+  DECIDE ON FIRST #FUNC
+    VALUE 'M'
+      CV-KEY       := (AD=IP)
+      EOM-FUNCTION := EOM-READHOLD
+    VALUE 'D'
+      CV-KEY := CV-MAP := CV-RET := CV-EXP := (AD=IP)
+      EOM-FUNCTION := EOM-READ
+    NONE
+      G-NATRP-ERC := 9999
+      INCLUDE C-ESCAPE
+  END-DECIDE
+*
+  FIND-LOOP. REPEAT
+    RESET EOMMSG-PARMS
+    CALLNAT 'EOMARM-N' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+*
+    IF EOMMSG-NR NE 0
+      G-NATRP-ERC := EOMMSG-NR
+      G-NATRP-ERT := EOMMSG-TOKEN (1)
+      INCLUDE C-ESCAPE
+    END-IF
+    G-HOLD-TIME := *TIMX
+    #OWNER := EOMARM-MASTER-OWNER
+*
+    SCREEN-LOOP. REPEAT
+      IF #LANGUAGE NE *LANGUAGE
+        #LANGUAGE := *LANGUAGE
+        PERFORM INIT-PFKEYS
+        PERFORM SET-PFKEYS
+        SET KEY PF01=HELP NAMED G-PF-TEXT (1) /*SU11
+        SET KEY PF13=HELP NAMED G-PF-TEXT (1) /*SU11
+      END-IF
+*
+      IF #FUNC NE 'D'
+        INCLUDE C-HOLD
+      END-IF
+*
+      PERFORM FLIP-DISPLAY
+      SET CONTROL 'L'
+      SET CONTROL 'WB'
+      CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDEFRPM&'
+      RESET G-MAP-MODIFIED
+      #M-REPORT := EOMARM-I-NAME
+      IF NOT G-DISPLAY-LONG-NAMES
+        #M-REPORT-R := H'FA'
+      END-IF
+*
+      DECIDE ON FIRST #PANEL
+        VALUE ACTIVE-REPORT-SPOOL-ATTRIBUTES
+          IF G-C-FUNC = 'S'
+            #GETOUT := TRUE
+          END-IF
+          DECIDE ON FIRST EOMARM-SPOOL-TYPE
+/*SU12 ->   VALUE POWER
+/*            IF EOMARM-SPOOL-POWER-SEGMENTS-1 = 0
+/*              #SEGMENT-COUNT:= EOMARM-SPOOL-POWER-SEGMENTS-2 ELSE
+/*              #SEGMENT-COUNT:= EOMARM-SPOOL-POWER-SEGMENTS END-IF
+/*            INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+/*SU12 <-       MARK *G-DIRECT-COMMAND USING MAP 'RDEFARP&'
+            VALUE NAF, NAT
+              IF EOMARM-SPOOL-TYPE = NAF
+                #NAF-OR-NAT:= 'NAF'
+              ELSE
+                #NAF-OR-NAT:= 'NAT'
+              END-IF
+              IF #DATE-UNFORMATTED = ' '   /* not done date/time yet
+                IF EOMARM-SPOOL-NAF-DATE = MASK(YYYYMMDD)
+/* old report (pre-NOM 1.4) or NOMEX002
+                  #DATE-UNFORMATTED:= EOMARM-SPOOL-NAF-DATE
+                  #TIME-UNFORMATTED:= EOMARM-SPOOL-NAF-TIME
+                ELSE
+                  IF EOMARM-SPOOL-NAF-DATE = MASK(PPPPPPPP)
+/* some rubbish in there - probably from NOMEX002
+                    #NAF-DISPLAY-DATE:= EOMARM-SPOOL-NAF-DATE
+                    #NAF-DISPLAY-TIME:= EOMARM-SPOOL-NAF-TIME
+                    #DATE-UNFORMATTED:= 'X'  /* don't try to format date
+                  ELSE
+                    #NAF-TIME:= EOMARM-SPOOL-NAF-DATE
+                    IF #NAF-TIME NE ' ' AND #NAF-TIME NE #HEX-ZEROS
+/* NOMPUT zap to set *TIMX is applied
+                      MOVE EDITED #NAF-TIMX (EM=YYYYMMDD) TO
+                        #DATE-UNFORMATTED
+                      MOVE EDITED #NAF-TIMX (EM=HHIISS) TO
+                        #TIME-UNFORMATTED
+                    ELSE                 /* no date/time info
+                      #DATE-UNFORMATTED:= 'X'  /* don't try again
+                      RESET #NAF-DISPLAY-DATE #NAF-DISPLAY-TIME
+                    END-IF
+                  END-IF
+                END-IF
+                IF #DATE-UNFORMATTED NE 'X'   /* we have a date
+                  CALLNAT 'IODATE-N' 'M' 'L' #DATE-UNFORMATTED
+                    #NAF-DISPLAY-DATE G-DATE-FORMAT
+                    G-NATRP-ERC G-NATRP-ERT
+                  IF G-NATRP-ERC = 0
+                    #NAF-DISPLAY-TIME:= 'HH:II:SS'
+                    #NAF-DISPLAY-HH  := #TIME-HH
+                    #NAF-DISPLAY-II  := #TIME-II
+                    #NAF-DISPLAY-SS  := #TIME-SS
+                  ELSE
+                    RESET #NAF-DISPLAY-DATE #NAF-DISPLAY-TIME
+                      G-NATRP-ERC G-NATRP-ERT
+                  END-IF
+                END-IF
+              END-IF
+              IF #NAF-OR-NAT = 'NAF'
+                EOMARM-PARMS.EOMARM-SPOOL-NAF-DEST := #SPOOL-NAF-DEST
+                EOMARM-PARMS.EOMARM-SPOOL-NAF-OUTPUT:=
+                  #SPOOL-NAF-OUTPUT /*SU9
+              END-IF
+              INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+                MARK *G-DIRECT-COMMAND USING MAP 'RDEFARN&'
+            VALUE SEQUENTIAL-FILE-BS2
+              DECIDE ON FIRST #SUB-PANEL
+                VALUE 2
+                  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+                    MARK *G-DIRECT-COMMAND USING MAP 'RDEFARX&'
+                VALUE 3
+                  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+                    MARK *G-DIRECT-COMMAND USING MAP 'RDEFARY&'
+                VALUE 4
+                  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+                    MARK *G-DIRECT-COMMAND USING MAP 'RDEFARZ&'
+                NONE VALUE
+                  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+                    MARK *G-DIRECT-COMMAND USING MAP 'RDEFARB&'
+              END-DECIDE
+            VALUE SEQUENTIAL-FILE-UNIX
+              XXHASH-PARMS.P-SHORT-NAME := EOMARM-SPOOL-UX-FILENAME
+              PERFORM GET-LONGNAME
+              #FILE-NAME := XXHASH-PARMS.P-LONG-NAME
+              INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+                MARK *G-DIRECT-COMMAND USING MAP 'RDEFARI&'
+            VALUE DIRECT-INPUT
+              IF #SUB-PANEL = 0
+                #SUB-PANEL := 1
+              END-IF
+              #PATH-IND := #SUB-PANEL
+              XXHASH-PARMS.P-SHORT-NAME := EOMARM-SPOOL-DI-FILENAME
+              PERFORM GET-LONGNAME
+              #FILE-NAME := XXHASH-PARMS.P-LONG-NAME
+              PERFORM BUILD-PATH-LONGNAME
+              INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+                MARK *G-DIRECT-COMMAND USING MAP 'RDEFARD&'
+            VALUE CMASPOOL
+              INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+                MARK *G-DIRECT-COMMAND USING MAP 'RDEFARC&'
+/*SU12      VALUE SAPSPOOL
+            VALUE 100 : 199          /* NOM User Spool Interfaces
+              PERFORM PREPARE-USER-SPOOL-ATTRIBUTES
+              PERFORM CHECK-TOP-BOTTOM-MORE-ALL
+              INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+                MARK *G-DIRECT-COMMAND USING MAP 'RDEFARU&'
+            NONE VALUE
+              INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+                MARK *G-DIRECT-COMMAND USING MAP 'RDEFARJ&'
+          END-DECIDE
+        VALUE ACTIVE-REPORT-ARCHIVE-ATTRIBUTES
+          IF #FUNC = 'M'
+            IF EOMARM-ARCHIVE = '*' OR = 'R' OR = 'P'
+              CV-RET := CV-EXP := (AD=IP)
+            ELSE
+              CV-RET := (AD=I)
+              CV-EXP := (AD=IP)
+            END-IF
+          END-IF
+          INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+            MARK *G-DIRECT-COMMAND USING MAP 'RDEFARA&'
+        VALUE ACTIVE-REPORT-REVIVE-ATTRIBUTES
+          IF #FUNC = 'M'
+            IF EOMARM-REVIVE = '*'
+              CV-RET := (AD=IP)
+              CV-EXP := (AD=I)
+            ELSE
+              CV-RET := (AD=I)
+              CV-EXP := (AD=IP)
+            END-IF
+          END-IF
+          INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+            MARK *G-DIRECT-COMMAND USING MAP 'RDEFARR&'
+        NONE VALUE
+          CV-RET := (AD=IP)
+          IF #FUNC = 'M' AND EOMARM-EXPIRATION-DATE NE ' '
+            CV-EXP := (AD=I)
+          ELSE
+            CV-EXP := (AD=IP)
+          END-IF
+          IF #FUNC = 'M' AND G-USER-TYPE = 'A'
+            CV-OWN := (AD=I)
+          ELSE
+            CV-OWN := (AD=IP)
+          END-IF
+          IF EOMARM-STYLESHEET-URL = ' '
+            #CV-STYLE:= (AD=NP)
+          ELSE
+            #CV-STYLE:= (CD=TU)
+          END-IF
+          RESET #LINES
+          IF EOMARM-CC-TYPE = 'binary'
+            IF #BIN-SIZE = 0
+              RESET #LINES
+            ELSE
+              #KBYTES := (#BIN-SIZE / 1024) * 3 / 4 + 1
+              COMPRESS #KBYTES 'K' TO #LINES LEAVING NO
+            END-IF
+          ELSE
+            #LINES := EOMARM-NUMBER-OF-LINES
+          END-IF
+          #OLD-KY (*) := EOMARM-PARMS.EOMARM-KEYWORDS (*) /*SU11
+          INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+            MARK *G-DIRECT-COMMAND USING MAP 'RDEFARG&'
+      END-DECIDE
+      PERFORM CHECK-MODIFIED
+      RESET G-NATRP-ERC G-NATRP-ERT
+      IF G-DIRECT-COMMAND = 'EXIT' OR = 'E' OR = 'EX' OR  = 'EXI'
+        PERFORM COMMIT-WORK
+        ESCAPE ROUTINE
+      END-IF
+      IF G-DIRECT-COMMAND = 'META'
+        #L-HEADER := L-HEADER
+        #G-USERID := G-USERID
+        #SPOOL-ATTRIBUTES-EXTENDED (*) := EOMARM-SPOOL-ATTR-EXTENDED (*)
+        CALLNAT 'RDEFAE-N' #META
+        PERFORM INIT-PFKEYS
+        PERFORM SET-PFKEYS
+        ESCAPE TOP
+      END-IF
+      INCLUDE RPFKVA-C
+      INCLUDE C-DIRECT
+*
+      IF G-PF-FUNC = 'UNDO' OR = 'DO'   /* ???????????????????
+        RESET EOM-LOG-FUNCTION         /* ???????????????????
+      END-IF                            /* ???????????????????
+*
+      INCLUDE RPFKED-C
+*
+      RESET READ-RECORD
+      IF  (#DEF-USER OR  EOMARM-I-DEF-OWNER NE 'Y' OR G-MAP-MODIFIED)
+          AND #FUNC NE 'D'
+        PERFORM CHECK-ACTIVE-HELP
+        IF #CHK-USER
+          RESET #DEF-USER
+        END-IF
+        PERFORM CHECK-USERID
+        IF #DEF-USER
+          G-NATRP-ERC := 0509
+          ESCAPE TOP
+        END-IF
+        IF G-MAP-MODIFIED
+          EOMARM-I-NAME           := #REPORT
+          EOMARM-I-RNB            := #REPRNB
+          EOMARM-I-ATTRIBUTE-TYPE := #PANEL
+          EOM-FUNCTION            := EOM-MODIFY
+*
+          RESET EOMMSG-PARMS
+          CALLNAT 'EOMARM-N' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+*
+          IF EOMMSG-NR = 0
+            G-NATRP-ERC := 32
+            #OWNER := EOMARM-MASTER-OWNER
+          ELSE
+            PERFORM CHECK-ERROR-CODE
+          END-IF
+*
+          INCLUDE C-COMMIT
+        END-IF
+      END-IF
+      INCLUDE REXDO--C
+*
+      DECIDE ON FIRST VALUE OF G-PF-FUNC
+        VALUE ##PFK-EXIT-SUBFUNC
+          #PANEL := ACTIVE-REPORT-GENERAL-ATTRIBUTES
+          RESET  #LANGUAGE
+          READ-RECORD := TRUE
+        VALUE ##PFK-AREPORT-ARCHIVE
+          #PANEL := ACTIVE-REPORT-ARCHIVE-ATTRIBUTES
+          RESET  #LANGUAGE
+          READ-RECORD := TRUE
+        VALUE ##PFK-AREPORT-REVIVE
+          #PANEL := ACTIVE-REPORT-REVIVE-ATTRIBUTES
+          RESET  #LANGUAGE
+          READ-RECORD := TRUE
+        VALUE ##PFK-AREPORT-SPOOL
+          #PANEL := ACTIVE-REPORT-SPOOL-ATTRIBUTES
+          RESET  #LANGUAGE
+          READ-RECORD := TRUE
+          #SUB-PANEL := 1
+        VALUE ##PFK-META
+          #L-HEADER := L-HEADER
+          #G-USERID := G-USERID
+          #SPOOL-ATTRIBUTES-EXTENDED (*) :=
+            EOMARM-SPOOL-ATTR-EXTENDED (*)
+          CALLNAT 'RDEFAE-N' #META
+        VALUE ##PFK-UP
+          #MAP-IND := 1
+        VALUE ##PFK-DOWN
+          #MAP-IND := 2
+        VALUE ##PFK-LEFT
+          IF #SUB-PANEL > 1
+            SUBTRACT 1 FROM #SUB-PANEL
+          END-IF
+        VALUE ##PFK-RIGHT
+          IF EOMARM-SPOOL-TYPE = DIRECT-INPUT
+            IF #PATH_A70(#SUB-PANEL + 1) = MASK('<')
+              ADD 1 TO #SUB-PANEL
+            END-IF
+          ELSE
+            IF #SUB-PANEL < 4
+              ADD 1 TO #SUB-PANEL
+            END-IF
+          END-IF
+        VALUE ##PFK-DISPLAY-LONG-NAMES
+          IF G-DISPLAY-LONG-NAMES
+            G-DISPLAY-LONG-NAMES := FALSE
+          ELSE
+            G-DISPLAY-LONG-NAMES := TRUE
+          END-IF
+          READ-RECORD := TRUE
+        NONE  IGNORE
+      END-DECIDE
+      IF READ-RECORD = TRUE
+        ESCAPE BOTTOM (FIND-LOOP.)
+      END-IF
+*
+    END-REPEAT /* Screen Loop
+  END-REPEAT /* Find Loop
+END-REPEAT  /* Main Loop
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-MODIFIED
+************************************************************************
+IF CV-MAP MODIFIED OR CV-KEY MODIFIED OR CV-RET MODIFIED
+OR CV-EXP MODIFIED OR CV-OWN MODIFIED                                 /*
+  G-MAP-MODIFIED := TRUE
+END-IF
+*
+END-SUBROUTINE /* CHECK-MODIFIED
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-ACTIVE-HELP
+************************************************************************
+DECIDE ON FIRST #PANEL
+  VALUE ACTIVE-REPORT-GENERAL-ATTRIBUTES
+    IF EOMARM-RET-CALENDAR = SCAN '*'
+      REINPUT USING HELP MARK *EOMARM-RET-CALENDAR
+    END-IF
+    IF EOMARM-PARMS.EOMARM-KEYWORDS (*) = SCAN '*' /*SU11
+      FOR #I 1 *OCC(EOMARM-PARMS.EOMARM-KEYWORDS)
+        IF EOMARM-PARMS.EOMARM-KEYWORDS (#I) = SCAN '*'
+          REINPUT USING HELP MARK *EOMARM-PARMS.EOMARM-KEYWORDS (#I)
+        END-IF
+      END-FOR
+    END-IF
+  VALUE ACTIVE-REPORT-REVIVE-ATTRIBUTES
+    IF EOMARM-REV-CALENDAR = SCAN '*'
+      REINPUT USING HELP MARK *EOMARM-REV-CALENDAR
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-ACTIVE-HELP
+*
+************************************************************************
+DEFINE SUBROUTINE READ-SPOOL-ATTR
+************************************************************************
+#AR-REPNAME := G-C-REPORT
+#AR-REPRNB  := G-C-REPRNB
+RESET #SPOOL-ATTRIBUTES #BIN-SIZE
+FNDAR. FIND ACT-REP WITH AR-REPORT-RNB = #AR-REP-RNB
+  #SPOOL-ATTRIBUTES := AR-SPOOL-ATTRIBUTES
+  CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+  IF #SPOOL-DI-SIZE = #I4 OR = 0
+    PERFORM GET-BINARY-SIZE
+    #SPOOL-DI-SIZE := #BIN-SIZE
+    GETAR. GET ACT-REP *ISN(FNDAR.)
+    AR-SPOOL-ATTRIBUTES := #SPOOL-ATTRIBUTES
+    UPDATE (GETAR.)
+    RESET XXHASH-PARMS
+    XXHASH-PARMS.P-FUNCTION := 'U' /*update rep. data
+    COMPRESS AR-REPNAME '/' AR-REPRNB TO XXHASH-PARMS.P-REPRNB
+      LEAVING NO
+    DECIDE ON EVERY VALUE OF #SPOOL-TYPE
+      VALUE SEQUENTIAL-FILE-UNIX
+        XXHASH-PARMS.P-SHORT-NAME := #SPOOL-UNIX-FILE-NAME
+      VALUE DIRECT-INPUT
+        XXHASH-PARMS.P-SHORT-NAME := #SPOOL-DI-PATH
+        PERFORM XXHASH XXHASH-PARMS
+        XXHASH-PARMS.P-SHORT-NAME := #SPOOL-DI-FILENAME
+      ANY
+        PERFORM XXHASH XXHASH-PARMS
+      NONE IGNORE
+    END-DECIDE
+    END TRANSACTION
+  ELSE
+    #BIN-SIZE := #SPOOL-DI-SIZE
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-SPOOL-ATTR
+*
+************************************************************************
+DEFINE SUBROUTINE GET-BINARY-SIZE
+************************************************************************
+RESET #BIN-SIZE #RECNUM
+CALLNAT 'RBINSZ-N' G-C-REPORT G-C-REPRNB 'R' #RECNUM #BIN-SIZE #ERC #ERT
+IF #ERC NE 0
+  RESET #BIN-SIZE
+END-IF
+*
+END-SUBROUTINE /* GET-BINARY-SIZE
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-USERID
+************************************************************************
+IF NOT #DEF-USER
+  IF EOMARM-MASTER-OWNER NE #OWNER
+    CALLNAT 'RCHKUS' EOMARM-MASTER-OWNER #EXIST
+    IF NOT #EXIST
+      IF #AUTODEF = 'P'
+        #DEF-USER := TRUE
+        RESET #YES
+        CALLNAT 'Y-OR-N' EOMARM-MASTER-OWNER #YES
+      END-IF
+      IF #AUTODEF = 'Y' OR (#AUTODEF = 'P' AND #YES)
+        #OWNER := EOMARM-MASTER-OWNER
+        RESET #CHK-USER
+        EOMARM-I-DEF-OWNER := 'Y'
+      ELSE
+        IF #AUTODEF = 'P' AND NOT #YES
+          #CHK-USER := TRUE
+        END-IF
+        EOMARM-I-DEF-OWNER := 'N'
+      END-IF
+    END-IF
+  END-IF
+ELSE
+  RESET #DEF-USER
+END-IF
+*
+END-SUBROUTINE /* CHECK-USERID
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-ERROR-CODE
+************************************************************************
+DECIDE ON FIRST EOMMSG-NR
+  VALUE 0020 IGNORE
+  VALUE 0002
+    IF EOMMSG-FIELD-NAME = 'EOMARM-MASTER-OWNER'
+      REINPUT *EOMMSG-NR, EOMMSG-TOKEN (1) MARK *EOMARM-MASTER-OWNER
+    END-IF
+  VALUE 0150
+    IF EOMMSG-FIELD-NAME = 'EOMARM-EXPIRATION-DATE'
+      REINPUT *EOMMSG-NR, EOMMSG-TOKEN (1) MARK *EOMARM-EXPIRATION-DATE
+    END-IF
+    IF EOMMSG-FIELD-NAME = 'EOMARM-REV-EXPIRATION'
+      REINPUT *EOMMSG-NR, EOMMSG-TOKEN (1) MARK *EOMARM-REV-EXPIRATION
+    END-IF
+  VALUE 1083
+    REINPUT *EOMMSG-NR MARK *EOMARM-ARC-FACTOR
+  VALUE 0634
+    IF EOMMSG-FIELD-NAME = 'EOMARM-RET-FACTOR'
+      REINPUT *EOMMSG-NR MARK *EOMARM-RET-FACTOR
+    END-IF
+    IF EOMMSG-FIELD-NAME = 'EOMARM-REV-FACTOR'
+      REINPUT *EOMMSG-NR MARK *EOMARM-REV-FACTOR
+    END-IF
+  VALUE 1088
+    IF EOMMSG-FIELD-NAME = 'EOMARM-RET-ACTION'
+      REINPUT *EOMMSG-NR MARK *EOMARM-RET-ACTION
+    END-IF
+  VALUE 0415
+    DECIDE ON FIRST VALUE OF EOMMSG-FIELD-NAME
+      VALUE 'EOMARM-RET-NUMBER'
+        REINPUT *EOMMSG-NR MARK *EOMARM-RET-NUMBER
+      VALUE 'EOMARM-ARC-NUMBER'
+        REINPUT *EOMMSG-NR MARK *EOMARM-ARC-NUMBER
+      VALUE 'EOMARM-REV-NUMBER'
+        REINPUT *EOMMSG-NR MARK *EOMARM-REV-NUMBER
+      NONE IGNORE
+    END-DECIDE
+  VALUE 2003
+    IF EOMMSG-FIELD-NAME = 'EOMARM-RET-CALENDAR'
+      REINPUT *EOMMSG-NR MARK *EOMARM-RET-CALENDAR
+    END-IF
+    IF EOMMSG-FIELD-NAME = 'EOMARM-REV-CALENDAR'
+      REINPUT *EOMMSG-NR MARK *EOMARM-REV-CALENDAR
+    END-IF
+  VALUE 2005
+    IF EOMMSG-FIELD-NAME = 'EOMARM-MASTER-OWNER'
+      REINPUT *EOMMSG-NR, EOMMSG-TOKEN (1) MARK *EOMARM-MASTER-OWNER
+    END-IF
+  NONE VALUE
+    REINPUT *EOMMSG-NR, EOMMSG-TOKEN(1), EOMMSG-TOKEN(2),EOMMSG-TOKEN(3)
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-ERROR-CODE
+*
+************************************************************************
+DEFINE SUBROUTINE PREPARE-USER-SPOOL-ATTRIBUTES
+************************************************************************
+IF NOT ATTRIBUTES-PREPARED
+  ATTRIBUTES-PREPARED := TRUE
+  #SPOOL-TYPE-N3 := EOMARM-SPOOL-TYPE
+  COMPRESS 'NOMUSR' #NOMUSR-INTERFACE-A3 TO NRM-MONITOR.M-MONITOR-ID
+    LEAVING NO
+  FIND (1) NRM-MONITOR WITH M-MONITOR-ID = NRM-MONITOR.M-MONITOR-ID
+    RESET #NUM-OF-ATTR
+    FOR #I 1 20
+      IF #NOMUSR-PROMPT (#I) NE ' '
+        ADD 1 TO #NUM-OF-ATTR
+        IF #NOMUSR-PROMPT (#I) = MASK (NNNN)
+          PERFORM GET-PROMPT-TEXT
+        ELSE
+          #M-NOMUSR-PROMPT (#NUM-OF-ATTR) := #NOMUSR-PROMPT (#I)
+        END-IF
+        #M-NOMUSR-VALUE (#NUM-OF-ATTR) := SUBSTR (EOMARM-SPOOL ,
+          #NOMUSR-OFFSET (#I) , #NOMUSR-LENGTH (#I))
+      END-IF
+    END-FOR
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* PREPARE-USER-SPOOL-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE GET-PROMPT-TEXT
+************************************************************************
+IF NOT GET-PROMPT-INIT-DONE
+  GET-PROMPT-INIT-DONE := TRUE
+  CALLNAT 'RGETLIB' LIBRARY
+  MOVE EDITED LIBRARY (EM=XXXXXX) TO LIBRARY
+  COMPRESS LIBRARY 'U' TO LIBRARY LEAVING NO
+  LANG-CODE := *LANGUAGE
+END-IF
+ERROR-NUMBER := VAL(NRM-MONITOR.#NOMUSR-PROMPT (#I))
+CALLNAT 'NAT00064' #NAT00064 /*CHECK-NSC CP CP-SUPPORT
+COMPRESS SHORT-TEXT '....................'
+  TO #M-NOMUSR-PROMPT (#NUM-OF-ATTR)
+*
+END-SUBROUTINE /* GET-PROMPT-TEXT
+*
+************************************************************************
+DEFINE CHECK-TOP-BOTTOM-MORE-ALL
+************************************************************************
+DECIDE FOR EVERY CONDITION
+  WHEN #NUM-OF-ATTR <= 12
+    #START := #MAP-IND := #CP := 1 /* indicate 'all'
+    #END-OF-DATA := TRUE
+  WHEN #MAP-IND = 2 AND #NUM-OF-ATTR > 12
+    #START := 13
+    RESET #CP                   /* indicate 'bottom of data'
+    #END-OF-DATA := TRUE
+  WHEN #MAP-IND = 1 AND #NUM-OF-ATTR > 12
+    #START := #CP := 1 /* indicate 'top of data'
+    RESET #END-OF-DATA
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+INCLUDE C-TOPBOT
+*
+END-SUBROUTINE /* PREPARE-USER-SPOOL-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+RESET G-PF
+*
+INCLUDE RPFSTD-C
+INCLUDE RPFCOM-C
+*
+DECIDE ON FIRST #PANEL
+  VALUE ACTIVE-REPORT-GENERAL-ATTRIBUTES
+    INCLUDE RPFARA-C
+    INCLUDE RPFARR-C
+    INCLUDE RPFARS-C
+  VALUE ACTIVE-REPORT-ARCHIVE-ATTRIBUTES
+    INCLUDE RPFESF-C
+    INCLUDE RPFEXT-C
+  VALUE ACTIVE-REPORT-REVIVE-ATTRIBUTES
+    INCLUDE RPFESF-C
+    INCLUDE RPFEXT-C
+  VALUE ACTIVE-REPORT-SPOOL-ATTRIBUTES
+    INCLUDE RPFESF-C
+    IF EOMARM-SPOOL-TYPE = DIRECT-INPUT OR = SEQUENTIAL-FILE-UNIX
+      INCLUDE RPFARD-C
+    END-IF
+    INCLUDE RPFEXT-C
+    IF EOMARM-SPOOL-TYPE = 100 THRU 199
+      INCLUDE RPFBRW-C
+    END-IF
+    IF EOMARM-SPOOL-TYPE = SEQUENTIAL-FILE-BS2
+    OR EOMARM-SPOOL-TYPE = SEQUENTIAL-FILE-UNIX OR = DIRECT-INPUT     /*
+      INCLUDE RPFLR--C
+    END-IF
+  NONE VALUE
+    #PANEL := ACTIVE-REPORT-GENERAL-ATTRIBUTES
+END-DECIDE
+*
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-LONGNAME
+************************************************************************
+XXHASH-PARMS.P-FUNCTION := 'L' /*short -> long
+PERFORM XXHASH XXHASH-PARMS
+*
+END-SUBROUTINE /* GET-LONGNAME
+*
+************************************************************************
+DEFINE SUBROUTINE BUILD-PATH-LONGNAME
+************************************************************************
+IF #PATH_A280 NE ' '
+  ESCAPE ROUTINE
+END-IF
+XXHASH-PARMS.P-SHORT-NAME := EOMARM-SPOOL-DI-PATH
+PERFORM GET-LONGNAME
+#PATH_A280 := XXHASH-PARMS.P-LONG-NAME
+FOR #I=70 THRU 210 STEP 70
+  EXAMINE #PATH_A280 FOR ' ' GIVING LENGTH #I2
+  IF #I2 > #I
+    #I3 := #I + 2
+    MOVE SUBSTR(#PATH_A280,#I) TO SUBSTR(#PATH_A280,#I3)
+    MOVE '><' TO SUBSTR(#PATH_A280,#I,2)
+  END-IF
+END-FOR
+*
+END-SUBROUTINE /* GET-LONGNAME
+*
+INCLUDE RPFSET-C /*SET-PFKEYS
+*
+END

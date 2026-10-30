@@ -1,0 +1,242 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMDEFPR - API for Logical Printer
+*
+* Creation and Maintenance History
+* uuu     yyyy-mm-dd s(999999) ...
+* gw      1992-08-17           created
+* jvd     1998-09-24 p(164220) NOM141ÖNAT23
+* sju    2000-11-21 s(999999) Check setting of lfile 131 (SAT log file)
+* xsetggr 2007-05-02 NOM3201  Support 5 byte node numbers
+* xsetggr 2009-09-01 P314431  allow only DISKUNIX & NATUNIX printers for
+*                       Unix systems, UNIXLP printers only for mainframe
+* xsetggr 2010-11-03 NOMALL-865 restow due to changes in EOMPHTYE
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2012-01-02 NOMALL-1100 write language independant msgs in log
+* SU1     2014-06-06 NOMALL-1281 show last update user+date
+* SU2     2024-04-24 NOM36       restruct
+************************************************************************
+*
+DEFINE DATA
+PARAMETER
+1 PR-PARMS
+  2 PR-NODE                     (N5)
+  2 PR-ERROR-CODE               (N4)
+  2 PR-ERROR-TEXT               (A72)
+  2 PR-FUNC                     (A8)
+  2 PR-PHYSICAL-PRINTER         (A8)
+  2 PR-LOCATION                 (A30)
+  2 PR-LOGICAL-PRINTER          (A8)
+  2 PR-DESCRIPTION              (A20)
+************************************************************************
+LOCAL USING RLOG-L
+LOCAL USING SATLGV1P
+LOCAL USING EOMPHTYE
+LOCAL
+1 PRINTERS VIEW OF NRM-PRINTERS
+  2 P-ID                       /* logical printer name
+  2 P-PHYSICAL-NAME
+  2 P-NAME                     /* description (a20) ???
+  2 P-LOCATION
+  2 P-LAST-UPDATE-USER
+  2 P-LAST-UPDATE
+1 PHYSICAL VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-PRINTER-TYPE
+1 GRANTS VIEW OF NRM-GRANTS
+  2 GR-OBJECT-TYPE
+  2 GR-USERID
+  2 GR-OBJECT-NAME
+  2 GR-OPTION   (1:9)
+*
+1 #USER-ID      (A8)
+1 #LOCATION     (A30)
+1 #EXIST        (L)
+1 L-LOG-PRT     (L)   INIT <TRUE>
+1 #OBJ          (A50)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET PR-ERROR-CODE
+PERFORM INIT
+*
+IF PR-ERROR-CODE NE 0
+  ESCAPE ROUTINE
+END-IF
+MAIN-LOOP. REPEAT
+*
+  DECIDE ON FIRST PR-FUNC
+    VALUE 'ADD'
+      PERFORM CHECK-PRINTER-EXIST
+      PERFORM VALIDATE
+      PERFORM ADD-PRINTER
+    VALUE 'MODIFY'
+      PERFORM VALIDATE
+      PERFORM MOD-PRINTER
+    VALUE 'DELETE'
+      PERFORM DEL-PRINTER
+    NONE
+      IGNORE
+  END-DECIDE
+*
+  ESCAPE BOTTOM (MAIN-LOOP.)
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+  DEFINE SUBROUTINE INIT
+************************************************************************
+  #USER-ID := *USER
+  CALLNAT 'SATLGFVN' SATLGV-PARMS
+  IF SATLGV-RC NE 0
+    PR-ERROR-CODE:= SATLGV-RC
+    PR-ERROR-TEXT:= SATLGV-ERROR-TEXT
+  END-IF
+*
+  END-SUBROUTINE /* INIT
+*
+************************************************************************
+  DEFINE SUBROUTINE CHECK-PRINTER-EXIST
+************************************************************************
+  CHK. FIND NUMBER PRINTERS WITH P-ID = PR-LOGICAL-PRINTER
+  IF *NUMBER (CHK.) > 0
+    PR-ERROR-CODE := 104
+    PR-ERROR-TEXT := 'Logical printer already exists.'
+    ESCAPE BOTTOM (MAIN-LOOP.)
+  END-IF
+*
+  END-SUBROUTINE /* CHECK-PRINTER-EXIST
+*
+************************************************************************
+  DEFINE SUBROUTINE ADD-PRINTER
+************************************************************************
+  PRINTERS.P-ID               := PR-LOGICAL-PRINTER
+  PRINTERS.P-PHYSICAL-NAME    := PR-PHYSICAL-PRINTER
+  PRINTERS.P-NAME             := PR-DESCRIPTION
+  PRINTERS.P-LOCATION         := PR-LOCATION
+  PRINTERS.P-LAST-UPDATE-USER := *USER
+  PRINTERS.P-LAST-UPDATE      := *TIMX
+  STORE. STORE PRINTERS
+*
+  GRANTS.GR-OBJECT-TYPE    := 'P'
+  GRANTS.GR-OBJECT-NAME    := PR-LOGICAL-PRINTER
+  GRANTS.GR-USERID         := #USER-ID
+  GRANTS.GR-OPTION (1:4)   := 'Y'
+  STORE GRANTS
+*
+  GRANTS.GR-USERID         := 'PUBLIC'
+  GRANTS.GR-OPTION (4)     := 'Y'
+  GRANTS.GR-OPTION (1:3)   := 'N'
+  GRANTS.GR-OPTION (5:6)   := 'N'
+  STORE GRANTS
+*
+  IF L-LOG-PRT
+    LG-CODE        := 'PM'
+    LG-USERID      := #USER-ID
+    LG-MSG         := '0101'
+    LG-OBJECT-NAME := PR-LOGICAL-PRINTER
+    CALLNAT 'RLOG' PL-PARMS
+  END-IF
+*
+  END-SUBROUTINE /* ADD-PRINTER
+END-REPEAT /* (MAIN-LOOP.)
+*
+END TRANSACTION
+*
+************************************************************************
+DEFINE SUBROUTINE MOD-PRINTER
+************************************************************************
+MODPRT. FIND PRINTERS WITH P-ID = PR-LOGICAL-PRINTER
+  PRINTERS.P-ID            := PR-LOGICAL-PRINTER
+  PRINTERS.P-PHYSICAL-NAME := PR-PHYSICAL-PRINTER
+  PRINTERS.P-NAME          := PR-DESCRIPTION
+  PRINTERS.P-LOCATION      := PR-LOCATION
+  PRINTERS.P-LAST-UPDATE-USER := *USER
+  PRINTERS.P-LAST-UPDATE      := *TIMX
+  UPDATE (MODPRT.)
+*
+  IF L-LOG-PRT
+    LG-CODE        := 'PM'
+    LG-USERID      := #USER-ID
+    LG-MSG         := '0102'
+    LG-OBJECT-NAME := PR-LOGICAL-PRINTER
+    CALLNAT 'RLOG' PL-PARMS
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* MOD-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE DEL-PRINTER
+************************************************************************
+FIND PRINTERS WITH P-ID = PR-LOGICAL-PRINTER
+*
+  DELETE
+  MOVE PR-LOGICAL-PRINTER TO #OBJ
+  PERFORM RMLOGDEL #OBJ 'LOG-PRINTER'
+  IF L-LOG-PRT
+    LG-CODE              := 'PM'
+    LG-USERID      := #USER-ID
+    LG-MSG         := '0103'
+    LG-OBJECT-NAME := PR-LOGICAL-PRINTER
+    CALLNAT 'RLOG' PL-PARMS
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* DEL-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE
+************************************************************************
+IF PR-LOGICAL-PRINTER = ' '
+  PR-ERROR-CODE := 105
+  PR-ERROR-TEXT := 'Invalid logical printer name.'
+  ESCAPE MODULE /*SU2 BOTTOM (MAIN-LOOP.)
+END-IF
+IF PR-LOGICAL-PRINTER NE MASK (A)
+  PR-ERROR-CODE := 19
+  PR-ERROR-TEXT := 'Invalid logical printer name.'
+  ESCAPE MODULE /*SU2 BOTTOM (MAIN-LOOP.)
+END-IF
+*
+* check valid physical name and get location
+*
+IF NOT (PR-PHYSICAL-PRINTER = 'SYSPRINT' OR = 'DISK' OR = 'TAPE')
+  CALLNAT 'RCHKPH' PR-PHYSICAL-PRINTER #EXIST #LOCATION
+  IF NOT #EXIST
+    PR-ERROR-CODE := 9999          /* physical printer doesn't exist
+    PR-ERROR-TEXT := 'Physical printer doesn''t exist.'
+    ESCAPE MODULE /*SU2 BOTTOM (MAIN-LOOP.)
+  END-IF
+  FPH. FIND PHYSICAL WITH PH-VTAMID = PR-PHYSICAL-PRINTER
+    IF *MACHINE-CLASS = 'MAINFRAME'
+      IF PH-PRINTER-TYPE = ##PHYS-NATUNIX
+        PR-ERROR-CODE := 0130
+        PR-ERROR-TEXT :=
+          'This printer type allowed only for unix systems'
+        ESCAPE BOTTOM (FPH.)
+      END-IF
+    ELSE
+      IF NOT(PH-PRINTER-TYPE = ##PHYS-DISKUNIX OR = ##PHYS-NATUNIX)
+        PR-ERROR-CODE := 0131
+        PR-ERROR-TEXT :=
+          'This printer type allowed only for mainframe'
+        ESCAPE BOTTOM (FPH.)
+      END-IF
+    END-IF
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* VALIDATE
+*
+END

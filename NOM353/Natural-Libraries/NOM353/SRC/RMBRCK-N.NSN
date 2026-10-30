@@ -1,0 +1,126 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMBRCK-N - Get correct bracket variables
+* NOM printing is controlled by bracket variables which contain
+* F - First item
+* M - Item in the middle
+* L - Last item
+* The whole printout is controlled by FLUSH-BRACKET
+* The position of a segment (part) of the printout is controlled by
+*                         FLUSH-SEGMENT
+* The position of a buffer within a segment is controlled by
+*                         FLUSH-SEG-BRACKET
+*
+* To determine which position in the printout should cause an action
+* (like CLOSE) logical variables are filled:
+*
+* FIRST-BUFFER          - Very first buffer in the printout
+* LAST-BUFFER           - Very last buffer in the printout
+* FIRST-SEGMENT-BUFFER  - First buffer in the current segment
+* LAST-SEGMENT-BUFFER   - Last buffer in the current segment
+*
+* This routine returns these four logical variables and sets variables
+* FLUSH-BRACKET, FLUSH-SEGMENT and FLUSH-SEG-BRACKET of the calling
+* modules using parameter FUNCTION.
+*
+* FLUSH FUNCTION values:
+*
+* START-PRINTOUT            - Begin of whole printout
+* END-PRINTOUT              - End of whole printout
+* START-SEGMENT             - Begin of a segment
+* END-SEGMENT               - End of a segment
+* ONE-SEGMENT               - Only one segment to be processed
+* START-BUFFER              - Begin of a buffer within a segment
+* END-BUFFER                - End of a buffer within a segment
+* ONE-BUFFER                - Only one buffer in the current segment to
+*                             be processed
+* AUTO                      - Take FLUSH-SEGMENT and FLUSH-SEG-BRACKET
+*                             and return FLUSH-BRACKET, FIRST-BUFFER,
+*                             LAST-BUFFER, FIRST-SEGMENT-BUFFER, and
+*                             LAST-SEGMENT-BUFFER
+*
+* If parameter errors occur this routine will issue a Natural error
+* 999 (internal error) because this is a development mistake.
+*
+* Maintenance
+* uuuuuuuu yyyy-mm-dd iTrac       Comment
+* fhi      2013-11-18 NOMALL-1298 Created.
+* ----------------------------- Parameter ------------------------------
+*
+DEFINE DATA PARAMETER USING RMBRCK-P
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+* ÜÜÜ TEST ONLY BEGIN
+IF SEGMENT = 'L' AND BUFFER-POS > 7
+  IGNORE
+END-IF
+* ÜÜÜ TEST ONLY END
+DECIDE ON FIRST VALUE OF FUNCTION
+  VALUE 'AUTO'
+    IF NOT (BUFFER-POS SPECIFIED) OR NOT (BUFFER-SIZE SPECIFIED)
+        OR SEGMENT = ' ' OR SEG-BRACKET = ' ' OR BUFFER-SIZE = 0
+        OR BUFFER-POS  = 0 OR BUFFER-POS > BUFFER-SIZE
+      *ERROR-NR := 999 /* Parameters not entered correctly.
+    END-IF
+    RESET FIRST-BUFFER FIRST-SEGMENT-BUFFER
+      LAST-BUFFER  LAST-SEGMENT-BUFFER
+    BRACKET := 'M'
+    DECIDE FOR EVERY CONDITION
+      WHEN SEG-BRACKET = 'L' OR = 'A' AND BUFFER-POS  = BUFFER-SIZE
+        LAST-SEGMENT-BUFFER := TRUE
+      WHEN SEG-BRACKET = 'F' OR = 'A' AND BUFFER-POS  = 1
+        FIRST-SEGMENT-BUFFER := TRUE
+      WHEN SEGMENT = 'L' OR = 'A' AND SEG-BRACKET = 'L' OR = 'A'
+          AND BUFFER-POS  = BUFFER-SIZE
+        LAST-BUFFER := TRUE
+        BRACKET := 'L'
+      WHEN SEGMENT = 'F' OR = 'A' AND SEG-BRACKET = 'F' OR = 'A'
+          AND BUFFER-POS  = 1
+        FIRST-BUFFER := TRUE
+        BRACKET := 'F'
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+  VALUE 'START-PRINTOUT'
+    BRACKET := SEGMENT := SEG-BRACKET := 'F'
+    FIRST-BUFFER           := TRUE
+    LAST-BUFFER            := FALSE
+    FIRST-SEGMENT-BUFFER   := TRUE
+    LAST-SEGMENT-BUFFER    := FALSE
+  VALUE 'END-PRINTOUT'
+    BRACKET := SEGMENT := SEG-BRACKET := 'L'
+    FIRST-BUFFER           := FALSE
+    LAST-BUFFER            := TRUE
+    FIRST-SEGMENT-BUFFER   := FALSE
+    LAST-SEGMENT-BUFFER    := TRUE
+  VALUE 'START-SEGMENT'
+    SEGMENT := SEG-BRACKET := 'F'
+    FIRST-SEGMENT-BUFFER   := TRUE
+    LAST-SEGMENT-BUFFER    := FALSE
+  VALUE 'END-SEGMENT'
+    SEGMENT := SEG-BRACKET := 'L'
+    FIRST-SEGMENT-BUFFER   := FALSE
+    LAST-SEGMENT-BUFFER    := TRUE
+  VALUE 'ONE-SEGMENT'
+    SEGMENT                := 'A'
+    SEG-BRACKET            := 'F'
+    FIRST-SEGMENT-BUFFER   := TRUE
+    LAST-SEGMENT-BUFFER    := TRUE
+  VALUE 'START-BUFFER'
+    SEG-BRACKET            := 'F'
+  VALUE 'END-BUFFER'
+    SEG-BRACKET            := 'L'
+  VALUE 'ONE-BUFFER'
+    SEG-BRACKET            := 'A'
+  NONE
+    *ERROR-NR := 999 /* Give correct function
+END-DECIDE
+END

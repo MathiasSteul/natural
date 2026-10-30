@@ -1,0 +1,127 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RCOPRP
+* Version   1.3
+* Function  Copy a Report
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-06-10           rewritten
+* gw  96-06-24 p(154748) RCOPRP/760 - NAT1134 Terminal function not supp
+* jvd 97-07-08 p(163579) Separator page truncation
+*                        re-cat as changes made to EOMRPM-P
+* wcd 00-04-01 CE 7267   re-cat as changes made to EOMRPM-E, EOMRPM-P
+* xsiszha 2000-08-11 (CE7461) Extend Report and Bundle Names
+* xsetggr 2012-09-21 NOMALL-89 implement external subroutine S-CHKSEC
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+* -----------------------------LDA's------------------------------------
+LOCAL  USING EOM----E
+LOCAL  USING EOM----P
+LOCAL  USING EOMRPM-E
+LOCAL  USING EOMRPM-P
+LOCAL  USING EOMMSG-P
+*
+LOCAL
+1 USERS VIEW OF NRM-USERS
+*
+1 #FATHER-PROG        (A8) INIT <'RLISRP'>
+1 #F-REPORT           (A25)
+1 REDEFINE #F-REPORT
+  2 #F-REPORT-17      (A17)
+  2 #F-REPORT-R       (A8)
+1 #T-REPORT           (A25)
+1 REDEFINE #T-REPORT
+  2 #T-REPORT-17      (A17)
+  2 #T-REPORT-R       (A8)
+1 #PROG               (A8) INIT <*PROGRAM>
+1 #ALLOWED            (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+DEFINE WINDOW COPY-WINDOW SIZE 13*55 BASE 07/20 CONTROL WINDOW
+*
+PERFORM XXSECURITY-CHECK #PROG G-C-REPORT #ALLOWED
+INCLUDE C-NALLOW
+*
+EOMRPM-I-NAME := G-C-REPORT
+*
+EOM-USER-PROFILE := G-USER-PROFILE
+EOM-USER         := G-USERID
+EOM-USER-TYPE    := G-USER-TYPE
+US. FIND NUMBER USERS WITH USER-ID = G-USERID
+IF *NUMBER(US.) = 0
+  EOM-DEF-USER := 'Y'
+END-IF
+EOM-LANGUAGE := *LANGUAGE
+*
+RESET EOM-LOGGING                          /* ????????????????
+IF G-LOG-REP                                /* ????????????????
+  EOM-LOG-TYPES (1) := 'R'                 /* ????????????????
+END-IF                                      /* ????????????????
+*
+EOM-FUNCTION := EOM-READ
+EOMRPM-I-ATTRIBUTE-TYPE := REPORT-GENERAL-ATTRIBUTES
+CALLNAT 'EOMRPM-N' EOM-PARMS EOMRPM-PARMS EOMMSG-PARMS
+*
+IF EOMMSG-NR NE 0
+  G-NATRP-ERC := EOMMSG-NR
+  G-NATRP-ERT := EOMMSG-TOKEN (1)
+  INCLUDE C-ESCAPE
+END-IF
+*
+EOM-FUNCTION := EOM-SECURITY-CHECK
+EOMRPM-I-CHECK-FUNCTION := EOM-COPY
+CALLNAT 'EOMRPM-N' EOM-PARMS EOMRPM-PARMS EOMMSG-PARMS
+*
+IF EOMMSG-NR NE 0
+  G-NATRP-ERC := EOMMSG-NR
+  G-NATRP-ERT := EOMMSG-TOKEN (1)
+  INCLUDE C-ESCAPE
+END-IF
+*
+SET KEY PF3 = PGM
+*
+REPEAT
+  #F-REPORT := EOMRPM-I-NAME
+  RESET  #T-REPORT
+  IF NOT G-DISPLAY-LONG-NAMES
+    #F-REPORT-R := #T-REPORT-R := H'FA'
+  END-IF
+  SET CONTROL 'MT'
+  INPUT WINDOW = 'COPY-WINDOW' WITH TEXT *G-NATRP-ERC, G-NATRP-ERT
+    USING MAP 'RCOPRPM&'
+  RESET G-NATRP-ERC G-NATRP-ERT
+  IF *PF-KEY = 'PF3'
+    SET CONTROL 'WB'
+    INCLUDE C-ESCAPE
+  END-IF
+*
+  IF G-DISPLAY-LONG-NAMES
+    EOMRPM-I-NEWNAME := #T-REPORT
+  ELSE
+    EOMRPM-I-NEWNAME := #T-REPORT-17
+  END-IF
+  RESET EOMMSG-PARMS
+  EOM-FUNCTION := EOM-COPY
+*
+  CALLNAT 'EOMRPM-N' EOM-PARMS EOMRPM-PARMS EOMMSG-PARMS
+  IF EOMMSG-NR = 0
+    END OF TRANSACTION
+    G-NATRP-ERC := 35
+    G-NATRP-ERT := EOMRPM-I-NAME
+  ELSE
+    BACKOUT TRANSACTION
+    G-NATRP-ERC := EOMMSG-NR
+    G-NATRP-ERT := EOMMSG-TOKEN (1)
+  END-IF
+END-REPEAT
+*
+END

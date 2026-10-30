@@ -1,0 +1,326 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RLISEM    LIST EMAIL EVENTS
+*
+* Template: RLISNO
+*
+*
+* MAINTENANCE:
+* User ID yyyy-mm-dd Mark      Comment
+* fhi     2016-10-19 NOMALL-1934 Created from RLISEM
+* SU1     2019-08-26 NOMALL-2314 do not show '_' on protected Mark+help
+* SU2     2019-09-16 NOMALL-2314 avoid NAT1308: do not replace &LAST
+* SU3     2019-11-14 NOMALL-2253 remove +G-USE-AS-START-VALUE (nonsense)
+* BLI     2020-05-14 NOMALL-2309 access rights Monitor System Defaults
+* SU4     2022-03-03 NOMALL-2536 full name for confirmation
+* ----------------------------------------------------------------------
+DEFINE DATA
+GLOBAL USING  NRM-GL
+INDEPENDENT
+1 +G-RLISEM-SEL-EVENT    (A70)
+/*SU3 1 +G-USE-AS-START-VALUE  (L)
+* *****
+LOCAL USING RLC----L
+LOCAL USING RPFK---L
+LOCAL USING ROT----L
+LOCAL USING RMT----L
+LOCAL USING VEMAIL-L
+LOCAL USING RMSETSTE
+LOCAL
+*
+1 #UPDATE                (L)
+1 #ALLOWED               (L)                  /* BLI NOMALL-2309
+1 #DELETE                (L)                  /* BLI NOMALL-2309
+1 #NOFLINES              (P2) INIT <15>
+1 #NOFPAGES              (P3) INIT <100>
+1 #END-OF-DATA           (L)
+1 #CP                    (P3)
+1 #MAXP                  (P3)
+1 #MAXAP                 (P3)
+1 #BROWSE-FLAGS
+  2 #NEWVAL              (L)
+  2 #BACKWARD            (L)
+  2 #FORWARD             (L)
+  2 #TOP                 (L)
+  2 #BOT                 (L)
+  2 #SCROLL-AMOUNT       (N3)
+1 GET-SCREEN             (L)
+1 #START-KEY             (A16)
+1 REDEFINE #START-KEY
+  2 #START-KEY-V         (A1/16)
+1 #RSTART                (A16)
+1 #REND                  (A70)
+1 REDEFINE    #REND
+  2 #RE-EVENT            (A16)
+  2 #RE-YEAR             (N4)
+1 #LAST-KEY              (A16)
+1 #TOPKEY                (A16)
+1 #PAGES                 (A16/100)
+1 #POS                   (P3)
+1 #S-EVENT               (A16)
+1 #LEN                   (N3) INIT <16>
+1 L-SCREEN               (15)
+  2 L-IDENT              (I2)
+  2 L-OPTION             (A1/6)
+  2 L-ID                 (A71)
+  2 REDEFINE    L-ID
+    3 L-EVENT-NAME       (A16)
+    3 L-EMAIL-SUBJECT    (A50)
+    3 L-CHECK-PERIOD     (N5)
+  2 L-ISN                (P10)
+*
+1 L-LCMD                 (15) /* LINE COMMANDS
+  2 L-MARK               (A002)
+  2 CV-MARK              (C)
+1 L-HEADER               (A78)
+1 I                      (N5)
+1 #CONFIRM-TEXT          (A32)
+1 LOWER-CASE             (L) CONST <TRUE>
+1 #CONFIRMED             (L)
+1 #FATHER-PROG           (A8) INIT <'RDFMEN'>
+1 CV-SELECTION           (C/1)
+1 REDEFINE    CV-SELECTION
+  2 CV-SCAL              (C)
+*
+1 CV-LINES               (C)
+1 #ADD-PROGRAM           (A8)
+1 #ACT-MAST              (A8)
+1 F                      (P2)
+1 #LANGUAGE              (I1)
+1 #OBJ                   (A50)
+1 #MONITOR-ID            (A20)
+/*SU2 1 #M-LAST-ACTIVE         (A11)
+1 #G-OBJ-TYPE            (A32) /*SU1
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#ADD-PROGRAM := 'RDEFEM'
+INCLUDE CVIDEO
+*
+RESET G-COMMIT
+* BLI NOMALL-2309 check access rights according Monitor Defaults
+* Note: PMO (Purge Monitor Defaults) doesn't exist (comp. RLISUSR,..)
+CALLNAT 'NARPSEC' G-USER-PROFILE 'DMO' #ALLOWED
+INCLUDE C-NALLOW
+*
+CALLNAT 'NARPSEC' G-USER-PROFILE 'MMO' #UPDATE
+CALLNAT 'NARPSEC' G-USER-PROFILE 'PMO' #DELETE   /* BLI NOMALL-2309 end
+*
+IF *DATA > 0
+  INPUT #S-EVENT
+END-IF
+IF #S-EVENT = ' '
+  #S-EVENT := +G-RLISEM-SEL-EVENT
+ELSE
+  +G-RLISEM-SEL-EVENT := #S-EVENT
+END-IF
+PERFORM INIT-NO-KEYS
+*
+#NEWVAL := TRUE
+MAIN-LOOP. REPEAT
+*
+  PERFORM GET-SCREEN
+  RESET GET-SCREEN
+*
+  INCLUDE C-TOPBOT
+*
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RLISEMM&'
+  IF #LANGUAGE NE *LANGUAGE
+    #LANGUAGE := *LANGUAGE
+    CALLNAT 'ROTINI-N' ##MTN-EVENT-DEFINITIONS G-OBJ-TYPE G-OTB
+    PERFORM INIT-PFKEYS
+    PERFORM INIT-LINECOM
+  END-IF
+  PERFORM SET-PFKEYS
+  INCLUDE RMVHLP-C
+  CALLNAT 'RFLIPG-N' G-LC G-LINECOM (*)
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'WB'
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT MARK *G-DIRECT-COMMAND
+    USING MAP 'RLISEMM&'
+  RESET G-NATRP-ERC G-NATRP-ERT
+  INCLUDE RPFKVA-C
+  RESET #BROWSE-FLAGS
+  INCLUDE C-DIRECT
+  INCLUDE C-LOCCMD
+*
+  IF G-PF-FUNC = ##PFK-ADD
+    G-C-FUNC := 'A'
+    FETCH RETURN 'RDEFEM' G-C-FUNC 'A' 0
+    GET-SCREEN := TRUE
+    RESET #PAGES (*) /*start with 1. entry
+    ESCAPE TOP
+  END-IF
+  INCLUDE RPFKEX-C
+  PERFORM LINE-COMMANDS
+*
+  IF CV-SELECTION(*) MODIFIED
+    +G-RLISEM-SEL-EVENT := #S-EVENT
+    PERFORM INIT-NO-KEYS
+    #NEWVAL := TRUE
+  END-IF
+*
+END-REPEAT
+*
+RESET G-NATRP-ERT G-NATRP-ERC
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SCREEN
+************************************************************************
+RESET L-MARK(*) G-NATRP-ERT
+INCLUDE C-BROWSE
+*
+RESET I L-SCREEN(*) #END-OF-DATA
+CV-MARK(*) := (AD=PN) /*SU1
+*
+READ-LOOP. READ EMAIL-EVENTS BY EM-MONITOR-ID = #RSTART THRU #REND
+  ACCEPT IF EM-MONITOR-ID =  MASK ('E-')
+  AT START OF DATA
+    #PAGES(#CP) := #TOPKEY := EM-MONITOR-ID
+  END-START
+  ADD 1 TO I
+  IF I > #NOFLINES
+    #LAST-KEY := EM-MONITOR-ID
+    ESCAPE ROUTINE
+  END-IF
+  IF I = 1
+    #PAGES(#CP) := EM-MONITOR-ID
+  END-IF
+  #LAST-KEY := L-ID (I) := EM-MONITOR-ID
+  L-ISN             (I) := *ISN(READ-LOOP.)
+  L-EVENT-NAME      (I) := SUBSTR(EM-MONITOR-ID,3)
+  L-EMAIL-SUBJECT   (I) := EM-EMAIL-SUBJECT
+/*SU2 MOVE EDITED EM-LAST-ACTIVE(EM=MM'-'DD' 'HH':'II) TO #M-LAST-ACTIVE
+/*SU2 EXAMINE L-EMAIL-SUBJECT(I) FOR '&LAST' REPLACE WITH #M-LAST-ACTIVE
+  L-CHECK-PERIOD    (I) := EM-CHECK-PERIOD
+  RESET CV-MARK(I)
+*
+END-READ
+#END-OF-DATA := TRUE
+#MAXP := #CP
+*
+END-SUBROUTINE /* GET-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE LINE-COMMANDS
+************************************************************************
+IF L-MARK(*) = '.'
+  INCLUDE C-ESCAPE
+END-IF
+RESET L-IDENT (*)
+INCLUDE RLCMTI-C
+* --- DELETE LINE COMMANDS
+FOR I 1 TO #NOFLINES
+  IF L-IDENT(I) = ##EQU-DELETE
+    G-NATRP-ERC := 0017
+/*SU4 MOVE EDITED L-ID(I) (EM=X(8)) TO #CONFIRM-TEXT
+    #CONFIRM-TEXT := L-EVENT-NAME (I)/*SU4
+    IF G-CONFIRM
+      CALLNAT 'N-CNFRM' #CONFIRM-TEXT 'C' G-DISPLAY-LONG-NAMES
+        #CONFIRMED G-NATRP-ERT LOWER-CASE
+    END-IF
+    IF #CONFIRMED OR NOT G-CONFIRM
+      GET EMAIL-EVENTS L-ISN(I)
+      DELETE RECORD
+      #OBJ := EM-MONITOR-ID
+      PERFORM RMLOGDEL #OBJ 'EVENT'
+      GET-SCREEN := TRUE
+      RESET #PAGES (*) /*start with 1. entry
+      G-NATRP-ERC := 0018
+      END TRANSACTION
+    END-IF
+  END-IF
+END-FOR
+* --- OTHER LINE COMMANDS
+FOR I 1 TO #NOFLINES
+  COMPRESS 'E-' L-EVENT-NAME(I) TO #MONITOR-ID LEAVING NO
+  DECIDE ON EVERY VALUE OF L-IDENT (I)
+    VALUE ##EQU-MODIFY
+      G-C-FUNC := 'M'
+      FETCH RETURN 'RDEFEM' G-C-FUNC #MONITOR-ID
+      GET-SCREEN := TRUE
+    VALUE ##EQU-DISPLAY
+      G-C-FUNC := 'D'
+      FETCH RETURN 'RDEFEM' G-C-FUNC #MONITOR-ID
+    NONE VALUE IGNORE
+  END-DECIDE
+END-FOR
+*
+END-SUBROUTINE /* LINE-COMMANDS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-NO-KEYS
+************************************************************************
+IF #S-EVENT = ' '
+  #START-KEY := '*'
+ELSE
+  COMPRESS 'E-' #S-EVENT TO #START-KEY LEAVING NO
+END-IF
+*
+EXAMINE #START-KEY '*' GIVING POSITION #POS
+*
+IF #POS > 0
+  RESET #START-KEY-V (#POS:#LEN)
+  COMPRESS SUBSTR(#START-KEY,3) '*' TO #S-EVENT LEAVING NO
+  #RE-EVENT := #START-KEY
+  EXAMINE FULL #RE-EVENT ' ' REPLACE H'FF'
+ELSE
+  #START-KEY := #S-EVENT
+/*SU3 IF +G-USE-AS-START-VALUE MOVE ALL H'FF' TO #RE-EVENT ELSE
+  #RE-EVENT := #S-EVENT
+/*SU3  END-IF
+END-IF
+IF #START-KEY NE MASK('E-')
+  COMPRESS 'E-' #START-KEY TO #START-KEY LEAVING NO
+END-IF
+*
+IF #S-EVENT = '*'
+  RESET #S-EVENT
+END-IF
+*
+END-SUBROUTINE /* INIT-NO-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-LINECOM
+************************************************************************
+I := 1                            /* BLI NOMALL-2309 start
+G-LC-IDENT (I) := ##EQU-DISPLAY
+IF #UPDATE
+  ADD 1 TO I
+  G-LC-IDENT (I) := ##EQU-MODIFY
+END-IF
+IF #DELETE
+  ADD 1 TO I
+  G-LC-IDENT (I) := ##EQU-DELETE
+END-IF
+G-LC-NUM := I                     /* BLI NOMALL-2309 end
+#G-OBJ-TYPE := G-OBJ-TYPE /*SU1 ->
+EXAMINE #G-OBJ-TYPE FOR 'Benachrichtigungen' REPLACE 'Benachrichtigung'
+CALLNAT 'RLCINI-N' #G-OBJ-TYPE G-LC G-LCB /*SU1 <-
+*
+END-SUBROUTINE /* INIT-LINECOM
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFADD-C
+INCLUDE RPFBRW-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+INCLUDE RPFSET-C
+*
+END

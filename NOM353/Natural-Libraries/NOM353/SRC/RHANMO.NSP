@@ -1,0 +1,913 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RHANMO - Start/Stop Monitor
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-07-19 s(999999) rewritten
+* mrs 93-12-03 s(999999) make event-name unique to allow multiple NOMs
+*                        under one ESY
+* mrs 93-07-19 s(999999) model 5 support
+* mrs 93-12-10 s(999999) use common data to reduce data base calls
+* gw  94-01-05 s(999999) status in English and German
+* jwo 97-10-15 p(163166) display y2k date
+* jvd 98-06-26 s(164220) NOM141 - NAT23 changes
+* sju 99-07-01 s(266488) warn if print tasks still active
+* jvd 99-07-13 s(183302) NOM142 - log display changes
+* fhi 00-01-26 s(191368) Taken NOM142 module and restowed for NOM211
+* sju 00-03-10 p(191368) NOM211 - multitasking of monitor
+* ws  00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* sju 00-05-17 p(191368) NAT-USER first 5 chars unique, for BS2000
+* fhi 00-08-22 p(200224) Improve error display
+* fhi 00-09-05 S(191603) Monitor Status not updated
+* sju 00-09-21 S(191368) work on BS2000, monitor task type=BATCH
+* xsetggr 01-06-19 p(209875) add steplibs if NSC is not active
+* sju 02-03-21 p(221908) No need to add steplibs or check NSC
+* sju 04-07-15 NOM31     Dynamic tracing
+* sju 05-06-09 p(266049) Shutdown ignored until monitor next wakes up
+* fhi 05-06-23 p(266530) Monitor must be NPR Mainframe independent
+* fhi 05-11-15 P272724   End Transaction for Unix Eventing necessary
+* xsetggr 2005-10-26 p(270950) ISN fields must be P10, not P8
+* LP  06-01-12 INVOKE 'S' START MONITOR IN 8.6 (MONITOR MANAGEMENT)
+*              IN SLOW UNIX ENVIRONMENTS: DISPLAY OF STATUS REMAINS
+*              'INACTIVE'.
+*              THIS HAPPENS BECAUSE THE MONITOR IS STARTED ASYNCHRONOUS.
+*              IN CASE OF MONITOR STATUS 'INACTIVE' TRY TO GET THE
+*              CORRECT STATUS BY WAITING SOME TIME IN A LOOP.
+* xsetggr 2007-05-08 NOM3201 Support 5 byte node numbers
+* fhi     2007-05-30 P297047 Replace RSTEPLIB, old comments deleted
+* fhi     2008-07-24 P304914 Improve error messages
+* splildav 2010-03-11 P323238 Re-issue logon to NPR after 'Start' if
+*                             AUTOLOG=NO
+* fhi     2010-08-11 NOMALL-853 Monitor multitasking for Unix           STEM
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-11-08 NOMALL-95  Improve names of log files              STEM
+* xsetggr 2010-11-11 NOMALL-874 assign subtask name before start subtask
+*                               for BS2
+* fhi     2011-01-06 NOMALL-929 Missing END TRANSACTION
+* fhi     2011-01-10 NOMALL-97 Add trace messages
+* fhi     2011-04-18 NOMALL-941 Correct NOMALL-874
+* xsetggr 2011-06-21 NOMALL-984 add validation for monitor wait factors
+* xsetggr 2011-07-04 NOMALL-1002 delete corrections marked by 1002
+* bli     2012-09-21 NOMALL-94  delete old version check
+* fhi     2014-09-25 NOMALL-1446 Honour error 1581 (wrong NPR version)
+* fhi     2015-06-26 NOMALL-1531 Correct error msg
+* fhi     2015-09-25 NOMALL-1541 Correct error msg
+* fhi     2016-07-29 NOMALL-1636 Restrict log display by user profile
+* SU1     2016-08-08 NOM 3.5: remove unused code
+* fhi     2016-08-18 NOMALL-1620 Introduce Multinode Feature
+* fhi     2016-11-01 NOMALL-1620 Show current node number
+* fhi     2016-11-07 NOMALL-1620 Show extended monitor status (PF9)
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-01-11 NOMALL-1961 Change descriptor of NRM-ORDER
+* fhi     2018-11-12 NOMALL-2159 Show number of active tasks
+* fhi     2016-11-19 NOMALL-1620 Use SAT version 33 permanently
+* fhi     2019-02-07 NOMALL-2228 Prevent start if NOSTART in jobcards
+* BLI     2019-06-17 NOMALL-2274 Wrong NPR version error 1581 handling
+* SU2     2020-04-23 NOMALL-2349 error handling (NPR)
+* SU3     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* SU4     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+*         +                      recat for VMONIT-L M-NATRPT-DBID/-FNR
+* SU5     2021-10-27 NOMALL-2504 avoid PRINT (999)/itrac for uqac
+* SU6     2024-03-07 ES-34613    NOM 3.6 Remove BS2 + avoid NAT1108
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+*
+INDEPENDENT
+1 +NOD-LOCAL-NODE         (N5)
+1 +NOD-CURRENT-NODE       (N5)
+1 +NOD-CURRENT-ID         (A20)
+1 +NOD-LOCAL-NAME         (A16)
+1 +NOD-CURRENT-USER       (A8)
+1 +NOD-LOCAL-ID           (A20)
+* *****
+LOCAL USING XXGMSG-A
+LOCAL USING RMODTY-E
+LOCAL USING SATFNC3E
+LOCAL USING SATOS03P
+LOCAL USING RPFK---L
+LOCAL USING VMONIT-L
+LOCAL USING RMSTX--P
+LOCAL USING RLOG-L
+LOCAL USING RMSETSTE
+LOCAL USING RMTASK-P
+*
+LOCAL
+1 EVENTING VIEW OF EVENTING
+  2 EVENT-NAME
+  2 ERROR-CODE
+  2 ERROR-TEXT /*SU2
+1 NATURAL-SUB-TASK VIEW OF NATURAL-SUB-TASK
+  2 NAT-USER
+  2 REDEFINE NAT-USER
+    3 NAT-USER-PREFIX        (A3)
+    3 NAT-USER-TASK          (A2)
+    3 REDEFINE NAT-USER-TASK
+      4  NAT-USER-TASK-NUM   (N2)
+    3 NAT-USER-SUFFIX        (A1)
+    3 NAT-USER-DBID          (N5)
+    3 NAT-USER-FNR           (N5)
+  2 ERROR-CODE
+  2 ERROR-TEXT /*SU2
+1 INFO  VIEW OF SYSTEM-INFO
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 AUTO-LOGON
+1 MF-NODE VIEW OF NRM-MF-NODES /*SU3 was CURRENT-NODE .. NRM-MONITOR
+  2 MF-MONITOR-ID
+  2 MF-MONITOR-NODE
+  2 MF-NPR-USERID
+  2 MF-SPOOL-TYPE
+  2 MF-SYSTEM-TYPE
+  2 MF-PRODUCT-NAME
+1 OD VIEW OF NRM-ORDER
+  2 OD-TYPE
+  2 OD-MONITOR-ID
+/*SU2  2 OD-ID 2 OD-USER-ID 2 OD-TIME-CREATED 2 OD-SOURCE-ID              (P10)
+/*SU2  2 OD-MAX-RETRIES (N3) 2 OD-RETRY-INTERVAL (N5)
+  2 OD-PARAMETER              (1:1)
+  2 REDEFINE OD-PARAMETER
+    3 OD-MASTER               (A25)
+  2 REDEFINE OD-PARAMETER
+    3 OD-IDENT                (A8)
+    3 OD-FILLER1              (A17)
+    3 OD-DBID                 (N3)
+    3 OD-FNR                  (N3)
+    3 OD-RETRY-COUNT          (N3)
+    3 OD-DBID-N5              (N5)
+    3 OD-FNR-N5               (N5)
+    3 OD-REP-FORMAT           (A1)
+  2 REDEFINE OD-PARAMETER
+    3 #OD-COMMAND             (A50)
+    3 #OD-LIBRARY             (A8)
+    3 #OD-PROGRAM             (A8)
+  2 OD-TIME-SCHEDULED
+  2 OD-TIME-PROCESSED
+  2 OD-ERROR-TEXT             (A250)
+* *****
+1 #OD-LINES                   (A78/9)
+1 REDEFINE #OD-LINES
+  2 #OD-ARRAY                 (9)
+    3 #OD-ACTION              (A32)
+    3 #OD-BLANK1              (A1)
+    3 #OD-REPORT              (A25)
+    3 #OD-BLANK2              (A1)
+    3 #OD-MON-ID              (A8)
+    3 #OD-BLANK3              (A1)
+    3 #OD-SCHEDULED           (A5)
+    3 #OD-BLANK4              (A1)
+    3 #OD-RETRY               (A4)
+1 REDEFINE #OD-LINES
+  2 #OD-ARRAY2                (9)
+    3 #OD-REPORT2             (A25)
+    3 #OD-BLANK5              (A1)
+    3 #OD-MESSAGE             (A52)
+1 #IX                         (I4)
+1 #I                          (I4)
+1 #PANEL                      (A10)
+1 #NODE-NAME                  (A16)
+1 #LINE                       (N4)
+1 REDEFINE #LINE
+  2 #LINE-A                   (A4)
+1 L-HEADER                   (A78)
+1 #FUNCTION                  (A1)
+1 #ERROR-CODE                (N4)
+1 #ERROR-TEXT                (A250)
+1 #WAIT-CURRENT              (N4)
+1 #START                     (L)
+1 #STOP                      (L)
+1 #ALLOWED                   (L)
+1 #STATUS                    (A24)
+1 #LAST-TIME                 (A8)
+1 #LAST-DATE                 (A10)
+1 #CONFIRM                   (A8)
+1 #FATHER-PROG               (A8) INIT <'RADMIN'>
+1 CV-WAIT                    (C) INIT < (AD=I)>
+1 #MONITISN                  (P10)
+1 #LANGUAGE                  (I2)
+1 #EVENT-NAME                (A8)
+1 #SHUTDOWN                  (L)
+1 XEVENT                     (A512)
+1 REDEFINE XEVENT
+  2 ERROR-CODE               (N3)
+  2 ERROR-TEXT               (A58)
+  2 NODE                     (N5)
+  2 SYSTEM-MESSAGE-CODE      (A10)
+  2 FUNCTION                 (A8)
+  2 EVENT-NAME               (A8)
+  2 MAX-TIME                 (B4)
+  2 REDEFINE MAX-TIME
+    3 MAX-TIME-A             (A4)
+  2 NUMBER-OF-WAITERS        (N5)
+  2 NUMBER-OF-MESSAGES       (N5)
+  2 MESSAGE-ARRAY            (A250)
+*
+1 #PRINT-COUNT               (N3)
+1 #PRINTER-TASK-NAME         (A16/20)
+1 #KILL-PRINT                (A1)
+1 #MAIN-TASK                 (N3) CONST <1>
+1 #MAX-TASKS                 (I1) CONST <59> /* NOMALL-1961 was <5>
+1 I                          (I2)
+1 #TASK-COUNT                (I2)
+1 #TASK-NO                   (I2)
+1 #TASK                      (N3/1:#MAX-TASKS)
+1 #EVENT-MESSAGE             (A250)
+1 #START-MONITOR-PERFORMED   (L) INIT <FALSE>
+1 #TRYAGAIN                  (N3)
+1 #COMPARE-STATUS            (A24)
+1 #TRACING                   (L)
+1 #TRACE-MSG                 (A250)
+1 #MF-MONITOR-ID             (A20)
+1 #TEN-MIN-BEFORE            (T)
+1 #DLO                       (L)
+1 #TYPE-F                    (F8)
+1 #TYPE-TIME                 (A9)
+1 REDEFINE #TYPE-TIME
+  2 #TYPE                    (B2)
+  2 #TIME                    (T)
+1 #EXIT                      (L)
+1 #LEFT-PART                 (L)
+1 #TASKS-ACTIVE              (I2)
+1 #TASK-NUMBERS              (A24)
+1 #STATUS-CODE               (A1)
+1 #SAME-STATUS               (L)
+1 #OLD-STATUS-CODE           (A1)
+1 #MONITOR-TIME              (T)
+1 #FOUND                     (L)
+1 #MF                        (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM RMGTRACO-GET-SETTINGS #TRACING
+*
+IF G-LANGUAGE = 2
+  COMPRESS '<' #EQ2-NOTACTIVE '>' TO #COMPARE-STATUS LEAVING NO
+ELSE
+  COMPRESS '<' #EQN-NOTACTIVE '>' TO #COMPARE-STATUS LEAVING NO
+END-IF
+RESET G-NATRP-ERC G-NATRP-ERT
+CALLNAT 'NARPSEC' G-USER-PROFILE 'STA' #START
+CALLNAT 'NARPSEC' G-USER-PROFILE 'STP' #STOP
+IF #START OR #STOP
+  #ALLOWED := TRUE
+END-IF
+*
+IF G-FLIP-STATUS = 'L'
+  G-FLIP-STATUS := 'P'
+END-IF
+*
+IF *MACHINE-CLASS = 'MAINFRAME'
+  #MF := TRUE
+END-IF
+#PANEL := 'GENERAL'
+MAIN-LOOP. REPEAT
+  RESET #TASK-COUNT
+  IF *MACHINE-CLASS = 'MAINFRAME'
+    FIND EVENTING WITH NODE = +NOD-LOCAL-NODE AND FUNCTION = 'LIST'
+    AND EVENT-NAME = 'NOM*'                                           /*
+      IF NOT(EVENTING.ERROR-CODE =0 OR=999)
+        PRINT (AD=L) *PROGRAM *LINE EVENTING.ERROR-CODE /*SU2
+          EVENTING.ERROR-TEXT
+          'node=' +NOD-LOCAL-NODE 'function=''LIST'''
+          'event-name=''NOM*'''
+        ESCAPE BOTTOM
+      END-IF
+      RMTASK-P.TASK-ID  := EVENTING.EVENT-NAME
+      RMTASK-P.FUNCTION := 'G'
+      CALLNAT 'RMTASKID' RMTASK-P
+      IF NOM-DBID NE G-NATRP-DBID OR NOM-FNR  NE G-NATRP-FNR
+        ESCAPE TOP
+      END-IF
+      IF RMTASK-P.SUBTASK-NUMBER = #MAIN-TASK
+        ADD 1 TO #TASK-COUNT
+        #TASK(#TASK-COUNT):= 1
+      ELSE
+        ADD 1 TO #TASK-COUNT
+        #TASK(#TASK-COUNT):= RMTASK-P.SUBTASK-NUMBER /* NOMALL-1961 in
+      END-IF
+    END-FIND
+  ELSE /*Unix
+    RMTASK-P.FUNCTION       := 'E'
+    RMTASK-P.SUBTASK-NUMBER := #MAIN-TASK
+    CALLNAT 'RMTASKID' RMTASK-P
+*
+    XEVENT.EVENT-NAME := RMTASK-P.TASK-ID
+    XEVENT.FUNCTION   := 'RECEIVE'
+    CALLNAT 'RMEVNTXN' XEVENT
+    IF XEVENT.ERROR-CODE = 0
+      #TASK-COUNT := 1
+      #TASK(#TASK-COUNT):= 1
+    END-IF
+    FOR #TASK-NO = 21 TO #MAX-TASKS
+      RMTASK-P.FUNCTION       := 'E'
+      RMTASK-P.SUBTASK-NUMBER := #TASK-NO
+      CALLNAT 'RMTASKID' RMTASK-P
+      XEVENT.EVENT-NAME := RMTASK-P.TASK-ID
+      XEVENT.FUNCTION   := 'RECEIVE'
+      CALLNAT 'RMEVNTXN' XEVENT
+      IF XEVENT.ERROR-CODE = 0
+        ADD 1 TO #TASK-COUNT
+        #TASK(#TASK-COUNT):= #TASK-NO
+      END-IF
+    END-FOR
+    END TRANSACTION
+  END-IF
+*
+  RESET G-LINECOM (*)
+*
+  IF #LANGUAGE NE *LANGUAGE
+    #LANGUAGE := *LANGUAGE
+    PERFORM INIT-PFKEYS
+    PERFORM SET-PFKEYS
+  END-IF
+*
+  RESET G-LINECOM (*) G-FLIPLINES (*) #ERROR-CODE #ERROR-TEXT
+  CALLNAT 'RHANMON' #STATUS #LAST-TIME #LAST-DATE G-MONITOR-NODE
+    G-MONITOR-JOBNAME G-SPOOL-TYPE G-WAIT-MINIMUM G-WAIT-MAXIMUM
+    G-WAIT-INCREMENT #WAIT-CURRENT G-DATE-FORMAT G-LANGUAGE
+    #ERROR-TEXT #ERROR-CODE #MONITISN #MAIN-TASK #NODE-NAME #LINE
+  IF G-NATRP-ERC = 0 AND #ERROR-CODE NE 0
+    G-NATRP-ERC := #ERROR-CODE
+    G-NATRP-ERT := #ERROR-TEXT
+    #PANEL      := 'GENERAL'
+  END-IF
+*
+  PERFORM GET-ACTIVE-TASKS
+*
+  SET CONTROL 'WB'
+  SET CONTROL 'M21'
+  PERFORM FLIP-DISPLAY
+  CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT  'RHANMOM&'
+*
+  IF #START-MONITOR-PERFORMED AND #STATUS = #COMPARE-STATUS
+  AND #TRYAGAIN LE 5                                                  /*
+    ADD 1 TO #TRYAGAIN
+    ESCAPE TOP
+  END-IF
+*
+  IF #PANEL NE 'STATUS'
+    INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+      MARK *G-DIRECT-COMMAND USING MAP 'RHANMOM&'
+  ELSE
+    PERFORM EXTENDED-STATUS
+  END-IF
+*
+  IF CV-WAIT MODIFIED
+    PERFORM VALIDATE-INPUT
+    GETMONIT. GET NRM-MONITOR #MONITISN
+    NRM-MONITOR.M-WAIT-MINIMUM := G-WAIT-MINIMUM
+    NRM-MONITOR.M-WAIT-MAXIMUM := G-WAIT-MAXIMUM
+    NRM-MONITOR.M-WAIT-INCREMENT := G-WAIT-INCREMENT
+    UPDATE (GETMONIT.)
+    END TRANSACTION
+  END-IF
+  RESET G-NATRP-ERC G-NATRP-ERT
+  DECIDE ON EVERY VALUE OF G-DIRECT-COMMAND
+    VALUE 'S','START'      #FUNCTION := 'S'
+    VALUE 'C','CLOSE'      #FUNCTION := 'C'
+    VALUE 'L','DLOG'       #FUNCTION := 'L'
+    VALUE 'D','DLOG'       #FUNCTION := 'D'
+    VALUE 'P','PURGE'      #FUNCTION := 'P'
+    VALUE 'E'              #FUNCTION := 'E'
+    VALUE 'T+','TRACE ON'  #FUNCTION:= '+'
+    VALUE 'T-','TRACE OFF' #FUNCTION:= '-'
+    ANY VALUE              RESET G-DIRECT-COMMAND
+    NONE VALUE IGNORE
+  END-DECIDE
+*
+  INCLUDE C-DIRECT
+  INCLUDE RPFKVA-C
+*
+  DECIDE ON FIRST VALUE OF G-PF-FUNC
+    VALUE ##PFK-HELP
+      REINPUT USING HELP
+    VALUE ##PFK-EXIT
+      IF  #PANEL = 'STATUS-END'
+        #PANEL := 'GENERAL'
+        ESCAPE TOP
+      END-IF
+      INCLUDE C-ESCAPE
+    VALUE ##PFK-FLIP
+      PERFORM FLIP-HANDLE
+    VALUE ##PFK-STATUS
+      IF #PANEL NE 'STATUS'
+        #LEFT-PART := TRUE
+        #PANEL := 'STATUS'
+        ESCAPE TOP /* MAIN-LOOP.
+      END-IF
+    VALUE ##PFK-WAKE
+      IF #PANEL NE 'STATUS'
+        PERFORM WAKE-MONITOR
+      END-IF
+    VALUE ##PFK-MENU
+      INCLUDE C-MENU
+    VALUE ##PFK-TASKS
+      FETCH RETURN 'RHANMT' #MONITISN
+    NONE VALUE
+      IGNORE
+  END-DECIDE
+*
+  DECIDE ON FIRST VALUE OF #FUNCTION
+    VALUE 'S'
+      IF NOT #START
+        REINPUT *0020 MARK *G-DIRECT-COMMAND ALARM /* NOMALL-1636 instd.
+      END-IF
+      PERFORM RMGMONPA-GET-MONPARS 'NOSTART' #FOUND
+      IF #FOUND
+        REINPUT *1610 MARK *G-DIRECT-COMMAND ALARM /* NOMALL-1636 instd.
+      END-IF
+      PERFORM START-MONITOR
+      IF #MF
+        FIND INFO WITH NODE = G-MONITOR-NODE
+          IF NOT(INFO.ERROR-CODE =0 OR=999) /*SU2 SU5 999 added
+            PRINT (AD=L) *PROGRAM *LINE INFO.ERROR-CODE INFO.ERROR-TEXT
+              'node=' G-MONITOR-NODE
+/*          ESCAPE BOTTOM
+          END-IF
+          IF AUTO-LOGON = 'NO'
+            PERFORM LOGON-TO-ESY
+          END-IF
+        END-FIND
+      END-IF
+      RESET #FUNCTION
+    VALUE 'C'
+      IF NOT #STOP
+        REINPUT *0020 MARK *G-DIRECT-COMMAND ALARM
+      END-IF
+      PERFORM CLOSE-MONITOR
+      RESET #FUNCTION #START-MONITOR-PERFORMED
+    VALUE 'L'
+      CALLNAT 'NARPSEC' G-USER-PROFILE 'DLO' #DLO
+      IF NOT #DLO
+        REINPUT *0020 MARK *G-DIRECT-COMMAND
+      END-IF
+      FETCH RETURN 'RLISLM1'
+      RESET #FUNCTION #START-MONITOR-PERFORMED
+    VALUE 'D'
+      CALLNAT 'NARPSEC' G-USER-PROFILE 'DLO' #DLO
+      IF NOT #DLO
+        REINPUT *0020 MARK *G-DIRECT-COMMAND
+      END-IF
+      FETCH RETURN 'RLISLM2'
+      RESET #FUNCTION #START-MONITOR-PERFORMED
+    VALUE 'P'
+      FETCH RETURN 'RPURGBP' 'ALL' 999
+      RESET #FUNCTION #START-MONITOR-PERFORMED
+      PERFORM WAKE-MONITOR
+    VALUE 'E'
+      FETCH RETURN 'RPURGBP' 'ONE' 999
+      RESET #FUNCTION #START-MONITOR-PERFORMED
+      PERFORM WAKE-MONITOR
+    VALUE '+','-'
+      PERFORM MONITOR-TRACE
+      RESET #FUNCTION #START-MONITOR-PERFORMED
+    VALUE ' '
+      IGNORE
+    NONE VALUE
+      G-NATRP-ERC := 0007
+      ESCAPE TOP
+  END-DECIDE
+END-REPEAT
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+DECIDE FOR EVERY CONDITION
+  WHEN G-WAIT-MINIMUM < 1
+    REINPUT *632 MARK *G-WAIT-MINIMUM
+  WHEN G-WAIT-MAXIMUM < G-WAIT-MINIMUM
+    REINPUT *628 MARK *G-WAIT-MAXIMUM
+  WHEN G-WAIT-MINIMUM + G-WAIT-INCREMENT > G-WAIT-MAXIMUM
+    REINPUT *631 MARK *G-WAIT-MAXIMUM
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE START-MONITOR
+************************************************************************
+IF #TRACING
+  #TRACE-MSG := 'Attempt to start monitor online.'
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END TRANSACTION
+END-IF
+IF #MF
+  RESET SATOS-PARMS-03 (*)
+  SATOS-NODE-N5     := G-MONITOR-NODE
+  SATOS-SERVDBID-N5 := G-NATRP-DBID
+  SATOS-SERVFNR-N5  := G-NATRP-FNR
+/*SU6 IF *OPSYS = MASK('BS2') SATOS-SUBTASK-NAME := 'INEOM' END-IF
+*
+  SATOS-SATVERS := 33
+  IF #TRACING
+    #TRACE-MSG := 'Parameters used:'
+    COMPRESS #TRACE-MSG '- Node:' SATOS-NODE-N5
+      '- DBID:' SATOS-SERVDBID-N5 '- FNR:' SATOS-SERVFNR-N5
+      '- Subtask Name:' SATOS-SUBTASK-NAME '- Satvers:' SATOS-SATVERS
+      TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+  CALLNAT SAT-ONLINE-START SATOS-SATVERS SATOS-PARMS-03 (*)
+  IF #TRACING
+    #TRACE-MSG := 'Returned from SATOS:'
+    COMPRESS #TRACE-MSG '- Type:' SATOS-TYPE
+      '- Jobname:' SATOS-BATCH-JOBNAME '- ERC:' G-NATRP-ERC
+      '- ERT:' G-NATRP-ERT '- SATOS-Error:'  SATOS-ERROR-CODE
+      SATOS-ERROR-TEXT TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+*
+  DECIDE ON FIRST SATOS-ERROR-CODE
+    VALUE 0
+      IF SATOS-TYPE = 'BATCH'
+        G-NATRP-ERC := 1500
+        COMPRESS SATOS-BATCH-JOBNAME '/' SATOS-BATCH-JOB-NUMBER
+          TO G-NATRP-ERT LEAVING NO
+      ELSE
+        G-NATRP-ERC := 1520
+        G-NATRP-ERT := SATOS-SUBTASK-NAME
+      END-IF
+    VALUES 3148,5500:5999
+      G-NATRP-ERC := 0005
+      G-NATRP-ERT := SATOS-ERROR-TEXT
+    NONE VALUE
+      G-NATRP-ERC := 1521
+      G-NATRP-ERT := SATOS-ERROR-TEXT
+      IF SATOS-ERROR-TEXT = ' '
+        G-NATRP-ERT := SATOS-ERROR-CODE
+      END-IF
+  END-DECIDE
+ELSE
+  STX-FUNCTION      := 'START'
+  RMTASK-P.FUNCTION       := 'S'
+  RMTASK-P.SUBTASK-NUMBER := 1
+  CALLNAT 'RMTASKID' RMTASK-P
+  STX-TASK-NAME     := RMTASK-P.TASK-ID
+  STX-START-SCRIPT  := '$NOMDIR/$NOMVERS/nommon.bsh'
+  STX-LOGFILE       := '$EOM_WORK/nommon.task1.stdout'
+  STX-TASK-NUMBER   := 1
+  CALLNAT 'RMSTX--N' STX-PARMS
+  END TRANSACTION
+  IF STX-ERROR-CODE = 0
+    G-NATRP-ERC := 1500
+    COMPRESS '1500' STX-START-SCRIPT TO LG-MSG
+    #START-MONITOR-PERFORMED := TRUE
+  ELSE
+    IF STX-ERROR-CODE = 1581                /* BLI NOMALL-2274
+      G-NATRP-ERC := STX-ERROR-CODE
+      COMPRESS '1581' STX-ERROR-TEXT TO LG-MSG
+    ELSE
+      G-NATRP-ERC := 5
+      COMPRESS '5' STX-ERROR-TEXT TO LG-MSG
+    END-IF
+  END-IF
+  G-NATRP-ERT := STX-ERROR-TEXT
+  PERFORM WRITE-LOG-RECORD
+  RESET #TRYAGAIN
+END-IF
+*
+END-SUBROUTINE /* START-MONITOR
+*
+************************************************************************
+DEFINE SUBROUTINE GET-ACTIVE-TASKS
+************************************************************************
+RESET #TASKS-ACTIVE #TASK-NUMBERS
+#SAME-STATUS := TRUE
+FOR #TASK-NO = 1 TO #MAX-TASKS
+  RESET #STATUS-CODE
+  CALLNAT 'RMGETSTN' #STATUS-CODE #MONITOR-TIME G-MONITOR-NODE
+    M-NATRPT-DBID-N5 M-NATRPT-FNR-N5 #TASK-NO
+  END TRANSACTION
+  IF NOT(#STATUS-CODE = #EQU-NOTACTIVE OR= #EQU-IDLE OR= #EQU-SHUTDOWN
+  OR= #EQU-CLOSED OR= #EQU-ABENDED OR= #EQU-ENDED OR= 'D' OR= ' ')    /*
+    ADD 1 TO #TASKS-ACTIVE
+    DECIDE FOR FIRST CONDITION
+      WHEN #TASKS-ACTIVE = 1
+        COMPRESS '<' #TASK-NO TO #TASK-NUMBERS LEAVING NO
+      WHEN #TASKS-ACTIVE < 9
+        COMPRESS #TASK-NUMBERS ',' #TASK-NO TO #TASK-NUMBERS LEAVING NO
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+  END-IF
+  IF #TASK-NO > 1 AND #STATUS-CODE NE #OLD-STATUS-CODE
+    #SAME-STATUS := FALSE
+  ELSE
+    #OLD-STATUS-CODE := #STATUS-CODE
+  END-IF
+END-FOR
+COMPRESS #TASK-NUMBERS '>' TO #TASK-NUMBERS
+DECIDE FOR FIRST CONDITION
+  WHEN #SAME-STATUS
+    PERFORM ASSIGN-STATUS
+  WHEN #TASKS-ACTIVE > 8  /* too many tasks active for #STATUS
+    COMPRESS '<' #TASKS-ACTIVE 'tasks >' TO #STATUS
+  WHEN #TASKS-ACTIVE > 1  /* active tasks can be displayed.
+    #STATUS := #TASK-NUMBERS
+  WHEN NONE   /* Leave variable #STATUS as it is.
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* GET-ACTIVE-TASKS
+*
+************************************************************************
+DEFINE SUBROUTINE EXTENDED-STATUS
+************************************************************************
+DECIDE FOR EVERY CONDITION
+  WHEN #STATUS = ' '
+    #STATUS := '---'
+  WHEN #STATUS = SCAN('Unix')
+    RESET MF-NODE /*SU3 was CURRENT-NODE
+    MF-SYSTEM-TYPE := 'Unix'
+  WHEN #STATUS NE SCAN('Unix')
+    COMPRESS 'R-' #NODE-NAME TO #MF-MONITOR-ID LEAVING NO
+    FIND MF-NODE WITH MF-MONITOR-ID = +NOD-LOCAL-ID /*SU3 #MF-MONITOR-ID
+      IF NO RECORDS FOUND
+        RESET #NODE-NAME
+        ESCAPE BOTTOM
+      END-NOREC
+      +NOD-CURRENT-ID   := MF-MONITOR-ID
+      +NOD-CURRENT-NODE := MF-MONITOR-NODE
+      +NOD-CURRENT-USER := MF-NPR-USERID
+    END-FIND
+  WHEN #STATUS = SCAN('Inactive') OR = SCAN('Closed') OR = SCAN('Idle')
+  OR = SCAN('Inaktiv') OR = SCAN('Beendet') OR = SCAN('Leerlauf')     /*
+    RESET #LINE #NODE-NAME
+  WHEN ANY
+    IF #LINE NE 0
+      MOVE '<' TO SUBSTR(#STATUS,20,1) /* display bold
+      MOVE #LINE-A TO SUBSTR(#STATUS,21)
+    END-IF
+  WHEN NONE
+    IGNORE
+END-DECIDE
+RESET #I #OD-LINES (*) #TYPE #TIME
+#TEN-MIN-BEFORE := *TIMX - 6000 /* 10 minutes of 1/10 seconds
+REPEAT-OD. REPEAT
+  #EXIT := TRUE
+  READ-OD. READ (9) OD BY OD-TYPE-TIME = #TYPE-TIME
+    DECIDE FOR FIRST CONDITION
+      WHEN OD-TYPE >= 5000 AND OD-TYPE < 7000
+        #TYPE := 7000
+        #EXIT := FALSE
+        ESCAPE BOTTOM (READ-OD.)
+      WHEN (OD-TYPE >= 7000 AND OD-TIME-PROCESSED > #TEN-MIN-BEFORE)
+      OR OD-TYPE < 5000                                               /*
+        #TYPE-F := OD-TYPE
+        #TYPE-F := #TYPE-F / 100
+        #TYPE-F := FRAC(#TYPE-F) * 100 + 0.5 /* round it
+        #TYPE-F := INT (#TYPE-F)
+        #I := #I + 1
+        IF #I > 9
+          ESCAPE BOTTOM (REPEAT-OD.)
+        END-IF
+        IF #LEFT-PART
+          FORTYPE. FOR #IX = 1 TO OD-MAXORDERS
+            IF OD-ORDERS-V (#IX) = OD-TYPE
+              ESCAPE BOTTOM (FORTYPE.)
+            END-IF
+          END-FOR
+          IF #IX > OD-MAXORDERS /* not found
+            ESCAPE TOP /* READ-OD.
+          END-IF
+          #XX-ERROR-CODE   := #EQU-ORDERS-V (#IX)
+          CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+          #OD-ACTION (#I)  := #XX-SHORT-TEXT
+          IF #TYPE-F = 32
+            COMPRESS #OD-COMMAND #OD-LIBRARY '/' #OD-PROGRAM
+              TO #OD-REPORT (#I)
+          ELSE
+            #OD-REPORT (#I)  := OD-MASTER
+          END-IF
+          #OD-MON-ID (#I)  := OD-MONITOR-ID
+          MOVE EDITED OD-TIME-SCHEDULED (EM=HH':'II)
+            TO #OD-SCHEDULED (#I)
+          MOVE EDITED OD-RETRY-COUNT (EM=ZZZZ) TO #OD-RETRY (#I)
+        ELSE
+          IF #TYPE-F = 32
+            COMPRESS #OD-COMMAND #OD-LIBRARY '/' #OD-PROGRAM
+              TO #OD-REPORT2 (#I)
+          ELSE
+            #OD-REPORT2 (#I)  := OD-MASTER
+          END-IF
+          #OD-MESSAGE (#I)    := OD-ERROR-TEXT
+        END-IF
+      WHEN NONE
+        IGNORE
+    END-DECIDE
+  END-READ
+  UNTIL #EXIT
+END-REPEAT
+SET KEY PF10 NAMED '<'
+SET KEY PF11 NAMED '>'
+IF #LEFT-PART
+  INPUT USING MAP 'RHANMOS&'
+ELSE
+  INPUT USING MAP 'RHANMOT&'
+END-IF
+DECIDE ON FIRST VALUE OF *PF-KEY
+  VALUE 'PF1'   REINPUT USING HELP /*avoid NAT1108 SU6
+  VALUE 'PF3'   #PANEL  := 'STATUS-END'
+  VALUE 'PF10'  #LEFT-PART  := TRUE
+  VALUE 'PF11'  #LEFT-PART  := FALSE
+  NONE IGNORE
+END-DECIDE
+PERFORM INIT-PFKEYS
+PERFORM SET-PFKEYS
+END-SUBROUTINE /* EXTENDED-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE WAKE-MONITOR
+************************************************************************
+FOR I = 1 TO #TASK-COUNT
+  RMTASK-P.FUNCTION       := 'E'
+  RMTASK-P.SUBTASK-NUMBER := #TASK(I)
+  CALLNAT 'RMTASKID' RMTASK-P
+  #EVENT-NAME := RMTASK-P.TASK-ID
+  CALLNAT 'RMEVNT-N' G-MONITOR-NODE #EVENT-NAME 'POST    ' #WAIT-CURRENT
+    G-NATRP-ERC G-NATRP-ERT #EVENT-MESSAGE
+  END TRANSACTION
+  IF G-NATRP-ERC NE 0
+    G-NATRP-ERC := 0005
+  END-IF
+END-FOR
+*
+END TRANSACTION
+*
+END-SUBROUTINE /* WAKE-MONITOR
+*
+************************************************************************
+DEFINE SUBROUTINE CLOSE-MONITOR
+************************************************************************
+RESET #PRINT-COUNT
+IF #MF
+  FIND NATURAL-SUB-TASK WITH NODE = G-MONITOR-NODE
+  AND FUNCTION = 'LIST' AND NAT-STATUS = 'ACTIVE'                     /*
+    IF NATURAL-SUB-TASK.ERROR-CODE = 999 /*SU5
+      ESCAPE ROUTINE
+    END-IF
+    IF NATURAL-SUB-TASK.ERROR-CODE NE 0 /*SU5 INFO -> SUB-TASK
+      PRINT (AD=L) *PROGRAM *LINE NATURAL-SUB-TASK.ERROR-CODE /*SU2
+        NATURAL-SUB-TASK.ERROR-TEXT 'node=' G-MONITOR-NODE
+        'function=''LIST''' 'nat-status=''ACTIVE'''
+      ESCAPE BOTTOM
+    END-IF
+    IF NAT-USER = MASK('PRT')
+      ADD 1 TO #PRINT-COUNT
+      #PRINTER-TASK-NAME(#PRINT-COUNT):= NAT-USER
+    END-IF
+  END-FIND
+END-IF
+SET CONTROL 'M4'
+IF #PRINT-COUNT GT 0
+  SET CONTROL 'WC10L52B13/14F'
+  INPUT USING MAP 'RHANMOP&'
+ELSE
+  SET CONTROL 'WC7L52B13/14F'
+  INPUT USING MAP 'RHANMOW&'
+END-IF
+*
+IF *PF-KEY = 'PF3'
+  SET CONTROL 'WB'
+  SET CONTROL 'M21'
+  ESCAPE ROUTINE
+END-IF
+*
+IF #CONFIRM NE 'SHUTDOWN'
+  REINPUT *0004 ALARM
+END-IF
+*
+SET CONTROL 'WB'
+SET CONTROL 'M21'
+IF #PRINT-COUNT GT 0 AND #KILL-PRINT = 'Y'
+  REPEAT UNTIL #PRINT-COUNT LT 1
+    FIND(1) NATURAL-SUB-TASK WITH NODE = G-MONITOR-NODE
+    AND NAT-USER =#PRINTER-TASK-NAME(#PRINT-COUNT) AND FUNCTION ='CLOSE'
+      IF NATURAL-SUB-TASK.ERROR-CODE NE 0 /*SU2
+        PRINT (AD=L) *PROGRAM *LINE NATURAL-SUB-TASK.ERROR-CODE
+          NATURAL-SUB-TASK.ERROR-TEXT 'node=' G-MONITOR-NODE
+         'function=''CLOSE'' nat-user=' #PRINTER-TASK-NAME(#PRINT-COUNT)
+        ESCAPE BOTTOM
+      END-IF
+    END-FIND
+    SUBTRACT 1 FROM #PRINT-COUNT
+  END-REPEAT
+END-IF
+RMTASK-P.FUNCTION       := 'S'
+RMTASK-P.SUBTASK-NUMBER := #MAIN-TASK
+CALLNAT 'RMTASKID' RMTASK-P
+CLOSE-NATRPT. FIND NRM-MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+  IF NO RECORDS FOUND
+    REINPUT 'NOM - MONITOR NOT INSTALLED CORRECTLY'
+  END-NOREC
+  CALLNAT 'RMSETSTN' 'D' G-MONITOR-NODE G-NATRP-DBID G-NATRP-FNR
+    #SHUTDOWN #MAIN-TASK
+  M-STATUS := 'D'
+  M-LAST-ACTIVE := *TIMX
+  UPDATE (CLOSE-NATRPT.)
+  END TRANSACTION
+  LG-USERID := G-USERID
+  LG-CODE := 'MO'
+  LG-MSG := '1514'
+  CALLNAT 'RLOG' PL-PARMS
+  END TRANSACTION
+END-FIND
+#STATUS     := #EQN-SHUTDOWN
+RMTASK-P.FUNCTION       := 'E'
+RMTASK-P.SUBTASK-NUMBER := #MAIN-TASK
+CALLNAT 'RMTASKID' RMTASK-P
+#EVENT-NAME             := RMTASK-P.TASK-ID
+CALLNAT 'RMEVNT-N' G-MONITOR-NODE #EVENT-NAME 'POST    ' #WAIT-CURRENT
+  G-NATRP-ERC G-NATRP-ERT #EVENT-MESSAGE
+END TRANSACTION
+*
+END-SUBROUTINE /* CLOSE-MONITOR
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFWKE-C
+INCLUDE RPFTSK-C
+INCLUDE RPFSTA-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+
+END-SUBROUTINE /* INIT-PFKEYS
+*
+************************************************************************
+DEFINE SUBROUTINE MONITOR-TRACE
+************************************************************************
+IF #FUNCTION = '+'
+  #EVENT-MESSAGE:= 'TRACEON'
+ELSE
+  #EVENT-MESSAGE:= 'TRACEOFF'
+END-IF
+*
+FOR I = 1 TO #TASK-COUNT
+  RMTASK-P.FUNCTION       := 'E'
+  RMTASK-P.SUBTASK-NUMBER := #TASK(I)
+  CALLNAT 'RMTASKID' RMTASK-P
+  #EVENT-NAME             := RMTASK-P.TASK-ID
+  CALLNAT 'RMEVNT-N' G-MONITOR-NODE #EVENT-NAME 'SENDPOST' #WAIT-CURRENT
+    G-NATRP-ERC G-NATRP-ERT #EVENT-MESSAGE
+  END TRANSACTION
+  IF G-NATRP-ERC NE 0
+    G-NATRP-ERC := 0005
+  END-IF
+END-FOR
+IF G-NATRP-ERC = 0
+  IF #FUNCTION = '+'
+    G-NATRP-ERC:= 1539
+  ELSE
+    G-NATRP-ERC:= 1540
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* MONITOR-TRACE
+*
+************************************************************************
+DEFINE SUBROUTINE ASSIGN-STATUS
+************************************************************************
+IF #STATUS-CODE = 'D'
+  #I := 1
+ELSE
+  EXAMINE #EQU-STATUS-V (*) FOR #STATUS-CODE GIVING INDEX #I
+END-IF
+IF #I NE 0
+  IF G-LANGUAGE = 2
+    COMPRESS '<' #EQ2-STATUS-V (#I) '>' TO #STATUS LEAVING NO
+  ELSE
+    COMPRESS '<' #EQN-STATUS-V (#I) '>' TO #STATUS LEAVING NO
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* ASSIGN-STATUS
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-RECORD
+************************************************************************
+LG-USERID := G-USERID
+LG-CODE   := 'MO'
+CALLNAT 'RLOG' PL-PARMS
+END OF TRANSACTION
+*
+END-SUBROUTINE /* WRITE-LOG-RECORD
+*
+INCLUDE RPFSET-C /*SET-PFKEYS
+*
+END

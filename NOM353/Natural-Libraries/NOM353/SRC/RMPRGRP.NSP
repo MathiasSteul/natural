@@ -1,0 +1,217 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMPRGRP
+* Function  Purge Report or mark Report for archiving if retention
+*           has expired
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 92-09-03 s(999999) old version saved as omprgrp and rewritten
+* mrs 92-09-28 s(158967) purge printouts for active report
+* mrs 93-01-02 s(999999) avoid newpage every line
+* gw  93-04-15 delete also bundle-contents record
+* jvd 98-11-24 s(284191) incorporate 'Archive Immediate' functionality
+*                        from UKSJU. Thank you, Steve!
+* jwo 01-02-19 s(206182) Invoke NOMEX008 after delete
+* fhi 02-06-13 s(225125) Add email notificaton, NOMEX010
+* xsetggr 2007-05-02 NOM3201 support 11 byte run numbers
+* raya     2012-11-29 NOMALL-1214 check cat date of nomex*
+* raya     2013-05-09 NOMALL-1214 backout  check cat date of nomex*
+* fhi     2013-06-04 OPO-36    Fill field AR-ACTIVE
+* fhi     2013-09-24 NOMALL-932 Change NOMEX08L to NOMEXP08
+* SU1     2014-07-21 NOMALL-1279 fill fields for Adabas Vista
+* fhi     2015-04-08 NOMALL-1595 Maintain NRM-FILE-NAMES correctly
+* SU2     2015-08-11 NOMALL-1690 XXHASH restructure
+* SU3     2015-12-30 NOMALL-1722 support long path names
+* SU4     2016-01-19 NOMALL-1802 do not update Adabas Vista fields
+* SU5     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* SU6     2023-10-18 NOMALL-2489 avoid ' ' in msg(itrac for uqac only
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE      (L/1:20)
+* -----------------------------LDAs-------------------------------------
+LOCAL USING NOMEXP08
+LOCAL USING NOMEX08E
+LOCAL USING VFSYS-L
+LOCAL USING SUPER-L
+LOCAL USING RDELPO-A
+LOCAL USING RMSPL--L
+LOCAL USING RMSR---E
+LOCAL USING XXHASH-P
+LOCAL
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-REPNAME
+  2 AR-SOURCE-ID
+  2 AR-REPRNB
+  2 AR-EXPIRATION
+  2 AR-RETENTION-ACTION
+  2 AR-ARCHIVE
+  2 AR-ACTIVE
+  2 AR-SPOOL-ATTRIBUTES
+*
+1 #START-DATE            (A8) INIT <'00000102'>
+1 #END-DATE              (A8)
+1 #DATE                  (D)
+1 #ISN                   (P10)
+1 #A20                   (A20) /*SU6
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'Start Report Clean up'
+#DATE := *DATX - 1
+MOVE EDITED #DATE (EM=YYYYMMDD) TO #END-DATE
+*
+READAR. READ ACTIVE-REPORT BY AR-EXPIRATION = #START-DATE
+ENDING AT #END-DATE                                                   /*
+  #ISN := *ISN (READAR.)
+  #AC-REPNAME := #F-REPNAME := AR-REPNAME
+  #AC-REPRNB := #F-REPRNB := AR-REPRNB
+*
+  DECIDE FOR FIRST CONDITION
+    WHEN AR-ARCHIVE = 'I'
+      PERFORM MARK-ACTIVE-REPORT
+      #A20 := 'marked I to A'
+    WHEN AR-ARCHIVE = 'R'
+      PERFORM MARK-ACTIVE-REPORT
+      #A20 := 'marked R to P'
+    WHEN AR-ARCHIVE = '*' OR = 'A'
+      PERFORM RESET-EXPIRATION-DATE
+      #A20 := 'reset exp'
+    WHEN AR-RETENTION-ACTION = 'P'
+      PERFORM PURGE-ACTIVE-REPORT
+      IF +G-NOMEXIT-ACTIVE (8)
+        PERFORM USER-EXIT-8
+      END-IF
+      #A20 := 'purged'
+    WHEN NONE
+      PERFORM MARK-ACTIVE-REPORT
+      #A20 := 'marked'
+  END-DECIDE
+  PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Report' #AC-REPNAME '/' #AC-REPRNB #A20 /*SU6
+END-READ
+END OF TRANSACTION
+WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+  'End Report Clean up'
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE PURGE-ACTIVE-REPORT
+************************************************************************
+*               DELETE REPORT FROM DATASET REPORT:
+CALLNAT 'RDELDR' #AC-REPNAME #AC-REPRNB
+RESET #AC-SEQ #F-SEQ
+DELRC. READ REPORT-CONTENTS BY AC-REP-RNB-SEQ = #AC-REP-RNB-SEQ
+  IF AC-REPNAME NE #AC-REPNAME OR AC-REPRNB NE #AC-REPRNB
+    ESCAPE BOTTOM
+  END-IF
+  DELETE (DELRC.)
+  IF *COUNTER > 100
+    END TRANSACTION
+    RESET *COUNTER
+  END-IF
+END-READ
+END TRANSACTION
+*
+DELFS. READ REPORT-TEXT BY F-REPNAME-RNB-SEQ = #F-REP-RNB-SEQ
+  IF F-REPNAME NE #F-REPNAME OR F-REPRNB NE #F-REPRNB
+    ESCAPE BOTTOM
+  END-IF
+  DELETE (DELFS.)
+  IF *COUNTER > 100
+    END TRANSACTION
+    RESET *COUNTER
+  END-IF
+END-READ
+END TRANSACTION
+*
+/* delete active report from bundle
+/* bundle-contents record is deleted and
+/* also the active-bundle record if no more bundle-contents:
+CALLNAT 'RDELBC-N' #AC-REPNAME #AC-REPRNB
+CALLNAT 'RDELMA-N' #AC-REPNAME #AC-REPRNB
+*
+#DELPO.P-REPORT    := #AC-REPNAME
+#DELPO.P-REPRNB    := #AC-REPRNB
+#DELPO.P-USER-TYPE := 'A'
+#DELPO.P-OWNER     := TRUE
+#DELPO.P-USERID    := G-USERID
+*
+CALLNAT 'RDELPO-N' #DELPO  /*  Delete Printouts for Report-RNB
+*
+DELAR. GET ACTIVE-REPORT #ISN
+DELETE (DELAR.)
+#SPOOL-ATTRIBUTES := ACTIVE-REPORT.AR-SPOOL-ATTRIBUTES
+CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+DECIDE ON EVERY VALUE OF #SPOOL-TYPE
+  VALUE SEQUENTIAL-FILE-UNIX
+    XXHASH-PARMS.P-SHORT-NAME := #SPOOL-UNIX-FILE-NAME
+  VALUE DIRECT-INPUT
+    XXHASH-PARMS.P-SHORT-NAME := #SPOOL-DI-PATH
+    XXHASH-PARMS.P-FUNCTION   := 'D' /*delete entry
+    PERFORM XXHASH XXHASH-PARMS
+    XXHASH-PARMS.P-SHORT-NAME := #SPOOL-DI-FILENAME
+  ANY
+    XXHASH-PARMS.P-FUNCTION   := 'D' /*delete entry
+    PERFORM XXHASH XXHASH-PARMS
+  NONE
+    IGNORE
+END-DECIDE
+END OF TRANSACTION
+*
+END-SUBROUTINE /* PURGE-ACTIVE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE MARK-ACTIVE-REPORT
+************************************************************************
+GETAR. GET ACTIVE-REPORT #ISN
+IF ACTIVE-REPORT.AR-ARCHIVE = ' ' OR = 'I'
+  ACTIVE-REPORT.AR-ARCHIVE := 'A'
+  RESET ACTIVE-REPORT.AR-ACTIVE
+ELSE
+  IF ACTIVE-REPORT.AR-ARCHIVE = 'R'
+    ACTIVE-REPORT.AR-ARCHIVE := 'P'
+    RESET ACTIVE-REPORT.AR-ACTIVE
+  END-IF
+END-IF
+RESET ACTIVE-REPORT.AR-EXPIRATION
+UPDATE (GETAR.)
+END TRANSACTION
+*
+END-SUBROUTINE /* MARK-ACTIVE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE RESET-EXPIRATION-DATE
+************************************************************************
+GETRS. GET ACTIVE-REPORT #ISN
+RESET ACTIVE-REPORT.AR-EXPIRATION
+UPDATE (GETRS.)
+END TRANSACTION
+*
+END-SUBROUTINE /* RESET-EXPIRATION-DATE
+*
+************************************************************************
+DEFINE SUBROUTINE USER-EXIT-8
+************************************************************************
+RESET NOMEX008-PARMS (1) NOMEX008-ERROR-CODE NOMEX008-FROMLINE
+  NOMEX008-TOLINE NOMEX008-RECORD-LENGTH NOMEX008-NODE
+NOMEX008-FUNCTION := NOMEX008-FCT-DELETE
+NOMEX008-REPNAME  := #AC-REPNAME
+NOMEX008-REPRNB   := #AC-REPRNB
+CALLNAT 'NOMEX008' NOMEX008-PARMS(*)
+*
+END-SUBROUTINE /* USER-EXIT-8
+*
+END

@@ -1,0 +1,227 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMIGBUCO
+* Function:  copy bundles from source to target environment
+*
+* Maintenance
+* mrs 92-04-29          b-retention-period-purge added
+* gw  96-02-28 s(240271) correct message 4022 -> 4023
+* wcd 00-04-01 CE 7267   re-cat changes VMBUND-L, VTBUND-L
+* xsiszha 2000-08-01 (CE7461) Extend Report and Bundle Names
+* sju 02-07-31 p(226955) transfer bundle even if reports missing
+* sju 03-05-22 p(240675) Handle bundles with many reports
+* sju 04-06-22 p(252751) Transfer authorizations
+* sju 04-06-24 p(252751) Correct auth. check when report doesn't exist
+* sju 06-06-28 p(280697) Correct bundle retention number - restow
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #P-MSG     (N4)
+1 #P-USER    (A8)
+1 #P-BUNDLE  (A25)
+1 #P-COPY-AUTH (A1)
+* *****
+LOCAL USING VMBUND-L
+LOCAL USING VMBRP-L
+LOCAL USING VTBRP--L
+LOCAL USING VTBUND-L
+LOCAL USING VTGRAN-L
+LOCAL USING VGRANT-L
+LOCAL
+*
+1 MIGRATE-USERS VIEW OF NRM-MIGRATE-USERS
+1 MIGRATE-LISTS VIEW OF NRM-MIGRATE-DISTRIBUTION-LIST
+1 MIGRATE-REPORTS VIEW OF NRM-MIGRATE-REPORTS
+1 MIGRATE-PRINTERS VIEW OF NRM-MIGRATE-PRINTERS
+* *****
+1 #I                     (P2)
+1 #PRINTER               (A11)
+1 REDEFINE #PRINTER
+  2 #PRINTER-ID          (A8)
+1 #SUPER                 (A34)
+1 REDEFINE #SUPER
+  2 #SP-OBJECT-TYPE      (A1)
+  2 #SP-USERID           (A8)
+  2 #SP-OBJECT-NAME      (A25)
+1 #CONFIRM               (A1)
+1 #ET-COUNT              (I2)
+1 #GRANT-SUPER           (A26) INIT <'B'>
+1 REDEFINE #GRANT-SUPER
+  2 #GRANT-TYPE          (A1)
+  2 #GRANT-NAME          (A25)
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET #P-MSG
+FNDS. FIND BUNDLES WITH B-BUNDLE = #P-BUNDLE
+  IF NO RECORDS FOUND
+    #P-MSG := 4019
+    ESCAPE BOTTOM (FNDS.)
+  END-NOREC
+  PERFORM CHECK-RELATED-OBJECTS
+  IF #P-MSG NE 0
+    ESCAPE BOTTOM (FNDS.)
+  END-IF
+  FNDT. FIND MIGRATE-BUNDLES WITH B-BUNDLE = #P-BUNDLE
+    IF NO RECORDS FOUND
+      ENTER
+    END-NOREC
+    MOVE BY NAME BUNDLES TO MIGRATE-BUNDLES
+    IF *NUMBER (FNDT.) = 0
+      STORE MIGRATE-BUNDLES
+    ELSE
+      UPDATE (FNDT.)
+    END-IF
+    PERFORM RELATED-REPORTS
+    PERFORM GRANT-USER
+  END-FIND
+END-FIND
+END OF TRANSACTION
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE RELATED-REPORTS
+************************************************************************
+FNDBRD. FIND MIGRATE-BUNDLE-REPORT WITH BR-BUNDLE = #P-BUNDLE
+  DELETE
+  ADD 1 TO #ET-COUNT
+  IF #ET-COUNT GE 50
+    RESET #ET-COUNT
+    END TRANSACTION
+  END-IF
+END-FIND
+FIND BUNDLE-REPORT WITH BR-BUNDLE = #P-BUNDLE
+  MOVE BY NAME BUNDLE-REPORT TO MIGRATE-BUNDLE-REPORT
+  STORE MIGRATE-BUNDLE-REPORT
+  ADD 1 TO #ET-COUNT
+  IF #ET-COUNT GE 50
+    RESET #ET-COUNT
+    END TRANSACTION
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* RELATED-REPORTS
+*
+************************************************************************
+DEFINE SUBROUTINE GRANT-USER
+************************************************************************
+#SP-OBJECT-TYPE := 'B'
+#SP-USERID      := #P-USER
+#SP-OBJECT-NAME := #P-BUNDLE
+FNDG. FIND MIGRATE-GRANTS WITH GR-SUPER = #SUPER
+  IF NO RECORDS FOUND
+    MIGRATE-GRANTS.GR-USERID      := #P-USER
+    MIGRATE-GRANTS.GR-OBJECT-TYPE := 'B'
+    MIGRATE-GRANTS.GR-OBJECT-NAME := #P-BUNDLE
+  END-NOREC
+  MIGRATE-GRANTS.GR-OPTION(*) := 'Y'
+  IF *NUMBER (FNDG.) = 0
+    STORE MIGRATE-GRANTS
+  ELSE
+    UPDATE
+  END-IF
+  ADD 1 TO #ET-COUNT
+  IF #ET-COUNT GE 50
+    RESET #ET-COUNT
+    END TRANSACTION
+  END-IF
+END-FIND
+IF #P-COPY-AUTH = 'Y'
+  #GRANT-NAME:= #P-BUNDLE
+  COPG. FIND GRANTS WITH GR-TYPE-NAME = #GRANT-SUPER
+    #SP-USERID:= GRANTS.GR-USERID
+    COPM. FIND MIGRATE-GRANTS WITH GR-SUPER = #SUPER
+      IF NO RECORDS FOUND
+        ENTER
+      END-NOREC
+      MOVE BY NAME GRANTS TO MIGRATE-GRANTS
+      IF *NUMBER (COPM.) = 0
+        STORE MIGRATE-GRANTS
+      ELSE
+        UPDATE
+      END-IF
+      ADD 1 TO #ET-COUNT
+      IF #ET-COUNT GE 50
+        RESET #ET-COUNT
+        END TRANSACTION
+      END-IF
+    END-FIND
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* GRANT-USER
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-RELATED-OBJECTS
+************************************************************************
+DECIDE FOR EVERY CONDITION
+  WHEN #P-MSG = 0
+    FNDU.  FIND NUMBER MIGRATE-USERS
+      WITH USER-ID = BUNDLES.B-COORDINATOR-ID
+    IF *NUMBER (FNDU.) = 0
+      #P-MSG := 4020
+    END-IF
+  WHEN #P-MSG = 0
+    FORP. FOR #I = 1 TO BUNDLES.C*B-PRINT-LIST
+      #PRINTER := BUNDLES.B-PRINT-LIST (#I)
+      IF NOT(#PRINTER-ID = ' ' OR = 'DUMMY')
+        FNDP. FIND NUMBER MIGRATE-PRINTERS WITH P-ID = #PRINTER-ID
+        IF *NUMBER (FNDP.) = 0
+          #P-MSG := 4021
+          ESCAPE BOTTOM (FORP.)
+        END-IF
+      END-IF
+    END-FOR
+    FORR. FOR #I = 1 TO BUNDLES.C*B-FLUSH-EVENTS
+      FNDR. FIND NUMBER MIGRATE-REPORTS
+        WITH R-REPNAME = BUNDLES.B-FLUSH-REPORTS (#I)
+      IF *NUMBER (FNDR.) = 0
+        SET CONTROL 'WC9L54B8/15F'
+        INPUT USING MAP 'RMIGBCM&'
+        SET CONTROL 'WB'
+        IF #CONFIRM = 'Y' ESCAPE ROUTINE END-IF
+        #P-MSG := 4023
+        ESCAPE BOTTOM (FORR.)
+      END-IF
+    END-FOR
+  WHEN #P-MSG = 0
+    FNDB. FIND BUNDLE-REPORT WITH BR-BUNDLE = #P-BUNDLE
+      RP. FIND NUMBER MIGRATE-REPORTS WITH R-REPNAME = BR-REPNAME(FNDB.)
+      IF *NUMBER (RP.) = 0
+        SET CONTROL 'WC9L54B8/15F'
+        INPUT USING MAP 'RMIGBCM&'
+        SET CONTROL 'WB'
+        IF #CONFIRM NE 'Y'
+          #P-MSG := 4031
+        END-IF
+      END-IF
+    END-FIND
+  WHEN #P-MSG = 0 AND #P-COPY-AUTH = 'Y'
+    #GRANT-NAME:= #P-BUNDLE
+    CHKG. FIND GRANTS WITH GR-TYPE-NAME = #GRANT-SUPER
+      IF GR-USERID(CHKG.) = 'PUBLIC'
+        ESCAPE TOP
+      END-IF
+      FNRU. FIND NUMBER MIGRATE-USERS WITH USER-ID = GR-USERID(CHKG.)
+      IF *NUMBER(FNRU.) = 0
+        L. FIND NUMBER MIGRATE-LISTS WITH D-LIST-NAME = GR-USERID(CHKG.)
+        IF *NUMBER(L.) = 0
+          #P-MSG:= 4029
+        END-IF
+      END-IF
+    END-FIND
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* CHECK-RELATED-OBJECTS
+*
+END

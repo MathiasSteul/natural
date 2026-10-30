@@ -1,0 +1,96 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RMMCASAN
+* Function  Converts Machine Code to ASA Code
+* Version   1.3
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* mrs 93-03-16 s(999999) created
+* mrs 93-03-16 s(999999) operations lost if consecutive skip immediate
+* fhi 02-10-30 fhi101    switch on optimizer compiler
+* fhi 12-04-16 NOMALL-1132 Changed from I to B format for little endian
+*                          Old tags deleted, this change not tagged.
+* SU1     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* SU      2020-02-04 NOMALL-2360 restruct
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING RMMCASAP
+************************************************************************
+LOCAL
+1 #CC                        (A1)
+1 WRITE-AND-SKIP             (L)
+1 B4                         (B4)
+1 REDEFINE B4
+  2 FIL                      (A2)
+  2 B2                       (B2)
+  2 REDEFINE B2
+    3 I21                    (B1)
+    3 B1                     (B1)
+    3 REDEFINE B1
+      4 A1                   (A1)
+1 I2                         (I2)
+1 I4                         (I4)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-PRINT-NUMBER
+*
+A1 := P-REC-CC
+I4 := B4 /* Take I4 field as numeric value for little endian OS
+B4 := I4 * 16                                   /* shift 4 bits left
+IF I21 = 0 THRU 1 OR I21 = 8 THRU 15            /* valid machine code
+  RESET  I21                                  /* are 0. 1. 8. 9. A.
+  I2 := B2
+  B2 := I2 / 16                                /*     B. C. D. E.
+  DECIDE ON FIRST B1
+    VALUE 3, 11 WRITE-AND-SKIP := FALSE        /* either skip immediate
+    VALUE 1,  9 WRITE-AND-SKIP := TRUE         /* or write and skip
+    NONE  P-REC-CC := H'09'                    /* no machine code
+      WRITE-AND-SKIP := TRUE
+  END-DECIDE
+ELSE
+  P-REC-CC := H'09'                            /* no machine code
+  WRITE-AND-SKIP := TRUE
+END-IF
+*
+#CC := P-REC-CC
+IF NOT WRITE-AND-SKIP
+  RESET P-RECORD
+END-IF
+*
+DECIDE ON FIRST P-PREV-CC
+  VALUE ' '          P-REC-CC := '+'
+  VALUE H'8B', H'89' P-REC-CC := '1'
+  VALUE H'93', H'91' P-REC-CC := '2'
+  VALUE H'9B', H'99' P-REC-CC := '3'
+  VALUE H'A3', H'A1' P-REC-CC := '4'
+  VALUE H'AB', H'A9' P-REC-CC := '5'
+  VALUE H'B3', H'B1' P-REC-CC := '6'
+  VALUE H'BB', H'B9' P-REC-CC := '7'
+  VALUE H'C3', H'C1' P-REC-CC := '8'
+  VALUE H'CB', H'C9' P-REC-CC := '9'
+  VALUE H'D3', H'D1' P-REC-CC := 'A'
+  VALUE H'DB', H'D9' P-REC-CC := 'B'
+  VALUE H'E3', H'E1' P-REC-CC := 'C'
+  VALUE H'03', H'01' P-REC-CC := '+'
+  VALUE H'0B', H'09' P-REC-CC := ' '
+  VALUE H'13', H'11' P-REC-CC := '0'
+  VALUE H'1B', H'19' P-REC-CC := '-'
+  NONE               P-REC-CC := ' '
+END-DECIDE
+*
+IF P-RECORD NE '+'
+  ADD 1 TO P-PRINT-NUMBER
+END-IF
+*
+P-PREV-CC := #CC
+*
+END

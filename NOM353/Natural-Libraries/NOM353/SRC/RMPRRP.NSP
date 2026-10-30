@@ -1,0 +1,1259 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 5
+* <Natural Source Header
+* RMPRRP - Print Active Report
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-02-16 s(999999) created
+* mrs 93-11-01 s(999999) old version saved, flush segments implemented
+* mrs 94-01-05 s(161550) terminate with condition code
+* mrs 94-02-24 s(999999) terminate only if type ne subtask
+* mrs 94-03-10 s(999999) logon to / logoff from esy
+* gw  94-03-23 s(999999) assign flush-record-length before flush interface
+* mrs 94-05-20 s(999999) follow printout until canceled or printed      ce
+* gw  94-05-30 p(129055) phone separator variable
+* gw  95-01-09 s(999999) wake monitor when finished
+* mrs 95-05-10 s(224641) jobname substitution variable corrected BS2
+* mrs 95-05-18 s(225071) some substitution variables corrected
+* gw  96-09-11 s(999999) VTAM restart
+* gw  96-10-18 s(999999) printout statistics exit
+* jvd 97-07-08 p(163579) Separator page truncation
+* jvd 97-10-09 p(163166) Replace Callnat 'OUTDATE' with 'IODATE-N'
+*                        Y2C and use only one date routine for NOM
+* jvd 98-09-14 p(164220) NAT23ÖNOM141
+* jvd 99-03-24 r(308382) Add steplibs for environment without security.
+* sju 99-06-29 r(233509) Restart report printout
+* fhi 00-01-28 r(191368) Module taken from NOM142 and stowed for NOM211
+* sju 00-04-28 p(191368)  wake up print task
+* xsiszha 2000-08-15 (CE7461) Extend Report and Bundle Names
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* sju 00-11-21 s(999999) Check setting of lfile 131 (SAT log file)
+* xsetggr 01-06-15 p(209875) change adding steplibs if NSC is not active
+* sju 02-02-25 NOM221    New lfile for active data
+* sju 02-02-26 NOM221    CALL-STATISTIC-EXIT at the right time
+* sju 02-03-21 p(221908) Correct STEPLIB handling
+* sju 02-11-07 NOM221    Long records (Jes2 only)
+* sju 02-11-25 p(232467) Correct r(233509) - automatically created
+*                        printouts have P-TO-LINE = 0
+* fhi 03-07-23 p(242064) Unify steplib concatentation
+* xsetggr 2003-08-20 p(240465) accept non-defined userid
+* xsetggr 04-02-13 p(250183) don't print sep page if it is 'NONE'/'KEIN'
+* xsetggr 04-03-10 p(250355) save evaluated flush-record-length if
+*                            work file number =2
+* sju     2004-04-22 p(250355) correct handling of recfm
+* NOTE: for performance reasons (WRITE WORK much faster than VARIABLE)
+*       RECFM=F is always written with LRECL 251
+* xsetggr 2004-11-29 p(258871) recat due to changes in rmfl---p
+* sju     2004-12-14 TYPE=AL   NOM31 support TYPE=AL
+* fhi     2005-04-21 NOM3107   Support 7-byte job numbers
+* fhi     2006-12-21 FHI205    Tell us the user if he was not found
+* fhi     2007-03-27 FHI214    Don't logon to ESY if node = 0
+* xsetggr 2007-05-03 NOM3201   support 11 byte run numbers
+* xsetggr 2007-05-07 NOM3201   support 5 byte node numbers
+* fhi     2007-05-30 P297047   Replace RSTEPLIB, old comments deleted
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* fhi 2007-07-13 P295667 Support printing from page with SKIP nnnnnn
+*                        in jobcards of printout record.
+* xsetggr 2007-11-19 NRT2766   add steplib for printer exit
+* fhi     2008-02-27 P302167   Binary printing in BS2000
+* xsetggr 2008-04-29 p(300028) evaluate SKIP in lower case
+* xsetggr 2008-06-10 p(292935) fill po-printed only after successful end
+*                              of printing
+* fhi     2008-06-20 P306371   Redefintion misused, WKF-NUMBER destroyed
+* xsetggr 2008-07-09 p(304350) restow due to changes in RMSPL--L
+* xsetggr 2009-02-24 P300323   make steplib handling unix compliant
+* fhi     2009-02-27 P300323   Rename RGETSTEP to NOMGSTEP delivered in SYSTEM
+* fhi     2009-05-26 N3876     Introduce exit NOMEX014
+* fhi     2009-06-26 N3876     Introduce trace for NOMEX014
+* fhi     2009-07-08 N3876     AR-CC-TYPE (B2) -> (I2) format
+* fhi     2009-10-30 P321483   Introduce CONFIRM in jobcards
+* xsetggr 2009-11-20 P307403   corrupted printouts wirh NONE sep pages
+* fhi/ggr 2009-11-25 P307403   corrupted printouts wirh NONE sep pages
+* fhi     2010-02-11 P307403   corrupted printouts wirh NONE sep pages
+* fhi     2010-02-22 P321483   Data field handling incorrect
+* fhi     2010-03-05 P307403 Most issues backouted, new solution concept
+* xsetggr 2010-03-26 P307403   corrupted printouts wiTh NONE sep pages
+*                              honoured report-copies
+* fhi     2010-04-06 P321962   Set correct status at end
+* xsetggr 2010-08-04 NOMALL-824 correct handling of brackets
+* fhi      2010-08-09 NOMALL-93 Write statistics for Optimize
+* xsetggr 2010-08-18 NOMALL-824 corrections
+* fhi     2010-08-31 NOMALL-93 Introduce trace levels                   STEM
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-09 NOMALL-93 Extend supplied values                   STEM
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* fhi     2010-10-12 NOMALL-97 Use trace levels, use XXRLOG
+* fhi     2010-11-25 NOMALL-856 Use symbol replacement
+* xsetggr 2010-12-02 NOMALL-916 prevent printing of n*n lines
+* xsetggr 2010-12-21 NOMALL-865 restow due to changes in RMFL---P
+* fhi     2011-02-01 NOMALL-922 Reuse printer tasks
+* fhi     2011-02-10 NOMALL-926 Correct Separator linesize
+* fhi     2011-02-17 NOMALL-926 Correct Separator Linesize
+* fhi     2011-03-21 NOMALL-947 log complete error text
+* xsetggr 2011-10-17 NOMALL-970 implement new report flag - print once
+* raya    2012-02-01 NOMALL-1096 error-text a250 in NOMWK--P stow only
+* raya    2012-02-08 NOMALL-98   check exit member to avoide err 82
+* raya    2012-04-18 NOMALL-98   CHANGE 1585 TO 1587 and remove-steplib
+* raya    2012-04-18 NOMALL-98   CHANGE 1585 TO 1587 and remove-steplib
+* raya    2012-06-28 NOMALL-1172 when retrials statistics are wrong
+* fhi     2012-08-01 NOMALL-882 Ignore missing default separation pages
+* raya    2012-08-15 NOMALL-78  disable long records
+* fhi     2012-10-30 NOMALL-1004 Correct bracketing
+* fhi     2012-11-07 NOMALL-1004 Change temporary file name
+* fhi     2012-11-09 NOMALL-1143 Add cpu time output
+* raya    2012-11-29 NOMALL-1214 check cat date of nomex*
+* xsetggr 2013-01-22 NOMALL-970 implementation cancelled
+* fhi     2013-03-11 NOMALL-1004 Allow binary separator pages
+* raya    2013-05-09 NOMALL-1214 backout check cat date of nomex*
+* raya    2013-10-01 NOMALL-1283 add info to error
+* fhi     2014-02-13 NOMALL-1352 Re-create NOMEX015 from NOM322
+* fhi     2014-03-26 NOMALL-1322 Correct call of end separator page
+* fhi     2014-06-29 NOMALL-1322 Correct start separator = NONE
+* fhi     2014-09-12 NOMALL-1485 Correct separation page number
+*                                Old tags up to 2012 deleted.
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* fhi     2015-06-25 NOMALL-1573 Correct bracketing for NATUNIX
+* SU2     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* SU3     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-02-03 NOMALL-1913 Use new SAT routine SATTIMST
+* fhi     2017-03-31 NOMALL-2009 Improve RDC handling
+* fhi     2017-07-12 NOMALL-1621 Improve trace handling (EOTs)
+* fhi     2017-08-22 NOMALL-1621 same
+* fhi     2017-11-07 NOMALL-2048 Enhance closing message
+* SU4     2017-12-27 NOMALL-1823 NOM 3.5: remove CONNECT
+* fhi     2018-03-16 NOMALL-1918 Get it on Unix / Correct NPR Logons
+* fhi     2018-12-14 NOM 3.5     Improve CPU measures, no tags
+* SU5     2019-01-30 NOMALL-2085 printer:sep.pages
+* SU6     2019-03-07 NOMALL-2245 avoid MSG:NOMEX015 failed/Nothing left.
+* SU7     2019-07-17 NOMALL-2297 deactive NOMEX015(performance
+* SU8     2019-09-11 NOMALL-2314 avoid log msgs without nr
+* SU9     2019-11-13 NOMALL-2348 do not cut msg
+* SU10    2020-05-18 NOMALL-2349 use N-CHKCAT + N-ESYLG
+* SU11    2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* SU12    2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING PRINT-GL
+*
+INDEPENDENT
+1 +HEX-TIMESTAMP           (A20)
+1 +WKF-NUMBER              (N2)
+1 +G-NOMEXIT-ACTIVE        (L/1:20)
+1 +CMRDC                   (A1)
+* *****
+LOCAL USING RMSPFL-E
+LOCAL USING RMSPFL-P
+LOCAL USING RMFL---P
+LOCAL USING RMSPL--L
+LOCAL USING RMSR---E
+LOCAL USING RCCTYP-E
+LOCAL USING RLOG-L
+LOCAL USING SATSL--E
+LOCAL USING NOMFNC-E
+LOCAL USING NOMWK--P
+LOCAL USING NOMEXP06
+LOCAL USING RMTASK-E
+LOCAL USING SATLGV1P
+LOCAL USING RACTLF-A
+LOCAL USING SAT00009
+LOCAL USING RMTASK-P
+*
+LOCAL
+1 PO-UPD VIEW OF NRM-PRINTOUTS
+  2 PO-REPNAME
+  2 PO-REPRNB
+  2 PO-LOGICAL
+  2 PO-PRINTED
+  2 PO-STATUS
+  2 PO-MSG
+  2 PO-NUMBER-OF-RETRIES
+  2 PO-LAST-PRINTED-RECNO
+  2 PO-PHYSICAL-NAME
+  2 PO-PRINTER-TYPE
+  2 PO-JCL-SKELETON
+  2 PO-JOBCARD             (1:3)
+  2 PO-EXITMEM
+  2 PO-EXITLIB
+  2 PO-USERID
+  2 PO-CREATED
+  2 PO-LANGUAGE
+  2 PO-COPIES
+  2 PO-BUNDLE
+  2 PO-BUNDRNB
+  2 PO-ID
+  2 PO-JOBNAME
+  2 PO-JOBNO
+  2 REDEFINE PO-JOBNO
+    3 PO-JOBNO-A7          (A7)
+  2 PO-JOBID
+  2 PO-ESY-USERID
+  2 PO-SCHEDULED
+  2 PO-DESTINATION
+  2 REDEFINE PO-DESTINATION
+    3 PO-RS-COUNT          (N3)
+    3 PO-RS-INTERVAL       (N5)
+1 PRINTOUT VIEW OF NRM-PRINTOUTS
+  2 PO-ID
+  2 PO-NODE
+  2 PO-USERID
+  2 PO-STATUS
+  2 PO-REPNAME
+  2 PO-REPRNB
+  2 PO-PHYSICAL-NAME
+  2 PO-EXITMEM
+  2 PO-LOGICAL
+  2 PO-EXITLIB
+  2 PO-FROM-LINE
+  2 PO-TO-LINE
+  2 C*PO-LAYOUT
+  2 PO-LAYOUT
+    3 PO-LAYOUT-FROM       (1:10)
+    3 PO-LAYOUT-TO         (1:10)
+  2 PO-HEADLINES
+  2 PO-LANGUAGE
+  2 PO-LAST-PRINTED-RECNO
+  2 PO-JOBCARD             (1:3)
+  2 PO-PRINT-SEPARATION    (A1) /*SU5
+1 REPORT    VIEW  OF  NRM-REPORTS-NEW
+  2 R-DESC
+  2 R-SEPLENG
+1 ACTIVE-REPORT    VIEW  OF  NRM-ACTIVE-REPORTS
+  2 AR-CURRENT-LOCATION
+  2 AR-DESC
+  2 AR-SOURCE-ID
+  2 AR-PROCESS-TIME
+  2 AR-SEPMEM
+  2 REDEFINE    AR-SEPMEM
+    3 AR-SEP-START         (A8)
+    3 AR-SEP-END           (A8)
+  2 AR-SEPNO
+  2 AR-CC-TYPE
+  2 AR-RECORD-LENGTH
+  2 AR-SPOOL-ATTRIBUTES
+  2 AR-SPOOL-ATTR-EXTENDED (120)
+  2 AR-REP-FORMAT
+  2 AR-NUMBER-OF-LINES
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-MASTER-REPNAME
+  2 AR-STATUS
+1 USER    VIEW  OF  NRM-USERS
+  2 LAST-NAME
+  2 FIRST-NAME
+  2 WORK-ADDRESS           (3)
+  2 WORK-DEPT-NUM
+  2 WORK-DEPT-NAME
+  2 WORK-ORGANIZATION
+  2 WORK-LOCATION
+  2 WORK-PHONE
+  2 WORK-PHONE-EXT
+*
+1 USER-EXITS VIEW OF NRM-MONITOR
+  2 M-USER-DEFAULTS
+  2 REDEFINE M-USER-DEFAULTS
+    3 M-NOMEXIT-ACTIVE     (A1/1:20)
+1 PRINTERS VIEW OF NRM-PRINTERS
+  2 P-ATTRIBUTES           (25)
+* -----------------------------Local Fields-----------------------------
+1 RMARFL-PARMS
+  2 RMARFL-REPNAME         (A25)
+  2 RMARFL-REPRNB          (P11)
+  2 RMARFL-LINE-FROM       (P10)
+  2 RMARFL-LINE-TO         (P10)
+  2 RMARFL-LAYOUT-HEADER-LINES(N3)
+  2 RMARFL-LAYOUT-ENTRIES  (N2)
+  2 RMARFL-LAYOUT          (1:10)
+    3 RMARFL-LAYOUT-FROM   (N3)
+    3 RMARFL-LAYOUT-TO     (N3)
+1 #PO-ID                   (N7)
+1 #COPIES                  (N3)
+1 #CP                      (N3)
+1 #AR-REPORT-RNB           (A31)
+1 REDEFINE    #AR-REPORT-RNB
+  2 #AR-REPNAME            (A25)
+  2 #AR-REPRNB             (P11)
+1 #DATE                    (A8)
+1 #RC                      (N4)
+1 REDEFINE #RC
+  2 #RC-A                  (A4)
+1 #TASK-TYPE               (A8)
+1 #ESY-USER                (A8)
+1 LOGOFF-FROM-ESY          (L)
+1 #FOLLOW-PRINTOUT         (A1) INIT <'N'>
+1 #I                       (N9)
+1 #NOMEXIT-6               (A1)
+1 #FORMATED-DATE           (A10)
+1 REDEFINE #FORMATED-DATE
+  2 #S-FORMATED-DATE       (A8)
+1 #ERROR-CODE              (N4)
+1 #ERROR-TEXT              (A250)
+1 #NSC-ACTIVE              (A1)
+1 #LINE-COUNT              (I4)
+1 #SKIP-PAGES              (P11)
+1 #POS                     (P3)
+1 #IND                     (P3)
+1 #LEN                     (P3)
+1 #PO-JOBCARD              (A72)
+1 #J                       (P3)
+1 #K                       (P3)
+1 #DIGIT                   (L)
+1 STEPLIB-ADDED            (L)
+1 #STEPLIB-EXIST           (L)
+* ------ Variables for NOMEX014 ------
+1 #PRINTOUT
+  2 PO-ID                  (N7)
+  2 PO-NODE                (N5)
+  2 PO-USERID              (A8)
+  2 PO-STATUS              (A1)
+  2 PO-BUNDLE              (A25)            /* Bundle name
+  2 PO-BUNDRNB             (P11)            /* Bundle run number
+  2 PO-REPNAME             (A25)
+  2 PO-REPRNB              (P11)
+  2 PO-PHYSICAL-NAME       (A8)
+  2 PO-LOGICAL             (A8)
+  2 PO-EXITMEM             (A8)
+  2 PO-EXITLIB             (A8)
+  2 PO-FROM-LINE           (P8)
+  2 PO-TO-LINE             (P8)
+  2 PO-LAYOUT
+    3 PO-LAYOUT-FROM       (P3/1:10)
+    3 PO-LAYOUT-TO         (P3/1:10)
+  2 PO-HEADLINES           (N3)
+  2 PO-LANGUAGE            (N3)
+  2 PO-LAST-PRINTED-RECNO  (P9)
+  2 PO-JOBCARD             (A72/1:3)
+*
+1 #ACTIVE-REPORT
+  2 AR-CURRENT-LOCATION    (A1)
+  2 AR-DESC                (A50)
+  2 AR-SOURCE-ID           (P10)
+  2 AR-PROCESS-TIME        (T)
+  2 AR-SEPMEM              (A16)
+  2 REDEFINE    AR-SEPMEM
+    3 AR-SEP-START         (A8)
+    3 AR-SEP-END           (A8)
+  2 AR-SEPNO               (P3)
+  2 AR-CC-TYPE             (I2)
+  2 AR-RECORD-LENGTH       (N3)
+  2 AR-SPOOL-ATTRIBUTES    (A250)
+  2 AR-REP-FORMAT          (A1)
+  2 AR-NUMBER-OF-LINES     (P8)
+  2 AR-REPNAME             (A25)
+  2 AR-REPRNB              (P11)
+  2 AR-MASTER-REPNAME      (A25)
+  2 AR-STATUS              (A1)
+*
+1 #REPORT
+  2 R-DESC                 (A50)
+  2 R-SEPLENG              (N3)
+1 #SPOOL-ATTR-EXTENDED     (A) DYNAMIC
+1 NOMEX014-ERROR-CODE      (N4)
+1 NOMEX014-ERROR-TEXT      (A250)
+1 #P-ATTRIBUTES            (A95)
+1 #G-TRACE                 (A95)
+1 #PRINT-SEPARATORS        (L)
+1 #TRACING                 (L)
+1 #MEMBER                  (A250)
+1 #HEX                     (A1)   CONST <'H'>
+1 RMSETTIM
+  2 FUNCTION               (A1)
+  2 ERC                    (N4)
+  2 MSG                    (A250)
+  2 TIME                   (I4)
+1 #CAT-DATE-1              (A10)
+1 #CAT-DATE-2              (A10)
+1 #HEX-TIMESTAMP           (A20)
+1 #CALLER                  (A8) INIT <*PROGRAM>
+1 #ERC                     (N4)
+1 #ERT                     (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=132
+*
+PERFORM RMGTRACP-GET-SETTINGS
+IF G-TRACE GE *LEVEL AND G-TRACE-SET = SCAN ('PRINT')
+  #TRACING := TRUE
+/*SU8 COMPRESS 'Monitor tracing switched on. Trace set is' G-TRACE-SET
+/*SU8 TO G-TRACE-MSG ELSE G-TRACE-MSG := 'Monitor tracing switched off.'
+END-IF
+PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END TRANSACTION
+INPUT #PO-ID #ESY-USER #FOLLOW-PRINTOUT #NOMEXIT-6 #TASK-TYPE
+  #NSC-ACTIVE
+RESET G-NATRP-ERC G-NATRP-ERT #CP
+PERFORM INIT-FUNCTION
+IF #TRACING
+  COMPRESS 'Init function return code' G-NATRP-ERC TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+IF G-NATRP-ERC = 0
+  PERFORM GET-FLAGS
+  PERFORM ACTIVE-REPORT-INTERFACE
+  PERFORM FLUSH-INTERFACE
+  PERFORM SEPARATOR-INTERFACE
+  PERFORM CHECK-IF-RESTART
+  IF #TRACING
+    IF G-NATRP-ERC NE 0 /*SU6
+      COMPRESS *PROGRAM 'restart:' G-NATRP-ERC G-NATRP-ERT
+        TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+
+    IF +G-NOMEXIT-ACTIVE (14)
+      G-TRACE-MSG := 'Nomexit 14 is active.'
+    ELSE
+      G-TRACE-MSG := 'Nomexit 14 is not active.'
+    END-IF
+  END-IF
+  INCLUDE CMRDC
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+  IF +G-NOMEXIT-ACTIVE (14)
+    PERFORM CALL-NOMEX014
+  END-IF
+  REPEAT
+    UNTIL G-NATRP-ERC NE 0 OR #CP >= #COPIES
+    ADD 1 TO #CP
+    PERFORM PRINT-ACTIVE-REPORT
+  END-REPEAT
+END-IF
+NOMWK-TASK-TYPE:= EQU-MANAGE-PRINTOUTS
+CALLNAT NOM-WAKE-MONITOR NOMWK-NOMVERS NOMWK-PARMS (*)
+IF LOGOFF-FROM-ESY
+  CALLNAT 'N-ESYLG' SATSL-LOGOFF PRINTOUT.PO-NODE #ESY-USER #CALLER
+    #ERC #ERT 2X #TRACING /* G-NATRP-ERC in use
+  IF #ERC NE 0
+    PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      '(' *LINE ')' #ERC #ERT
+  END-IF
+END-IF
+IF STEPLIB-ADDED
+  PERFORM REMOVE-STEPLIB
+END-IF
+PERFORM UPDATE-PRINTOUT-RECORD
+IF PO-UPD.PO-RS-COUNT = 0
+  PERFORM RMPRSTCS-WRITE-STATISTICS PO-UPD.PO-LOGICAL
+    PO-UPD.PO-LAST-PRINTED-RECNO PO-UPD.PO-STATUS PO-UPD.PO-MSG
+    FLUSH-CC-TYPE
+END-IF
+IF #NOMEXIT-6 = 'Y' AND G-NATRP-ERC = 0
+  PERFORM CALL-STATISTIC-EXIT
+END-IF
+*
+COMPRESS PO-UPD.PO-REPNAME '/' PO-UPD.PO-REPRNB TO G-TRACE-MSG
+  LEAVING NO
+COMPRESS 'Printing of report' G-TRACE-MSG TO G-TRACE-MSG
+IF G-NATRP-ERC = 0
+  COMPRESS G-TRACE-MSG 'terminated normally.' TO G-TRACE-MSG
+  PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    G-TRACE-MSG /*SU10 (AL=103)
+ELSE
+  COMPRESS G-TRACE-MSG 'terminated with condition code'
+    G-NATRP-ERC TO G-TRACE-MSG
+  PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    G-TRACE-MSG /*SU10 (AL=103)
+  PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Error Text' G-NATRP-ERT /*SU10 (AL=70)
+  IF #TASK-TYPE NE 'SUBTASK' AND *MACHINE-CLASS = 'MAINFRAME'
+    TERMINATE 50
+  END-IF
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-ACTIVE-REPORT
+************************************************************************
+IF #CP = 1
+  FLUSH-SEGMENT := FLUSH-BRACKET := 'F'
+END-IF
+*
+IF #PRINT-SEPARATORS AND
+NOT (ACTIVE-REPORT.AR-SEP-START = 'NONE' OR = 'KEIN')                 /*
+AND (FLUSH-CC-TYPE NE BINARY OR FLUSH-PRINTER-TYPE = 'DISKUNIX')      /*
+  RMSPFL-TYPE          := REPORT-START-SEPARATOR
+  RMSPFL-MEMBER := ACTIVE-REPORT.AR-SEP-START
+  CALLNAT 'RMSPFL-N' RMSPFL-PARMS G-SUBST-PARMS FLUSH-PARMS
+    G-LINE-PARMS G-NATRP-ERC G-NATRP-ERT
+  IF FLUSH-PRINTER-TYPE ='DISKUNIX' OR ='NATUNIX'
+    FLUSH-BRACKET := 'M'
+  END-IF
+  IF G-NATRP-ERC NE 1006 /* sep page not found, treated like NONE.
+    FLUSH-SEGMENT := 'M'
+  ELSE
+    RESET G-NATRP-ERC
+    ACTIVE-REPORT.AR-SEP-START := 'NONE'
+  END-IF
+END-IF
+IF  NOT #PRINT-SEPARATORS
+  IF FLUSH-PRINTER-TYPE ='DISKUNIX' OR ='NATUNIX'
+    FLUSH-BRACKET := 'L'
+  END-IF
+  IF #COPIES > 1 AND #COPIES = #CP        /* the last copy of report
+    FLUSH-SEGMENT := 'L'
+  END-IF
+  IF #COPIES = 1                          /* the only copy of report
+    FLUSH-SEGMENT := 'A'
+  END-IF
+END-IF
+* print separators, but end-separator is 'NONE'/'KEIN'
+IF #PRINT-SEPARATORS AND (ACTIVE-REPORT.AR-SEP-END ='NONE' OR = 'KEIN')
+AND #COPIES = #CP                      /* the last copy of report     /*
+  FLUSH-SEGMENT := 'L'
+  IF FLUSH-PRINTER-TYPE ='DISKUNIX' OR='NATUNIX'
+    FLUSH-BRACKET := 'L'
+  END-IF
+END-IF
+IF G-NATRP-ERC NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+FLUSH-CC-TYPE := ACTIVE-REPORT.AR-CC-TYPE
+FLUSH-TYPE-AL := 'N'                  /* assume not type=al
+IF (#SPOOL-TYPE = JES2 OR = JES3) AND #SPOOL-JES-DSTYPE = 'AL'
+  FLUSH-TYPE-AL:= 'Y'                /* it is type=al
+END-IF
+IF +WKF-NUMBER NE 2                 /* NOT RECFM=Fxx P306371 +WKF-NUMBER
+  FLUSH-RECORD-LENGTH := ACTIVE-REPORT.AR-RECORD-LENGTH
+  IF FLUSH-RECORD-LENGTH < REPORT.R-SEPLENG
+    FLUSH-RECORD-LENGTH := REPORT.R-SEPLENG
+  END-IF
+  IF REPORT.R-SEPLENG = 0 AND FLUSH-RECORD-LENGTH < 132
+  AND  ACTIVE-REPORT.AR-SEPNO NE 0                                    /*
+  AND NOT (ACTIVE-REPORT.AR-SEP-START = 'NONE' OR = 'KEIN'            /*
+  AND  ACTIVE-REPORT.AR-SEP-END   = 'NONE' OR = 'KEIN')               /*
+    FLUSH-RECORD-LENGTH := 132
+  END-IF
+END-IF
+*
+DECIDE ON FIRST ACTIVE-REPORT.AR-CURRENT-LOCATION
+  VALUE 'S' /* Flush Lines of an Active Report with location = 'S'
+    CALLNAT 'RMARFLSN' RMARFL-PARMS FLUSH-PARMS G-LINE-PARMS
+      #SKIP-PAGES G-NATRP-ERC G-NATRP-ERT
+  VALUE 'D' /* Flush Lines of an Active Report with Location = 'D'
+    CALLNAT 'RMARFLDN' RMARFL-PARMS FLUSH-PARMS G-LINE-PARMS
+      #SKIP-PAGES G-NATRP-ERC G-NATRP-ERT
+  NONE ESCAPE ROUTINE /*???? SU at least MSG?
+END-DECIDE
+*
+IF G-NATRP-ERC NE 0
+  ESCAPE ROUTINE
+END-IF
+IF FLUSH-SEGMENT = 'F'
+  FLUSH-SEGMENT := 'M'
+END-IF
+*
+IF #PRINT-SEPARATORS AND NOT (ACTIVE-REPORT.AR-SEP-END='NONE' OR='KEIN')
+  IF #COPIES = #CP
+    FLUSH-SEGMENT := 'L'
+    IF FLUSH-PRINTER-TYPE ='DISKUNIX' OR='NATUNIX'
+      FLUSH-BRACKET := 'L'
+    END-IF
+  ELSE
+    FLUSH-SEGMENT := 'M'
+  END-IF
+  RMSPFL-TYPE   := REPORT-END-SEPARATOR
+  RMSPFL-MEMBER := ACTIVE-REPORT.AR-SEP-END
+  /*  Flush Lines of an Separator Member:
+  CALLNAT 'RMSPFL-N' RMSPFL-PARMS G-SUBST-PARMS FLUSH-PARMS G-LINE-PARMS
+    G-NATRP-ERC G-NATRP-ERT
+  IF G-NATRP-ERC = 1006 /* sep page not found, treated like NONE.
+    IF #COPIES = #CP
+      FLUSH-SEGMENT := 'L'
+    ELSE
+      FLUSH-SEGMENT := 'M'
+    END-IF
+    RESET G-NATRP-ERC
+    ACTIVE-REPORT.AR-SEP-END := 'NONE'
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* PRINT-ACTIVE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-FUNCTION
+************************************************************************
+IF NOT #TRACING
+  CALLNAT 'NOMGSTEP' '*' G-NATRP-ERC
+ELSE
+  CALLNAT 'NOMGSTEP' '*' G-NATRP-ERC G-TRACE
+END-IF
+CALLNAT 'SATLGFVN' SATLGV-PARMS
+IF SATLGV-RC NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    SATLGV-ERROR-TEXT
+  IF SATLGV-LOG-DBID NE 0 OR SATLGV-LOG-FNR NE 0
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Dbid:' SATLGV-LOG-DBID 'Fnr:' SATLGV-LOG-FNR
+  END-IF
+  IF *MACHINE-CLASS = 'MAINFRAME'
+    IF #TASK-TYPE = 'SUBTASK'
+      STOP
+    END-IF
+    TERMINATE 50
+  END-IF
+  ESCAPE MODULE
+END-IF
+RESET RACTLF-LOGGING
+RACTLF-ERROR-LOGGING:= TRUE
+RMTASK-P.FUNCTION       := 'L'
+RMTASK-P.SUBTASK-NUMBER := 1
+CALLNAT 'RMTASKID' RMTASK-P
+RACTLF-LOG-USERID := RMTASK-P.TASK-ID
+RACTLF-LOG-CODE := 'MO'
+RACTLF-LFILE-1 := 91
+RACTLF-LFILE-2 := 206
+CALLNAT 'RACTLF-N' RACTLF-PARMS
+IF RACTLF-ERROR-CODE NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    RACTLF-ERROR-CODE RACTLF-ERROR-TEXT
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Dbid1:' RACTLF-DBID-1 'Fnr1:' RACTLF-FNR-1
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Dbid2:' RACTLF-DBID-2 'Fnr2:' RACTLF-FNR-2
+  IF *MACHINE-CLASS = 'MAINFRAME'
+    IF #TASK-TYPE = 'SUBTASK'
+      STOP
+    END-IF
+    TERMINATE 50
+  ELSE
+    ESCAPE MODULE
+  END-IF
+END-IF
+#HEX-TIMESTAMP := +HEX-TIMESTAMP
+PERFORM SATTIMST-GET-TIME #HEX #HEX-TIMESTAMP
++HEX-TIMESTAMP := #HEX-TIMESTAMP
+DECIDE FOR EVERY CONDITION
+  WHEN G-NATRP-ERC = 0
+    PERFORM READ-PRINTOUT-RECORD
+  WHEN G-NATRP-ERC = 0
+    PERFORM READ-TRACE
+  WHEN G-NATRP-ERC = 0
+    IF PRINTOUT.PO-NODE NE 0
+      CALLNAT 'N-ESYLG' 1X PRINTOUT.PO-NODE #ESY-USER #CALLER
+        G-NATRP-ERC G-NATRP-ERT 1X
+      IF G-NATRP-ERC NE 0
+        G-NATRP-ERC := 0005
+      ELSE
+        LOGOFF-FROM-ESY := TRUE
+      END-IF
+    END-IF
+  WHEN G-NATRP-ERC = 0
+    PERFORM READ-USER
+  WHEN G-NATRP-ERC = 0
+    PERFORM READ-ACTIVE-REPORT
+  WHEN G-NATRP-ERC = 0
+    PERFORM SUBSTITUTION-VARIABLES
+  WHEN G-NATRP-ERC = 0
+    PERFORM READ-REPORT
+  WHEN NONE
+    IGNORE
+END-DECIDE
+IF G-NATRP-ERC = 1079
+  RESET G-NATRP-ERC G-NATRP-ERT
+END-IF
+*
+END-SUBROUTINE /* INIT-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE ACTIVE-REPORT-INTERFACE
+************************************************************************
+RMARFL-REPNAME                := PRINTOUT.PO-REPNAME
+RMARFL-REPRNB                 := PRINTOUT.PO-REPRNB
+RMARFL-LINE-FROM              := PRINTOUT.PO-FROM-LINE
+RMARFL-LINE-TO                := PRINTOUT.PO-TO-LINE
+RMARFL-LAYOUT-HEADER-LINES    := PRINTOUT.PO-HEADLINES
+RMARFL-LAYOUT-ENTRIES         := PRINTOUT.C*PO-LAYOUT
+RMARFL-LAYOUT-FROM        (*) := PRINTOUT.PO-LAYOUT-FROM (*)
+RMARFL-LAYOUT-TO          (*) := PRINTOUT.PO-LAYOUT-TO  (*)
+FLUSH-REPRNB                  := PRINTOUT.PO-REPRNB
+*
+END-SUBROUTINE /* ACTIVE-REPORT-INTERFACE
+*
+************************************************************************
+DEFINE SUBROUTINE SEPARATOR-INTERFACE
+************************************************************************
+RMSPFL-LANGUAGE := PRINTOUT.PO-LANGUAGE
+RMSPFL-COPIES   := ACTIVE-REPORT.AR-SEPNO
+IF +WKF-NUMBER NE 2                 /* NOT RECFM=Fxx P306371 +WKF-NUMBER
+  RMSPFL-RECORD-LENGTH := ACTIVE-REPORT.AR-RECORD-LENGTH
+  IF RMSPFL-RECORD-LENGTH < REPORT.R-SEPLENG
+    RMSPFL-RECORD-LENGTH := REPORT.R-SEPLENG
+  END-IF
+ELSE
+  RMSPFL-RECORD-LENGTH := FLUSH-RECORD-LENGTH
+END-IF
+*
+END-SUBROUTINE /* SEPARATOR-INTERFACE
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-INTERFACE
+************************************************************************
+RESET FLUSH-COMMON-FIELDS
+FLUSH-POID    := #PO-ID
+FLUSH-CC-TYPE := ACTIVE-REPORT.AR-CC-TYPE
+FLUSH-DESC    := ACTIVE-REPORT.AR-DESC
+/*  Get attributes for flush
+CALLNAT 'RMFL---N' FLUSH-PARMS G-NATRP-ERC G-NATRP-ERT
+*
+FLUSH-BRACKET := 'F'
+IF +WKF-NUMBER = 2          /* RECFM=Fxx P306371 +WKF-NUMBER
+  FLUSH-CC-TYPE              := ACTIVE-REPORT.AR-CC-TYPE
+  DECIDE FOR FIRST CONDITION
+    WHEN FLUSH-CC-TYPE = BINARY
+      FLUSH-RECORD-LENGTH:= 0
+    WHEN FLUSH-RECORD-LENGTH = 0  /* NO LRECL ON PRINTOUT DEFINITION
+        AND FLUSH-CC-TYPE NE BINARY
+      FLUSH-RECORD-LENGTH:= 251
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+ELSE
+  FLUSH-RECORD-LENGTH := ACTIVE-REPORT.AR-RECORD-LENGTH
+  IF FLUSH-RECORD-LENGTH < REPORT.R-SEPLENG
+    FLUSH-RECORD-LENGTH := REPORT.R-SEPLENG
+  END-IF
+END-IF
+#COPIES := FLUSH-COPIES
+*
+END-SUBROUTINE /* FLUSH-INTERFACE
+*
+************************************************************************
+DEFINE SUBROUTINE READ-PRINTOUT-RECORD
+************************************************************************
+FNDPR. FIND PRINTOUT WITH PO-ID = #PO-ID
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 0005
+    G-NATRP-ERT := 'Printout Record not found'
+    ESCAPE BOTTOM (FNDPR.)
+  END-NOREC
+*
+  RESET #SKIP-PAGES
+  EXAMINE PRINTOUT.PO-JOBCARD (*) FOR 'SKIP' GIVING INDEX #IND
+  IF #IND = 0
+    EXAMINE PRINTOUT.PO-JOBCARD (*) FOR 'skip' GIVING INDEX #IND
+  END-IF
+  IF #IND > 0
+    #PO-JOBCARD := PRINTOUT.PO-JOBCARD (#IND)
+    EXAMINE #PO-JOBCARD FOR 'SKIP' GIVING POSITION #POS LENGTH #LEN
+    IF #POS = 0
+      EXAMINE #PO-JOBCARD FOR 'skip' GIVING POSITION #POS LENGTH #LEN
+    END-IF
+    #POS := #POS + 4 /* start position for number
+    RESET #DIGIT
+    FORPOS.
+    FOR #J = #POS TO #LEN
+      IF SUBSTR(#PO-JOBCARD,#J,1) = ' ' OR = MASK(N)
+        #DIGIT := TRUE
+        ESCAPE TOP
+      END-IF
+      ESCAPE BOTTOM (FORPOS.)
+    END-FOR
+    IF #DIGIT = TRUE
+      #K := #J - #POS /* number of digits and blanks
+      #PO-JOBCARD := SUBSTR(#PO-JOBCARD,#POS,#K)
+      MOVE LEFT #PO-JOBCARD TO #PO-JOBCARD
+      #SKIP-PAGES := VAL(#PO-JOBCARD)
+    END-IF
+  END-IF
+  IF PRINTOUT.PO-EXITMEM NE ' ' AND PRINTOUT.PO-EXITLIB NE ' '
+    PERFORM ADD-STEPLIB
+*
+    IF G-NATRP-ERC = 0
+      CALLNAT 'N-CHKCAT' G-NATRP-ERC G-NATRP-ERT /*SU10
+        PRINTOUT.PO-EXITMEM PRINTOUT.PO-EXITLIB
+        #CALLER #CAT-DATE-1 #CAT-DATE-2
+      IF G-NATRP-ERC NE 0
+        COMPRESS PRINTOUT.PO-REPNAME '/' PRINTOUT.PO-REPRNB
+          TO LG-MSG LEAVING NO
+        COMPRESS PRINTOUT.PO-EXITLIB '(' PRINTOUT.PO-EXITMEM ')'
+          TO #MEMBER LEAVING NO
+        COMPRESS '1587' LG-MSG #MEMBER PRINTOUT.PO-LOGICAL TO LG-MSG
+        RMTASK-P.FUNCTION       := 'L'
+        RMTASK-P.SUBTASK-NUMBER := 1
+        CALLNAT 'RMTASKID' RMTASK-P
+        LG-USERID := RMTASK-P.TASK-ID
+        LG-CODE := 'MO'
+        CALLNAT 'RLOG' PL-PARMS
+        IF #TRACING
+          COMPRESS PRINTOUT.PO-EXITLIB '(' PRINTOUT.PO-EXITMEM ')'
+            TO G-TRACE-MSG LEAVING NO
+          COMPRESS 'Unable to find exitmem' G-TRACE-MSG TO G-TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END-IF
+      END-IF
+    END-IF
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-PRINTOUT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-PRINTOUT-RECORD
+************************************************************************
+IF #TRACING
+  COMPRESS 'Updating PO-ID' #PO-ID TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+FNDPO. FIND PO-UPD WITH PO-ID = #PO-ID
+  IF #TRACING
+    COMPRESS 'Got PO-MSG' PO-MSG TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  IF PO-MSG = '8861' /* RMPRTJOB did not find jobvariable in BS2
+    RESET G-NATRP-ERC G-NATRP-ERT PO-MSG
+    #FOLLOW-PRINTOUT := 'N'
+  END-IF
+  IF #TRACING
+    COMPRESS '#FOLLOW-PRINTOUT is' #FOLLOW-PRINTOUT TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  IF #FOLLOW-PRINTOUT = 'Y' AND G-NATRP-ERC = 0
+    ESCAPE ROUTINE
+  END-IF
+  IF #TRACING
+    COMPRESS 'Got PO-MSG' PO-MSG 'and return code' G-NATRP-ERC
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  IF G-NATRP-ERC = 0
+    PO-UPD.PO-STATUS := 'D'
+    IF #TRACING
+      COMPRESS 'Set PO-Status:' PO-UPD.PO-STATUS TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+    FOR-JOBC. FOR #I = 1 TO 3
+      #PO-JOBCARD := PO-UPD.PO-JOBCARD (#I)
+      IF #TRACING
+        COMPRESS 'Got jobcard:' #PO-JOBCARD TO G-TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+      END-IF
+      EXAMINE #PO-JOBCARD TRANSLATE INTO UPPER
+      IF #PO-JOBCARD = SCAN ('EXTERNAL-OK')  /* confirm manually
+        PO-UPD.PO-STATUS         := 'X'
+        IF #TRACING
+          COMPRESS 'Set PO-Status:' PO-UPD.PO-STATUS TO G-TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END-IF
+        ESCAPE BOTTOM (FOR-JOBC.)
+      END-IF
+    END-FOR
+    IF PO-UPD.PO-STATUS NE 'X'
+      RESET  PO-MSG
+      PO-PRINTED := *TIMX
+    END-IF
+    LG-OBJECT-NAME := PO-UPD.PO-REPNAME
+    LG-REPNAME     := PO-UPD.PO-REPNAME
+    LG-REPRNB      := PO-UPD.PO-REPRNB
+    LG-PRINTER     := PO-UPD.PO-LOGICAL
+    COMPRESS PO-UPD.PO-REPNAME '/' PO-UPD.PO-REPRNB TO LG-MSG LEAVING NO
+    COMPRESS '7202' LG-MSG TO LG-MSG
+  ELSE
+    PO-UPD.PO-STATUS := 'E'
+    IF #TRACING
+      COMPRESS 'Set PO-Status:' PO-UPD.PO-STATUS TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+    IF G-NATRP-ERC = 5
+      COMPRESS 'Log:' *TIME G-NATRP-ERT TO PO-MSG
+      PERFORM XXRLOG-WRITE-LOG 'W' G-NATRP-ERT
+    ELSE
+      #RC := G-NATRP-ERC
+      COMPRESS #RC-A G-NATRP-ERT TO PO-MSG
+      IF #RC = 8854
+        PO-UPD.PO-STATUS := 'A'
+        IF #TRACING
+          COMPRESS 'Set PO-Status:' PO-UPD.PO-STATUS TO G-TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+        END-IF
+        #I := PO-NUMBER-OF-RETRIES
+        COMPRESS '8854' #I TO PO-MSG
+      END-IF
+    END-IF
+    LG-OBJECT-NAME := PO-UPD.PO-REPNAME
+    LG-REPNAME     := PO-UPD.PO-REPNAME
+    LG-REPRNB      := PO-UPD.PO-REPRNB
+    LG-PRINTER     := PO-UPD.PO-LOGICAL
+    COMPRESS PO-UPD.PO-REPNAME '/' PO-UPD.PO-REPRNB TO LG-MSG LEAVING NO
+    COMPRESS '7204' LG-MSG TO LG-MSG
+  END-IF
+*
+  LG-CODE := 'PR'
+  COMPRESS LG-MSG PO-UPD.PO-LOGICAL TO LG-MSG
+  RMTASK-P.FUNCTION       := 'L'
+  RMTASK-P.SUBTASK-NUMBER := 1
+  CALLNAT 'RMTASKID' RMTASK-P
+  LG-USERID := RMTASK-P.TASK-ID
+  CALLNAT 'RLOG' PL-PARMS
+  UPDATE (FNDPO.)
+  END OF TRANSACTION
+*
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-PRINTOUT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE READ-TRACE
+************************************************************************
+FIND PRINTERS WITH P-ID = PRINTOUT.PO-LOGICAL
+  EXAMINE P-ATTRIBUTES (*) FOR 'TRACE' GIVING POSITION #POS INDEX #IND
+  IF #IND = 0
+    ESCAPE TOP
+  END-IF
+  #POS := #POS + 5
+  #P-ATTRIBUTES := SUBSTR (P-ATTRIBUTES (#IND),#POS)
+  SEPARATE #P-ATTRIBUTES LEFT JUSTIFIED INTO #G-TRACE IGNORE
+  RESET G-TRACE
+  IF SUBSTR(#G-TRACE,1,1) = 'Y' OR = '1' OR = '2' OR = '3'
+    G-TRACE := 100
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-TRACE
+*
+************************************************************************
+DEFINE SUBROUTINE READ-USER
+************************************************************************
+FNDUS. FIND USER WITH USER-ID = PRINTOUT.PO-USERID
+  IF NO RECORDS FOUND
+    IF NOT(F#MONITOR-USER-AUTODEF (<>) = 'Y' OR='P')
+      G-NATRP-ERC := 0005
+      COMPRESS 'User' PRINTOUT.PO-USERID 'not found.' TO G-NATRP-ERT
+      ESCAPE BOTTOM (FNDUS.)
+    END-IF
+    FIND USER WITH USER-ID = 'DEFAULT'
+    END-FIND
+  END-NOREC
+END-FIND
+*
+END-SUBROUTINE /* READ-USER
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ACTIVE-REPORT
+************************************************************************
+#PRINT-SEPARATORS := TRUE
+#AR-REPNAME       := PRINTOUT.PO-REPNAME
+#AR-REPRNB        := PRINTOUT.PO-REPRNB
+FNDAR. FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REPORT-RNB
+  IF NO RECORDS FOUND
+    G-NATRP-ERC := 0005
+    G-NATRP-ERT := 'Active Report not found'
+    ESCAPE BOTTOM (FNDAR.)
+  END-NOREC
+  #SPOOL-ATTRIBUTES := ACTIVE-REPORT.AR-SPOOL-ATTRIBUTES
+  CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE
+  IF ACTIVE-REPORT.AR-SEPNO = 0 OR PO-PRINT-SEPARATION NE ' ' /*SU5
+  OR ((ACTIVE-REPORT.AR-SEP-START = 'NONE'  OR = 'KEIN')              /*
+  AND (ACTIVE-REPORT.AR-SEP-END  = 'NONE'  OR = 'KEIN' ))             /*
+    RESET #PRINT-SEPARATORS
+  END-IF
+  IF ACTIVE-REPORT.AR-DESC = ' '
+    FNDRP. FIND REPORT WITH R-REPNAME = PRINTOUT.PO-REPNAME
+    END-FIND
+  END-IF
+  IF ACTIVE-REPORT.AR-RECORD-LENGTH > 251
+    ACTIVE-REPORT.AR-RECORD-LENGTH := 251
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-ACTIVE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE SUBSTITUTION-VARIABLES
+************************************************************************
+G-SUBST-ENTRIES := 19
+*
+G-SUBST-VAR (01) := '§REPORT'
+G-SUBST-VAR (02) := '§CDATE'
+G-SUBST-VAR (03) := '§CTIME'
+G-SUBST-VAR (04) := '§DATE'
+G-SUBST-VAR (05) := '§TIME'
+G-SUBST-VAR (06) := '§EXIT'
+G-SUBST-VAR (07) := '§DESCR'
+G-SUBST-VAR (08) := '§USER'
+G-SUBST-VAR (09) := '§NAME'
+G-SUBST-VAR (10) := '§DEPTNO'
+G-SUBST-VAR (11) := '§DEPTNAME'
+G-SUBST-VAR (12) := '§PHONE'
+G-SUBST-VAR (13) := '§LOCATION'
+G-SUBST-VAR (14) := '§ORGANIZATION'
+G-SUBST-VAR (15) := '§ADDRESS1'
+G-SUBST-VAR (16) := '§ADDRESS2'
+G-SUBST-VAR (17) := '§ADDRESS3'
+G-SUBST-VAR (18) := '§JOBNAME'
+G-SUBST-VAR (19) := '§JOBNO'
+*
+G-SUBST-TEXT (01) := PRINTOUT.PO-REPNAME
+*
+MOVE EDITED ACTIVE-REPORT.AR-PROCESS-TIME (EM=YYYYMMDD) TO #DATE
+CALLNAT 'IODATE-N' 'M' 'S' #DATE #FORMATED-DATE G-DATE-FORMAT
+  #ERROR-CODE #ERROR-TEXT
+IF #ERROR-CODE = 0
+  #DATE := #S-FORMATED-DATE
+END-IF
+G-SUBST-TEXT (02) := #DATE
+MOVE EDITED ACTIVE-REPORT.AR-PROCESS-TIME (EM=HH':'II)
+  TO G-SUBST-TEXT (03)
+MOVE EDITED *DATX (EM=YYYYMMDD) TO #DATE
+CALLNAT 'IODATE-N' 'M' 'S' #DATE #FORMATED-DATE G-DATE-FORMAT
+  #ERROR-CODE #ERROR-TEXT
+IF #ERROR-CODE = 0
+  #DATE := #S-FORMATED-DATE
+END-IF
+G-SUBST-TEXT (04) := #DATE
+MOVE EDITED *TIMX (EM=HH':'II)  TO G-SUBST-TEXT (05)
+G-SUBST-TEXT (06) := PRINTOUT.PO-EXITMEM
+IF ACTIVE-REPORT.AR-DESC = ' '
+  G-SUBST-TEXT (07) := REPORT.R-DESC
+ELSE
+  G-SUBST-TEXT (07) := ACTIVE-REPORT.AR-DESC
+END-IF
+G-SUBST-TEXT (08) := PRINTOUT.PO-USERID
+COMPRESS USER.LAST-NAME ',' USER.FIRST-NAME
+  TO G-SUBST-TEXT (09) LEAVING NO
+G-SUBST-TEXT (10) := USER.WORK-DEPT-NUM
+G-SUBST-TEXT (11) := USER.WORK-DEPT-NAME
+IF USER.WORK-PHONE = ' '
+  G-SUBST-TEXT (12) := USER.WORK-PHONE-EXT
+ELSE
+  COMPRESS USER.WORK-PHONE '/' USER.WORK-PHONE-EXT
+    TO G-SUBST-TEXT (12) LEAVING NO
+END-IF
+G-SUBST-TEXT (13) := USER.WORK-LOCATION
+G-SUBST-TEXT (14) := USER.WORK-ORGANIZATION
+G-SUBST-TEXT (15) := USER.WORK-ADDRESS (01)
+G-SUBST-TEXT (16) := USER.WORK-ADDRESS (02)
+G-SUBST-TEXT (17) := USER.WORK-ADDRESS (03)
+*
+DECIDE ON FIRST #SPOOL-TYPE
+  VALUE JES2, JES3
+    G-SUBST-TEXT (18) := #SPOOL-JES-JOB-NAME
+    G-SUBST-TEXT (19) := #SPOOL-JES-JOB-NUMBER
+/*SU12 VALUE POWER
+  VALUE SEQUENTIAL-FILE-BS2
+    G-SUBST-TEXT (18) := #SPOOL-BS2-JOB-NAME
+    G-SUBST-TEXT (19) := #SPOOL-BS2-JOB-ID
+  NONE
+    RESET G-SUBST-TEXT (18) G-SUBST-TEXT (19)
+END-DECIDE
+*
+END-SUBROUTINE /* SUBSTITUTION-VARIABLES
+*
+************************************************************************
+DEFINE SUBROUTINE READ-REPORT
+************************************************************************
+FIND REPORT WITH R-REPNAME = PRINTOUT.PO-REPNAME
+END-FIND
+*
+END-SUBROUTINE /* READ-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-STATISTIC-EXIT
+************************************************************************
+INCLUDE NOMEXC06
+*
+END-SUBROUTINE /* CALL-STATISTIC-EXIT
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-IF-RESTART
+************************************************************************
+IF #TRACING
+  COMPRESS 'Last printed recno in line' *LINE 'is'
+    PRINTOUT.PO-LAST-PRINTED-RECNO
+    TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+IF PRINTOUT.PO-LAST-PRINTED-RECNO LE 0      /* not a restart
+  ESCAPE ROUTINE
+END-IF
+#LINE-COUNT:= PRINTOUT.PO-TO-LINE
+IF #LINE-COUNT LE 0                         /* automatic printout
+  #LINE-COUNT:= ACTIVE-REPORT.AR-NUMBER-OF-LINES
+END-IF
+IF #LINE-COUNT LE 0                         /* can't handle it without
+  ESCAPE ROUTINE                            /* a line count
+END-IF
+REPEAT UNTIL PRINTOUT.PO-LAST-PRINTED-RECNO LT #LINE-COUNT
+  IF #TRACING
+    COMPRESS 'Last printed recno in line' *LINE 'is'
+      PRINTOUT.PO-LAST-PRINTED-RECNO '=' #COPIES
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  END-IF
+  IF PRINTOUT.PO-LAST-PRINTED-RECNO GE #LINE-COUNT
+    SUBTRACT #LINE-COUNT FROM PRINTOUT.PO-LAST-PRINTED-RECNO
+    SUBTRACT 1 FROM #COPIES
+  END-IF
+END-REPEAT
+IF #COPIES LT 1
+  G-NATRP-ERC:= 5
+  COMPRESS 'Nothing left to print for restarted printout'
+    PRINTOUT.PO-REPNAME PRINTOUT.PO-REPRNB TO G-NATRP-ERT
+  ESCAPE ROUTINE
+END-IF
+RMARFL-LINE-FROM:= PRINTOUT.PO-FROM-LINE
+  + PRINTOUT.PO-LAST-PRINTED-RECNO - FLUSH-LINES
+FLUSH-LINES:= PRINTOUT.PO-LAST-PRINTED-RECNO
+IF RMARFL-LINE-FROM LE 1
+  RMARFL-LINE-FROM:= 1
+ELSE
+  IF RMARFL-LINE-FROM GT #LINE-COUNT
+    G-NATRP-ERC:= 5
+    COMPRESS 'Invalid line range - from:' RMARFL-LINE-FROM
+      ',to:' PRINTOUT.PO-TO-LINE TO G-NATRP-ERT
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CHECK-IF-RESTART
+*
+************************************************************************
+DEFINE SUBROUTINE ADD-STEPLIB
+************************************************************************
+** check existence of po-exitlib in steplib table
+CALLNAT 'RLIBACT' PRINTOUT.PO-EXITLIB #STEPLIB-EXIST
+IF NOT #STEPLIB-EXIST
+  NAT00009-LIBRARY         := PRINTOUT.PO-EXITLIB
+  RESET  NAT00009-FNR NAT00009-DBID
+  CALLNAT 'RGETLIB' NAT00009-APPLIC
+  NAT00009-FUNCTION := 08
+  CALLNAT 'NAT00009' NAT00009-PARMS
+  IF NAT00009-RESPONSE NE 0
+    G-NATRP-ERC := 1078
+    RMTASK-P.FUNCTION       := 'L'
+    RMTASK-P.SUBTASK-NUMBER := 1
+    CALLNAT 'RMTASKID' RMTASK-P
+    LG-USERID := RMTASK-P.TASK-ID
+    LG-CODE   := 'MO'
+    COMPRESS  '1078'  PRINTOUT.PO-EXITLIB TO LG-MSG
+    CALLNAT 'RLOG' PL-PARMS
+    END TRANSACTION
+    IF #TRACING
+      COMPRESS 'Unable to add steplib' PRINTOUT.PO-EXITLIB
+        TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+  ELSE
+    STEPLIB-ADDED := TRUE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* ADD-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE REMOVE-STEPLIB
+************************************************************************
+IF NOT STEPLIB-ADDED
+  ESCAPE ROUTINE
+END-IF
+*
+CALLNAT 'RLIBACT' PRINTOUT.PO-EXITLIB #STEPLIB-EXIST
+IF #STEPLIB-EXIST
+  NAT00009-FUNCTION := 16
+  CALLNAT 'NAT00009' NAT00009-PARMS
+END-IF
+STEPLIB-ADDED := FALSE
+*
+END-SUBROUTINE /* REMOVE-STEPLIB
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-NOMEX014
+************************************************************************
+IF G-NATRP-ERC NE 0
+  IF #TRACING
+    COMPRESS 'RC' G-NATRP-ERC-A
+      '/ No exit called due to error condition.' TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  ESCAPE ROUTINE /* do nothing if error in preceeding step
+END-IF
+MOVE BY NAME PRINTOUT      TO #PRINTOUT
+MOVE BY NAME ACTIVE-REPORT TO #ACTIVE-REPORT
+MOVE BY NAME REPORT        TO #REPORT
+RESET #SPOOL-ATTR-EXTENDED
+RESIZE DYNAMIC #SPOOL-ATTR-EXTENDED TO 0
+FOR-EXT.
+FOR #I = 1 TO 120
+  IF AR-SPOOL-ATTR-EXTENDED (#I) = ' '
+    ESCAPE BOTTOM (FOR-EXT.)
+  END-IF
+  COMPRESS #SPOOL-ATTR-EXTENDED AR-SPOOL-ATTR-EXTENDED (#I)
+    TO #SPOOL-ATTR-EXTENDED LEAVING NO
+END-FOR
+IF #TRACING
+  COMPRESS 'Calling NOMEX014 with extended spool-attributes:'
+    #SPOOL-ATTR-EXTENDED TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+END-IF
+CALLNAT 'NOMEX014' #PRINTOUT #ACTIVE-REPORT #REPORT #SPOOL-ATTR-EXTENDED
+  NOMEX014-ERROR-CODE NOMEX014-ERROR-TEXT
+G-NATRP-ERC := NOMEX014-ERROR-CODE
+G-NATRP-ERT := NOMEX014-ERROR-TEXT
+IF #TRACING
+  IF G-NATRP-ERC = 0
+    G-TRACE-MSG := 'NOMEX014 ended with no errors.'
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  ELSE
+    COMPRESS 'NOMEX014 ended with error fields:'
+      G-NATRP-ERC-A G-NATRP-ERT TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CALL-NOMEX014
+*
+************************************************************************
+DEFINE SUBROUTINE GET-FLAGS
+************************************************************************
+FIND (1) USER-EXITS WITH M-MONITOR-ID = 'API-DEFS'
+  FOR #I = 1 TO 20
+    IF M-NOMEXIT-ACTIVE (#I) = 'Y'
+      +G-NOMEXIT-ACTIVE (#I) := TRUE
+    ELSE
+      +G-NOMEXIT-ACTIVE (#I) := FALSE
+    END-IF
+  END-FOR
+END-FIND
+*
+END-SUBROUTINE /* GET-FLAGS
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+*
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Print Report abnormal termination'
+  CALLNAT 'C-NATERN' G-NATRP-ERT
+  PRINT NOTITLE NOHDR *PROGRAM 10T /*SU9
+    *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II) G-NATRP-ERT
+/*SU9 WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+/*SU9    G-NATRP-ERT (AL=70)
+  G-NATRP-ERC := 21
+  IF #PO-ID NE 0 AND NOT *ERROR-NR = 3000 THRU 3999
+    PERFORM UPDATE-PRINTOUT-RECORD
+  END-IF
+  IF *MACHINE-CLASS = 'MAINFRAME'
+    IF #TASK-TYPE = 'SUBTASK'
+      STOP
+    END-IF
+    TERMINATE 50
+  END-IF
+  ESCAPE MODULE
+*
+END-ERROR
+*
+END

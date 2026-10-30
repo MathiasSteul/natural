@@ -1,0 +1,363 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* XXCONTRM -Send message to System Console and terminate Natural session
+*  'C' - send P-ERT to Console (MF only)
+*  'S' - send Start msg to Console (MF only):
+*        P-ERC/P-ERT as NOM1603 Monitor:1:on node:2:started
+*  'T' - send Terminate msg to Console:
+*          P-ERC/P-ERT as NOM1605 Monitor...terminated with RC:4:
+*        + terminate session with RC 50.
+*        + sends emergency email to recipient(s) of node def.
+*  'E' - send Email (just msg-no abend) /*SU4
+*
+*  Maintenance
+*  User ID   yyyy-mm-dd Issue         Remark
+* ---------------------------------------------------------------------
+*  fhi       2015-09-25 NOMALL-1606   Created.
+*            2015-10-16 NOMALL-1606   Errors on Unix fixed, no tags
+*            2016-07-20 NOMALL-1606   Rewritten.
+*            2016-09-19 NOMALL-1621   Adapted to multinode feature
+*                                     no tags
+*            2016-11-01 NOMALL-1934   Send emergency emails, some tags.
+* fhi        2018-03-16 NOMALL-1918 Get it on Unix / Correct NPR Logons
+* fhi        2018-07-23 NOMALL-1606   Message improvements, no tags
+* SU1     2019-08-23 NOMALL-2322 remove fields
+* SU2     2020-04-24 NOMALL-2349 error handling (NPR) +use N-ESYLG
+* SU3     2020-07-01 NOMALL-2327 send email if AIV empty (RMONITOR
+* SU4     2020-07-09 NOMALL-2327 newFct:sendEmail+use Email from Monitor
+* SU5     2020-11-10 NOMALL-2440 recat for VMONIT-L
+* SU6     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* SU7     2021-05-07 NOMALL-2463 no email: show err. + handle Nat err
+* NKEW1   2024-07-05 NOMALL-TODO fix cut in email.
+************************************** data ****************************
+DEFINE DATA
+PARAMETER
+1 P-FUNCTION        (A1) /*see above:C/S/T/E
+1 G-TASK-NUMBER     (N3)
+1 P-ERC             (N4) BY VALUE RESULT
+1 P-ERT             (A)  DYNAMIC  BY VALUE RESULT
+1 #TRACING          (L)
+1 #LINE             (I4) OPTIONAL
+************************************************************************
+INDEPENDENT
+/*SU4 1 +NOD-LOCAL-ID     (A20)
+/*SU4 1 +NOD-LOCAL-NAME   (A16) /*SU 2017-12-06
+1 +NOD-CURRENT-NAME (A16) /* NOMALL-1918 fhi in
+1 +NOD-LOCAL-NODE   (N5)
+1 +NOD-LOCAL-USER   (A8)
+************************************************************************
+LOCAL USING XXGMSG-A
+LOCAL USING SATSL--E
+LOCAL USING RMTASK-P
+/*SU4 LOCAL USING VMONITUL
+LOCAL USING XXEMAILP
+/*SU4 LOCAL USING VUXDEF-L
+/*SU5 LOCAL USING VMONIT-L /*SU4
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR /*SU5
+  2 M-EMAIL-RECIPIENTS    (A250/1:2)
+1 CONSOLE VIEW OF CONSOLE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+*
+1 #MSG           (A250)
+1 #P-ERC         (N4)
+1 #P-ERT         (A250)
+1 #EMAIL-LINES   (I1) CONST <12>
+1 #EMAIL-BODY    (A/#EMAIL-LINES,1:2) DYNAMIC
+  CONST (V,1) < 'Dear administrator,',,
+  'the NOM monitor of System File &ENV &REASON& due to:',,
+  '&MESSAGES',,
+  'Currend node: &NODE',,
+  'Intervention is required.',,
+  'Kind regards,',
+  'Your friendly NOM monitor' >
+  /*--
+  (V,2) < 'Sehr geehrter Administrator,',,
+  'der NOM Monitor der Systemdatei &ENV &REASON& wegen:',,
+  '&MESSAGES',,
+  'Aktueller Knoten: &NODE',,
+  'Es ist ein Eingriff erforderlich.',,
+  'Mit freundlichem Gruss,',
+  'Ihr NOM Monitor' >
+1 #EMAIL-SUBJECT (A/1:2) DYNAMIC
+  CONST <
+  'The NOM monitor &REASON& on node &NODE',
+  'Der NOM Monitor &REASON& auf Knoten &NODE' >
+1 #EMAIL-ABEND   (A/1:2) DYNAMIC CONST <
+  'has been abended',
+  'wurde abgebrochen'>
+1 #EMAIL-MSG     (A/1:2) DYNAMIC CONST <
+  'send Email',
+  'schickt diese Email'>
+1 #I             (I4)
+1 #LANG          (I1)
+1 #ENV           (A)   DYNAMIC
+1 PARM-NAT00028
+  2 LFILE        (N5)
+  2 PHYSICAL-DBID(N5)
+  2 PHYSICAL-FNR (N5)
+  2 DB-TYPE      (A1)
+  2 RESPONSE     (N4)
+1 #NOM-DBID      (N5)
+1 #NOM-FNR       (N5)
+1 #REASON        (A8) CONST <'&REASON&'>
+1 #CALLER        (A8) INIT <*PROGRAM>
+1 #MONITOR-ID    (A20)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=133
+*
+IF #TRACING
+  COMPRESS 'Got function' P-FUNCTION
+    'with msg no' P-ERC 'with text' P-ERT TO #MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #MSG
+END-IF
+#P-ERC := P-ERC
+IF G-TASK-NUMBER = 0
+  G-TASK-NUMBER := 1
+END-IF
+RMTASK-P.FUNCTION       := 'T'
+RMTASK-P.SUBTASK-NUMBER := G-TASK-NUMBER
+IF #LINE SPECIFIED
+  #LINE := *LINE
+  CALLNAT 'RMTASKID' RMTASK-P #TRACING #LINE
+ELSE
+  CALLNAT 'RMTASKID' RMTASK-P #TRACING
+END-IF
+IF *MACHINE-CLASS = 'MAINFRAME'
+  PERFORM GET-MSG-TEXT
+  CALLNAT 'N-ESYLG' 1X +NOD-LOCAL-NODE +NOD-LOCAL-USER #CALLER
+    P-ERC #MSG 1X
+  IF P-ERC NE 0
+    P-ERC := 0005
+    P-ERT := #MSG
+  END-IF
+  DECIDE FOR EVERY CONDITION
+    WHEN #TRACING
+      COMPRESS 'Function' P-FUNCTION 'with task' G-TASK-NUMBER
+        'and msg no' P-ERC '- text' P-ERT TO #MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #MSG
+    WHEN P-FUNCTION = 'C'
+    OR (P-FUNCTION = 'S' OR = 'T' AND G-TASK-NUMBER NE 1              /*
+    AND P-ERC NE 1548) /* NOM1548 not wanted on console...            /*
+    OR (P-FUNCTION = 'S' OR = 'T' AND G-TASK-NUMBER = 1               /*
+    AND P-ERC NE 1515 AND P-ERC NE 1582)                              /*
+      PERFORM WRITE-CONSOLE
+    WHEN (P-FUNCTION='T' AND NOT(#P-ERC=0 OR=1582))
+    OR P-FUNCTION='E' /*SU4                                           /*
+      PERFORM SEND-EMAIL
+    WHEN P-FUNCTION = 'S'
+      P-ERC := 1603
+      COMPRESS P-ERC RMTASK-P.TASK-ID +NOD-LOCAL-NODE TO P-ERT
+      PERFORM GET-MSG-TEXT
+      PERFORM WRITE-CONSOLE
+    WHEN P-FUNCTION = 'T'
+      DECIDE FOR FIRST CONDITION
+        WHEN #P-ERC NE 0 AND #P-ERC NE 1582
+          P-ERC := 1605 /*Monitor:1:task:2:node:3:term. with RC:4:
+        WHEN G-TASK-NUMBER < 2
+          P-ERC := 1604 /*Monitor:1:task:2:node:3:shutdown completed.
+        WHEN ANY
+          COMPRESS P-ERC RMTASK-P.TASK-ID G-TASK-NUMBER
+            +NOD-LOCAL-NODE #P-ERC TO P-ERT
+          PERFORM GET-MSG-TEXT
+          PERFORM WRITE-CONSOLE
+        WHEN NONE IGNORE
+      END-DECIDE
+      CALLNAT 'N-ESYLG' SATSL-LOGOFF +NOD-LOCAL-NODE +NOD-LOCAL-USER
+        #CALLER P-ERC #P-ERT 2X #TRACING
+      P-ERT := #P-ERT
+      END TRANSACTION
+      IF #P-ERC = 0 OR = 1582
+        TERMINATE
+      ELSE
+        TERMINATE 50
+      END-IF
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+ELSE /*Unix
+  IF P-FUNCTION = 'E' /*SU4
+    PERFORM SEND-EMAIL
+  END-IF
+  IF P-FUNCTION = 'T'
+    IF #TRACING
+      COMPRESS 'Terminating due to RC' #P-ERC TO #MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #MSG
+    END-IF
+    IF #P-ERC NE 0 AND #P-ERC NE 1582
+      PERFORM SEND-EMAIL
+    END-IF
+    END TRANSACTION
+    IF #P-ERC = 0 OR = 1582
+      TERMINATE
+    ELSE
+      TERMINATE 50
+    END-IF
+  END-IF
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TEXT
+************************************************************************
+IF #TRACING
+  COMPRESS 'Resolving no' P-ERC 'parms' P-ERT TO #MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #MSG
+END-IF
+#XX-ERROR-CODE := P-ERC
+DECIDE FOR EVERY CONDITION
+  WHEN P-ERT = MASK(AAANNNN)
+    P-ERT := SUBSTR(P-ERT,4)
+  WHEN P-ERT = MASK(NNNN)
+    SEPARATE P-ERT INTO #XX-ERROR-CODE-A4 #XX-MSG-DYNA(*) IGNORE
+    P-ERC := #XX-ERROR-CODE
+    IF #TRACING
+      COMPRESS 'Separated into' #XX-ERROR-CODE-A4 #XX-MSG-DYNA(*)
+        TO #MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #MSG
+    END-IF
+  WHEN NONE
+    SEPARATE P-ERT INTO #XX-MSG-DYNA(*) IGNORE
+END-DECIDE
+IF #XX-ERROR-CODE < 0 /* do not show NAT300R SU7
+  MULTIPLY #XX-ERROR-CODE BY -1
+  #XX-ERROR-TYPE :='N' /*its NAT
+END-IF
+CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+* P-ERT := #XX-SHORT-TEXT/*NKEW1 commented out
+#P-ERT := P-ERT
+COMPRESS #XX-SHORT-TEXT #P-ERT TO P-ERT
+IF #TRACING
+  COMPRESS 'Returned resolved text' P-ERT TO #MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #MSG
+END-IF
+*
+END-SUBROUTINE /* get-msg-text
+*
+************************************************************************
+DEFINE SUBROUTINE SEND-EMAIL
+************************************************************************
+EXPAND ARRAY #EM-EMAIL-BODY TO (1:#EMAIL-LINES)
+RESET #EM-PARAMS #EM-ERROR-CODE /*SU1 #EM-NODE
+LFILE := 206 /* NOM
+PERFORM #NAT00028
+#NOM-DBID := PHYSICAL-DBID
+#NOM-FNR := PHYSICAL-FNR
+COMPRESS 'DB_' #NOM-DBID ',FNR_' #NOM-FNR TO #ENV LEAVING NO
+#LANG := *LANGUAGE
+IF #LANG > 2 OR #LANG < 1
+  #LANG := 1
+END-IF
+/*SU4 -> IF *MACHINE-CLASS = 'MAINFRAME'
+/*  FNDNOD. /* Get the local node on mainframe
+/*  FIND (1) NODE-SPOOL-DATA WITH M-MONITOR-ID = +NOD-LOCAL-ID
+/*    IF NO RECORDS FOUND ESCAPE ROUTINE END-NOREC
+/*SU1  #EM-NODE           := M-MONITOR-NODE
+/*SU1  #EM-HOST-CODE-PAGE := M-REMOTE-CODEPAGE
+/*  COMPRESS NODE-SPOOL-DATA.M-EMAIL-RECIPIENTS(*)
+/*    TO #EM-RECIPIENTS LEAVING NO END-FIND
+/* ELSE /* Get the local node on Unix
+/*SU3 RDUX. FIND UX-NODES WITH UX-NODE-NAME = +NOD-LOCAL-NAME
+/*SU1  IF NO RECORDS FOUND ESCAPE ROUTINE END-NOREC
+/*SU1  #EM-UX-NODE := UX-NODE-NAME
+/*SU1 #EM-HOST-CODE-PAGE := *CODEPAGE
+/*Same in XXEMAIL, but RECIPIENTS not filled..:
+/*  RDUX. READ (1) UX-NODES BY UX-SUSP-NAME = 'L' /*see RMSWNODE SU3
+/*    IF UX-NODE-SUSPEND NE 'M' AND UX-NODE-SUSPEND NE 'L'
+/*      ESCAPE BOTTOM (RDUX.)
+/*    END-IF
+/*    +NOD-LOCAL-NAME := UX-NODE-NAME
+/*    COMPRESS UX-NODES.UX-EMAIL-RECIPIENTS(*)
+/*      TO #EM-RECIPIENTS LEAVING NO
+/*  END-READ /*SU3 END-FIND
+/* END-IF
+#MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+EMAIL. FIND NRM-MONITOR WITH M-MONITOR-ID = #MONITOR-ID
+  COMPRESS M-EMAIL-RECIPIENTS(*) TO #EM-RECIPIENTS LEAVING NO
+END-FIND
+IF #EM-RECIPIENTS = ' ' /* no email possible
+  WRITE NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+    'No email sent. No recipient given.'
+  PRINT (AD=L) P-ERC P-ERT /*SU7
+  ESCAPE ROUTINE
+END-IF
+#EM-FUNCTION  := 'A' /* send array
+FOR #I = 1 TO *OCC(#EMAIL-BODY)
+  #EM-EMAIL-BODY(#I) := #EMAIL-BODY(#I,#LANG)
+  IF P-FUNCTION = 'E' /*just email
+    EXAMINE #EM-EMAIL-BODY(#I) FOR #REASON REPLACE #EMAIL-MSG   (#LANG)
+  ELSE
+    EXAMINE #EM-EMAIL-BODY(#I) FOR #REASON REPLACE #EMAIL-ABEND (#LANG)
+  END-IF
+END-FOR
+COMPRESS '&MESSAGES=' P-ERT ';' '&NODE=' +NOD-CURRENT-NAME ';'
+  '&ENV=' #ENV TO #EM-VARIABLES LEAVING NO
+#EM-SUBJECT := #EMAIL-SUBJECT(#LANG)
+IF P-FUNCTION = 'E' /*just email
+  EXAMINE #EM-SUBJECT FOR #REASON REPLACE #EMAIL-MSG   (#LANG)
+ELSE
+  EXAMINE #EM-SUBJECT FOR #REASON REPLACE #EMAIL-ABEND (#LANG)
+END-IF
+#EM-TRACING := #TRACING
+CALLNAT 'XXEMAIL' #EM-PARAMS
+IF #EM-ERROR-CODE NE 0
+  WRITE NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+    'No email sent. Email function reports error' #EM-ERROR-CODE /
+    #EM-ERROR-TEXT (AL=131)
+  PRINT (AD=L) P-ERC P-ERT /*SU7
+END-IF
+*
+END-SUBROUTINE /* SEND-EMAIL
+*
+************************************************************************
+DEFINE SUBROUTINE #NAT00028
+************************************************************************
+CALLNAT 'NAT00028' PARM-NAT00028
+IF RESPONSE NE 0
+  WRITE NOTITLE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+    'Error calling NAT00028: LFILE:' LFILE RESPONSE
+  RESET PHYSICAL-DBID
+END-IF
+*
+END-SUBROUTINE /* #NAT00028
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-CONSOLE
+************************************************************************
+FIND CONSOLE WITH NODE=+NOD-LOCAL-NODE AND FUNCTION='WTO' AND TEXT=P-ERT
+  IF ERROR-CODE NE 0 /*SU2
+    PRINT (AD=L) *PROGRAM *LINE ERROR-CODE ERROR-TEXT
+      'node=' +NOD-LOCAL-NODE 'function=''WTO''' 'text=' P-ERT
+    IF P-FUNCTION = 'T'
+      END TRANSACTION
+      TERMINATE 50
+    END-IF
+*   WHEN *ERROR-NR =  5500 THRU 5999
+    RESET P-ERC P-ERT
+    ESCAPE MODULE
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* WRITE-CONSOLE
+*
+************************************************************************
+ON ERROR /*SU7
+************************************************************************
+  PRINT (AD=L) *PROGRAM 'error' P-ERC P-ERT /*let NAT show err
+*
+END-ERROR
+*
+END

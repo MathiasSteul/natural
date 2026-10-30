@@ -1,0 +1,188 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMARMAN - DB Interface EOM Object Active Report (archive attributes)
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-06-28           created
+* mrs 97-05-27 p(162705) recompiled (changes in eomarm-p)
+* mrs 97-05-27 p(162737) recompiled (changes in eomarm-p)
+* xsethz  2000-07-27 (CE7461)  Extend Report and Bundle Names
+* fhi     2000-08-24 QA03      Use NAT23006 for error values
+* sju     2002-04-24 NOM221    Archive type
+* xsetggr 2007-05-03 NOM3201   Support p11 format run numbers
+* xsetggr 2007-06-06 p(294775) add functions READ-NEXT, READHOLD-NEXT
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-05-05 p(304350) restow due changes in EOMARM-P
+* fhi     2009-05-20 N3463     Extend metadata
+* fhi     2013-06-04 OPO-36    Fill field AR-ACTIVE
+* fhi     2013-08-29 FHI285    Enhance error message 406
+* SU1     2013-11-22 NOMALL-1288 correct FHI285 for msg 406
+* SU2     2014-07-02 NOMALL-1279 fill fields for Adabas Vista
+* SU3     2016-01-15 NOMALL-1802 do not update Adabas Vista fields
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING EOM----P
+PARAMETER USING EOMARM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL USING EOM----E
+LOCAL
+1 DATASET-REPORT VIEW OF NRM-DATASET-REPORT
+  2 DR-EXPIRATION-DATE
+  2 DR-EXPIRATION-DATE-ORIG
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-ARCHIVE
+  2 AR-ACTIVE
+  2 AR-ARCHIVE-RETENTION
+  2 AR-ARCHIVE-DATE
+  2 AR-ARCHIVE-DATA-SET
+  2 AR-ARCHIVE-VOLSER (1:2)
+  2 AR-ARCHIVE-TYPE
+*
+1 #AR-REPORT-RNB               (A31)
+1 REDEFINE #AR-REPORT-RNB
+  2 #AR-REPORT                 (A25)
+  2 #AR-REPRNB                 (P11)
+1 #ARCHIVE-RETENTION           (A5)
+1 REDEFINE #ARCHIVE-RETENTION
+  2 #ARET                      (A1/1:5)
+1 L                            (P2)
+1 #DATE                        (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#AR-REPORT := EOMARM-I-NAME
+#AR-REPRNB := EOMARM-I-RNB
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-READ, EOM-READ-NEXT
+    PERFORM READ-ARCHIVE-ATTRIBUTES
+  VALUE EOM-READHOLD, EOM-READHOLD-NEXT
+    PERFORM READ-ARCHIVE-ATTRIBUTES
+  VALUE EOM-MODIFY
+    PERFORM MODIFY-ARCHIVE-ATTRIBUTES
+  NONE  IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE READ-ARCHIVE-ATTRIBUTES
+************************************************************************
+RESET EOMARM-ARCHIVE-ATTRIBUTES
+FNDAR. FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REPORT-RNB
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0406
+    COMPRESS #AR-REPORT ' (' *PROGRAM ',' *LINE ')'
+      TO EOMMSG-TOKEN(1) LEAVING NO
+    ESCAPE BOTTOM (FNDAR.)
+  END-NOREC
+*
+  EOMARM-ARCHIVE      := AR-ARCHIVE
+  EOMARM-ARC-DATA-SET := AR-ARCHIVE-DATA-SET
+  EOMARM-ARCHIVE-TYPE := AR-ARCHIVE-TYPE
+  IF EOMARM-ARCHIVE-TYPE = '0'
+    RESET EOMARM-ARCHIVE-TYPE
+  END-IF
+*
+  IF AR-ARCHIVE-VOLSER (1) = AR-ARCHIVE-VOLSER (2)
+    EOMARM-ARC-VOLSERS (1) := AR-ARCHIVE-VOLSER (1)
+  ELSE
+    EOMARM-ARC-VOLSERS (1:2) := AR-ARCHIVE-VOLSER (1:2)
+  END-IF
+*
+  MOVE EDITED AR-ARCHIVE-DATE (EM=YYYYMMDD) TO #DATE
+  IF #DATE NE '00000102'
+    CALLNAT 'IODATE-N' 'M' 'L' #DATE EOMARM-ARC-DATE EOM-DATE-FORMAT
+      EOMMSG-NR EOMMSG-TEXT
+    MOVE EDITED AR-ARCHIVE-DATE (EM=HH':'II':'SS) TO EOMARM-ARC-TIME
+  END-IF
+*
+  IF AR-ARCHIVE-RETENTION = ' '
+    RESET EOMARM-ARC-NUMBER EOMARM-ARC-FACTOR
+  ELSE
+    #ARCHIVE-RETENTION := AR-ARCHIVE-RETENTION
+    IF #ARCHIVE-RETENTION IS (N4)
+      EOMARM-ARC-FACTOR := 'D'
+    ELSE
+      EXAMINE #ARCHIVE-RETENTION FOR 'X' GIVING LENGTH IN L
+      EOMARM-ARC-FACTOR := #ARET (L)
+      RESET  #ARET (L)
+    END-IF
+    IF #ARCHIVE-RETENTION IS (N4)
+      EOMARM-ARC-NUMBER := VAL (#ARCHIVE-RETENTION)
+    ELSE
+      RESET  EOMARM-ARC-NUMBER
+    END-IF
+  END-IF
+*
+  IF AR-ARCHIVE NE '*'
+    ESCAPE BOTTOM
+  END-IF
+*
+  FIND DATASET-REPORT WITH DR-REPORT-RNB = #AR-REPORT-RNB
+    CALLNAT 'IODATE-N' 'M' 'L' DR-EXPIRATION-DATE EOMARM-ARC-EXPIRATION
+      EOM-DATE-FORMAT EOMMSG-NR EOMMSG-TEXT
+    CALLNAT 'IODATE-N' 'M' 'L' DR-EXPIRATION-DATE-ORIG
+      EOMARM-ARC-EXPIRATION-ORIG EOM-DATE-FORMAT EOMMSG-NR EOMMSG-TEXT
+  END-FIND
+*
+  IF EOM-FUNCTION = EOM-READHOLD OR = EOM-READHOLD-NEXT
+    UPD. GET ACTIVE-REPORT *ISN (FNDAR.)
+    IF AR-ARCHIVE NE AR-ARCHIVE
+      UPDATE (UPD.)
+    END-IF
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* READ-ARCHIVE-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-ARCHIVE-ATTRIBUTES
+************************************************************************
+FNDMOD. FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REPORT-RNB
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0406
+    COMPRESS #AR-REPORT ' (' *PROGRAM ',' *LINE ')'
+      TO EOMMSG-TOKEN(1) LEAVING NO
+    ESCAPE BOTTOM (FNDMOD.)
+  END-NOREC
+  IF AR-ARCHIVE = '*' AND AR-ARCHIVE NE EOMARM-ARCHIVE
+    EOMMSG-NR := 0441
+    ESCAPE BOTTOM (FNDMOD.)
+  END-IF
+  AR-ARCHIVE := EOMARM-ARCHIVE
+  IF AR-ARCHIVE = ' '
+    AR-ACTIVE := 'X'
+  ELSE
+    RESET AR-ACTIVE
+  END-IF
+  IF AR-ARCHIVE NE '*'
+    IF EOMARM-ARC-NUMBER = 0 AND EOMARM-ARC-FACTOR = ' '
+      RESET AR-ARCHIVE-RETENTION
+    ELSE
+      COMPRESS EOMARM-ARC-NUMBER EOMARM-ARC-FACTOR
+        TO AR-ARCHIVE-RETENTION LEAVING NO
+    END-IF
+  END-IF
+  IF EOMARM-ARCHIVE-TYPE IS (N1)
+    AR-ARCHIVE-TYPE := VAL(EOMARM-ARCHIVE-TYPE)
+  END-IF
+  UPDATE
+END-FIND
+*
+END-SUBROUTINE /* READ-ARCHIVE-ATTRIBUTES
+*
+INCLUDE C-EOMERR /*ON ERROR
+*
+END

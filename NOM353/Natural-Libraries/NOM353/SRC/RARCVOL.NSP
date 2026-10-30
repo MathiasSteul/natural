@@ -1,0 +1,285 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RARCVOL - Synhronize the archive volser for active reports with the
+*           volser of the archiv data set that contains them.
+*           It may ONLY be used for single-volume archive data set.
+*           The archive volser will be copied from the specified archive
+*           data set to ecery report contained in that archive data set.
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* xsetggr 2007-12-03 NRT2488   created
+* XSETHZ  2009-10-13 P316054   GET-VOLSERS-FROM-CATALOG
+* SU1     2014-07-04 NOMALL-1279 fill fields for Adabas Vista
+* BLI     2014-08-25 NOMALL-1422 Multivolume handling
+* SU2     2014-11-05 NOMALL-1450 fill fields for Adabas Vista
+* SU3     2016-01-18 NOMALL-1802 do not update Adabas Vista fields
+* SU4     2016-07-29 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING RPFK---L
+LOCAL USING XXGMSG-A
+LOCAL USING RLOG-L
+LOCAL USING PROF-LOC
+LOCAL USING VUSARC-L
+*
+LOCAL
+1 NRM-ACTIVE-REPORTS VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-ARCHIVE-VOLSER(1:2)
+1 NRM-DATASET-REPORT VIEW OF NRM-DATASET-REPORT
+  2 DR-REPNAME
+  2 DR-REPRNB
+1 NRM-ARCHIVE-DATASET VIEW OF NRM-ARCHIVE-DATASET
+  2 AD-ARCHIVE-DSNAME
+  2 C*AD-VOLSERS
+  2 AD-VOLSERS(1:6)
+  2 AD-ARCHIVE-TYPE
+1 CATALOG VIEW OF CATALOG
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 VOLSER
+*
+1 #FATHER-PROG       (A8)  INIT <'RMENU'>
+1 #AR-KEY            (A31)
+1 REDEFINE #AR-KEY
+  2 #AR-REP          (A25)
+  2 #AR-RNB          (P11)
+1 #ET-COUNT          (I2)
+1 L-HEADER           (A78)
+1 L-ARC              (A44)
+1 L-VOL              (A6)
+1 L-NEW-VOL          (A6)
+1 L-ISN              (P10)
+1 L-REP-COUNT        (I4)
+1 L-LOG              (A1) INIT <'N'>
+1 L-ET-COUNT         (N5) INIT <30>
+1 L-REFRESH-COUNT    (N5) INIT <1000>
+1 CV-MAP             (C)  INIT < (AD=I CD=NE)>
+1 #LANGUAGE          (I1)
+1 #SCREEN-COUNT      (I2)
+1 #VOLSER-OK         (L)                          /* BLI NOMALL-1422
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET G-COMMIT
+*
+DEFINE WINDOW RECORDS-MODIFIED SIZE 5*40 BASE 08/15 CONTROL SCREEN
+*
+IF *DATA GT 0
+  INPUT L-ARC L-ISN
+END-IF
+MAIN-LOOP. REPEAT
+  RESET G-NATRP-ERC G-NATRP-ERT
+  SCREEN-LOOP. REPEAT
+    GET NRM-ARCHIVE-DATASET L-ISN
+    IF C*AD-VOLSERS > 1            /* RLISAD should have filtered '*'
+      G-NATRP-ERC := 0482
+      RESET G-NATRP-ERT
+      ESCAPE ROUTINE
+    END-IF
+    L-VOL:= AD-VOLSERS(1)
+    L-ARC:= AD-ARCHIVE-DSNAME
+    RESET L-REP-COUNT #ET-COUNT #SCREEN-COUNT
+    IF #LANGUAGE NE *LANGUAGE
+      #LANGUAGE := *LANGUAGE
+      PERFORM INIT-PFKEYS
+      PERFORM SET-PFKEYS
+    END-IF
+    PERFORM FLIP-DISPLAY
+    SET CONTROL 'L'
+    SET CONTROL 'WB'
+    CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RARCVOM&'
+    RESET G-MAP-MODIFIED
+*
+    INPUT WITH TEXT G-NATRP-ERT MARK *G-DIRECT-COMMAND
+      USING MAP 'RARCVOM&'
+    RESET G-NATRP-ERC G-NATRP-ERT
+    INCLUDE RPFKVA-C
+    INCLUDE C-DIRECT
+    DECIDE ON FIRST VALUE OF G-PF-FUNC
+      VALUE 'HELP'     REINPUT USING HELP
+      VALUE 'EXIT'     ESCAPE BOTTOM(MAIN-LOOP.)
+      VALUE 'FLIP'     PERFORM FLIP-HANDLE
+      VALUE 'DO'
+        PERFORM VALIDATE-INPUT
+        PERFORM CHANGE-VOLSER
+      VALUE 'MENU'     ESCAPE BOTTOM(MAIN-LOOP.)
+      ANY              RESET G-DIRECT-COMMAND
+      NONE             IGNORE
+    END-DECIDE
+    IF (CV-MAP MODIFIED OR G-MAP-MODIFIED)
+      PERFORM VALIDATE-INPUT
+    END-IF
+  END-REPEAT
+END-REPEAT
+IF G-PF-FUNC = 'MENU'
+  FETCH #FATHER-PROG
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+PROFILE-STRING := G-USER-PROFILE
+IF PROF-ARCHIVE-ADMIN NE 'Y'
+  REINPUT *0020 MARK *G-DIRECT-COMMAND
+END-IF
+*
+IF L-NEW-VOL = ' '
+  REINPUT *0110 MARK *L-NEW-VOL
+END-IF
+IF NOT L-LOG = 'Y' OR = 'N'
+  REINPUT *1099 MARK *L-LOG
+END-IF
+IF L-REFRESH-COUNT = 0
+  L-REFRESH-COUNT := 1000
+END-IF
+IF L-ET-COUNT = 0
+  L-ET-COUNT := 30
+END-IF
+IF *MACHINE-CLASS NE 'MAINFRAME'
+  ESCAPE ROUTINE
+END-IF
+IF AD-ARCHIVE-TYPE > 0
+  READ NRM-USER-DEFINED-ARCHIVE BY M-MONITOR-ID = 'USERARC'
+    IF M-MONITOR-ID NE MASK('USERARC')
+      ESCAPE BOTTOM
+    END-IF
+    IF M-USERARC-NUMBER = AD-ARCHIVE-TYPE
+        AND M-USERARC-EXITLIB NE ' ' AND M-USERARC-EXITMEM NE ' '
+      ESCAPE ROUTINE
+    END-IF
+  END-READ
+END-IF
+IF G-SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP'
+  MOVE FALSE TO #VOLSER-OK                         /* BLI NOMALL-1422
+  CAT. FIND CATALOG WITH DSNAME = AD-ARCHIVE-DSNAME
+      AND NODE   = G-MONITOR-NODE
+    IF ERROR-CODE NE 0
+      REINPUT *5,ERROR-TEXT  MARK *L-NEW-VOL
+    END-IF
+    IF L-NEW-VOL EQ VOLSER AND VOLSER NE '*'    /* BLI NOMALL-1422 start
+      MOVE TRUE TO #VOLSER-OK
+    END-IF
+**  IF L-NEW-VOL NE VOLSER AND VOLSER NE '*'
+**    REINPUT *959 MARK *L-NEW-VOL
+**  END-IF
+  END-FIND
+  IF NOT #VOLSER-OK
+    REINPUT *959 MARK *L-NEW-VOL
+  END-IF                                        /* BLI NOMALL-1422 end
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE CHANGE-VOLSER
+************************************************************************
+PERFORM CHECK-SCREEN-COUNT
+FNDAD. FIND NRM-ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = L-ARC
+  IF NO RECORDS FOUND
+    REINPUT *479   MARK *L-ARC
+  END-NOREC
+  PERFORM CHECK-SCREEN-COUNT
+  AD-VOLSERS(1) := L-NEW-VOL
+  UPDATE
+  PERFORM CHECK-SCREEN-COUNT
+  ADD 1 TO #ET-COUNT
+  IF #ET-COUNT GE L-ET-COUNT
+    RESET #ET-COUNT
+    END TRANSACTION
+    PERFORM CHECK-SCREEN-COUNT
+  END-IF
+END-FIND
+FIND NRM-DATASET-REPORT WITH DR-ARCHIVE-DSNAME = L-ARC
+  PERFORM CHECK-SCREEN-COUNT
+  #AR-REP := DR-REPNAME
+  #AR-RNB := DR-REPRNB
+  ACTREP. FIND NRM-ACTIVE-REPORTS WITH AR-REPORT-RNB = #AR-KEY
+    PERFORM CHECK-SCREEN-COUNT
+    IF AR-ARCHIVE-VOLSER(1) NE AR-ARCHIVE-VOLSER(2)
+      COMPRESS DR-REPNAME '/' DR-REPRNB TO LG-OBJECT-NAME
+      COMPRESS '0483' LG-OBJECT-NAME TO LG-MSG
+      PERFORM WRITE-LOG
+    END-IF
+    AR-ARCHIVE-VOLSER(1) := AR-ARCHIVE-VOLSER(2):= L-NEW-VOL
+    UPDATE (ACTREP.)
+    PERFORM CHECK-SCREEN-COUNT
+    IF L-LOG = 'Y'
+      COMPRESS DR-REPNAME '/' DR-REPRNB TO LG-OBJECT-NAME
+      COMPRESS '0484' LG-OBJECT-NAME TO LG-MSG
+      PERFORM WRITE-LOG
+    END-IF
+    ADD 1 TO #ET-COUNT
+    ADD 1 TO L-REP-COUNT
+    IF #ET-COUNT GE L-ET-COUNT
+      RESET #ET-COUNT
+      END TRANSACTION
+      PERFORM CHECK-SCREEN-COUNT
+    END-IF
+  END-FIND
+END-FIND
+END TRANSACTION
+COMPRESS '0485' L-REP-COUNT TO LG-MSG
+PERFORM WRITE-LOG
+#XX-ERROR-CODE := 0485
+#XX-MSG-DYNA(1) := L-REP-COUNT
+INCLUDE XXGMSG-C
+G-NATRP-ERT := #XX-SHORT-TEXT
+*
+END-SUBROUTINE /* CHANGE-VOLSER
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-SCREEN-COUNT
+************************************************************************
+ADD 1 TO #SCREEN-COUNT
+IF #SCREEN-COUNT GT L-REFRESH-COUNT
+  RESET #SCREEN-COUNT
+  SET CONTROL 'N'
+  INPUT WINDOW = 'RECORDS-MODIFIED' (AD=OI)
+    /  'Modified' L-REP-COUNT 'reports'
+END-IF
+*
+END-SUBROUTINE /* CHECK-SCREEN-COUNT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG
+************************************************************************
+LG-USERID:= G-USERID
+LG-CODE:= 'MO'
+CALLNAT 'RLOG' PL-PARMS
+PERFORM CHECK-SCREEN-COUNT
+ADD 1 TO #ET-COUNT
+IF #ET-COUNT GE L-ET-COUNT
+  RESET #ET-COUNT
+  END TRANSACTION
+  PERFORM CHECK-SCREEN-COUNT
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+G-PF-IDENT (05) := ##PFN-COMMIT
+G-PF-CODE  (05) := ##PFK-COMMIT
+G-PF-IDENT (17) := ##PFN-COMMIT
+G-PF-CODE  (17) := ##PFK-COMMIT
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+INCLUDE RPFSET-C /* SET-PFKEYS
+*
+END

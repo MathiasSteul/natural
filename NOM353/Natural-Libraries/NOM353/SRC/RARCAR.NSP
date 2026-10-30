@@ -1,0 +1,216 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RARCAR
+* Version   1.3
+* Function  Archive Active Report
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-08-02           created
+* mrs 97-05-27 p(162705) recompiled (changes in eomarm-p)
+* mrs 97-05-27 p(162737) recompiled (changes in eomarm-p)
+* jvd 98-11-24 s(284191) incorporate 'Archive Immediate' functionality
+*                        from UKSJU. Thank you, Steve!
+* sju 02-04-26 NOM221    User defined archive types
+* xsetggr 2006-01-02 p(266299) prevent fetch of wrong #father-prog
+* xsetggr 2008-05-05 p(304350) restow due changes in EOMARM-P
+* fhi     2009-05-20 N3463     restow due changes in EOMARM-P
+* BLI     2016-02-23 NOMALL-1829 Check flags A R L
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+*
+LOCAL USING EOM----E
+LOCAL USING EOM----P
+LOCAL USING EOMARM-E
+LOCAL USING EOMARM-P
+LOCAL USING EOMMSG-P
+LOCAL USING VUSARC-L
+*
+LOCAL
+1 #AI                  (I2)
+1 #J                   (I2)
+1 #NOFLINES            (I2)   CONST <10>
+1 L-ARCHIVE-SCREEN     (10)
+  2 L-NAME             (A8)
+  2 L-MARK             (A1)
+  2 CV-MARK            (C)
+  2 CV-LINE            (C)
+  2 L-ARCHIVE-ID       (A10)
+  2 REDEFINE L-ARCHIVE-ID
+    3 L-ARCHIVE-CONST  (A8)
+    3 L-NUMBER         (A1)
+1 END-OF-PROCESSING    (L)
+1 END-OF-DISPLAY       (L)
+1 NEW-SEARCH           (L)
+1 #ERC                 (N4)
+1 #PAGE                (P3)  INIT <1>
+1 #NOFPAGES            (I2)  CONST <1>
+1 #ARCID               (A10/1:20)
+1 END-OF-DATA          (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+EOMARM-I-NAME := G-C-REPORT
+EOMARM-I-RNB  := G-C-REPRNB
+*
+EOM-USER-PROFILE := G-USER-PROFILE
+EOM-USER         := G-USERID
+EOM-USER-TYPE    := G-USER-TYPE
+EOM-LANGUAGE     := *LANGUAGE
+*
+EOM-FUNCTION := EOM-READHOLD
+EOMARM-I-ATTRIBUTE-TYPE := ACTIVE-REPORT-ARCHIVE-ATTRIBUTES
+CALLNAT 'EOMARM-N' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+*
+IF EOMMSG-NR NE 0
+  G-NATRP-ERC := EOMMSG-NR
+  G-NATRP-ERT := EOMMSG-TOKEN (1)
+  ESCAPE ROUTINE
+END-IF
+*
+IF EOMARM-ARCHIVE = '*' OR = 'R' OR = 'P' OR = 'I'
+  IF EOMARM-ARCHIVE = 'I'
+**  G-NATRP-ERC := 476           /* BLI NOMALL-1829
+    G-NATRP-ERC := 496           /* BLI NOMALL-1829
+  ELSE
+    G-NATRP-ERC := 441
+  END-IF
+  BACKOUT TRANSACTION
+ELSE
+  PERFORM MODIFY-ARCHIVE-FLAG
+  IF G-NATRP-ERC = 0
+    END OF TRANSACTION
+  ELSE
+    BACKOUT TRANSACTION
+  END-IF
+END-IF
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-ARCHIVE-FLAG
+************************************************************************
+IF EOMARM-ARCHIVE = 'A'
+  RESET EOMARM-ARCHIVE
+ELSE
+  EOMARM-ARCHIVE := 'A'
+END-IF
+*
+IF EOMARM-ARCHIVE NE ' '
+  #AI:= 1
+  L-NAME(#AI):= 'Standard'
+  L-ARCHIVE-ID(#AI):= 'USERARC00'
+  READ NRM-USER-DEFINED-ARCHIVE BY M-MONITOR-ID = L-ARCHIVE-ID(1)
+    IF M-MONITOR-ID NE MASK('USERARC0'N)
+      ESCAPE BOTTOM
+    END-IF
+    ADD 1 TO #AI
+    L-NAME(#AI):= M-USERARC-NAME
+    L-ARCHIVE-ID(#AI):= M-MONITOR-ID
+  END-READ
+  IF #AI GT 1
+    PERFORM PF-KEYS
+    END-OF-DATA:= TRUE
+    REPEAT UNTIL END-OF-PROCESSING
+      PERFORM SCREEN-IO
+    END-REPEAT
+  END-IF
+END-IF
+EOM-FUNCTION := EOM-MODIFY
+EOMARM-I-ATTRIBUTE-TYPE := ACTIVE-REPORT-ARCHIVE-ATTRIBUTES
+CALLNAT 'EOMARM-N' EOM-PARMS EOMARM-PARMS EOMMSG-PARMS
+*
+IF EOMMSG-NR NE 0
+  G-NATRP-ERC := EOMMSG-NR
+  G-NATRP-ERT := EOMMSG-TOKEN (1)
+END-IF
+*
+END-SUBROUTINE /* MODIFY-ARCHIVE-FLAG
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+IF #AI < #NOFLINES
+  CV-MARK (#AI+1:#NOFLINES) := (AD=DP)
+END-IF
+RESET END-OF-DISPLAY
+REPEAT
+  DECIDE FOR FIRST CONDITION
+    WHEN #ERC NE 0
+      IGNORE
+    WHEN END-OF-DATA AND #PAGE > 1
+      #ERC := 12                   /* bottom of data
+    WHEN END-OF-DATA AND #PAGE = 1
+      #ERC := 14                   /* all
+    WHEN NOT END-OF-DATA AND #PAGE = 1
+      #ERC := 11                   /* top of data
+    WHEN NONE
+      #ERC := 13                   /* more
+  END-DECIDE
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'WC20L40B3/39F'
+  SET CONTROL 'M17'
+  SET CONTROL 'Y41'
+  INPUT WITH TEXT *#ERC USING MAP 'HSELUDA&'
+  SET CONTROL 'WB'
+  SET CONTROL 'M21'
+  SET CONTROL 'YB'
+  RESET #ERC
+  PERFORM COMMAND-PF-KEY
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+FOR #J = 1 TO #AI
+  IF L-MARK (#J) NE ' '
+    EOMARM-ARCHIVE-TYPE := L-NUMBER(#J)
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+    ESCAPE ROUTINE
+  END-IF
+END-FOR
+DECIDE ON FIRST *PF-KEY
+  VALUE 'PF3'
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+  VALUE 'PF7'
+    IF #PAGE > 1
+      SUBTRACT 1 FROM #PAGE
+      END-OF-DATA := FALSE
+      END-OF-DISPLAY := NEW-SEARCH := TRUE
+    END-IF
+  VALUE 'PF8'
+    IF NOT END-OF-DATA
+      ADD 1 TO #PAGE
+      IF #PAGE > #NOFPAGES
+        #PAGE := #NOFPAGES
+        #ARCID (1:19) := #ARCID (2:20)
+      END-IF
+      #ARCID (#PAGE) := M-MONITOR-ID
+      END-OF-DISPLAY := TRUE
+    END-IF
+  NONE           IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+*
+END-SUBROUTINE /* PF-KEYS
+*
+END

@@ -1,0 +1,392 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RDEFBR - DEFINE A  REPORT IN A BUNDLE
+*
+* Maintenance:
+* jwo 97-09-30  p(165671) allow modification of report name
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* xsisgg  00-08-04 CE7461 Extend Report and Bundle names
+* xsetggr 2005-10-26 P(270950) ISN fields must be P10, not P8
+* xsetggr 2007-07-19 p(295731) set default number of separation pages
+* xsetggr 2009-09-01 P314431  check printer existance and add printer
+*                             selection using '*'
+* fhi     2010-03-05 P307403 Don't use text and binary reports mixed
+* fhi     2010-03-15 P307403 side effects with parameter handling
+* xsetggr 2010-11-03 NOMALL-865 restow due to changes in EOMPHTYE
+* xsetggr 2012-02-01 NOMALL-1100 write language independant msgs to log
+* xsetggr 2012-11-29 NOMALL-89 add validation check of printer
+* fhi     2015-06-30 NOMALL-1655 Leave copies field as entered
+* fhi     2015-07-06 NOMALL-1655 Backout for online (this program)
+* SU1     2016-08-08 NOM 3.5: remove unused code
+* BLI     2017-08-03 NOMALL-1984 differ MODIFY/DISPLAY
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+* *****
+LOCAL USING RPFK---L
+LOCAL USING VMBRP-L       /*  NRM BUNDLE-REPORT
+LOCAL USING RLOG-L
+LOCAL USING EOMPHTYE
+*
+LOCAL
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+  2 R-SEPMEM
+  2 REDEFINE R-SEPMEM
+    3 R-SEPSTART  (A8)
+    3 R-SEPEND    (A8)
+  2 R-REP-FORMAT
+1 BUNDREP VIEW OF NRM-BUNDLE-REPORT
+1 BUNDLES VIEW OF NRM-BUNDLES
+  2 B-FLAG-REPSEP
+1 PRINTERS VIEW OF NRM-PRINTERS
+  2 P-PHYSICAL-NAME
+  2 P-DISP
+1 PHYSICAL VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-PRINTER-TYPE
+* *****
+1 #FATHER-PROG            (A8) INIT <'RLISBU'>
+1 CV-REP                  (C)
+1 CV-MAP                  (C) INIT < (AD=I CD=NE)>
+1 #HEADER-2               (A16)
+1 #ALLOWED                (L)
+1 #UPDATE                 (L)
+1 #FUNC                   (A1)
+1 GRANTED                 (L)
+1 #GR-N                   (A25)
+1 #BUNDLE-REPORT          (A50)
+1 REDEFINE #BUNDLE-REPORT
+  2 #BUNDLE               (A25)
+  2 #REPORT               (A25)
+  2 REDEFINE #REPORT
+    3 #REPORT-17          (A17)
+    3 #REPORT-R           (A8)
+1 #BUNDLE-SCREEN          (A25)
+1 #DEF-GROUP              (A8)
+1 #PANEL                  (N2)
+1 #PF-CODE                (A3)
+1 REDEFINE #PF-CODE
+  2 #PF-CODE-A            (A1/3)
+1 #PF-TEXT                (A3)
+1 REDEFINE #PF-TEXT
+  2 #PF-TEXT-A            (A1/3)
+1 #EXT                    (L)
+1 #FLAG-REPSEP            (A1)
+1 #ADD-PROGRAM            (A8)
+1 #BINARY-REPORTS         (L)
+1 #GR-USERID              (A8)
+1 #GR-OPTIONS             (A1/6)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *DATA > 0
+  INPUT #BINARY-REPORTS
+END-IF
+#ADD-PROGRAM:='RDEFBR'
+SET CONTROL 'MB'
+RESET G-COMMIT G-LINECOM(*)
+CALLNAT 'NARPSEC' G-USER-PROFILE 'DBU' #ALLOWED
+INCLUDE C-NALLOW
+*
+CALLNAT 'NARPSEC' G-USER-PROFILE 'MBU' #UPDATE
+* -------------------------------------------------------------------
+PERFORM INIT-PFKEYS
+IF G-SUPPORT-LONG-NAMES
+  RESET #EXT
+  #PF-CODE := 'PF9'
+  #PF-TEXT := G-PF-TEXT(9)
+  IF G-DISPLAY-LONG-NAMES
+    #PANEL := 1
+  ELSE
+    #PANEL := 2
+  END-IF
+ELSE
+  MOVE ALL H'FA' TO #PF-CODE-A(*)
+  MOVE ALL H'FA' TO #PF-TEXT-A(*)
+  #PANEL := 2
+END-IF
+*
+#FUNC := G-C-FUNC
+#BUNDLE := G-C-BUNDLE
+#REPORT := G-C-REPORT
+FIND BUNDLES WITH B-BUNDLE = #BUNDLE
+  IF NO RECORDS FOUND
+    ESCAPE ROUTINE
+  END-NOREC
+  #FLAG-REPSEP := B-FLAG-REPSEP
+END-FIND
+FIND REPORTS WITH R-REPNAME = #REPORT
+END-FIND
+*
+MAIN-LOOP. REPEAT
+  #BUNDLE := G-C-BUNDLE
+  #BUNDLE-SCREEN := G-C-BUNDLE
+  #DEF-GROUP := SUBSTR(#BUNDLE-SCREEN,1,8)
+  FIND-LOOP. FIND BUNDLE-REPORT WITH BR-BUNDLE-REPORT  = #BUNDLE-REPORT
+    IF NO RECORDS FOUND
+      IF #FUNC = 'M' OR = 'D'
+        G-NATRP-ERC := 0408
+        INCLUDE C-ESCAPE
+      END-IF
+    END-NOREC
+    #BUNDLE := BR-BUNDLE
+    #REPORT := BR-REPNAME
+    DECIDE ON EVERY VALUE OF #FUNC
+      VALUE 'A','M'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'DBU' #ALLOWED
+        INCLUDE C-NALLOW
+      VALUE 'A'
+        RESET BUNDLE-REPORT #REPORT
+        RESET CV-REP
+        CV-REP := (AD=I)
+        RESET INITIAL CV-MAP     /* BLI 2017-08-03 NOMALL-1984 start
+        MOVE 'Add Report To Bundle' TO #HEADER-2
+**    VALUE 'M','D','P'
+      VALUE 'D','P'
+        MOVE (AD=IP) TO CV-REP CV-MAP
+      VALUE 'M'
+        RESET INITIAL CV-MAP     /* BLI 2017-08-03 NOMALL-1984 end
+        RESET CV-REP
+        CV-REP := (AD=I)
+        #HEADER-2 := 'Modify Report In Bundle'
+      NONE IGNORE
+    END-DECIDE
+*
+    G-C-OBJTYPE := 'BUNDLE'
+    #GR-N := G-C-BUNDLE
+**
+    SCREEN-LOOP. REPEAT
+      PERFORM BEFORE-INPUT
+      SET CONTROL 'MB'
+      SET CONTROL 'WC15L55B06/10F'
+      SET CONTROL 'M12'
+      DECIDE ON FIRST #PANEL
+        VALUE 1
+          INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'RDEFBRL&'
+        VALUE 2
+          INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'RDEFBRM&'
+        NONE VALUE IGNORE
+      END-DECIDE
+      RESET G-NATRP-ERC G-NATRP-ERT
+      INCLUDE RPFKVA-C
+      INCLUDE C-DIRECT
+      INCLUDE RPFKED-C
+      IF *PF-KEY = 'PF9'
+        #EXT := TRUE
+        DECIDE FOR FIRST CONDITION
+          WHEN G-SUPPORT-LONG-NAMES AND NOT G-DISPLAY-LONG-NAMES
+            G-DISPLAY-LONG-NAMES := TRUE
+            #PANEL := 1
+            ESCAPE TOP
+          WHEN G-SUPPORT-LONG-NAMES AND G-DISPLAY-LONG-NAMES
+            RESET G-DISPLAY-LONG-NAMES
+            #PANEL := 2
+            ESCAPE TOP
+          WHEN NONE
+            RESET G-DISPLAY-LONG-NAMES
+            #PANEL := 2
+        END-DECIDE
+      END-IF
+* -------------
+* -- MANDATORY FIELDS
+* -------------
+      IF #REPORT = ' '
+        REINPUT *41 MARK *BUNDLE-REPORT.BR-REPNAME
+      END-IF
+      IF R-REP-FORMAT NE 'B' AND #BINARY-REPORTS
+        REINPUT *0729 /* do not mix text and binary reports
+      END-IF
+*
+      IF CV-MAP MODIFIED OR G-MAP-MODIFIED OR #EXT
+        IF *PF-KEY = 'PF9'
+          #EXT := TRUE
+          DECIDE FOR FIRST CONDITION
+            WHEN G-SUPPORT-LONG-NAMES AND NOT G-DISPLAY-LONG-NAMES
+              G-DISPLAY-LONG-NAMES := TRUE
+              #PANEL := 1
+              ESCAPE TOP
+            WHEN G-SUPPORT-LONG-NAMES AND G-DISPLAY-LONG-NAMES
+              RESET G-DISPLAY-LONG-NAMES
+              #PANEL := 2
+              ESCAPE TOP
+            WHEN NONE RESET G-DISPLAY-LONG-NAMES
+              #PANEL := 2
+          END-DECIDE
+        END-IF
+* --- UPDATE RECORD
+        DECIDE ON FIRST VALUE OF #FUNC
+          VALUE 'A'     /* ADD RECORD
+            IF #REPORT = SCAN '*'
+              REINPUT USING HELP MARK *#REPORT
+            END-IF
+            FIND-BUNDREP.
+            FIND NUMBER BUNDREP WITH BR-BUNDLE = #BUNDLE-SCREEN
+              AND BR-REPNAME = #REPORT
+            IF *NUMBER(FIND-BUNDREP.) > 0
+              REINPUT *50 MARK *#REPORT ALARM
+            END-IF
+*
+            BUNDLE-REPORT.BR-BUNDLE := #BUNDLE-SCREEN
+            IF G-DISPLAY-LONG-NAMES
+              BUNDLE-REPORT.BR-REPNAME := #REPORT
+            ELSE
+              BUNDLE-REPORT.BR-REPNAME := #REPORT-17
+            END-IF
+            IF BUNDLE-REPORT.BR-SEQNO = 0
+              BUNDLE-REPORT.BR-SEQNO := 1
+            END-IF
+            PERFORM CHECK-SEP-COPIES
+            PERFORM CHECK-PRINTER
+            IF BUNDLE-REPORT.BR-GROUP = ' '
+              BUNDLE-REPORT.BR-GROUP := #DEF-GROUP
+            END-IF
+            STORE1. STORE BUNDLE-REPORT
+            G-C-REPORT := BUNDLE-REPORT.BR-REPNAME
+            G-C-BUNDLE := BUNDLE-REPORT.BR-BUNDLE
+            #FUNC := 'M'
+            G-NATRP-ERC := 31
+*
+            IF G-LOG-BUN
+              LG-BUNDLE := LG-OBJECT-NAME := G-C-BUNDLE
+              LG-CODE := 'BM'
+              LG-USERID := G-USERID
+              LG-REPNAME := #REPORT
+              COMPRESS '0301'  #REPORT G-C-BUNDLE TO LG-MSG
+              CALLNAT 'RLOG' PL-PARMS
+            END-IF
+            INCLUDE C-COMMIT
+            INCLUDE REXDO--C
+            ESCAPE BOTTOM (FIND-LOOP.)
+          VALUE 'M'
+            IF #REPORT NE G-C-REPORT
+              IF #REPORT = SCAN '*'
+                REINPUT USING HELP MARK *#REPORT
+              END-IF
+              FIND-BUNDRE1.
+              FIND NUMBER BUNDREP WITH BR-BUNDLE = #BUNDLE-SCREEN
+                AND BR-REPNAME = #REPORT
+              IF *NUMBER(FIND-BUNDRE1.) > 0
+                REINPUT *50 MARK *#REPORT ALARM
+              END-IF
+            END-IF
+            IF G-DISPLAY-LONG-NAMES
+              BUNDLE-REPORT.BR-REPNAME := G-C-REPORT := #REPORT
+            ELSE
+              BUNDLE-REPORT.BR-REPNAME := G-C-REPORT := #REPORT-17
+            END-IF
+            IF BUNDLE-REPORT.BR-SEQNO = 0
+              BUNDLE-REPORT.BR-SEQNO := 1
+            END-IF
+            PERFORM CHECK-SEP-COPIES
+            PERFORM CHECK-PRINTER
+            IF BUNDLE-REPORT.BR-GROUP = ' '
+              BUNDLE-REPORT.BR-GROUP := #DEF-GROUP
+            END-IF
+            UPDATE(FIND-LOOP.)
+            G-NATRP-ERC := 32
+            IF G-LOG-BUN
+              LG-BUNDLE := LG-OBJECT-NAME := G-C-BUNDLE
+              LG-CODE := 'BM'
+              LG-USERID := G-USERID
+              LG-REPNAME := #REPORT
+              COMPRESS '0302'  #REPORT G-C-BUNDLE TO LG-MSG
+              CALLNAT 'RLOG' PL-PARMS
+            END-IF
+            INCLUDE C-COMMIT
+          NONE VALUE IGNORE
+        END-DECIDE
+        RESET #EXT
+      END-IF
+* --------------
+      INCLUDE REXDO--C
+    END-REPEAT /*(SCREEN-LOOP.)
+  END-FIND   /*(FIND-LOOP.)
+END-REPEAT  /*(MAIN-LOOP.)
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE BEFORE-INPUT
+************************************************************************
+IF BUNDLE-REPORT.BR-SEQNO = 0
+  BUNDLE-REPORT.BR-SEQNO := 1
+END-IF
+PERFORM CHECK-SEP-COPIES
+*
+END-SUBROUTINE /* BEFORE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-SEP-COPIES
+************************************************************************
+IF BUNDLE-REPORT.BR-SEPNO = 0 AND
+    (NOT (REPORTS.R-SEPSTART = ' ' OR = 'NONE' OR = 'KEIN') OR
+    NOT (REPORTS.R-SEPEND  = ' ' OR = 'NONE' OR = 'KEIN'))
+  BUNDLE-REPORT.BR-SEPNO := 1
+END-IF
+*
+END-SUBROUTINE /* CHECK-SEP-COPIES
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-PRINTER
+************************************************************************
+IF BR-PRINTER NE ' '
+  IF BR-PRINTER = '*' /*          OR = SCAN '?'
+    REINPUT USING HELP MARK *BR-PRINTER
+  ELSE
+    IF BR-PRINTER = SCAN('DEFAULT*')
+      REINPUT *0166   MARK *BR-PRINTER
+    END-IF
+*
+    FIND PRINTERS WITH P-ID = BR-PRINTER
+      IF NO RECORDS FOUND
+        REINPUT *0108 MARK *BR-PRINTER
+      END-NOREC
+      FIND PHYSICAL WITH PH-VTAMID = P-PHYSICAL-NAME
+        IF *MACHINE-CLASS = 'MAINFRAME'
+          IF PH-PRINTER-TYPE = ##PHYS-NATUNIX
+            REINPUT *0130 MARK *BR-PRINTER
+          END-IF
+        ELSE
+          IF NOT(PH-PRINTER-TYPE = ##PHYS-DISKUNIX OR = ##PHYS-NATUNIX)
+            REINPUT *0131 MARK *BR-PRINTER
+          END-IF
+        END-IF
+      END-FIND
+    END-FIND
+*
+    IF G-USER-TYPE NE 'A'
+      #GR-N := BR-PRINTER
+      #GR-USERID  := G-USERID
+      CALLNAT 'RGRANT-N' #GR-USERID 'P' #GR-N GRANTED #GR-OPTIONS(*)
+      IF GRANTED AND PRINTERS.P-DISP = 'Y'          /* restricted usage
+          AND NOT #GR-OPTIONS(*) = 'Y'
+        RESET GRANTED
+      END-IF
+      IF NOT GRANTED
+        REINPUT *1090 MARK *BR-PRINTER
+      END-IF
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* CHECK-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+INCLUDE RPFSTD-C
+INCLUDE RPFADD-C
+INCLUDE RPFCOM-C
+INCLUDE RPFEXT-C
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+END

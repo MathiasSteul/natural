@@ -1,0 +1,121 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMSR7--N - Convert job numbers of 5 digit to 7 digit format
+*
+* Creation and Maintenance History
+* uuu     yyyy-mm-dd s(999999) ...
+* fhi     2005-04-18 s(999999) created from RMSRCK-N
+* xsetggr 2007-05-14 NOM3201   add converting node numbers of 3 digit to
+*                              5 digit format
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2009-03-02 P312788   restow due to changes in RMSR5--L
+* splildav 2009-04-01 P311480  Power segments field is blank
+* xsetggr 2009-08-19 P319306  Analyzed, rewritten as RMSPL7-N
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* SU1     2024-03-07 ES-34613    NOM 3.6 Remove power
+* ----------------------------------------------------------------------
+*
+DEFINE DATA
+PARAMETER
+1 SOURCE-ATTRIBUTES   (A250)
+1 P-SPOOLTYPE         (B2)
+************************************************************************
+LOCAL USING RMSR---E
+LOCAL USING RMSR---L
+LOCAL USING RMSR5--L
+LOCAL USING RMSR3--L
+LOCAL
+1 P-ERC               (N4)
+1 P-ERT               (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#SOURCE-ATTR-5 := #SOURCE-ATTRIBUTES := SOURCE-ATTRIBUTES
+#SOURCE-ATTR-3 := SOURCE-ATTRIBUTES
+DECIDE ON FIRST VALUE OF P-SPOOLTYPE
+/*SU1 VALUE POWER VALUE SEQUENTIAL-FILE-VSE
+  VALUE JES2-QUEUE-ENTRY,JES3-QUEUE-ENTRY
+    IF #JES-QUEUE-NODE-A NE MASK(NNNNN)    /* if equal, NOM 3.2 format
+      RESET #SOURCE-ATTRIBUTES
+      IF #JES3-QUEUE-JOB-NUMBER-A NE MASK(NNNNNNN)/* NOM 2.2 format
+        #JES-QUEUE-NODE := #JES5-QUEUE-NODE
+        #JES-QUEUE-JOB-NAME := #JES5-QUEUE-JOB-NAME
+        #JES-QUEUE-JOB-NUMBER := #JES5-QUEUE-JOB-NUMBER
+        #JES-QUEUE-GROUP-ID := #JES5-QUEUE-GROUP-ID
+      ELSE                                /* NOM 3.1 format
+        #JES-QUEUE-NODE := #JES3-QUEUE-NODE
+        #JES-QUEUE-JOB-NAME := #JES3-QUEUE-JOB-NAME
+        #JES-QUEUE-JOB-NUMBER := #JES3-QUEUE-JOB-NUMBER
+        #JES-QUEUE-GROUP-ID := #JES3-QUEUE-GROUP-ID
+      END-IF
+    END-IF
+  VALUE JES2,JES3
+    IF #JES-NODE-A NE MASK(NNNNN)   /* if equal,NOM 3.2. format
+      RESET #SOURCE-ATTRIBUTES
+      IF #JES3-JOB-NUMBER-A NE MASK(NNNNNNN)    /* NOM 2.2 format
+        #JES-NODE := #JES5-NODE
+        #JES-JOB-NAME := #JES5-JOB-NAME
+        #JES-JOB-NUMBER := #JES5-JOB-NUMBER
+        #JES-TYPE := #JES5-TYPE
+        #JES-DATA-SET-KEY := #JES5-DATA-SET-KEY
+        #JES-PROCNAME := #JES5-PROCNAME
+        #JES-STEPNAME := #JES5-STEPNAME
+        #JES-DDNAME := #JES5-DDNAME
+        #JES-DATA-SET := #JES5-DATA-SET
+        #JES-REP-FORMAT := #JES5-REP-FORMAT
+      ELSE                          /* NOM 3.1 format
+        #JES-NODE := #JES3-NODE
+        #JES-JOB-NAME := #JES3-JOB-NAME
+        #JES-JOB-NUMBER := #JES3-JOB-NUMBER
+        #JES-TYPE := #JES3-TYPE
+        #JES-DATA-SET-KEY := #JES3-DATA-SET-KEY
+        #JES-PROCNAME := #JES3-PROCNAME
+        #JES-STEPNAME := #JES3-STEPNAME
+        #JES-DDNAME := #JES3-DDNAME
+        #JES-DATA-SET := #JES3-DATA-SET
+        #JES-REP-FORMAT := #JES3-REP-FORMAT
+      END-IF
+    END-IF
+  VALUE SEQUENTIAL-FILE-MVS
+    IF #FMVS-NODE-A  NE MASK(NNNNN)
+      RESET #SOURCE-ATTRIBUTES
+      #FMVS-NODE := #FMVS3-NODE
+      #FMVS-DSNAME := #FMVS3-DSNAME
+      #FMVS-RECFM := #FMVS3-RECFM
+      #FMVS-LRECL := #FMVS3-LRECL
+      #FMVS-BLKSIZE := #FMVS3-BLKSIZE
+      #FMVS-VOLSER := #FMVS3-VOLSER
+      #FMVS-REP-FORMAT := #FMVS3-REP-FORMAT
+    END-IF
+  VALUE SEQUENTIAL-FILE-BS2
+    IF #FBS2-NODE-A  NE MASK(NNNNN)
+      RESET #SOURCE-ATTRIBUTES
+      #FBS2-NODE := #FBS23-NODE
+      #FBS2-DSNAME := #FBS23-DSNAME
+      #FBS2-RECFM := #FBS23-RECFM
+      #FBS2-RECSIZE := #FBS23-RECSIZE
+      #FBS2-BLKSIZE := #FBS23-BLKSIZE
+      #FBS2-FILE-TYPE := #FBS23-FILE-TYPE
+      #FBS2-REP-FORMAT := #FBS23-REP-FORMAT
+    END-IF
+  ANY SOURCE-ATTRIBUTES := #SOURCE-ATTRIBUTES
+  NONE IGNORE
+END-DECIDE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  P-ERC := 0021
+  CALLNAT 'C-NATERN' P-ERT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

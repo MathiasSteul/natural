@@ -1,0 +1,341 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOGRFF-N - NOM API Authorization Maintenance
+*            Functions new, open, display, save, delete, copy, rename
+*
+* Maintenance:
+* XSETHZ  2002-01-31   created
+* XSETGGR 2002-02-28   add functions copy, rename, delete all grantet
+*                      objects
+* XSETHZ  2002-06-04
+* XSETHZ  2003-08-11 USER-AUTODEF
+* XSETGGR 2005-01-27 NOM3.1 use from user-folder
+* XSETGGR 2006-02-20 correct parm-count
+* XSETGGR 2006-05-03 if option(1) = 'y' , all options = 'y'
+* XSETHZ  2008-07-23 p(307577 )use full name of ES-APP-SERVER-LIBRARY
+* XSETHZ  2010-11-08 NOMALL-883
+* XSETHZ  2010-12-15 NOMALL-907
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* xsetggr 2011-09-20 NOMALL-901 do not log deletion of subobjects
+* xsetggr 2012-09-28 NOMALL-89 correct validataion of grant options
+* BLI     2017-10-27 NOMALL-1983 omit arc/rev for reports
+* CF1     2019-11-20 NOMALL-2352 Correct validation/setting
+** -------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+************************************************************************
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING NOMODE-A
+LOCAL
+1 GRANTS VIEW OF NRM-GRANTS
+  2 GR-USERID
+  2 GR-OBJECT-NAME
+  2 GR-OBJECT-TYPE
+  2 GR-OPTION     (6)
+  2 REDEFINE GR-OPTION
+    3 GR-OPTION-A6(A6)
+  2 REDEFINE GR-OPTION
+    3 GR-OPTION-A4 (A4)
+1 US VIEW OF NRM-USERS
+1 DL VIEW OF NRM-DISTRIBUTION-LIST
+1 FO VIEW OF NRM-FOLDER
+  2 FO-ID
+  2 FO-USER-ID
+  2 FO-LINKED-FO-ID
+  2 REDEFINE FO-LINKED-FO-ID
+    3 FO-LINKED-USER-ID     (A8)
+    3 FO-LINKED-ID          (B2)
+1 #FO-USER-NAME             (A24)
+1 REDEFINE #FO-USER-NAME
+  2 #FO-USER-ID             (A8)
+  2 #FO-NAME                (A16)
+1 #FO-NUMBER                (N5)
+1 REDEFINE #FO-NUMBER
+  2 #FO-NUMBER-A            (A5)
+1 #GR-TYPE-OBJ-USER         (A34)
+1 REDEFINE #GR-TYPE-OBJ-USER
+  2 #OBJ-TYPE               (A1)
+  2 #OBJ-NAME               (A25)
+  2 #USERID                 (A8)
+1 #I                        (I4)
+1 #GR-TYPE-NAME             (A26)
+1 REDEFINE #GR-TYPE-NAME
+  2 #TYPE                   (A1)
+  2 #NAME                   (A25)
+1 #ES-MSG-FIELD             (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #FIELD-NAME             (A28)
+  2 #FIELD-INDEX            (N4)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #PARM-CNT                 (N1)
+1 #S-USER-FO-ID             (A10)
+1 REDEFINE #S-USER-FO-ID
+  2 #S-USER                 (A8)
+  2 #S-FO-ID                (B2)
+1 #E-USER-FO-ID             (A10)
+1 REDEFINE #E-USER-FO-ID
+  2 #E-USER                 (A8)
+  2 #E-FO-ID                (B2)
+1 #R-USER-FO-ID             (A10)
+1 REDEFINE #R-USER-FO-ID
+  2 #R-USER                 (A8)
+  2 #R-FO-ID                (B2)
+1 #LGR-OPTION               (A1/6)     /* CF1 ->
+1 REDEFINE #LGR-OPTION
+  2 #LGR-OPTION-A6          (A6)       /* CF1 <-
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+ES-RC := 0
+RESET ES-MSG-NR ES-MSG-FIELD ES-MSG-TXT
+NOMOD-PARMS := ES-SELECT
+DECIDE FOR FIRST CONDITION
+  WHEN ES-ORIG-FUNCTION = 'NW' AND ES-EXTEND-FUNCTION = 'NEW'
+    #PARM-CNT := ES-KEY-PARM-COUNT + 3
+  WHEN ES-ORIG-FUNCTION = 'NW' AND ES-EXTEND-FUNCTION = ' ' OR
+      ES-ORIG-FUNCTION = 'RN' OR
+      ES-ORIG-FUNCTION = 'CP' OR
+      ES-ORIG-FUNCTION = 'DL' AND ES-EXTEND-FUNCTION = 'DEL'
+    #PARM-CNT := ES-KEY-PARM-COUNT + 2
+  WHEN NONE
+    #PARM-CNT := ES-KEY-PARM-COUNT + 1
+END-DECIDE
+IF NOT(ES-KEY-CODE(1) = 'US ' AND ES-KEY-CODE(2) = 'FL')
+  #OBJ-TYPE   := ES-KEY-CODE(1)
+  #FO-USER-ID := ES-USER
+  #OBJ-NAME := ES-KEY-PARM(#PARM-CNT - 2)
+  #USERID   := ES-KEY-PARM(#PARM-CNT - 1)
+ELSE
+  #OBJ-TYPE   := ES-KEY-CODE(2)
+  #FO-USER-ID := ES-KEY-PARM(#PARM-CNT - 3)
+  #OBJ-NAME := ES-KEY-PARM(#PARM-CNT - 2)
+  #USERID   := ES-KEY-PARM(#PARM-CNT - 1)
+END-IF
+IF #OBJ-TYPE = 'D'
+  #OBJ-TYPE := 'L'
+END-IF
+IF #OBJ-TYPE = 'F'
+  #FO-NAME    := #OBJ-NAME
+  FIND FO WITH FO-USER-NAME = #FO-USER-NAME
+    IF NO RECORDS FOUND
+      IF #FO-NAME = '#Inbasket' OR = '#Listeneingang'
+        #S-USER := #FO-USER-ID
+        #S-FO-ID := 1
+        FIND FO WITH FO-USER-FO-ID = #S-USER-FO-ID
+          IF NO RECORDS FOUND
+            ES-MSG-NR := 0352                      /* folder not defined
+            #ES-MSG-FIELD := 'USERID'
+            PERFORM ERROR
+            ESCAPE ROUTINE
+          END-NOREC
+        END-FIND
+      ELSE
+        ES-MSG-NR := 0352                  /* folder not defined
+        #ES-MSG-FIELD := 'USERID'
+        PERFORM ERROR
+        ESCAPE ROUTINE
+      END-IF
+    END-NOREC
+    #FO-NUMBER := FO-ID
+    COMPRESS #FO-USER-ID #FO-NUMBER-A TO #OBJ-NAME LEAVING NO
+    IF NOT (FO-LINKED-FO-ID = ' ' OR ES-EXTEND-FUNCTION = 'DEL')
+      #S-USER := FO-LINKED-USER-ID
+      #S-FO-ID := FO-LINKED-ID
+      FIND FO WITH FO-USER-FO-ID = #S-USER-FO-ID
+        #FO-NUMBER := FO-ID
+        #R-USER := FO-USER-ID
+        #R-FO-ID := FO-ID
+        COMPRESS FO-USER-ID #FO-NUMBER-A TO #OBJ-NAME LEAVING NO
+      END-FIND
+    END-IF
+  END-FIND
+END-IF
+#NAME     := #OBJ-NAME
+#TYPE     := #OBJ-TYPE
+IF ES-ORIG-FUNCTION = 'OP' OR = 'DS' OR = 'NW'
+    OR (ES-ORIG-FUNCTION = 'DL' AND ES-EXTEND-FUNCTION NE 'DEL')
+  FIND. FIND GRANTS WITH GR-TYPE-OBJ-USER = #GR-TYPE-OBJ-USER
+    IF NO RECORDS FOUND
+      IF ES-ORIG-FUNCTION NE 'NW'
+        ES-MSG-NR := 910         /* granted object/userid not found
+        #ES-MSG-FIELD := 'USERID'
+        ESCAPE BOTTOM (FIND.)
+      END-IF
+    END-NOREC
+    IF *NUMBER(FIND.) > 0 AND ES-ORIG-FUNCTION = 'NW'
+      ES-MSG-NR := 907           /* grant for this user already exists
+      #ES-MSG-FIELD := 'USERID'
+      ESCAPE BOTTOM (FIND.)
+    END-IF
+    IF ES-ORIG-FUNCTION = 'OP' AND ES-EXTEND-FUNCTION = ' ' OR
+        ES-ORIG-FUNCTION = 'DS'
+      ES-KEY-PARM (#PARM-CNT) := GR-OPTION-A6
+    END-IF
+  END-FIND
+  IF ES-MSG-NR NE 0
+    PERFORM ERROR
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+DECIDE ON FIRST VALUE OF ES-ORIG-FUNCTION
+  VALUE 'NW'
+    PERFORM VALIDATION
+    IF ES-RC = 0
+      GR-USERID := #USERID
+      GR-OBJECT-NAME := #OBJ-NAME
+      GR-OBJECT-TYPE := #OBJ-TYPE
+      STORE GRANTS
+      END TRANSACTION
+    END-IF
+  VALUE 'OP','DS'
+    IF ES-EXTEND-FUNCTION = 'UPD'
+      PERFORM VALIDATION
+      IF ES-RC = 0
+        GET-UPD. GET GRANTS *ISN(FIND.)
+        GR-OPTION-A6 := ES-KEY-PARM(#PARM-CNT)
+        UPDATE (GET-UPD.)
+        END TRANSACTION
+      END-IF
+    ELSE
+      ES-KEY-PARM(#PARM-CNT) := GR-OPTION-A6
+    END-IF
+  VALUE 'RN', 'CP'
+    IF #OBJ-TYPE NE 'F'
+      PERFORM VALIDATION
+      IF ES-RC = 0
+        REN. FIND GRANTS WITH GR-TYPE-NAME = #GR-TYPE-NAME
+          GR-OBJECT-NAME := ES-NEWNAME
+          IF ES-ORIG-FUNCTION = 'RN'
+            UPDATE(REN.)
+          ELSE
+            STORE GRANTS
+          END-IF
+          END TRANSACTION
+        END-FIND
+      END-IF
+    END-IF
+  VALUE 'DL'
+    IF ES-EXTEND-FUNCTION = 'DEL'
+      /* delete all records after object name
+      DEL. FIND GRANTS WITH GR-TYPE-NAME = #GR-TYPE-NAME
+        DELETE (DEL.)
+        END TRANSACTION
+      END-FIND
+    ELSE
+      GET-DL. GET GRANTS *ISN(FIND.)     /* delete one record
+      #S-USER := #USERID
+      #S-FO-ID := H'00'
+      #E-USER := #USERID
+      #E-FO-ID := H'FF'
+      FR. FIND FO WITH FO-USER-FO-ID = #S-USER-FO-ID THRU #E-USER-FO-ID
+        IF FO-LINKED-FO-ID = #R-USER-FO-ID
+          GR. GET FO *ISN(FR.)
+          RESET FO-LINKED-FO-ID
+          UPDATE (GR.)
+        END-IF
+      END-FIND
+      DELETE(GET-DL.)
+      END TRANSACTION
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE ERROR
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND  := 'U'
+NADA2000.ERROR-NUMBER := ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-TXT := SHORT-MSG
+#ES-MSG-NR := ES-MSG-NR
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE ' '
+EXAMINE ES-MSG-TXT FOR ':2:' REPLACE ' '
+ES-MSG-FIELD := #ES-MSG-FIELD
+ES-RC := 1
+*
+END-SUBROUTINE /* ERROR
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+IF NOT (NOMOD-USER-AUTODEF = 'P' OR = 'Y')
+  IF ES-ORIG-FUNCTION = 'NW' AND #USERID NE 'PUBLIC'
+    FIND-US. FIND NUMBER US WITH USER-ID = #USERID
+    IF *NUMBER (FIND-US.) = 0
+      FIND-DL. FIND NUMBER DL WITH D-LIST-NAME = #USERID
+      IF *NUMBER (FIND-DL.) = 0
+        ES-MSG-NR := 602
+        #ES-MSG-FIELD := 'USERID'
+        PERFORM ERROR
+        ESCAPE ROUTINE
+      END-IF
+    END-IF
+  END-IF
+END-IF
+IF ES-ORIG-FUNCTION = 'CP' OR = 'RN'
+  FIND1. FIND NUMBER GRANTS WITH GR-TYPE-NAME = #GR-TYPE-NAME
+  IF *NUMBER (FIND1.) = 0
+    ES-MSG-NR := 910           /* granted object not found
+    PERFORM ERROR
+    ESCAPE ROUTINE
+  END-IF
+  IF ES-NEWNAME = ' '
+    ES-MSG-NR := 902           /* enter object name for grant
+    PERFORM ERROR
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+IF  NOT (ES-ORIG-FUNCTION = 'CP' OR = 'RN' OR = 'DL')
+  #LGR-OPTION-A6 := ES-KEY-PARM(#PARM-CNT)       /* CF1 ->
+  /*
+  GR-OPTION-A6 := 'NNNNNN'
+  DECIDE FOR FIRST CONDITION
+    WHEN #LGR-OPTION(1) = 'Y'          /* Owner
+      GR-OPTION-A6 := 'YYYYYY'
+    WHEN #LGR-OPTION(3) = 'Y'          /* Purge
+      GR-OPTION(2:4) := 'Y'
+    WHEN #LGR-OPTION(2) = 'Y'          /* Modify
+      GR-OPTION(2) := GR-OPTION(4) := 'Y'
+    WHEN #LGR-OPTION(4) = 'Y'          /* Display
+      GR-OPTION(4) := 'Y'
+    WHEN NONE IGNORE
+  END-DECIDE
+  IF #OBJ-TYPE NE 'F'
+    GR-OPTION(5:6) := ' '
+  ELSE                       /* For Folder only:
+    IF #LGR-OPTION(5) = 'Y'            /* Archive
+      GR-OPTION(5) := 'Y'
+    END-IF
+    IF #LGR-OPTION(6) = 'Y'            /* Revive
+      GR-OPTION(6) := 'Y'
+    END-IF
+  END-IF
+  ES-KEY-PARM(#PARM-CNT) := GR-OPTION-A6
+END-IF
+*
+END-SUBROUTINE /* VALIDATION
+*
+END

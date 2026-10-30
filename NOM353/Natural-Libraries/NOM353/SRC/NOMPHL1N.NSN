@@ -1,0 +1,226 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    NOMPHL1N
+* Function  List Logical Printers of a Physical Printer (API)
+* Version   3.1.1
+*
+* Maintenance:
+* uuu yy-mm-dd s(999999) ....
+* fhi 07-02-13 FHI210    created from NOMPRL1N
+* xsetggr 2007-04-16 p(289847) read printers by p-id
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2008-08-11 p(300323) add steplibs
+* xsetggr 2008-12-05 p(300323) change adding of steplibs
+* xsetggr 2009-02-10 P300323   delete steplib handling
+* fhi     2009-02-27 P300323 Rename RGETSTEP to NOMGSTEP delivered in SYSTEM
+* fhi     2010-09-21 NOMALL-97 Use no more C-NATERR but C-NATERN instead
+* SU1     2014-11-12 NOMALL-1527 getting rid of coding for old versions-
+*                                only restruct
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER USING NOMPHL-P
+*
+LOCAL USING SATFNC3E
+LOCAL USING SATLF02P
+*
+LOCAL
+1 PRINTERS VIEW OF NRM-PRINTERS
+  2  P-ID
+  2  P-NAME
+  2  P-PHYSICAL-NAME
+1 USERS VIEW OF NRM-USERS
+  2 USER-ID
+  2 USER-PROFILE
+*
+1 #PRINTER-F        (A25)
+1 #PRINTER-S        (A25)
+1 #PRINTER-T        (A25)
+1 #PRINTER          (A8)
+1 #LEN              (N3)
+1 #LFILE-CHANGED    (L)
+1 #NOM-DBID         (N5)
+1 #NOM-FNR          (N5)
+1 #MAX-ENTRIES      (N2) CONST <15>
+1 #OBJECT-NAME      (A25)
+1 #GRANT-OPTIONS    (A1/1:6)
+1 #USER-TYPE        (A1)
+1 #USER-ID          (A8)
+1 GRANTED           (L)
+1 #LIST2            (L)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET NOMPHL-ERROR-CODE NOMPHL-ERROR-TEXT NOMPHL-NUM-ENTRIES
+*
+DECIDE FOR EVERY CONDITION
+  WHEN NOMPHL-NOM-FNR NE 0 AND NOMPHL-NOM-DBID NE 0
+    PERFORM GET-NOM-LFILE
+    PERFORM SET-NOM-LFILE
+    #LFILE-CHANGED := TRUE
+  WHEN SATLF-ERROR-CODE = 0
+    PERFORM READ-USER-INFO
+  WHEN NOMPHL-ERROR-CODE = 0
+    PERFORM SELECT-PRINTER
+  WHEN #LFILE-CHANGED
+    PERFORM SET-OLD-NOM-LFILE
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-NOM-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'GET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+#NOM-DBID := SATLF-DBID-N5
+#NOM-FNR  := SATLF-FNR-N5
+*
+END-SUBROUTINE /* GET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+SATLF-LFILE    := 206
+SATLF-FUNCTION := 'SET'
+CALLNAT SAT-GET-SET-LFILE SATLF-SATVERS SATLF-PARMS (*)
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := NOMPHL-NOM-DBID
+SATLF-FNR-N5  := NOMPHL-NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-OLD-NOM-LFILE
+************************************************************************
+SATLF-DBID-N5 := #NOM-DBID
+SATLF-FNR-N5  := #NOM-FNR
+PERFORM SET-LFILE
+*
+END-SUBROUTINE /* SET-OLD-NOM-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE SELECT-PRINTER
+************************************************************************
+PERFORM INIT-SELECTION-KEYS
+*
+RESET NOMPHL-PRINTER-NEXT NOMPHL-NUM-ENTRIES NOMPHL-PRINTER-TAB (*)
+  NOMPHL-PRINTER-NEXT-2 NOMPHL-PRINTER-TAB-2(*)
+*
+REA. READ PRINTERS BY P-ID = #PRINTER
+  RESET GRANTED
+  IF #USER-TYPE = 'A'
+    MOVE TRUE TO GRANTED
+  ELSE
+    #OBJECT-NAME := P-ID
+    #USER-ID            := USERS.USER-ID
+    CALLNAT 'RGRANT-N' #USER-ID 'P' #OBJECT-NAME GRANTED
+      #GRANT-OPTIONS (*)
+  END-IF
+  IF NOT GRANTED
+    ESCAPE TOP
+  END-IF
+*
+  NOMPHL-NUM-ENTRIES := NOMPHL-NUM-ENTRIES + 1
+  IF NOMPHL-NUM-ENTRIES > #MAX-ENTRIES
+    IF #LIST2
+      NOMPHL-PRINTER-NEXT-2 := P-ID
+    ELSE
+      NOMPHL-PRINTER-NEXT := P-ID
+    END-IF
+    NOMPHL-NUM-ENTRIES := #MAX-ENTRIES
+    ESCAPE BOTTOM (REA.)
+  END-IF
+*
+  IF #LIST2
+    NOMPHL-PRINTER-2        (NOMPHL-NUM-ENTRIES) := P-ID
+    NOMPHL-DESCRIPTION-2    (NOMPHL-NUM-ENTRIES) := P-NAME
+    NOMPHL-PHYSICAL-PRINTER (NOMPHL-NUM-ENTRIES) := P-PHYSICAL-NAME
+  ELSE
+    NOMPHL-PRINTER     (NOMPHL-NUM-ENTRIES) := P-ID
+    NOMPHL-DESCRIPTION (NOMPHL-NUM-ENTRIES) := P-NAME
+  END-IF
+*
+END-READ
+*
+END-SUBROUTINE /* SELECT-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-SELECTION-KEYS
+************************************************************************
+RESET #LIST2
+#PRINTER-S := NOMPHL-PRINTER-SELECTION
+IF NOMPHL-PRINTER-SELECTION NE SCAN '*'
+  COMPRESS #PRINTER-S '*' TO #PRINTER-S LEAVING NO
+END-IF
+#LEN := 8
+CALLNAT 'SELALPHA' #PRINTER-S #PRINTER-F #PRINTER-T #LEN
+*
+IF NOMPHL-PRINTER-SELECTION = SCAN '*' OR = ' '
+  #LIST2 := TRUE
+  IF NOMPHL-PRINTER-NEXT-2 NE ' '
+    #PRINTER := NOMPHL-PRINTER-NEXT-2
+  END-IF
+ELSE
+  IF NOMPHL-PRINTER-NEXT NE ' '
+    #PRINTER := NOMPHL-PRINTER-NEXT
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* INIT-SELECTION-KEYS
+*
+************************************************************************
+DEFINE SUBROUTINE READ-USER-INFO
+************************************************************************
+IF NOMPHL-USER-ID = ' '
+  NOMPHL-USER-ID := *USER
+END-IF
+*
+FNDUS. FIND USERS WITH USER-ID = NOMPHL-USER-ID
+  IF NO RECORDS FOUND
+    NOMPHL-ERROR-CODE := 0602
+    IF *LANGUAGE = 1
+      NOMPHL-ERROR-TEXT := 'User or list not defined'
+    ELSE
+      NOMPHL-ERROR-TEXT := 'Benutzer oder Liste ist nicht definiert'
+    END-IF
+    ESCAPE BOTTOM (FNDUS.)
+  END-NOREC
+  #USER-TYPE := SUBSTRING (USER-PROFILE, 1, 1)
+END-FIND
+*
+END-SUBROUTINE /* READ-USER-INFO
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  IF #LFILE-CHANGED
+    PERFORM SET-OLD-NOM-LFILE
+  END-IF
+  IF *ERROR-NR = 82
+    WRITE *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II':'SS'.'T)
+      'Missing NOM steplibs' //
+      'Please call NOM steplib routine NOMGSTEP before call of NOM API.'
+  END-IF
+  NOMPHL-ERROR-CODE := 21
+  CALLNAT 'C-NATERN' NOMPHL-ERROR-TEXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

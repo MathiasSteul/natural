@@ -1,0 +1,424 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NODLTF-N - NOM API TRansfer bundles to target environment
+* Input keys: ES-KEY-PARM(1) - transfer parms (redef NOXXTF-L)
+*
+* Maintenance:
+* XSETGGR 2005-01-27 created
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* xsetggr 2008-10-30 p(309496) err msg if target env not initialized
+* xsetggr 2012-08-16 NOMALL-1145 correct header
+* CF1     2014-11-12 NOMALL-1528 Improve error stability
+* SU1     2024-04-30 NOM 3.6     remove unused
+* ------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NOXXTF-A
+************************************************************************
+LOCAL     USING NOXXTF-L
+LOCAL     USING NODLSL-A
+LOCAL     USING NADA2000
+LOCAL     USING NAD-MSG
+LOCAL     USING NAD-FLD
+LOCAL                                                      /* CF1 +
+1 NAT23008-PARA
+  2 LFILE-NR           (B1)
+  2 FUNCTION           (A1)     /* 'S'=Set, 'R'=Reset
+  2 DBID               (B2)
+  2 FNR                (B2)
+  2 PASSWORD           (A8)
+  2 CIPHER             (A8)
+  2 VSAM-NAME          (A8)
+  2 DB-TYPE            (A1)
+  2 LFILE-IS-SET       (L)
+  2 RET_CODE           (I4)                               /* CF1 -
+LOCAL
+1 DISTRIBUTION-LIST VIEW OF NRM-DISTRIBUTION-LIST
+  2 D-LIST-NAME
+  2 D-LIST-DESC
+  2 C*D-USER-LIST
+  2 D-USER-LIST             (1:191)
+  2 D-DESCRIPTION           (1)
+1 MIGRATE-DISTRIBUTION-LIST VIEW OF NRM-MIGRATE-DISTRIBUTION-LIST
+  2 D-LIST-NAME
+  2 D-LIST-DESC
+  2 C*D-USER-LIST
+  2 D-USER-LIST             (1:191)
+  2 D-DESCRIPTION           (1)
+1 GRANTS VIEW OF NRM-GRANTS
+  2 GR-USERID
+  2 GR-OBJECT-TYPE
+  2 GR-OBJECT-NAME
+  2 C*GR-OPTION
+  2 GR-OPTION               (6)
+1 MIGRATE-GRANTS VIEW OF NRM-MIGRATE-GRANTS
+  2 GR-USERID
+  2 GR-OBJECT-TYPE
+  2 GR-OBJECT-NAME
+  2 C*GR-OPTION
+  2 GR-OPTION               (6)
+1 MIGRATE-USERS VIEW OF NRM-MIGRATE-USERS
+/*SU1  2 USER-ID
+1 MIGRATE-LIST VIEW OF NRM-MIGRATE-DISTRIBUTION-LIST
+/*SU1  2 D-LIST-NAME
+1 MIGRATE-LISTS VIEW OF NRM-MIGRATE-DISTRIBUTION-LIST
+/*SU1  2 D-LIST-NAME
+1 MIGRATE-REPORTS VIEW OF NRM-MIGRATE-REPORTS
+  2 R-REPNAME
+1 #LFILE-FIELDS
+  2 LFILE                   (L)
+  2 #LFILE-RC               (I4)             /*  error-code
+  2 #LFILE-OLDDBID          (N5)             /*  old DBID
+  2 #LFILE-OLDFILE          (N5)             /*  old File-Number
+  2 #LFILE-NEWDBID          (N5)             /*  new DBID
+  2 #LFILE-NEWFILE          (N5)             /*  new File-Number
+1 #I2                       (I4)
+1 #I                        (I2)
+1 #IMAX                     (I4)
+1 #E-NAME                   (A8)
+1 #NAME-S                   (A8)
+1 #GRANT-USER               (A8)
+1 #GRANTS                   (A1/6)
+1 #OBJ-NAME                 (A25)
+1 #GR-SUPER                 (A34)
+1 REDEFINE #GR-SUPER
+  2 #GR-TYPE                (A1)
+  2 #GR-USERID              (A8)
+  2 #GR-OBJECT              (A25)
+1 #GR-TYPE-NAME             (A26) INIT <'L'>
+1 REDEFINE #GR-TYPE-NAME
+  2 #GRANT-TYPE             (A1)
+  2 #GRANT-NAME             (A25)
+1 #ES-MSG-PREF              (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM             (A3)
+  2 #ES-MSG-NR              (N4)
+1 #ES-MSG-TXT               (A58)
+1 #ES-MSG-FIELD             (A32)
+1 REDEFINE #ES-MSG-FIELD
+  2 #ES-MSG-FIELD-NAME      (A28)
+  2 #ES-MSG-FIELD-INDEX     (N4)
+1 #ET-COUNT                 (I2)
+/*SU1 1 #ALLOWED   (L)
+1 #EXIST                    (L)
+/*                                                         /* CF1 +
+1 #MESSAGE                  (A250)
+1 #MSG-TEXT                 (A79)
+1 #ERRORNUMBER              (N4)
+1 #LANGCODE                 (I1)
+1 #RESPCODE                 (N1)
+1 #FUNC                     (A1)
+1 #LFILE                    (N5) INIT<158>
+/*                                                         /* CF1 -
+END-DEFINE
+* --------------------------------------------------------------------
+ON ERROR
+  ES-RC := 1
+  #ERRORNUMBER := *ERROR-NR
+  CALLNAT 'NAT00020' #ERRORNUMBER #LANGCODE #MSG-TEXT #RESPCODE
+  IF #RESPCODE NE 0
+    COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ELSE
+    COMPRESS #ERRORNUMBER #MSG-TEXT INTO ES-MSG-TXT
+ END-IF                                                         /* CF1 -
+  ESCAPE ROUTINE
+END-ERROR
+* -------------------------------------------------------------------
+RESET ES-RC
+#NODLSL := ES-SELECT
+NOTF-PARM-1 := ES-KEY-PARM(1)
+/* Verify input parameters and switch LFILE 158 to target values
+PERFORM SET-LOGICAL-FILE
+IF #ES-MSG-NR NE 0
+  PERFORM GET-MSG-TXT
+  ES-RC := 1
+  ES-MSG-FIELD := #ES-MSG-FIELD
+  COMPRESS '<#ERRORNUMBER' #ERRORNUMBER ':' #MESSAGE '>' TO ES-WORK
+ELSE /* Check appropriate objects and perform copy
+  PERFORM LIST
+  RESET #ES-MSG-NR
+  /*
+  /* Switch LFILE 158 back to former values
+  PERFORM SWITCH-BACK-LFILE
+  IF #ES-MSG-NR NE 0
+    PERFORM GET-MSG-TXT
+    ES-RC := 2
+  END-IF
+END-IF                                                     /* CF1 -
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE LIST
+************************************************************************
+RESET ES-NUMBER ES-OPTION-COUNT ES-STARTINDEX ES-SORTKEY ES-SORTORDER
+  ES-EXPAND NOTF2-LIST(*)
+ES-EOF := 'X'
+#IMAX := 265
+ES-FIELD-COUNT := 2
+EXAMINE  #NODLSL.#NAME FOR '*' DELETE
+COMPRESS #NODLSL.#NAME H'FF' TO #E-NAME LEAVING NO
+EXAMINE  #NODLSL.#AUTH FOR '*' DELETE
+IF ES-NEXT-KEY-PARM(1) > #NODLSL.#NAME
+  #NAME-S := ES-NEXT-KEY-PARM(1)
+ELSE
+  #NAME-S := #NODLSL.#NAME
+  ES-STARTINDEX := 1
+/* get header texts
+  #ES-MSG-NR := 6104
+  PERFORM GET-MSG-TXT              /* list
+  NOTF2-HEADER(1) := LONG-MSG(1)
+  #ES-MSG-NR := 6102
+  PERFORM GET-MSG-TXT              /* message
+  NOTF2-HEADER(2) := LONG-MSG(13)
+END-IF
+R. READ DISTRIBUTION-LIST BY D-LIST-NAME = #NAME-S ENDING AT #E-NAME
+  IF D-LIST-NAME > #E-NAME
+    ESCAPE BOTTOM(R.)
+  END-IF
+  IF NOT (#NODLSL.#AUTH = ' ' OR = '*' OR = 'ADMIN')
+    #OBJ-NAME := D-LIST-NAME
+    CALLNAT 'NOGROU-N' 'L' #OBJ-NAME #NODLSL.#AUTH #GRANT-USER #GRANTS(*)
+  ELSE
+    #GRANTS(*) := 'Y'
+  END-IF
+  ACCEPT IF #GRANTS(1:4) = 'Y'
+  PERFORM CHECK-RELATED-OBJECTS
+  DECIDE FOR EVERY CONDITION
+    WHEN #ES-MSG-NR NE 0
+      PERFORM DATA-TO-LIST
+    WHEN #EXIST AND NOTF-OWERWR NE 'Y'
+      #ES-MSG-NR := 8855
+      PERFORM DATA-TO-LIST
+    WHEN #ES-MSG-NR = 0
+      PERFORM COPY-LIST
+    WHEN NONE IGNORE
+  END-DECIDE
+END-READ
+*
+END-SUBROUTINE /* LIST
+*
+************************************************************************
+DEFINE SUBROUTINE DATA-TO-LIST
+************************************************************************
+ADD 1 TO #I2
+IF #I2 > #IMAX
+  ES-NEXT-KEY-PARM(1) := DISTRIBUTION-LIST.D-LIST-NAME
+  ES-NUMBER := #IMAX
+  RESET ES-EOF
+  ESCAPE BOTTOM /*??
+ELSE
+  PERFORM GET-MSG-TXT
+  NOTF2-MSG(#I2) := ES-MSG-TXT         /* err msg
+  NOTF2-OBJECT(#I2) := DISTRIBUTION-LIST.D-LIST-NAME
+  ES-NUMBER := #I2
+END-IF
+*
+END-SUBROUTINE /* DATA-TO-LIST
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LOGICAL-FILE                         /* CF1 +
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN NOTF-DBID-TO < 1
+    #ES-MSG-NR := 0635                      /* Invalid DBID
+    #ES-MSG-FIELD-NAME := 'DBID-TO'
+  WHEN NOTF-FNR-TO < 1
+    #ES-MSG-NR :=0636                       /* Invalid FNR
+    #ES-MSG-FIELD-NAME := 'FNR-TO'
+  WHEN NOTF-FNR-TO  = NOTF-FNR-FROM AND
+      NOTF-DBID-TO = NOTF-DBID-FROM
+    #ES-MSG-NR := 4004   /* Source and Target env must be different
+    #ES-MSG-FIELD-NAME := 'DBID-TO'
+  WHEN NONE
+    /*
+    /* Verify if NOM DBID/FNR are valid
+    #FUNC := 'S'
+    #LFILE-NEWDBID := NOTF-DBID-TO
+    #LFILE-NEWFILE := NOTF-FNR-TO
+    CALLNAT 'XXVNOM-N' #FUNC #LFILE #LFILE-NEWDBID #LFILE-NEWFILE
+      #LFILE-OLDDBID #LFILE-OLDFILE
+      #MESSAGE #ERRORNUMBER
+    IF #ERRORNUMBER NE 0
+      #ES-MSG-NR := 4005        /* Specified File is not a NOM-File
+      #ES-MSG-FIELD-NAME := 'DBID-TO'
+      IF #ERRORNUMBER = 3 OR= 4  /* LFILE was switched
+        PERFORM SWITCH-BACK-LFILE
+      END-IF
+    ELSE
+      CALLNAT 'RMIGCHKU' ES-USER #ES-MSG-NR
+      IF #ES-MSG-NR NE 0
+        #ES-MSG-TXT := ES-USER
+        PERFORM SWITCH-BACK-LFILE
+      END-IF
+    END-IF
+END-DECIDE
+*
+END-SUBROUTINE /* SET-LOGICAL-FILE
+*
+************************************************************************
+DEFINE SUBROUTINE SWITCH-BACK-LFILE
+************************************************************************
+IF *MACHINE-CLASS NE 'PC'
+  /* Set LFILE to former values (OLD...)
+  IF #LFILE-OLDDBID = 0 AND #LFILE-OLDFILE = 0
+    NAT23008-PARA.FUNCTION := 'R'    /* Reset LFILE
+  ELSE
+    NAT23008-PARA.FUNCTION := 'S'    /* Set back to former values
+  END-IF
+  /*
+  NAT23008-PARA.LFILE-NR := 158
+  NAT23008-PARA.DBID     := #LFILE-OLDDBID
+  NAT23008-PARA.FNR      := #LFILE-OLDFILE
+  CALLNAT 'NAT23008' NAT23008-PARA
+  /*
+  IF NAT23008-PARA.RET_CODE NE 0
+    COMPRESS 'NAT23008 response code:' NAT23008-PARA.RET_CODE
+      TO #MESSAGE
+    #ES-MSG-NR := 4008       /* Refresh LFile error occured
+    #ES-MSG-TXT := NAT23008-PARA.RET_CODE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SWITCH-BACK-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-RELATED-OBJECTS
+************************************************************************
+RESET #ES-MSG-NR
+IF DISTRIBUTION-LIST.C*D-USER-LIST > 0
+  RESET #ES-MSG-TXT
+  FORU. FOR #I = 1 TO DISTRIBUTION-LIST.C*D-USER-LIST
+    FNDU. FIND NUMBER MIGRATE-USERS
+      WITH USER-ID = DISTRIBUTION-LIST.D-USER-LIST (#I)
+    IF *NUMBER (FNDU.) = 0
+      FNDL. FIND NUMBER MIGRATE-LIST
+        WITH D-LIST-NAME = DISTRIBUTION-LIST.D-USER-LIST (#I)
+      IF *NUMBER = 0
+        #ES-MSG-NR := 2135  /* Member of DL not found in target DB
+        #ES-MSG-TXT := DISTRIBUTION-LIST.D-USER-LIST(#I)
+        ESCAPE BOTTOM(FORU.)
+      END-IF
+    END-IF
+  END-FOR
+END-IF
+IF #ES-MSG-NR = 0 AND NOTF-AUTH = 'Y'
+  RESET #ES-MSG-TXT
+  #GRANT-NAME := DISTRIBUTION-LIST.D-LIST-NAME
+  CHKG. FIND GRANTS WITH GR-TYPE-NAME = #GR-TYPE-NAME
+    IF GR-USERID(CHKG.) = 'PUBLIC'
+      ESCAPE TOP
+    END-IF
+    FNRU. FIND NUMBER MIGRATE-USERS WITH USER-ID = GR-USERID(CHKG.)
+    IF *NUMBER(FNRU.) = 0
+      FNRD. FIND NUMBER MIGRATE-LISTS WITH D-LIST-NAME =GR-USERID(CHKG.)
+      IF *NUMBER(FNRD.) = 0
+        #ES-MSG-NR  := 2131
+        /* Authorised user:1: not defined in target DB
+        #ES-MSG-TXT := GRANTS.GR-USERID
+        ESCAPE BOTTOM(CHKG.)
+      END-IF
+    END-IF
+  END-FIND
+END-IF
+/* check existance in target environment
+FT. FIND NUMBER MIGRATE-DISTRIBUTION-LIST WITH
+  D-LIST-NAME = DISTRIBUTION-LIST.D-LIST-NAME
+IF *NUMBER(FT.) > 0 AND NOTF-OWERWR NE 'Y'
+  #EXIST := TRUE
+ELSE
+  RESET #EXIST
+END-IF
+*
+END-SUBROUTINE /* CHECK-RELATED-OBJECTS
+*
+************************************************************************
+DEFINE SUBROUTINE COPY-LIST
+************************************************************************
+FNDT. FIND MIGRATE-DISTRIBUTION-LIST WITH
+    D-LIST-NAME = DISTRIBUTION-LIST.D-LIST-NAME
+  IF NO RECORDS FOUND
+    ENTER
+  END-NOREC
+  MOVE BY NAME DISTRIBUTION-LIST TO MIGRATE-DISTRIBUTION-LIST
+  IF *NUMBER (FNDT.) = 0
+    STORE MIGRATE-DISTRIBUTION-LIST
+  ELSE
+    IF NOTF-OWERWR = 'Y'
+      UPDATE (FNDT.)
+    ELSE
+      BACKOUT TRANSACTION
+      ESCAPE BOTTOM(FNDT.)
+    END-IF
+  END-IF
+/* grant user
+  #GR-TYPE := 'L'
+  #GR-USERID := ES-USER
+  #GR-OBJECT := DISTRIBUTION-LIST.D-LIST-NAME
+  FNDG. FIND MIGRATE-GRANTS WITH GR-SUPER = #GR-SUPER
+    IF NO RECORDS FOUND
+      MIGRATE-GRANTS.GR-USERID := ES-USER
+      MIGRATE-GRANTS.GR-OBJECT-TYPE := 'L'
+      MIGRATE-GRANTS.GR-OBJECT-NAME := DISTRIBUTION-LIST.D-LIST-NAME
+    END-NOREC
+    MIGRATE-GRANTS.GR-OPTION(*) := 'Y'
+    IF *NUMBER (FNDG.) = 0
+      STORE MIGRATE-GRANTS
+    ELSE
+      UPDATE
+    END-IF
+  END-FIND
+  IF NOTF-AUTH = 'Y'
+    #GRANT-NAME:= DISTRIBUTION-LIST.D-LIST-NAME
+    COPG. FIND GRANTS WITH GR-TYPE-NAME = #GR-TYPE-NAME
+      #GR-USERID:= GRANTS.GR-USERID
+      COPM. FIND MIGRATE-GRANTS WITH GR-SUPER = #GR-SUPER
+        IF NO RECORDS FOUND
+          ENTER
+        END-NOREC
+        MOVE BY NAME GRANTS TO MIGRATE-GRANTS
+        IF *NUMBER (COPM.) = 0
+          STORE MIGRATE-GRANTS
+        ELSE
+          UPDATE
+        END-IF
+        ADD 1 TO #ET-COUNT
+        IF #ET-COUNT GE 50
+          RESET #ET-COUNT
+          END TRANSACTION
+        END-IF
+      END-FIND
+    END-FIND
+  END-IF
+END-FIND
+END OF TRANSACTION
+*
+END-SUBROUTINE /* COPY-LIST
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+ES-MSG-NR  := #ES-MSG-NR
+ES-MSG-TXT   := SHORT-MSG
+EXAMINE ES-MSG-TXT FOR #ES-MSG-PREF DELETE
+EXAMINE ES-MSG-TXT FOR ':1:' REPLACE #ES-MSG-TXT
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+END

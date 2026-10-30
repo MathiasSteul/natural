@@ -1,0 +1,110 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Program  : RRENBU
+* Function : Rename master bundle
+*            Rename it also in bundle contents
+*            renames only master records.
+* F(012) INCORPORATED
+*
+* Maintenance
+* mrs 91-12-20 s(141159) support languages other than english
+* xsisgg 00-08-22 CE7461 Extend Report and Bundle names
+* xsetggr 2012-02-01 NOMALL-1100 write language independant msgs in log
+* xsetggr 2012-09-21 NOMALL-89 implement external security check subrout
+* SU1     2014-06-04 NOMALL-1281 show last update user+date
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+LOCAL USING RLOG-L
+LOCAL USING ROT----L
+LOCAL
+1 BUNDLES VIEW OF NRM-BUNDLES
+  2 B-BUNDLE
+  2 B-LAST-UPDATE      /*SU1
+  2 B-LAST-UPDATE-USER /*SU1
+*
+1 BUNDLE-REPORT VIEW OF NRM-BUNDLE-REPORT
+  2 BR-BUNDLE
+*
+1 #NEWNAME          (A25)
+1 REDEFINE #NEWNAME
+  2 #NEWNAME-A      (A1/25)
+1 #OLDNAME          (A25)
+1 REDEFINE #OLDNAME
+  2 #OLDNAME-A      (A1/25)
+1 #POS              (N2)
+1 #FATHER-PROG      (A8) INIT <'RLISBU'>
+1 #PROG             (A8)         /* xsetggr 2012-09-21 NOMALL-89 in
+1 #ALLOWED          (L)          /* xsetggr 2012-09-21 NOMALL-89 in
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+CALLNAT 'ROTINI-N' ##EQO-BUNDLE G-OBJ-TYPE G-OTB
+* xsetggr 2012-09-21 NOMALL-89 insert next 3 lines
+#PROG := *PROGRAM
+PERFORM XXSECURITY-CHECK #PROG G-C-BUNDLE #ALLOWED
+INCLUDE C-NALLOW
+*
+SET KEY PF3
+REPEAT
+*
+  #OLDNAME := G-C-BUNDLE
+  RESET  #NEWNAME
+  IF NOT G-DISPLAY-LONG-NAMES
+    #OLDNAME-A(9) := #NEWNAME-A(9) := H'FA'
+  END-IF
+  SET CONTROL 'WC11L45B06/25F'
+  SET CONTROL 'MT'
+  INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT USING MAP 'RRENBUM&'
+  RESET G-NATRP-ERC G-NATRP-ERT
+  IF *PF-KEY = 'PF3'
+    SET CONTROL 'WB'
+    INCLUDE C-ESCAPE
+  END-IF
+*
+  IF NOT G-DISPLAY-LONG-NAMES
+    RESET  #NEWNAME-A(9)
+  END-IF
+  IF #NEWNAME = ' '
+    REINPUT *0405 ALARM
+  END-IF
+*
+  F1. FIND NUMBER BUNDLES WITH B-BUNDLE  = #NEWNAME
+  IF *NUMBER(F1.) > 0
+    REINPUT *0033, G-OBJ-TYPE ALARM
+  END-IF
+*
+  MR. FIND BUNDLES WITH B-BUNDLE  = G-C-BUNDLE
+    B-BUNDLE           := #NEWNAME
+    B-LAST-UPDATE      := *TIMX /*SU1
+    B-LAST-UPDATE-USER := G-USERID /*SU1
+    UPDATE
+  END-FIND
+*
+  BR. FIND BUNDLE-REPORT WITH BR-BUNDLE  = G-C-BUNDLE
+    BR-BUNDLE := #NEWNAME
+    UPDATE
+  END-FIND
+*
+  FETCH RETURN 'RRENGR' 'B' G-C-BUNDLE #NEWNAME
+*
+  G-NATRP-ERC := 32
+  SET CONTROL 'WB'
+*
+  LG-USERID := G-USERID
+  LG-CODE := 'BM'
+  LG-OBJECT-NAME := #NEWNAME
+* COMPRESS 'RENAMED - OLD NAME WAS' G-C-BUNDLE INTO LG-MSG
+* xsetggr 2012-02-01 NOMALL-1100 line above out, next line in
+  COMPRESS '2507' G-C-BUNDLE #NEWNAME TO LG-MSG
+  CALLNAT 'RLOG' PL-PARMS
+  END TRANSACTION
+END-REPEAT
+*
+END

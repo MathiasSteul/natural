@@ -1,0 +1,247 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RHANPH-N
+* Version   3.2
+* Function  Start / Stop physical printer
+*
+* Maintenance
+* uuu     yyyy-mm-dd s(999999) ...
+* xsetggr 2007-11-20 NRT2771   created
+* xsetggr 2008-02-16 p(301593) improve start and stop commands
+* xsetggr 2011-03-31 NOMALL-963 autocommit for large number of printouts
+* raya    2011-07-26 NOMALL-77   add END TRANSACTION
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* ---------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 P-PRINTER   (A8)
+1 P-FUNC      (A1)        /* 'S' - start, 'C' - stop
+1 P-USERID    (A8)
+1 P-ERC       (N4)
+* *****
+LOCAL USING RLOG-L
+LOCAL
+1 PH VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-VTAMID
+  2 PH-STATUS
+1 PR VIEW OF NRM-PRINTERS
+1 PO VIEW OF NRM-PRINTOUTS
+  2 PO-STATUS
+  2 PO-HOLD
+  2 PO-PHYSICAL-NAME
+  2 PO-LAST-PRINTED-RECNO
+  2 PO-NUMBER-OF-RETRIES
+  2 PO-SCHEDULED
+  2 PO-MSG
+  2 PO-PRINTED
+  2 PO-JOBNAME
+  2 PO-JOBNO
+  2 PO-JOBID
+/*SU2 2 PO-OBJECT-TYPE /*SU1
+/*SU2 2 PO-OBJECT-TIME /*SU1
+1 #S-PRINTER  (A8)
+1 REDEFINE #S-PRINTER
+  2 #S-P-V   (A1/8)
+1 #T-PRINTER  (A8)
+1 #HOLD       (A1)
+1 #SELECTION  (L)
+1 #POS        (N1)
+1 #ET-COUNT   (I2)                  /* xsetggr 2011-03-31 NOMALL-963 in
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-ERC #SELECTION
+  #ET-COUNT                    /* xsetggr 2011-03-31 NOMALL-963 in
+IF NOT (P-FUNC = 'S' OR = 'C')
+  P-ERC := 2600                 /* invalid function
+  ESCAPE ROUTINE
+END-IF
+IF P-PRINTER = SCAN '*'
+  PERFORM INIT-PRINTER-VALUES
+END-IF
+PERFORM START-STOP-PRINTER
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PRINTER-VALUES
+************************************************************************
+#SELECTION := TRUE
+#S-PRINTER := P-PRINTER
+EXAMINE #S-PRINTER FOR '*' GIVING POSITION IN #POS
+IF #POS > 0
+  RESET #S-P-V(#POS:8)
+  MOVE #S-PRINTER TO #T-PRINTER
+  EXAMINE FULL #T-PRINTER FOR ' ' REPLACE H'FF'
+END-IF
+*
+END-SUBROUTINE /* INIT-PRINTER-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE START-STOP-PRINTER
+************************************************************************
+IF #SELECTION
+  FNDPH1. FIND PH WITH PH-VTAMID = #S-PRINTER THRU #T-PRINTER
+    IF NO RECORDS FOUND
+      P-ERC := 2114            /* physical printer not exist
+      ESCAPE BOTTOM (FNDPH1.)
+    END-NOREC
+    PERFORM START-STOP-PRINTOUTS
+* xsetggr 2011-03-31 NOMALL-963 line above in, rewrite next lines
+    GETPH1. GET PH *ISN(FNDPH1.)
+    DECIDE ON FIRST VALUE OF P-FUNC
+      VALUE 'S'
+        RESET PH-STATUS
+      VALUE 'C'
+        PH-STATUS := 'S'
+      NONE VALUE IGNORE
+    END-DECIDE
+    UPDATE (GETPH1.)
+    #ET-COUNT := #ET-COUNT + 1
+    IF #ET-COUNT > 50
+      END TRANSACTION
+      RESET #ET-COUNT
+    END-IF                        /* xsetggr 2011-03-31 NOMALL-963 end
+    PERFORM WRITE-LOG
+  END-FIND
+ELSE
+  FNDPH2. FIND PH WITH PH-VTAMID = P-PRINTER
+    IF NO RECORDS FOUND
+      P-ERC:= 119                 /* physical printer not defined
+      ESCAPE BOTTOM(FNDPH2.)
+    END-NOREC
+    PERFORM START-STOP-PRINTOUTS
+* xsetggr 2011-03-31 NOMALL-963 line above in, rewrite next lines
+    GETPH2. GET PH *ISN(FNDPH2.)
+    DECIDE ON FIRST VALUE OF P-FUNC
+      VALUE 'S'
+        RESET PH-STATUS
+      VALUE 'C'
+        PH-STATUS := 'S'
+      NONE VALUE IGNORE
+    END-DECIDE
+    UPDATE (GETPH2.)
+    #ET-COUNT := #ET-COUNT + 1
+    IF #ET-COUNT > 50
+      END TRANSACTION
+      RESET #ET-COUNT
+    END-IF                        /* xsetggr 201-03-31 NOMALL-963 end
+    PERFORM WRITE-LOG
+  END-FIND
+END-IF
+END TRANSACTION                   /*raya nomall-77   in
+*
+END-SUBROUTINE /* START-STOP-PRINTER
+* xsetggr 2011-03-31 NOMALL-963 insert next lines
+************************************************************************
+DEFINE SUBROUTINE START-STOP-PRINTOUTS
+************************************************************************
+DECIDE ON FIRST VALUE OF P-FUNC
+  VALUE 'S'
+    IF PH-STATUS = 'S'
+      PERFORM START-PRINTOUT
+    END-IF
+  VALUE 'C'
+    IF PH-STATUS = ' '
+      PERFORM STOP-PRINTOUT
+    END-IF
+  NONE VALUE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* START-STOP-PRINTOUTS XSETGGR 2011-03-31 NOMALL-963 END
+*
+************************************************************************
+DEFINE SUBROUTINE STOP-PRINTOUT
+************************************************************************
+FNDPR1. FIND NUMBER PR WITH P-PHYSICAL-NAME = PH.PH-VTAMID
+IF *NUMBER(FNDPR1.) = 0                       /* no logical printers
+  ESCAPE ROUTINE
+END-IF
+FNDPO1. FIND PO WITH (PO-STATUS ='H' OR='C' OR='R' OR='T' OR='A')
+  IF NO RECORDS FOUND
+    ESCAPE BOTTOM (FNDPO1.)
+  END-NOREC
+  IF PO-PHYSICAL-NAME = PH.PH-VTAMID
+    IF PO-STATUS = 'H' OR = 'C'
+      PO-HOLD := PO-STATUS
+    END-IF
+    PO-STATUS := 'S'
+/*SU2 PO-OBJECT-TYPE := 'PO' /*SU1
+/*SU2 PO-OBJECT-TIME := *TIMX /*SU1
+    #ET-COUNT := #ET-COUNT + 1    /* xsetggr 2011-03-31 NOMALL-963 in
+    UPDATE (FNDPO1.)
+  END-IF
+  IF #ET-COUNT > 50             /* xsetggr 2011-03-31 NOMALL-963 start
+    END TRANSACTION
+    RESET #ET-COUNT
+  END-IF                        /* xsetggr 2011-03-31 NOMALL-963 end
+END-FIND
+*
+END-SUBROUTINE /* STOP-PRINTOUT
+*
+************************************************************************
+DEFINE SUBROUTINE START-PRINTOUT
+************************************************************************
+FNDPR. FIND NUMBER PR WITH P-PHYSICAL-NAME = PH.PH-VTAMID
+IF *NUMBER(FNDPR.) = 0                          /* no logical printers
+  ESCAPE ROUTINE
+END-IF
+FNDPO. FIND PO WITH PO-STATUS = 'S'
+  IF NO RECORD FOUND
+    ESCAPE BOTTOM (FNDPO.)
+  END-NOREC
+  RESET #HOLD
+  IF PO-PHYSICAL-NAME = PH.PH-VTAMID
+    IF PO-HOLD NE ' '
+      #HOLD := PO-HOLD
+      RESET PO-HOLD
+    END-IF
+    DECIDE ON FIRST VALUE OF #HOLD
+      VALUE 'H','Y'
+        PO-STATUS := 'H'
+      VALUE 'C'
+        PO-STATUS := 'C'
+      NONE VALUE
+        PO-STATUS := 'R'
+        RESET  PO-PRINTED PO-NUMBER-OF-RETRIES PO-LAST-PRINTED-RECNO
+          PO-MSG PO-JOBNAME PO-JOBNO PO-JOBID
+        CALLNAT 'RDEFPO-N' PO-PHYSICAL-NAME PO-SCHEDULED
+    END-DECIDE
+/*SU2 PO-OBJECT-TYPE := 'PO' /*SU1
+/*SU2 PO-OBJECT-TIME := *TIMX /*SU1
+    #ET-COUNT := #ET-COUNT + 1    /* xsetggr 2011-03-31 NOMALL-963 in
+    UPDATE (FNDPO.)
+  END-IF
+  IF #ET-COUNT > 50               /* xsetggr 2011-03-31 NOMALL-963 start
+    END TRANSACTION
+    RESET #ET-COUNT
+  END-IF                          /* xsetggr 2011-03-31 NOMALL-963 end
+END-FIND
+*
+END-SUBROUTINE /* START-PRINTOUT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG
+************************************************************************
+LG-USERID := P-USERID
+LG-CODE := 'MO'
+LG-PRINTER := PH-VTAMID
+IF P-FUNC = 'C'
+  COMPRESS '2136' PH-VTAMID TO LG-MSG
+ELSE
+  COMPRESS '2137' PH-VTAMID TO LG-MSG
+END-IF
+CALLNAT 'RLOG' PL-PARMS
+*
+END-SUBROUTINE /* WRITE-LOG
+*
+END

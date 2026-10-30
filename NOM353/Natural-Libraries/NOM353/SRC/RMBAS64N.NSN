@@ -1,0 +1,292 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+**********************************************************************
+*                            RMBAS64N
+*
+* Convert binary string to array of alpha lines in base64 and vice versa
+*
+* FHI, 05/2007
+*
+* Parameter Description for NAT42001:
+* -----------------------------------
+* Input ...... B64-FUNCTION  (A2)  : 'AB' Alpha to binary conversion
+*                                  : 'BA' Binary to alpha conversion
+* Output ..... B64-RC        (I4)  : 0 ok
+*              B64-ERRTXT    (A72) : blank, if ok, no error
+*                                    else error text
+* In/output .. B64-B         (B) DYNAMIC
+*                                  : Binary source input/target output
+*              B64-A         (A) DYNAMIC
+*                                   : Alpha source input/target output
+* Input        B64-RFC       (B1) optional (OS only)
+*                                   : 0 - RFC3548; 3 - RFC2045
+*
+* MAINTENANCE:
+*
+* fhi     2007-05-09 NOM32     Initial
+* fhi     2008-02-25 P302167   Binary data repeated
+* fhi     2010-10-11 NOMALL-97 Use dynamic memory
+* fhi     2012-11-14 NOMALL-1143 Use more occurrencies
+* fhi     2013-18-22 NOMALL-86   Rewritten. No tags.
+* fhi     2014-07-02 NOMALL-1398 Added trace output.
+* fhi     2014-07-09 NOMALL-1430 Correct trace output.
+* fhi     2014-11-13 NOMALL-1501 Avoid 1326 in 1770
+* SU1     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+**********************************************************************
+*
+/*SU1 OPTIONS MCG=(INDX=ON,OVFLW=ON,DIGTCHCK=ON)
+DEFINE DATA
+PARAMETER
+1 B64-FUNCTION               (A2)        /* 'AB' or 'BA' conversion
+*                                        /* = 'A)lpha to B)inary or
+*                                        /* vice versa
+*                                        /* INPUT ONLY
+*
+1 B64-RC                     (I4)        /* '0' = no more data / ok
+*                                        /* '5' = conversion in error.
+*                                        /* Will be returned to caller
+*                                        /* with function 'BA'.
+*                                        /* OUTPUT ONLY.
+*
+1 B64-ERRTXT                 (A72)       /* Error text if RC=5
+*                                        /* OUTPUT ONLY.
+*
+1 B64-BRACKET                (A1)        /* F)irst,M)iddle,L)ast call,
+  /* Blank = One call only.
+*                                        /* Has to be set by caller to
+*                                        /* indicate which processing
+*                                        /* is desired.
+*                                        /* INPUT ONLY
+*
+1 B64-A                      (A) DYNAMIC /* Alpha field, don't change
+*
+1 B64-B                      (B) DYNAMIC /* Set with function 'BA'
+*                                        /* Returned with function 'AB'
+*                                        /* INPUT / OUTPUT
+*
+* 1 B64-TEXT-ARRAY             (A251/100)
+* fhi     2010-10-11 NOMALL-97 Line above out, below in
+1 B64-TEXT-ARRAY             (A251/*)    /* Returned with function 'BA'
+*                                        /* Set with function 'AB'
+*                                        /* First empty string will end
+*                                        /* processing in function 'AB'
+*                                        /* INPUT / OUTPUT
+*
+1 B64-WORK                   (A250)      /* Work area, don't change
+1 REDEFINE B64-WORK
+  2 B64-START                (I4)
+  2 #BRACKET-OLD             (A1)
+1 #LINE-LENGTH  (I4) BY VALUE OPTIONAL   /* Will overwrite the default
+*                                        /* line length of '72' for
+*                                        /* function 'BA'
+*                                        /* INPUT ONLY
+1 #TRACE-LEVEL           (A3) OPTIONAL   /* INPUT, numeric, NOMALL-1398
+*
+************************************************************************
+LOCAL
+1 B64-RFC                    (B1) INIT <H'00'>
+1 #I                         (I4)
+1 #J                         (I4)
+1 #K                         (I4) /* NOMALL-1430 fhi in
+1 #L                         (I4) /* NOMALL-1430 fhi in
+1 #LEN                       (I4)
+1 #LEN-CHECK                 (I4)
+1 #STRING-LEN                (P3)
+1 #LINE-LEN                  (P3) INIT <72>
+1 #NUMBER                    (P3) /* Number of characters in string
+1 #OCC                       (I4)
+1 #EQUALS                    (A3) INIT <'==='>
+1 #REMAINDER                 (I4)
+1 #TRACE-STRING              (A64)        /* NOMALL-1398 fhi in
+1 #TRACE-MSG                 (A250)       /* NOMALL-1398 fhi in
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET B64-ERRTXT
+DECIDE ON EVERY VALUE OF B64-BRACKET
+  VALUES 'F',' '
+    IF #BRACKET-OLD NE ' '
+      B64-ERRTXT := 'Bracket error: Middle call expected.'
+      PERFORM SET-ERROR
+    END-IF
+    #BRACKET-OLD := B64-BRACKET
+  VALUES 'M','L'
+    IF #BRACKET-OLD NE 'F'
+        AND #BRACKET-OLD NE 'M'
+      B64-ERRTXT := 'Bracket error: First call expected.'
+      PERFORM SET-ERROR
+    END-IF
+    #BRACKET-OLD := B64-BRACKET
+  VALUES 'L',' '
+    RESET #BRACKET-OLD
+  NONE
+    B64-ERRTXT := 'Bracket error: Wrong bracket character.'
+    PERFORM SET-ERROR
+END-DECIDE
+DECIDE ON FIRST VALUE OF B64-FUNCTION
+  VALUE 'BA'
+    REDUCE ARRAY B64-TEXT-ARRAY TO (1:1)
+    IF #LINE-LENGTH SPECIFIED
+      #LINE-LEN := #LINE-LENGTH
+    END-IF
+    DECIDE ON EVERY VALUE OF B64-BRACKET
+      VALUES 'F',' '
+        RESET  B64-A B64-RC
+        REDUCE DYNAMIC B64-A TO 0
+      VALUES 'F','M','L',' '
+        COMPRESS B64-A B64-B TO B64-A LEAVING NO
+      VALUES 'L',' '
+        B64-B := B64-A
+        PERFORM CALL-CONVERTER
+        #LEN := #LEN-CHECK := *LENGTH (B64-A)
+        DIVIDE 3 INTO #LEN-CHECK REMAINDER #REMAINDER
+        IF #REMAINDER NE 0
+          #REMAINDER := 3 - #REMAINDER
+         COMPRESS B64-A SUBSTR(#EQUALS,1,#REMAINDER) TO B64-A LEAVING NO
+        END-IF
+        RESET #J
+        FOR #I = 1 TO #LEN STEP #LINE-LEN
+          ADD 1 TO #J
+          IF #J > *OCC (B64-TEXT-ARRAY)
+            #OCC := *OCC (B64-TEXT-ARRAY) + 5
+            EXPAND ARRAY B64-TEXT-ARRAY TO (1:#OCC)
+          END-IF
+          #NUMBER := #LINE-LEN
+          IF #I + #NUMBER > #LEN
+            #NUMBER := #LEN - #I + 1
+          END-IF
+          B64-TEXT-ARRAY (#J) := SUBSTR(B64-A,#I,#NUMBER)
+        END-FOR
+      NONE
+        *ERROR-NR := 999 /* should not occur
+    END-DECIDE
+  VALUE 'AB'
+    DECIDE ON EVERY VALUE OF B64-BRACKET
+      VALUES 'F',' '
+        RESET B64-A B64-B  /* P302167 added B64-A
+        B64-START   := 1
+        REDUCE DYNAMIC B64-A TO 0 /* P302167 in
+        REDUCE DYNAMIC B64-B TO 0
+      VALUES 'F','M','L',' '
+        FOR. FOR #I = 1 TO *OCC (B64-TEXT-ARRAY)
+          IF B64-TEXT-ARRAY (#I) = ' '
+            RESET B64-RC B64-START
+            B64-BRACKET := 'L'
+            ESCAPE BOTTOM (FOR.)
+          END-IF
+          EXAMINE B64-TEXT-ARRAY (#I) FOR '='
+            AND DELETE GIVING LENGTH IN #STRING-LEN
+          IF #STRING-LEN NE 0         /* NOMALL-1501 fhi in
+            MOVE B64-TEXT-ARRAY (#I) TO
+              SUBSTR(B64-A,B64-START,#STRING-LEN)
+            B64-START := B64-START + #STRING-LEN
+          END-IF                      /* NOMALL-1501 fhi in
+        END-FOR
+      VALUES 'L',' '
+        RESET B64-B B64-START B64-BRACKET
+        REDUCE DYNAMIC B64-B TO 0
+        PERFORM CALL-CONVERTER
+      NONE
+        B64-RC        := 5
+        COMPRESS *PROGRAM 'Please supply correct bracket field.'
+          TO B64-ERRTXT
+    END-DECIDE
+  NONE
+    B64-RC            := 5
+    COMPRESS *PROGRAM 'Function unknown to BASE64 conversion.'
+      TO B64-ERRTXT
+END-DECIDE
+* fhi     2014-07-02 NOMALL-1398 start insertion
+IF #TRACE-LEVEL SPECIFIED AND #TRACE-LEVEL > '2' /* trace buffers also
+  PERFORM WRITE-TRACE
+END-IF
+* fhi     2014-07-02 NOMALL-1398 end   insertion
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE CALL-CONVERTER
+************************************************************************
+CALLNAT 'NAT42001' B64-FUNCTION B64-RC B64-ERRTXT B64-B B64-A B64-RFC
+IF B64-RC NE 0
+  B64-RC := 5 /* Prepare error display with free text.
+  COMPRESS *PROGRAM B64-ERRTXT TO B64-ERRTXT
+  PERFORM WRITE-TRACE  /* MOMALL-1398 fhi in
+  ESCAPE MODULE
+END-IF
+END-SUBROUTINE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-ERROR
+************************************************************************
+B64-RC := 5 /* Prepare error display with free text.
+COMPRESS *PROGRAM B64-ERRTXT TO B64-ERRTXT
+PERFORM WRITE-TRACE  /* MOMALL-1398 fhi in
+ESCAPE MODULE
+*
+END-SUBROUTINE /* SET-ERROR
+*
+* fhi     2014-07-02 NOMALL-1398 start insertion
+************************************************************************
+DEFINE SUBROUTINE WRITE-TRACE
+************************************************************************
+COMPRESS 'Function:' B64-FUNCTION '- Bracket:' B64-BRACKET TO #TRACE-MSG
+PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+#TRACE-MSG :=  'Text array:'
+PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+#TRACE-MSG :=  '-----------'
+PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END TRANSACTION
+FOR #I = 1 TO *OCC(B64-TEXT-ARRAY)
+  EXAMINE B64-TEXT-ARRAY (#I) FOR ' ' GIVING LENGTH IN #L /* NOMALL-1430
+  FOR #J = 1 TO 251 STEP 100
+    IF SUBSTR(B64-TEXT-ARRAY (#I),#J) NE ' '
+*     MOVE  SUBSTR(B64-TEXT-ARRAY (#I),#J,100) TO #TRACE-MSG
+* fhi     2014-07-09 NOMALL-1430 2 lines above out, start insertion
+      IF #L - #J  > 99
+        #K := 100
+      ELSE
+        #K := #L - #J + 1
+      END-IF
+      IF #K > 0
+        #TRACE-MSG := SUBSTR(B64-TEXT-ARRAY (#I),#J,#K)
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+* fhi     2014-07-09 NOMALL-1430 end insertion
+    END-IF
+  END-FOR
+  END TRANSACTION
+END-FOR
+END TRANSACTION
+#TRACE-MSG :=  'Binary:'
+PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+FOR #J = 1 TO *LENGTH(B64-B) STEP 32
+  #TRACE-MSG :=  '-------'
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  IF SUBSTR(B64-B,#J) NE ' '
+    MOVE SUBSTR(B64-B,#J) TO #TRACE-STRING
+    MOVE EDITED #TRACE-STRING
+   (EM=X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?X?)
+      TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    MOVE EDITED #TRACE-STRING (EM=HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH)
+      TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END TRANSACTION
+  END-IF
+END-FOR
+END TRANSACTION
+*
+END-SUBROUTINE /* WRITE-TRACE
+* fhi     2014-07-02 NOMALL-1398 end   insertion
+*
+END

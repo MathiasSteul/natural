@@ -1,0 +1,85 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+DEFINE DATA
+LOCAL
+1 OD VIEW OF NRM-ORDER
+  2 OD-ID
+  2 OD-TYPE
+  2 OD-MONITOR-ID
+  2 OD-SOURCE-ID
+  2 OD-USER-ID
+  2 OD-PARAMETER (1)
+  2 OD-TIME-CREATED
+  2 OD-TIME-SCHEDULED
+  2 OD-TIME-PROCESSED
+  2 OD-ERROR-CODE
+  2 OD-ERROR-TEXT
+*
+1 ORDER-SOURCE VIEW OF NRM-ORDER-SOURCE
+  2 OS-OD-ID
+  2 OS-RUNNUMBER
+  2 OS-SOURCE-TEXT                 (50)
+*
+1 #OS-ID           (B12)
+1 REDEFINE #OS-ID
+  2 #OS-OD-ID        (P10)
+  2 #OS-RUNNUMBER    (P11)
+*
+LOCAL
+1 FUNCTION       (A1)
+1 #I2            (I2)
+1 #J             (I4)
+END-DEFINE
+**********************************************************
+INPUT 'D(elete, S(how orders, E(nd:' FUNCTION
+DECIDE ON FIRST VALUE OF FUNCTION
+  VALUES 'D','S'
+    READOD.
+    READ OD BY OD-ID
+      IF OD-TYPE = 0
+        ESCAPE TOP
+      END-IF
+      EXAMINE OD-PARAMETER(1) FOR FULL '   ' REPLACE ' '
+      EXAMINE OD-PARAMETER(1) FOR FULL '  '  REPLACE ' '
+      #I2 := OD-TYPE
+      IF OD-ERROR-TEXT = ' '
+        OD-ERROR-TEXT := '(no error text)'
+      END-IF
+      WRITE (AD=L)
+        'ID:'     10T OD-ID                               /
+        'Parms:'  10T OD-PARAMETER(1) (AL=79)             /
+        'Created:'10T OD-TIME-CREATED                     /
+        'Sched:'  10T OD-TIME-SCHEDULED                   /
+        'Proc:'   10T OD-TIME-PROCESSED                   /
+        'Error:'  10T OD-ERROR-CODE                       /
+        ' '       10T OD-ERROR-TEXT (AL=65)               /
+        'Type:'   10T OD-TYPE '/' #I2                     /
+        'Mon-ID:' 10T OD-MONITOR-ID                       /
+        'Source:' 10T OD-SOURCE-ID                        /
+        'User:'   10T OD-USER-ID                          //
+      #OS-OD-ID     := OD-ID
+      #OS-RUNNUMBER := 1
+      FIND ORDER-SOURCE WITH OS-ID = #OS-ID
+        WRITE (AD=L) 'Source-Lines:'
+        FOR #J = 1 TO 50
+          IF OS-SOURCE-TEXT (#J) NE ' '
+            WRITE (AL=78) OS-SOURCE-TEXT (#J)
+          END-IF
+        END-FOR
+        WRITE /
+      END-FIND
+      IF FUNCTION = 'D'
+        GETOD.
+        GET OD *ISN(READOD.)
+        DELETE (GETOD.)
+        CALLNAT 'RMPRGOS' OD-ID
+        END TRANSACTION
+      END-IF
+    END-READ
+  NONE
+    ESCAPE ROUTINE
+END-DECIDE
+END

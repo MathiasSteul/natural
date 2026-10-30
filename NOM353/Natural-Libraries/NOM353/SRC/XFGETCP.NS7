@@ -1,0 +1,155 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* XFGETCP - Return codepage for a document
+*           Invoke via: F#GETCP (<REPORT-NAME>)
+*
+* A document is represented by a report definition or an active report.
+* This function takes the report name and gets the codepage associated.
+* If empty, the node definition represented by the internal node id is
+* read and the CP taken from there. If not found or empty, *CODEPAGE is
+* used to fill 'CODEPAGE'.
+* If an empty CODEPAGE is returned, either Natural parameter CP=OFF, or
+* the report definition was not found.
+* This program checks the ident types of reports. See module CHCKIDNT
+* for a detailed description of these values.
+* Use as follows:
+* G-SOURCE-CODEPAGE := F#GETCP (<REPORT-NAME ?,TRACING]>)
+*
+* Maintenance
+* -----------
+* uuuuuu  yyyy-mm-dd iTrac       Remark
+* fhi     2018-08-01 NOMALL-2061 Created
+* fhi     2018-10-05 NOMALL-2061 Rewritten
+* SU1     2020-04-01 NOMALL-2379 recat:VREP---L mod:Unix files A26-> A50
+* SU2     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* ----------------------------------------------------------------------
+*
+DEFINE FUNCTION F#GETCP RETURNS CODEPAGE (A64)
+  DEFINE DATA PARAMETER
+  1 REPNAME      (A25) BY VALUE OPTIONAL
+  1 TRACING      (L)            OPTIONAL
+************************************************************************
+/*SU2  LOCAL USING VMONITUL
+  LOCAL USING VREP---L
+  LOCAL
+  1 #INTERNAL-NODE-ID        (P11)
+  1 #TRACING                 (L)
+  1 #TRACE-MSG               (A250)
+  1 #CATDATE                 (A19)
+  1 #C-R-IDENT               (I2)
+  1 MF-NODE VIEW OF NRM-MF-NODES /*SU2
+    2 MF-REMOTE-CODEPAGE (A64)
+    2 MF-MONITOR-ID (A20)  /* identify the NR
+* *****
+* ÜÜ NAT LUW requires INDEPENDENT below LOCAL ÜÜÜ
+  INDEPENDENT
+  1 +NOD-LOCAL-NODE          (N5)
+  1 +NOD-LOCAL-CODEPAGE      (A64)
+  1 +NOD-CURRENT-NODE        (N5)
+  1 +NOD-CURRENT-INTERNAL-ID (P11)
+  1 +NOD-CURRENT-CODEPAGE    (A64)
+* *****
+  END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF TRACING SPECIFIED
+  #TRACING := TRACING
+  IF #TRACING
+    PERFORM XXCATAL-GET-CATDATE #CATDATE
+    COMPRESS 'Start' *PROGRAM 'cataloged at'  #CATDATE TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+END-IF
+RESET CODEPAGE #INTERNAL-NODE-ID #C-R-IDENT
+DECIDE ON EVERY VALUE OF CODEPAGE
+  VALUE ' ' /* Try the report definition:
+    IF REPNAME SPECIFIED
+      IF #TRACING
+        COMPRESS 'Attempt to get codepage from report definition' REPNAME
+          TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      FIND (1) REPORTS WITH R-REPNAME = REPNAME
+        CODEPAGE          := R-REMOTE-CODEPAGE
+        #INTERNAL-NODE-ID := R-INTERNAL-NODE-ID
+        #C-R-IDENT        := C*R-IDENT
+        COMPRESS 'Codepage from report definition' REPNAME 'found:'
+          TO #TRACE-MSG
+      END-FIND
+    END-IF
+  VALUE ' ' /* Try the node associated to the report definition if any
+    IF #INTERNAL-NODE-ID NE 0
+      IF #TRACING
+        COMPRESS 'Attempt to get codepage from associated node'
+          MF-MONITOR-ID 'via report' REPNAME TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      IF #INTERNAL-NODE-ID = +NOD-CURRENT-INTERNAL-ID
+        CODEPAGE := +NOD-CURRENT-CODEPAGE
+      ELSE
+        FIND (1) MF-NODE /*SU2
+         WITH MF-INTERNAL-NODE-ID = #INTERNAL-NODE-ID /*take assoc. node
+          CODEPAGE := MF-REMOTE-CODEPAGE
+          IF #TRACING
+            COMPRESS 'Codepage from associated node' MF-MONITOR-ID
+              'via report' REPNAME 'found:' TO #TRACE-MSG
+          END-IF
+        END-FIND
+      END-IF
+    END-IF
+  VALUE ' ' /* Try the current node if a mainframe node is present
+    IF +NOD-CURRENT-NODE NE 0 /* it's a mainframe node
+      IF #TRACING
+        COMPRESS 'Attempt to get codepage from current MF node'
+          MF-MONITOR-ID TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      CODEPAGE := +NOD-CURRENT-CODEPAGE
+      IF #TRACING
+        COMPRESS 'Codepage from current MF node' MF-MONITOR-ID
+          'found:' TO #TRACE-MSG
+      END-IF
+    END-IF
+  VALUE ' ' /* Try the local node for Mainframe
+    IF +NOD-LOCAL-NODE NE 0 /* it's a mainframe monitor
+      IF #TRACING
+        COMPRESS 'Attempt to get codepage from local MF node'
+          MF-MONITOR-ID TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      CODEPAGE := +NOD-LOCAL-CODEPAGE
+      IF #TRACING
+        COMPRESS 'Codepage from local MF node' MF-MONITOR-ID
+          'found:' TO #TRACE-MSG
+      END-IF
+    END-IF
+  VALUE ' ' /* Now it's time for *CODEPAGE...
+    IF #TRACING
+      COMPRESS 'Attempt to get codepage from *CODEPAGE' TO #TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+    END-IF
+    CODEPAGE := *CODEPAGE
+    IF #TRACING
+      #TRACE-MSG := 'Codepage from *CODEPAGE found:'
+    END-IF
+  VALUE ' ' /* Give up :-(
+    IF #TRACING
+      #TRACE-MSG := 'Codepage *CODEPAGE empty, CP=OFF assumed.'
+    END-IF
+  NONE
+    IGNORE
+END-DECIDE
+IF #TRACING
+  COMPRESS #TRACE-MSG CODEPAGE TO #TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+END-IF
+*
+END-FUNCTION /*F#GETCP
+*
+END

@@ -1,0 +1,167 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NODALS-N - NOM API List of User defined archives
+*
+* Maintenance:
+* XSETGGR 2004-06-10 created
+* XSETGGR 2004-09-20 modified
+* XSETGGR 2004-11-09 add option 'xa'
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* CF1     2015-07-03 NOMALL-1658 Support language dependent lists
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NODALS-A
+************************************************************************
+LOCAL USING VUSARC-L
+LOCAL USING ESMCONSL
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL
+1 RP VIEW OF NRM-REPORTS-NEW
+1 AR VIEW OF NRM-ACTIVE-REPORTS
+1 AD VIEW OF NRM-ARCHIVE-DATASET
+1 #MONITOR-ID         (A10)
+1 REDEFINE #MONITOR-ID
+  2 #MONITOR-TYPE     (A7)    /* 'USERARC'
+  2 #USERARC-NUM      (N2)    /* 01 - 09
+1 #USERARC-TYPE       (A7)   CONST <'USERARC'>
+1 #I2                 (I4)
+1 #IMAX               (I4)
+1 #NUMB-A3            (A3)
+1 REDEFINE #NUMB-A3
+  2 #NUMB-N3          (N3)
+1 #ES-MSG-PREF        (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM       (A3)
+  2 #ES-MSG-NR        (N4)
+1 #HEADER-NR          (N4) CONST <6116>
+1 #I                  (P2)
+1 #OPTIONS            (A2/1:10)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+RESET ES-RC ES-NUMBER ES-STARTINDEX ES-SORTKEY ES-SORTORDER
+ES-EOF := 'X'
+ES-OPTION-COUNT := 10
+IF ES-EXPAND NE ' '
+  #IMAX := 790
+  ES-FIELD-COUNT := 1
+  NODAEX-FIELD-LENGTH(1) := 11
+ELSE
+  #IMAX := 316
+  ES-FIELD-COUNT := 3
+  NODALS-FIELD-LENGTH(1) := 2
+  NODALS-FIELD-LENGTH(2) := 8
+  NODALS-FIELD-LENGTH(3) := 50
+END-IF
+IF ES-NEXT-KEY-PARM(1) > ' '
+  #MONITOR-TYPE  := ES-NEXT-KEY-PARM(1)
+  #USERARC-NUM   := VAL(ES-NEXT-KEY-PARM(2))
+ELSE
+  #MONITOR-ID := #USERARC-TYPE
+  IF ES-EXPAND NE 'E'
+    ES-STARTINDEX := 2
+    #I2 := 1
+    RESET NODALS-HEADER(1)
+    #ES-MSG-NR := #HEADER-NR
+    PERFORM GET-MSG-TXT
+    NODALS-HEADER(1) := LONG-MSG(1)
+    FOR #I = 2 TO ES-FIELD-COUNT
+      COMPRESS NODALS-HEADER(1) C-HEADER-DELIMITER LONG-MSG(#I)
+        TO NODALS-HEADER(1) LEAVING NO
+    END-FOR
+  END-IF
+END-IF
+*
+RDUARC. READ NRM-USER-DEFINED-ARCHIVE BY M-MONITOR-ID = #MONITOR-ID
+  IF M-MONITOR-ID NE MASK ('USERARC'NN)
+    ESCAPE BOTTOM(RDUARC.)
+  END-IF
+  ADD 1 TO #I2
+  IF #I2 > #IMAX
+    ES-NEXT-KEY-PARM(1) := M-MONITOR-TYPE
+    #NUMB-N3 := M-USERARC-NUMBER
+    ES-NEXT-KEY-PARM(2) := #NUMB-A3
+    ES-NUMBER := #IMAX
+    RESET  ES-EOF
+    ESCAPE BOTTOM
+  END-IF
+  RESET #OPTIONS(*)
+  IF ES-EXPAND = 'E'
+    COMPRESS M-USERARC-NUMBER C-PARM-DELIMITER
+      M-USERARC-NAME TO NODAEX-NAME (#I2) LEAVING NO
+    PERFORM OPTIONS
+    NODAEX-OPTIONS (#I2,*) := #OPTIONS(*)
+  ELSE
+    NODALS-NUMBER(#I2)     := M-USERARC-NUMBER
+    MOVE RIGHT JUSTIFIED NODALS-NUMBER(#I2) TO NODALS-NUMBER(#I2)
+    NODALS-NAME (#I2)      := M-USERARC-NAME
+    NODALS-DESCRIPTION(#I2):= M-USERARC-DESCRIPTION
+    PERFORM OPTIONS
+    NODALS-OPTIONS(#I2,*)  := #OPTIONS(*)
+  END-IF
+  ES-NUMBER := #I2
+END-READ
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE OPTIONS
+************************************************************************
+* find number of user-defined-archives
+FNNM. FIND NUMBER NRM-USER-DEFINED-ARCHIVE WITH
+  M-MONITOR-ID = 'USERARC00' THRU 'USERARC09'
+IF *NUMBER(FNNM.) = 9
+  #OPTIONS (1) := 'NW'
+END-IF
+FNDRP. FIND NUMBER RP WITH R-ARCHIVE-TYPE = M-USERARC-NUMBER
+FNDAD. FIND NUMBER AD WITH AD-ARCHIVE-TYPE = M-USERARC-NUMBER
+FNDAR. FIND NUMBER AR WITH AR-ARCHIVE-TYPE = M-USERARC-NUMBER
+DECIDE FOR FIRST CONDITION
+  WHEN *NUMBER(FNDRP.) > 0 OR *NUMBER(FNDAD.) > 0 OR *NUMBER(FNDAR.) > 0
+    #OPTIONS(2) := 'DL'
+  WHEN *NUMBER(FNDRP.) = 0 AND *NUMBER(FNDAD.) =0 AND *NUMBER(FNDAR.) =0
+    #OPTIONS(3) := 'XA'
+  WHEN NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* OPTIONS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND := 'U'
+NADA2000.ERROR-NUMBER := #ES-MSG-NR
+NADA2000.OPT-LANGUAGE := ES-LANGUAGE            /* CF1
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+END

@@ -1,0 +1,590 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMARMVN - DB Interface EOM Object Active Report (print,delete)
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* mrs 93-08-09           created
+* mwi 96-10-24 s(242610) mass problem at deleting: set madio=0 and reset
+* mwi 96-10-24 s(999999) ET for deletes on this prog. level
+* mrs 97-05-27 p(162705) recompiled (changes in eomarm-p)
+* mrs 97-05-27 p(162737) recompiled (changes in eomarm-p)
+* xsethz  2000-07-27 (CE7461) Extend Report and Bundle Names
+* fhi     2000-08-24 QA03     Use NAT23006 for error values
+* jwo     2001-02-19 s(206182) Invoke NOMEX008 after delete
+* xsetggr 2001-10-03 p(204313) delete active report if it is archived
+* fhi     2002-06-13 s(225125) Add email notificaton, NOMEX010
+* sju     2002-11-13 p(231843) mail wrong if run number wraps round
+* XSETHZ  2003-10-04 s(202763) confirm deletion of archived reports
+* xsetggr 2007-05-03 NOm3201   Support P11 format run numbers
+* xsetggr 2007-06-18 P(294775) add function PRINT,delete bundle contents
+* xsetggr 2007-06-27 NOM3201   support 5 byte node numbers , restow due
+*                              due changes in eompom-parms
+* fhi     2007-07-12 NOM3202   C-NATERR changed, NAD23006 is obsolete.
+* xsetggr 2007-10-25 NRT2185   default values for UNIXLP printers
+* xsetggr 2008-05-05 p(304350) restow due to changes in EOMARM-P
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* xsetggr 2008-11-28 P311915   default printers 'DEFAULTA'thru'FEFAULTZ'
+* fhi     2009-05-19 N3463     Extend metadata for OPO
+* xsetggr 2009-09-01 P314431  allow only NATUNIX & DISKUNIX printers for
+*                            Unix systems, but UNIXLP only for mainframe
+* xsetggr 2010-06-30 NOMALL-818 allow to delete reports of other users
+*                               if user profile and grants allowed it
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2010-10-08 NOMALL-97 Use dynamic memory handling
+* xsetggr 2010-08-30 NOMALL-865 restow due changes in eomphtye
+* fhi     2011-05-02 NOMALL-901 Log any online user delete operation
+* xsetggr 2011-09-12 NOMALL-1058 Log delete from NOM API
+* fhi     2011-09-14 NOMALL-901 Change type for delete logging
+* xsetggr 2011-10-17 NOMALL-970 implement new report flag - print once
+* xsetggr 2012-01-02 NOMALL-1092 backout corrections for NOMALL-818
+* 2012-01-31 NOMALL-1096 error-text a250 in NOMWK--P stow only
+* raya    2012-02-07 NOMALL-98 check existance of printer-exit and if
+*                    not exist no printout
+* raya    2012-04-18 NOMALL-98 remove steplib only if added
+* raya    2012-06-20 NOMALL-1142 correct add-steplib
+* raya    2012-11-29 NOMALL-1214 check cat date of nomex*
+* xsetggr 2013-01-22 NOMALL-970 implementation cancelled
+* SU1     2013-04-02 CHECK-PRINTER->VALIDATE-PRINTER +remove unused vars
+* raya    2013-05-09 NOMALL-1214 backout check cat date of nomex*
+* fhi     2013-08-29 FHI285    Enhance error message 406
+* fhi     2013-09-24 NOMALL-932 Change NOMEX08L to NOMEXP08
+* SU2     2013-11-22 NOMALL-1288 correct FHI285 for msg 406
+* fhi     2014-10-21 NOMALL-79   Introduce long filenames
+* SU3     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU4     2015-08-11 NOMALL-1690 XXHASH restructure
+* BLI     2016-02-23 NOMALL-1829 Check flags A R L
+* SU5     2016-02-29 NOMALL-1722 support long path names
+* fhi     2016-11-10 NOMALL-1917 use correct node number
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2017-04-07 NOMALL-1961 Omit field PO-MONITOR
+* BLI     2020-03-11 NOMALL-2294 Reset +G-ACTIVE-ISN-P10 to prevent 3113
+* SU6     2020-05-18 NOMALL-2349 use N-CHKCAT
+* SU7     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING EOM----P
+PARAMETER USING EOMARM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+INDEPENDENT
+1 +G-NOMEXIT-ACTIVE    (L/1:20)
+1 +NOD-LOCAL-ID        (A20)
+1 +NOD-LOCAL-NODE      (N5)       /*SU7
+1 +G-ACTIVE-ISN-P10    (P10)      /* NOMALL-2294 BLI
+* *****
+LOCAL USING RMSPL--L
+LOCAL USING RMSPLA-L
+LOCAL USING VPRINT-L
+LOCAL USING VPRRP-L
+LOCAL USING NOMWK--P
+LOCAL USING NOMFNC-E
+LOCAL USING EOMPOM-P
+LOCAL USING RMTASK-E
+LOCAL USING PROF-LOC
+LOCAL USING EOMPHTYE
+LOCAL USING NOMEXP08
+LOCAL USING XXHASH-P
+LOCAL USING RMSR---E
+LOCAL USING NOMEX08E
+LOCAL USING EOM----E
+/*SU7 LOCAL USING VMONITUL
+* *****
+LOCAL
+1 MAIL VIEW OF NRM-MAIL
+  2 MA-REPNAME
+1 DATASET-REPORT VIEW OF NRM-DATASET-REPORT
+  2 DR-STATUS
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-USERID
+  2 AR-ARCHIVE
+  2 AR-REVIVE
+  2 AR-NUMBER-OF-LINES
+  2 AR-REPNAME
+  2 AR-REPRNB
+  2 AR-CC-TYPE
+  2 AR-SPOOL-ATTRIBUTES
+  2 AR-SPOOL-ATTR-EXTENDED (1:120)
+1 REPORTS VIEW OF NRM-REPORTS-NEW
+  2 R-PRINT-JOBCARD        (1:3)
+  2 C*R-PRINT-JOBCARD
+1 NRM-MONITOR VIEW OF NRM-MONITOR
+/*SU7  2 M-MONITOR-NODE  (N5) /*same as +NOD-LOCAL-NODE (N5)
+  2 M-USE-OWNER     (A1) /*defined in 8.1.1 System Defaults
+1 MF-NODES VIEW OF NRM-MF-NODES /*SU7
+  2 MF-PRINT-CLASS
+1 BUNDLE-CONTENTS VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-BUNDLE
+  2 BC-BUNDRNB
+1 ACTIVE-BUNDLES VIEW OF NRM-ACTIVE-BUNDLES
+1 PHYS-PRINTER VIEW OF NRM-PHYSICAL-PRINTERS
+  2 PH-ESCAPE-CHAR
+  2 PH-PRINTER-TYPE
+  2 PH-PRINT-PGM
+  2 PH-JCL-SKELETON
+1 DEFAULT-PRINTER VIEW OF NRM-PRINTERS
+  2 P-ID
+  2 P-ATTRIBUTES      (1:25)
+*
+1 #M-MONITOR-ID       (A20) /*SU7
+1 #MA-RNB-USER        (A14)
+1 REDEFINE #MA-RNB-USER
+  2 #MA-RNB           (P11)
+  2 #MA-USER          (A8)
+1 #AR-REPORT-RNB      (A31)
+1 REDEFINE #AR-REPORT-RNB
+  2 #AR-REPORT        (A25)
+  2 #AR-RNB           (P11)
+1 #ISN                (P10)
+1 OWNER               (L) INIT <TRUE>
+**  params for SETMADIO :
+1 #NEWVAL             (B2)  /* in
+1 #OLDVAL             (B2)  /* out
+1 #USER-IN            (L)
+1 #USER-LAYOUT        (L)
+1 #LAYOUT-TAB         (A251)
+1 #LAYOUT
+  2 #LAYOUT-F         (P3/10)
+  2 #LAYOUT-T         (P3/10)
+  2 #LAYOUT-S         (P3/10)
+  2 #LAYOUT-N         (P3)
+  2 CV-LAYOUT         (C/10)
+1 #HEADER-LINES       (N3)
+1 #FROM-LINE          (P8)
+1 #TO-LINE            (P8)
+1 CV-SEQ              (C/10)
+1 #COPIES             (N3)
+1 #HOLD               (A1)
+1 #PRINTER            (A8)
+1 #RMPOID-FUNC        (A1)
+1 #I                  (P3)
+1 #VAR                (A16)
+1 #VALUE              (A72)
+1 #RESET-RECFM        (L)
+1 #J                  (I2)
+1 #BC-SUPER           (A43)
+1 REDEFINE #BC-SUPER
+  2 #BC-BUNDLE        (A25)
+  2 #BC-BUNDRNB       (P11)
+  2 #BC-GROUP         (A8)
+  2 #BC-SEQNO         (P3)
+1 REDEFINE #BC-SUPER
+  2 #BC-BUNDLE-RNB    (A31)
+1 BUNDLE-IS-EMPTY     (L)
+1 #P-ID-E             (A8)
+1 #P-ID               (A8)  INIT <'DEFAULT'>
+1 REDEFINE #P-ID
+  2 #P-ID-1           (A7)
+  2 #SUFFIX           (A1)
+1 #OBJ                (A50)
+1 #USER               (A8)
+1 #APPL               (A8)
+1 #CAT-DATE-1         (A10)
+1 #CAT-DATE-2         (A10)
+1 #CALLER             (A8) INIT <*PROGRAM>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET EOMMSG-NR
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-PRINT
+    PERFORM PRINT-ACTIVE-REPORT
+  VALUE EOM-DELETE
+    PERFORM DELETE-ACTIVE-REPORT
+    IF +G-NOMEXIT-ACTIVE (8)
+      PERFORM USER-EXIT-8
+    END-IF
+  NONE IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-ACTIVE-REPORT
+************************************************************************
+#AR-REPORT := EOMARM-I-NAME
+#AR-RNB    := EOMARM-I-RNB
+#NEWVAL    := 0  /* madio = 0 for no limit
+CALLNAT 'SETMADIO' #NEWVAL #OLDVAL
+*
+FNDAR. FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REPORT-RNB
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0406
+    COMPRESS #AR-REPORT ' (' *PROGRAM ',' *LINE ')'
+      TO EOMMSG-TOKEN(1) LEAVING NO
+    ESCAPE BOTTOM (FNDAR.)
+  END-NOREC
+  #ISN := *ISN (FNDAR.)
+  IF +G-ACTIVE-ISN-P10 EQ *ISN (FNDAR.)   /* BLI NOMALL-2294 start
+    RESET +G-ACTIVE-ISN-P10
+  END-IF                                  /* BLI NOMALL-2294 end
+  IF AR-USERID = EOM-USER OR EOM-USER-TYPE = 'A'
+    PERFORM DELETE-ALL
+  ELSE
+    PERFORM DELETE-MAIL-RECORD
+  END-IF
+END-FIND
+CALLNAT 'SETMADIO' #OLDVAL #NEWVAL  /* reset madio, 2nd. param dummy
+*
+END-SUBROUTINE /* DELETE-ACTIVE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-MAIL-RECORD
+************************************************************************
+#MA-RNB  := EOMARM-I-RNB
+#MA-USER := EOM-USER
+FNDMA. FIND MAIL WITH MA-RNB-USER = #MA-RNB-USER
+WHERE MA-REPNAME = EOMARM-I-NAME                                      /*
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 2119
+    ESCAPE BOTTOM (FNDMA.)
+  END-NOREC
+  DELETE
+  COMPRESS EOMARM-I-NAME '/' #MA-RNB '/' #MA-USER TO #OBJ LEAVING NO
+  #USER := EOM-USER
+  #APPL := EOM-LIBRARY
+  PERFORM RMLOGDEL #OBJ 'MAIL' #USER #APPL
+END-FIND
+END OF TRANSACTION
+*
+END-SUBROUTINE /* DELETE-MAIL-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-ALL
+************************************************************************
+GETDE. GET ACTIVE-REPORT #ISN
+/* Delete Contents-Pointer of a given active Report:
+CALLNAT 'RDELRC-N' EOMARM-I-NAME EOMARM-I-RNB
+/* Delete Report Text Rcords of a given act. Report:
+CALLNAT 'RDELSO-N' EOMARM-I-NAME EOMARM-I-RNB
+/* Delete Mail Records of a given active Report:
+CALLNAT 'RDELMA-N' EOMARM-I-NAME EOMARM-I-RNB
+/* DELETE REPORT FROM DATASET REPORT:
+CALLNAT 'RDELDR' EOMARM-I-NAME EOMARM-I-RNB
+/* Delete Printouts for Report-RNB:
+CALLNAT 'RDELPO-N' EOMARM-I-NAME EOMARM-I-RNB OWNER EOM-USER-TYPE
+  EOM-USER
+*
+FNDDR. FIND DATASET-REPORT WITH DR-REPORT-RNB = #AR-REPORT-RNB
+  IF NO RECORD FOUND
+    DELETE (GETDE.)
+    PERFORM DEL-FILE-NAME-TABLE
+    COMPRESS #AR-REPORT '/' #AR-RNB TO #OBJ LEAVING NO
+    PERFORM RMLOGDEL #OBJ 'ACTIVE-REPORT' EOM-USER EOM-LIBRARY
+  END-NOREC
+  IF DR-STATUS = 'D'
+    DELETE (GETDE.)
+    PERFORM DEL-FILE-NAME-TABLE
+    COMPRESS AR-REPNAME '/' AR-REPRNB TO #OBJ LEAVING NO
+    PERFORM RMLOGDEL #OBJ 'ARCHIVED-ACT-REPORT' EOM-USER EOM-LIBRARY
+  END-IF
+  END OF TRANSACTION
+END-FIND
+BUNC. FIND BUNDLE-CONTENTS WITH BC-REPORT-RNB = #AR-REPORT-RNB
+  #BC-BUNDLE := BC-BUNDLE
+  #BC-BUNDRNB := BC-BUNDRNB
+  DELETE RECORD (BUNC.)
+  COMPRESS #BC-BUNDLE '/' #BC-BUNDRNB TO #OBJ LEAVING NO
+  PERFORM RMLOGDEL #OBJ 'BUNDLE-CONTENTS' EOM-USER EOM-LIBRARY
+  END TRANSACTION
+END-FIND
+RESET #BC-GROUP #BC-SEQNO
+BUNDLE-IS-EMPTY := TRUE
+RBC. READ BUNDLE-CONTENTS BY BC-BUNDLE-RNB-GROUP-SEQNO = #BC-SUPER
+  IF BC-BUNDLE NE #BC-BUNDLE OR BC-BUNDRNB NE #BC-BUNDRNB
+    ESCAPE BOTTOM (RBC.)
+  END-IF
+  BUNDLE-IS-EMPTY := FALSE
+  ESCAPE BOTTOM (RBC.)
+END-READ
+IF BUNDLE-IS-EMPTY
+  DBU. FIND ACTIVE-BUNDLES WITH AB-BUNDLE-RNB = #BC-BUNDLE-RNB
+    DELETE RECORD (DBU.)
+    COMPRESS #BC-BUNDLE '/' #BC-BUNDRNB TO #OBJ LEAVING NO
+    PERFORM RMLOGDEL #OBJ 'ACTIVE-BUNDLE' EOM-USER EOM-LIBRARY
+    END TRANSACTION
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* DELETE-ALL
+*
+************************************************************************
+DEFINE SUBROUTINE PRINT-ACTIVE-REPORT
+************************************************************************
+#AR-REPORT := EOMARM-I-NAME
+#AR-RNB    := EOMARM-I-RNB
+FNDA1. FIND ACTIVE-REPORT  WITH AR-REPORT-RNB = #AR-REPORT-RNB
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 4100                   /* specified report not found
+    ESCAPE BOTTOM (FNDA1.)
+  END-NOREC
+  IF AR-ARCHIVE = '*' AND AR-REVIVE NE '*'
+**  EOMMSG-NR := 0426 /* BLI NOMALL-1829 Report contents not available.
+    EOMMSG-NR := 0441 /* BLI NOMALL-1829 Report already archived
+    ESCAPE BOTTOM(FNDA1.)
+  END-IF
+  #FROM-LINE := 1
+  #TO-LINE   := AR-NUMBER-OF-LINES
+  CALLNAT 'RGETLAYN' AR-REPNAME AR-REPRNB EOM-USER #USER-IN #USER-LAYOUT
+    #LAYOUT-TAB #LAYOUT CV-SEQ (*) #HEADER-LINES
+*
+  #SPOOL-ATTRIBUTES := AR-SPOOL-ATTRIBUTES
+  CALLNAT 'RMSPL7-N' #SPOOL-ATTRIBUTES #SPOOL-TYPE /*conv. Jobnr(N5->N7)
+  PERFORM XXMVAR-S-MOVE-ARRAY #SPOOL-ATTRIBUTES-EXT
+    AR-SPOOL-ATTR-EXTENDED (1:3)
+* get profile printer first for printing
+  PROFILE-STRING := EOM-USER-PROFILE
+  IF PROF-PRINTER NE ' '
+    #PRINTER := PROF-PRINTER
+    PERFORM VALIDATE-PRINTER /*SU1 2013-04-02 was CHECK-PRINTER
+    IF #PRINTER NE ' '
+      #HOLD    := 'N'
+      #COPIES  := 1
+    END-IF
+  END-IF
+* if profile printer not defined or not validated,use printer
+* provided in input parms
+*
+  IF #PRINTER = ' '
+    RESET EOMMSG-NR
+    #PRINTER := EOMARM-I-PRINTER
+    PERFORM VALIDATE-PRINTER
+    IF EOMMSG-NR NE 0
+      EOMMSG-FIELD-NAME := 'EOMARM-I-PRINTER'
+      ESCAPE ROUTINE
+    END-IF
+    #COPIES  := EOMARM-I-PRINT-COPIES
+  END-IF
+*
+  IF #PRINTER NE ' '
+    PERFORM CREATE-PRINTOUT-RECORD
+    IF EOMMSG-NR NE 0
+      ESCAPE BOTTOM (FNDA1.)
+    END-IF
+    IF PRINTOUTS.PO-SCHEDULED NE 0 AND PRINTOUTS.PO-SCHEDULED <= *TIMX
+      NOMWK-TASK-TYPE:= EQU-MANAGE-PRINTOUTS
+      CALLNAT NOM-WAKE-MONITOR NOMWK-NOMVERS NOMWK-PARMS (*)
+    END-IF
+  ELSE
+    EOMMSG-NR := 0043                 /* Printer name is required.
+    ESCAPE BOTTOM (FNDA1.)
+  END-IF
+*
+END-FIND
+*
+END-SUBROUTINE /* PRINT-ACTIVE-REPORT
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-PRINTER
+************************************************************************
+FIND PRINTERS WITH P-ID = #PRINTER
+  IF NO RECORDS FOUND
+    EOMMSG-NR := 0108
+    RESET #PRINTER
+    ESCAPE BOTTOM
+  END-NOREC
+  FIND PHYS-PRINTER  WITH PH-VTAMID = P-PHYSICAL-NAME
+    IF *MACHINE-CLASS = 'MAINFRAME'
+      IF PH-PRINTER-TYPE = ##PHYS-NATUNIX
+        EOMMSG-NR := 0130
+        RESET #PRINTER
+      END-IF
+    ELSE
+      IF NOT(PH-PRINTER-TYPE = ##PHYS-DISKUNIX OR = ##PHYS-NATUNIX)
+        EOMMSG-NR := 0131
+        RESET #PRINTER
+      END-IF
+    END-IF
+  END-FIND
+END-FIND
+*
+END-SUBROUTINE /* VALIDATE-PRINTER
+*
+************************************************************************
+DEFINE SUBROUTINE CREATE-PRINTOUT-RECORD
+************************************************************************
+RESET PRINTOUTS
+#M-MONITOR-ID := F#MONITOR-TASK-ID1 (<>)
+FIND NRM-MONITOR WITH M-MONITOR-ID = #M-MONITOR-ID
+END-FIND
+/*SU7 FIND NODE-SPOOL-DATA WITH M-MONITOR-ID = +NOD-LOCAL-ID
+/*SU7  MOVE BY NAME NODE-SPOOL-DATA TO NRM-MONITOR
+/*SU7 Attribute only available for IBM MF-Nodes:
+FIND MF-NODES WITH MF-MONITOR-ID = +NOD-LOCAL-ID
+END-FIND
+*
+FIND PRINTERS WITH P-ID = #PRINTER
+  IF P-EXITLIB NE ' ' AND P-EXITMEM NE ' '
+    RESET #CAT-DATE-2
+    CALLNAT 'N-CHKCAT' EOMMSG-NR EOMMSG-TEXT P-EXITMEM
+      P-EXITLIB #CALLER #CAT-DATE-1 #CAT-DATE-2
+    IF EOMMSG-NR NE 0
+      ESCAPE ROUTINE IMMEDIATE
+    END-IF
+  END-IF
+*
+  FIND (1) PHYS-PRINTER WITH PH-VTAMID = P-PHYSICAL-NAME
+  END-FIND
+  RESET PRINTOUTS.PO-LAST-PRINTED-RECNO PRINTOUTS.PO-JOBNO #RMPOID-FUNC
+  CALLNAT 'RMPOID-N' PRINTOUTS.PO-ID EOMMSG-NR EOMMSG-TEXT #RMPOID-FUNC
+  PRINTOUTS.PO-ID-INV      := 9999998 - PRINTOUTS.PO-ID
+  PRINTOUTS.PO-NODE := +NOD-LOCAL-NODE /*SU7 NRM-MONITOR.M-MONITOR-NODE
+  PRINTOUTS.PO-CREATED     := *TIMX
+  PRINTOUTS.PO-ESCAPE-CHAR := PH-ESCAPE-CHAR
+  PRINTOUTS.PO-EXITLIB     := P-EXITLIB
+  PRINTOUTS.PO-EXITMEM     := P-EXITMEM
+  PRINTOUTS.PO-FROM-LINE   := #FROM-LINE
+  PRINTOUTS.PO-HEADLINES   := #HEADER-LINES
+  IF #HOLD = 'Y'
+    PRINTOUTS.PO-STATUS := 'H'
+  ELSE
+    PRINTOUTS.PO-STATUS := 'R'
+  END-IF
+  PRINTOUTS.PO-JCL-SKELETON       := PH-JCL-SKELETON
+  PRINTOUTS.PO-LANGUAGE           := *LANGUAGE
+  RESET PRINTOUTS.PO-LAYOUT (*)
+  FOR #I 1 TO #LAYOUT-N
+    PRINTOUTS.PO-LAYOUT-FROM (#I) := #LAYOUT-F (#I)
+    PRINTOUTS.PO-LAYOUT-TO   (#I) := #LAYOUT-T (#I)
+  END-FOR
+  PRINTOUTS.PO-LOGICAL            := P-ID
+  PRINTOUTS.PO-PHYSICAL-NAME      := P-PHYSICAL-NAME
+  PRINTOUTS.PO-PRINT-PGM          := PH-PRINT-PGM
+  PRINTOUTS.PO-PRINTER-TYPE       := PH-PRINTER-TYPE
+  PRINTOUTS.PO-PRIORITY           := P-PRIORITY
+  PRINTOUTS.PO-REPNAME            := AR-REPNAME
+  PRINTOUTS.PO-REPRNB             := AR-REPRNB
+  IF PRINTOUTS.PO-STATUS = 'R'
+    EOMPOM-PHYSICAL-NAME := PO-PHYSICAL-NAME
+    CALLNAT 'EOMPOTWN' EOMPOM-PARMS
+    PRINTOUTS.PO-SCHEDULED := EOMPOM-SCHEDULED
+  END-IF
+  PRINTOUTS.PO-TO-LINE            := #TO-LINE
+  PRINTOUTS.PO-USERID             := EOM-USER
+  PROFILE-STRING := EOM-USER-PROFILE
+  IF PROF-EXTERNAL = 'Y'
+    PRINTOUTS.PO-ESY-USERID := EOM-USER
+  ELSE
+    IF NRM-MONITOR.M-USE-OWNER = 'Y'
+      PRINTOUTS.PO-ESY-USERID := AR-USERID
+    ELSE
+      RESET  PRINTOUTS.PO-ESY-USERID
+    END-IF
+  END-IF
+* po-copies
+  IF #COPIES = 0
+    PRINTOUTS.PO-COPIES := 1
+  ELSE
+    PRINTOUTS.PO-COPIES := #COPIES
+  END-IF
+* po-jobcards
+  IF REPORTS.C*R-PRINT-JOBCARD NE 0
+    PRINTOUTS.PO-JOBCARD (*) := REPORTS.R-PRINT-JOBCARD (*)
+  ELSE
+    PRINTOUTS.PO-JOBCARD (*) := P-JOBCARD (*)
+  END-IF
+  #VAR := 'JOBNAME'
+  CALLNAT 'RPRTATTN' #SPOOL-ATTRIBUTES #SPOOL-ATTRIBUTES-EXT
+    #VAR #VALUE AR-CC-TYPE
+  COMPRESS PH-ESCAPE-CHAR 'JOBNAME' TO #VAR LEAVING NO
+  EXAMINE PRINTOUTS.PO-JOBCARD (1) FOR #VAR REPLACE #VALUE
+  #VAR := 'ACCOUNT-NUMBER'
+  CALLNAT 'RPRTATTN' #SPOOL-ATTRIBUTES #SPOOL-ATTRIBUTES-EXT
+    #VAR #VALUE AR-CC-TYPE
+  COMPRESS PH-ESCAPE-CHAR 'ACCOUNT' TO #VAR LEAVING NO
+  EXAMINE PRINTOUTS.PO-JOBCARD (1) FOR #VAR REPLACE #VALUE
+* po-attributes
+  PRINTOUTS.PO-ATTRIBUTES (*) := P-ATTRIBUTES (*)
+  RESET #RESET-RECFM
+  FOR #I 1 25
+    IF P-ATTR-VAR(#I) = 'DCB1' OR = 'DCB2'
+      EXAMINE P-ATTR-VALUE(#I) FOR 'RECFM=' GIVING INDEX IN #J
+      IF #J GT 0
+        #RESET-RECFM:= TRUE
+      END-IF
+    END-IF
+    IF P-ATTR-VALUE (#I) = ' '
+      CALLNAT 'RPRTATTN' #SPOOL-ATTRIBUTES #SPOOL-ATTRIBUTES-EXT
+        P-ATTR-VAR (#I) P-ATTR-VALUE (#I) AR-CC-TYPE
+      IF P-ATTR-VAR(#I) = 'CLASS' AND P-ATTR-VALUE(#I) = ' '
+/*SU7   P-ATTR-VALUE(#I) := NRM-MONITOR.M-PRINT-CLASS
+        P-ATTR-VALUE(#I) := MF-NODES.MF-PRINT-CLASS /*SU7
+      END-IF
+      IF P-ATTR-VAR(#I) = 'RECFM' AND #RESET-RECFM
+        RESET #RESET-RECFM P-ATTR-VALUE(#I)
+      END-IF
+      IF PH-PRINTER-TYPE = ##PHYS-UNIXLP AND P-ATTR-VALUE (#I) = ' '
+        PERFORM DEFAULT-UNIXLP-VALUES
+      ELSE
+        PO-ATTRIBUTES (#I) := PRINTERS.P-ATTRIBUTES (#I)
+      END-IF
+    END-IF
+  END-FOR
+*
+  RESET PRINTOUTS.PO-BUNDLE
+  PRINTOUTS.PO-OBJECT-TYPE := 'PO'
+  PRINTOUTS.PO-OBJECT-TIME := *TIMX
+*
+  STORE PRINTOUTS
+END-FIND
+*
+END-SUBROUTINE /* CREATE-PRINTOUT-RECORD
+*
+************************************************************************
+DEFINE SUBROUTINE DEFAULT-UNIXLP-VALUES
+************************************************************************
+#SUFFIX := 'Z'
+#P-ID-E := #P-ID
+#SUFFIX := 'A'
+FIND (1) DEFAULT-PRINTER WITH P-PHYSICAL-NAME = PRINTERS.P-PHYSICAL-NAME
+WHERE P-ID = #P-ID THRU #P-ID-E                                       /*
+  PRINTOUTS.PO-ATTRIBUTES(#I) := DEFAULT-PRINTER.P-ATTRIBUTES(#I)
+END-FIND
+*
+END-SUBROUTINE /* DEFAULT-UNIXLP-VALUES
+*
+************************************************************************
+DEFINE SUBROUTINE USER-EXIT-8
+************************************************************************
+RESET NOMEX008-PARMS (1) NOMEX008-ERROR-CODE NOMEX008-FROMLINE
+  NOMEX008-TOLINE NOMEX008-RECORD-LENGTH NOMEX008-NODE
+NOMEX008-FUNCTION := NOMEX008-FCT-DELETE
+NOMEX008-REPNAME  := EOMARM-I-NAME
+NOMEX008-REPRNB   := EOMARM-I-RNB
+CALLNAT 'NOMEX008' NOMEX008-PARMS(*)
+*
+END-SUBROUTINE /* USER-EXIT-8
+*
+************************************************************************
+DEFINE SUBROUTINE DEL-FILE-NAME-TABLE
+************************************************************************
+#SPOOL-ATTRIBUTES := AR-SPOOL-ATTRIBUTES
+CALLNAT 'RMSPL7-N'#SPOOL-ATTRIBUTES #SPOOL-TYPE
+DECIDE ON EVERY VALUE OF #SPOOL-TYPE
+  VALUE SEQUENTIAL-FILE-UNIX
+    XXHASH-PARMS.P-SHORT-NAME := #SPOOL-UNIX-FILE-NAME
+  VALUE DIRECT-INPUT
+    XXHASH-PARMS.P-SHORT-NAME := #SPOOL-DI-PATH
+    XXHASH-PARMS.P-FUNCTION := 'D' /*Delete entry
+    PERFORM XXHASH XXHASH-PARMS
+    XXHASH-PARMS.P-SHORT-NAME := #SPOOL-DI-FILENAME
+  ANY
+    XXHASH-PARMS.P-FUNCTION := 'D' /*Delete entry
+    PERFORM XXHASH XXHASH-PARMS
+  NONE IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* DEL-FILE-NAME-TABLE
+*
+INCLUDE C-EOMERR /*ON ERROR
+*
+END

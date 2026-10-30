@@ -1,0 +1,769 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RMARFLSN - Flush Lines of an Active Report with Location = 'S'
+*
+* Maintenance
+* uuu   yyyy-mm-dd s(999999) ...
+* mrs     93-02-16 s(999999) created
+* mrs     93-11-01 s(999999) flush segments implemented
+* mrs     93-11-09 s(999999) seq. Files MVS added
+* mrs     94-03-01 s(999999) seq. Files BS2 added
+* mrs     94-04-19 s(999999) Error if multiple pointer entries
+* mrs     94-05-09 s(999999) h'81' is a valid ff (write and skip) in BS2
+* gw      96-06-13 s(999999) reduce lines in buffer for VTAM mode 'ASIS'
+* gw      96-10-24 s(238382) stop printing if VSE error 681 job active
+* jwo     96-12-09 s(258794) suppress printing of x'331200' and x'73'
+* gw      97-01-20 s(258794) suppress printing of x'331200' and x'73'
+*                        by replacing with H'01' (write without spacing)
+* jvd     98-05-04 p(168326) Increase display size to show lines > 10m
+*                        Re-cat this program to take changes made
+*                        to NRM-REPORT-CONTENTs
+* gw      98-05-16 p(168326) lines > 9999999
+* jvd     98-09-10 p(164220) NOM141ÖNAT23
+*                  p(168326) is now in p(164220)so I have removed
+*                        all refferance to P(168326) to make easier
+*                        reading
+* jvd     99-09-09 p(186369) Print Bundle in VSE/POWER ouput contents
+*                         wrong and mixed when a user separation is used
+*                         Also removed all comments pre 1996
+* jvd     99-10-04 r(187424) Print PP problem
+* fhi     00-03-03 S(192651) Line length > 253 not stored in DB
+* xsiszha 2000-08-01 (CE7461) Extend Report and Bundle Names
+* sju     00-08-21 p(198860) Printing separated reports from container
+* fhi     2002-10-30 fhi101    switch on optimizer compiler
+* sju     2003-10-07 p(245720) last buffer lost if "premature" eof
+* xsetggr 2004-11-23 p(258871) recat due to changes in rmfl---p
+* fhi     2005-04-19 NOM31107  Support 7-byte job numbers
+* xsetggr 2005-11-28 p(271774) support more than 40 Power segments
+* xsetggr 2007-05-02 NOM3201   Support 5 byte node numbers
+* xsetggr 2007-05-03 NOM3201   support 11 byte run numbers
+* fhi     2007-07-13 P295667 Support printing from page with SKIP nnnnnn
+*                            in jobcards of printout record.
+* fhi     2007-07-17 NRT2422 print binary documents
+* fhi     2009-07-23 P319198   Message of Compression routine too long
+* fhi     2009-07-28 P319282 Binary files on Linux corrupted
+* fhi     2009-09-15 P320367 Use compression routine NOMCOMPR
+* fhi     2009-10-02 P320825 Solution P298301 forgotten in this module
+* fhi     2010-02-16 P307403 Still wrong close processing
+* fhi     2010-03-01 P307403 Still wrong close processing
+* fhi     2010-03-05 P307403 Most issues backouted, new solution concept
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* xsetggr 2010-11-03 NOMALL-865 restow due to changes in RMFL---P
+* fhi     2010-12-20 NOMALL-97 Remember File Handle for NPR Unix
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* SPLILDAV 2012-06-27 NOMALL-1078 SUPPORT COMPRESSION 16K BYTE RECORDS
+* raya     2012-10-02 NOMALL-1143 work with lob fields
+* fhi      2012-11-14 NOMALL-1143 Fill buffer correctly, old tags del.
+* SU1     2014-01-27 NOMALL-1341 remove LA-fields
+* fhi     2014-08-21 NOMALL-1454 Restow, XXUX---P changed.
+* fhi     2014-08-29 NOMALL-1454 Restowed due to changes in XXUX---P
+* SU2     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* SU3     2016-08-08 NOM 3.5: remove unused code
+* SU4     2016-09-01 NOMALL-1912 show compression err. not in hex
+* fhi     2017-01-18 NOMALL-1916 Use binary NPR RECORD* fields
+* fhi     2017-01-27 NOMALL-1961 Show node name in errors
+* fhi     2017-07-11 NOMALL-2021 NPR error: use RECORD temporarily ÜÜÜ
+* fhi     2018-20-31 NOMALL-1916 Backout binary NPR RECORD* fields
+*                                All printing will be the local codepage
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU5     2023-01-13 NOMALL-2607 return error (print bundle)
+* SU6     2024-03-07 ES-34613    NOM 3.6 Remove power
+************************************************************************
+*
+DEFINE DATA PARAMETER
+1 RMARFL-PARMS
+  2 P-REPNAME              (A25)
+  2 P-REPRNB               (P11)
+  2 P-LINE-FROM            (P10)
+  2 P-LINE-TO              (P10)
+  2 P-LAYOUT-HEADER-LINES  (N3)
+  2 P-LAYOUT-ENTRIES       (N2)
+  2 P-LAYOUT (1:10)
+    3 P-LAYOUT-FROM        (N3)
+    3 P-LAYOUT-TO          (N3)
+PARAMETER USING RMFL---P
+PARAMETER
+1 LINE-PARMS
+  2 LINE-CURRENT           (P3)
+  2 LINE-TAB               (1:100)
+    3 LINE                 (A251)
+    3 REDEFINE LINE
+      4 LINE-L             (A1/1:251)
+    3 LINE-NUMBER          (P10)
+1 SKIP-PAGES               (P11)
+1 P-ERROR-CODE             (N4)
+1 P-ERROR-TEXT             (A250)
+************************************************************************
+LOCAL USING RMSR---E
+LOCAL USING RMSR---L
+LOCAL USING RCCTYP-E
+LOCAL USING XXUX---P
+LOCAL
+1 READ-SPOOL VIEW OF READ-SPOOL
+  2 RECORD-NUMBER
+  2 RECORD
+  2 ERROR-CODE
+  2 ERROR-TEXT
+1 READ-FILE VIEW OF READ-FILE
+  2 RECORD-NUMBER
+  2 RECORD
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 SEGMENT-LENGTH
+  2 SEGMENT-NUMBER
+1 ACTIVE-REPORT VIEW OF NRM-ACTIVE-REPORTS
+  2 AR-NUMBER-OF-LINES
+  2 AR-SOURCE-ID
+1 SOURCE VIEW OF NRM-SOURCE
+  2 SR-TYPE
+  2 SR-ATTRIBUTES-IDENT
+  2 SR-CC-TYPE
+/*SU6 ->  2 SR-REMOTE-CODEPAGE
+/* 2 SR-SPOOL-ATTR-EXTENDED(1:2) 2 REDEFINE SR-SPOOL-ATTR-EXTENDED
+/*SU6 <-  3 #EXTRA-SEGMENTS  (N3) 3 #EXTRA-LAST-LINES       (B4/41:127)
+1 SOURCE-TEXT VIEW OF NRM-SOURCE-TEXT
+  2 ST-ID
+  2 ST-LINE-START
+  2 ST-TEXT                   (1:66)
+  2 REDEFINE ST-TEXT
+    3 ST-TEXT-LOB             (A16381)
+1 POINTER VIEW OF NRM-REPORT-CONTENTS
+  2 AC-REPNAME
+  2 AC-REPRNB
+  2 AC-SEQNO
+  2 AC-INSERTED-LINE          (1:10)
+  2 AC-CONTENTS
+    3 AC-FROM-LINE            (1:99)
+    3 AC-TO-LINE              (1:99)
+  2 C*AC-CONTENTS
+  2 C*AC-INSERTED-LINE
+  2 AC-CONTENTS-N9
+    3 AC-FROM-LINE-N9         (1:99)
+    3 AC-TO-LINE-N9           (1:99)
+  2 C*AC-CONTENTS-N9
+* -----------------------------local fields-----------------------------
+1 #AC-REP-RNB-SEQ             (A35)
+1 REDEFINE #AC-REP-RNB-SEQ
+  2 #AC-REPNAME               (A25)
+  2 #AC-REPRNB                (P11)
+  2 #AC-SEQ                   (B4)
+1 #AR-REPNAME-RNB             (A31)
+1 REDEFINE #AR-REPNAME-RNB
+  2 #AR-REPNAME               (A25)
+  2 #AR-REPRNB                (P11)
+1 #PAGE-START                 (P10)
+1 #LINES-IN-BUFFER            (P3)  INIT <100>
+1 #CC                         (A1)
+1 #SEQNO                      (P9)
+1 #INS-I                      (P9)
+1 #LINE-I                     (P9)
+1 #F                          (P9)
+1 #T                          (P9)
+1 #W                          (P3)
+1 N                           (P3)
+1 S                           (P3)
+1 J                           (P3)
+1 K                           (P3)
+1 L                           (P3)
+1 M                           (P3)
+1 LAYOUT-SHIFT                (L)
+1 #WORK-LINE                  (A251)
+1 REDEFINE #WORK-LINE
+  2 #WORK-L                   (A1/1:251)
+1 POSITION-FOUND              (L)
+1 #OBJECT-LINE                (N8)
+1 #OBJECT-LINE2               (N9)
+1 LFILE                       (L)
+1 #LFILE-RC                   (I4)
+1 #LFILE-OLDDBID              (P5)
+1 #LFILE-OLDFILE              (P5)
+1 #LFILE-NEWDBID              (P5)
+1 #LFILE-NEWFILE              (P5)
+1 #TARGET-DBID                (N5)
+1 #TARGET-FNR                 (N5)
+1 #CHECK-FROM                 (P9)
+1 #CHECK-TO                   (P9)
+1 #N9-LINES                   (L)
+1 #N7-LINES                   (L)
+1 LINE-FOUND                  (L)
+1 #ST-ID-LINE                 (B10)
+1 REDEFINE #ST-ID-LINE
+  2 #ST-ID                    (P10)
+  2 #ST-LINE                  (B4)
+1 #START-LINE                 (P10)
+1 #RECORD-NUMBER              (P10)
+1 #NSMCOMP-CB                 (B40)
+1 REDEFINE #NSMCOMP-CB
+  2 #NSMCOMP-COMMAND          (A1)
+  2 #NSMCOMP-CODE             (B1)
+  2 #NSMCOMP-INLENGTH-OLD     (B1)
+  2 #NSMCOMP-OUTLENGTH-OLD    (B1)
+  2 #NSMCOMP-INLENGTH         (B2)
+  2 #NSMCOMP-OUTLENGTH        (B2)
+1 #NSMCOMP-RC                 (B2)
+1 #NSMCOMP-WORK               (B4)
+1 #NSMCOMP-LINE               (A251)
+1 #NSMCOMP-BUFFER-LENGTH      (B4)
+1 #E-O-F                      (L)
+1 #FORMFEEDS                  (P3)
+1 #IN-BUFFER                  (L)
+1 #NODE                       (N5)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF FLUSH-PROGRAM = 'RMPRVTM' AND VTAM-MODE = MASK ('A')
+  #LINES-IN-BUFFER := 20
+END-IF
+PERFORM INIT-FUNCTION
+IF P-ERROR-CODE = 0
+  PERFORM FLUSH-REPORT-LINES
+END-IF
+IF LFILE
+  PERFORM REFRESH-LFILE
+END-IF
+/* Handle/show error in RMPRBU/RMPRBUB
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-FUNCTION
+************************************************************************
+#AR-REPNAME := P-REPNAME
+#AR-REPRNB  := P-REPRNB
+FNDAR. FIND ACTIVE-REPORT WITH AR-REPORT-RNB = #AR-REPNAME-RNB
+  IF NO RECORDS FOUND
+    P-ERROR-CODE := 0005
+    P-ERROR-TEXT := 'Active Report not found'
+    ESCAPE ROUTINE
+  END-NOREC
+  IF P-LINE-TO = 0 OR P-LINE-TO > AR-NUMBER-OF-LINES
+    P-LINE-TO := AR-NUMBER-OF-LINES
+  END-IF
+  IF P-LINE-FROM = 0
+    P-LINE-FROM := 1
+  END-IF
+  FNDSR. FIND SOURCE WITH SR-ID = AR-SOURCE-ID (FNDAR.)
+    IF NO RECORDS FOUND
+      P-ERROR-CODE := 0005
+      P-ERROR-TEXT := 'Source not found'
+      ESCAPE ROUTINE
+    END-NOREC
+    #SOURCE-ATTRIBUTES := SR-ATTRIBUTES-IDENT
+    CALLNAT 'RMSR7--N' #SOURCE-ATTRIBUTES SR-TYPE /*conv. Jobnr:N5->N7
+    IF SR-CC-TYPE = NO-CC OR = BINARY
+      LAYOUT-SHIFT := FALSE
+    ELSE
+      LAYOUT-SHIFT := TRUE
+    END-IF
+    IF SR-TYPE = NOM-DATA-BASE
+      #TARGET-DBID := #NOMDB-DBID
+      #TARGET-FNR  := #NOMDB-FNR
+      PERFORM SET-LFILE
+    END-IF
+  END-FIND
+END-FIND
+FLUSH-SEG-BRACKET := 'F'
+*
+END-SUBROUTINE /* INIT-FUNCTION
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-REPORT-LINES
+************************************************************************
+#OBJECT-LINE := P-LINE-FROM
+#AC-REPNAME  := P-REPNAME
+#AC-REPRNB   := P-REPRNB
+#AC-SEQ      := P-LINE-FROM
+READ-LOOP. READ POINTER BY AC-REP-RNB-SEQ = #AC-REP-RNB-SEQ
+  IF AC-REPNAME NE #AC-REPNAME OR AC-REPRNB  NE #AC-REPRNB
+    ESCAPE BOTTOM (READ-LOOP.)
+  END-IF
+  IF C*AC-CONTENTS-N9 = 0
+    C*AC-CONTENTS-N9 := C*AC-CONTENTS
+  END-IF
+  IF *COUNTER = 1
+    PERFORM INDICATE-START-POSITION
+    IF NOT POSITION-FOUND
+      ESCAPE ROUTINE
+    END-IF
+  ELSE
+    IF C*AC-INSERTED-LINE > 0
+      #INS-I := 1
+    ELSE
+      #LINE-I := 1
+    END-IF
+  END-IF
+  PERFORM GET-LINES
+  IF #OBJECT-LINE >  P-LINE-TO OR P-ERROR-CODE > 0
+    ESCAPE BOTTOM (READ-LOOP.)
+  END-IF
+END-READ
+*
+END-SUBROUTINE /* FLUSH-REPORT-LINES
+*
+************************************************************************
+DEFINE SUBROUTINE INDICATE-START-POSITION
+************************************************************************
+RESET POSITION-FOUND #N9-LINES #N7-LINES
+DECIDE FOR FIRST CONDITION
+  WHEN POINTER.C*AC-CONTENTS-N9 > 0
+    #N9-LINES := TRUE
+  WHEN POINTER.C*AC-CONTENTS > 0
+    #N7-LINES := TRUE /* old data
+  WHEN NONE
+    #N9-LINES := TRUE
+END-DECIDE
+*
+IF POINTER.C*AC-INSERTED-LINE > 0
+  #SEQNO := POINTER.AC-SEQNO
+  #INS-I := POINTER.C*AC-INSERTED-LINE -
+    (#SEQNO - P-LINE-FROM)
+  DECIDE FOR FIRST CONDITION
+    WHEN #INS-I > POINTER.C*AC-INSERTED-LINE
+      P-ERROR-CODE := 0005
+      P-ERROR-TEXT := 'Error indicating start Line'
+    WHEN NONE
+      IF #INS-I = 0
+        #INS-I := POINTER.C*AC-INSERTED-LINE
+      END-IF
+      POSITION-FOUND := TRUE
+  END-DECIDE
+ELSE /* (when POINTER.C*AC-INSERTED-LINE le 0)
+  IF #N9-LINES
+    #W := POINTER.C*AC-CONTENTS-N9
+    #T := POINTER.AC-SEQNO
+    REPEAT UNTIL #W = 0 OR POSITION-FOUND OR #T < P-LINE-FROM
+      #F:=#T - (POINTER.AC-TO-LINE-N9(#W) - POINTER.AC-FROM-LINE-N9(#W))
+      IF P-LINE-FROM = #F THRU #T
+        POSITION-FOUND := TRUE
+        POINTER.AC-FROM-LINE-N9 (#W) := POINTER.AC-FROM-LINE-N9 (#W)
+          + P-LINE-FROM - #F
+        #LINE-I := #W
+      ELSE
+        #T := #F - 1
+        SUBTRACT 1 FROM #W
+      END-IF
+    END-REPEAT
+  ELSE  /* (when there is nothing in new data,look at old)
+    #W := POINTER.C*AC-CONTENTS
+    #T := POINTER.AC-SEQNO
+    REPEAT UNTIL #W = 0 OR POSITION-FOUND OR #T < P-LINE-FROM
+      #F := #T - (POINTER.AC-TO-LINE (#W) - POINTER.AC-FROM-LINE (#W))
+      IF P-LINE-FROM = #F THRU #T
+        POSITION-FOUND := TRUE
+        POINTER.AC-FROM-LINE (#W) := POINTER.AC-FROM-LINE (#W)
+          + P-LINE-FROM - #F
+        #LINE-I := #W
+      ELSE
+        #T := #F - 1
+        SUBTRACT 1 FROM #W
+      END-IF
+    END-REPEAT
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* INDICATE-START-POSITION
+*
+************************************************************************
+DEFINE SUBROUTINE GET-LINES
+************************************************************************
+IF POINTER.C*AC-INSERTED-LINE > 0
+  PERFORM GET-INSERTED-LINES
+ELSE
+  PERFORM GET-SYSOUT-LINES
+END-IF
+*
+END-SUBROUTINE /* GET-LINES
+*
+************************************************************************
+DEFINE SUBROUTINE GET-INSERTED-LINES
+************************************************************************
+REPEAT UNTIL #OBJECT-LINE > P-LINE-TO OR P-ERROR-CODE NE 0
+OR #INS-I > POINTER.C*AC-INSERTED-LINE                                /*
+  ADD 1 TO LINE-CURRENT
+  LINE (LINE-CURRENT) := POINTER.AC-INSERTED-LINE (#INS-I)
+  LINE-NUMBER (LINE-CURRENT) := #OBJECT-LINE
+  PERFORM BUILD-LINE
+  IF P-ERROR-CODE NE 0 /*SU5
+    ESCAPE ROUTINE
+  END-IF
+  ADD 1 TO #OBJECT-LINE
+  ADD 1 TO #INS-I
+END-REPEAT
+*
+END-SUBROUTINE /* GET-INSERTED-LINES
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SYSOUT-LINES
+************************************************************************
+REPEAT UNTIL #OBJECT-LINE > P-LINE-TO OR P-ERROR-CODE > 0
+OR #LINE-I > POINTER.C*AC-CONTENTS-N9                                 /*
+  RESET #CHECK-FROM #CHECK-TO
+  DECIDE FOR FIRST CONDITION
+    WHEN #N9-LINES
+      #CHECK-FROM := POINTER.AC-FROM-LINE-N9 (#LINE-I)
+      #CHECK-TO   := POINTER.AC-TO-LINE-N9   (#LINE-I)
+    WHEN #N7-LINES
+      #CHECK-FROM := POINTER.AC-FROM-LINE    (#LINE-I)
+      #CHECK-TO   := POINTER.AC-TO-LINE      (#LINE-I)
+    WHEN NONE IGNORE
+  END-DECIDE
+  DECIDE ON FIRST VALUE OF SOURCE.SR-TYPE
+    VALUE JES2, JES3            PERFORM GET-SYSOUT-LINES-JES
+/*SU6   VALUE POWER                 PERFORM GET-SYSOUT-LINES-POWER
+/*SU6   VALUE SEQUENTIAL-FILE-VSE   PERFORM GET-SYSOUT-LINES-FVSE
+    VALUE SEQUENTIAL-FILE-MVS   PERFORM GET-SYSOUT-LINES-FMVS
+    VALUE SEQUENTIAL-FILE-BS2   PERFORM GET-SYSOUT-LINES-FBS2
+    VALUE NOM-DATA-BASE         PERFORM GET-SYSOUT-LINES-NOMDB
+    NONE
+      P-ERROR-CODE := 0005
+      P-ERROR-TEXT :='Invalid Source'
+  END-DECIDE
+  IF P-ERROR-CODE NE 0 /*SU5
+    ESCAPE ROUTINE
+  END-IF
+  ADD 1 TO #LINE-I
+END-REPEAT
+*
+END-SUBROUTINE /* GET-SYSOUT-LINES
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SYSOUT-LINES-JES
+************************************************************************
+FNDJES. FIND READ-SPOOL WITH NODE = #JES-NODE AND JOB-NAME=#JES-JOB-NAME
+AND JOB-NUMBER = #JES-JOB-NUMBER AND TYPE       = #JES-TYPE           /*
+AND DATA-SET-KEY =#JES-DATA-SET-KEY AND RECORD-NUMBER >= #CHECK-FROM  /*
+  IF ERROR-CODE NE 0
+    P-ERROR-CODE := 0005
+    COMPRESS ERROR-TEXT '/' #JES-NODE '/' *PROGRAM '/' *LINE
+      TO P-ERROR-TEXT
+    ESCAPE BOTTOM (FNDJES.)
+  END-IF
+  PERFORM HANDLE-IT_READ-SPOOL
+END-FIND
+IF #OBJECT-LINE LT P-LINE-TO AND READ-SPOOL.RECORD-NUMBER LT #CHECK-TO
+  #E-O-F:= TRUE
+  PERFORM BUILD-LINE /* print the last buffer
+END-IF
+*
+END-SUBROUTINE /* GET-SYSOUT-LINES-JES
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SYSOUT-LINES-NOMDB
+************************************************************************
+#CHECK-TO := #CHECK-TO - #CHECK-FROM
+RESET #OBJECT-LINE2
+#NSMCOMP-BUFFER-LENGTH := 16381 - 7
+#NSMCOMP-CODE    := 'N'  /* 'N' - NEW PARM LIST
+#NSMCOMP-COMMAND := 'D'
+#ST-ID      := #NOMDB-ID
+#ST-LINE    := #CHECK-FROM
+#START-LINE := #CHECK-FROM
+RESET LINE-FOUND
+*
+READNOMDB. READ SOURCE-TEXT BY ST-ID-LINE STARTING FROM #ST-ID-LINE
+  IF ST-ID NE #ST-ID
+    IF NOT LINE-FOUND
+      P-ERROR-CODE := 0005
+      P-ERROR-TEXT := 'Start Line not found'
+    END-IF
+    ESCAPE BOTTOM (READNOMDB.)
+  END-IF
+  RESET #NSMCOMP-WORK
+  #RECORD-NUMBER := ST-LINE-START
+  SUBTRACT 1 FROM #RECORD-NUMBER
+  REP. REPEAT
+    RESET #NSMCOMP-LINE
+    INCLUDE C-NSMCMP 'SOURCE-TEXT.ST-TEXT-LOB'
+    DECIDE ON FIRST #NSMCOMP-RC
+      VALUE 0
+        IGNORE
+      VALUE 4
+        IF NOT LINE-FOUND
+          P-ERROR-CODE := 0005
+          P-ERROR-TEXT := 'Start Line not found'
+          ESCAPE BOTTOM (READNOMDB.)
+        END-IF
+        ESCAPE BOTTOM (REP.)
+      NONE
+        P-ERROR-CODE := 0005
+        MOVE EDITED #NSMCOMP-RC (EM=H(4)) TO P-ERROR-TEXT
+        COMPRESS 'Compression Routine rc=' P-ERROR-TEXT TO P-ERROR-TEXT
+        ESCAPE BOTTOM (READNOMDB.)
+    END-DECIDE
+*
+    ADD 1 TO #RECORD-NUMBER
+    IF NOT LINE-FOUND
+      IF #RECORD-NUMBER < #START-LINE
+        ESCAPE TOP
+      END-IF
+      LINE-FOUND := TRUE
+    END-IF
+*
+    ADD 1 TO LINE-CURRENT
+    LINE (LINE-CURRENT) := #NSMCOMP-LINE
+    LINE-NUMBER (LINE-CURRENT) := #OBJECT-LINE
+    IF SR-CC-TYPE EQ MACHINE-CODE
+      IF LINE-L (LINE-CURRENT,1) = H'73' OR
+          SUBSTR (LINE(LINE-CURRENT),1,3) = H'331200'
+        LINE (LINE-CURRENT) := H'01'   /* write without spacing
+      END-IF
+    END-IF
+    PERFORM BUILD-LINE
+    IF P-ERROR-CODE NE 0
+      ESCAPE BOTTOM (READNOMDB.)
+    END-IF
+    ADD 1 TO #OBJECT-LINE
+    ADD 1 TO #OBJECT-LINE2
+    IF #OBJECT-LINE > P-LINE-TO OR #OBJECT-LINE2 > #CHECK-TO
+      ESCAPE BOTTOM (READNOMDB.)
+    END-IF
+  END-REPEAT
+END-READ /*(READNOMDB.)
+IF P-ERROR-CODE = 0 AND #IN-BUFFER
+  #E-O-F:= TRUE
+  PERFORM BUILD-LINE /* print the last buffer
+END-IF
+*
+END-SUBROUTINE /* GET-SYSOUT-LINES-NOMDB
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SYSOUT-LINES-FMVS
+************************************************************************
+#NODE := #FMVS-NODE
+FNDFMVS. FIND READ-FILE WITH NODE = #FMVS-NODE AND DSNAME = #FMVS-DSNAME
+AND RECFM = #FMVS-RECFM AND LRECL = #FMVS-LRECL                       /*
+AND BLKSIZE = #FMVS-BLKSIZE AND RECORD-NUMBER  >= #CHECK-FROM         /*
+AND TIME-LIMIT     = 99999 AND SEGMENT-LENGTH = 251                   /*
+  PERFORM HANDLE-IT_READ-FILE
+END-FIND
+IF #OBJECT-LINE LT P-LINE-TO AND READ-FILE.RECORD-NUMBER LT #CHECK-TO
+  #E-O-F:= TRUE
+  PERFORM BUILD-LINE /* print the last buffer
+END-IF
+*
+END-SUBROUTINE /* GET-SYSOUT-LINES-FMVS
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SYSOUT-LINES-FBS2
+************************************************************************
+FNDFBS2. FIND READ-FILE WITH NODE = #FBS2-NODE AND DSNAME = #FBS2-DSNAME
+AND RECORD-NUMBER  >= #CHECK-FROM AND TIME-LIMIT     = 99999          /*
+AND SEGMENT-LENGTH = 251                                              /*
+  PERFORM HANDLE-IT_READ-FILE
+END-FIND
+*
+END-SUBROUTINE /* GET-SYSOUT-LINES-FBS2
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-IT_READ-SPOOL
+************************************************************************
+IF READ-SPOOL.RECORD-NUMBER > #CHECK-TO
+  ESCAPE BOTTOM
+END-IF
+ADD 1 TO LINE-CURRENT
+LINE (LINE-CURRENT) := READ-SPOOL.RECORD
+/*SU6 -> IF SOURCE.SR-TYPE = POWER AND SR-CC-TYPE EQ MACHINE-CODE
+/* AND (LINE-L (LINE-CURRENT,1) = H'73'
+/* OR SUBSTR (LINE(LINE-CURRENT),1,3) = H'331200')
+/*  LINE (LINE-CURRENT) := H'01'   /* write without spacing
+/*SU6 <- END-IF
+LINE-NUMBER (LINE-CURRENT) := #OBJECT-LINE
+PERFORM BUILD-LINE
+IF P-ERROR-CODE NE 0
+  ESCAPE BOTTOM
+END-IF
+ADD 1 TO #OBJECT-LINE
+IF #OBJECT-LINE > P-LINE-TO
+  ESCAPE BOTTOM
+END-IF
+*
+END-SUBROUTINE /* HANDLE-IT_READ-SPOOL
+*
+************************************************************************
+DEFINE SUBROUTINE HANDLE-IT_READ-FILE
+************************************************************************
+IF READ-FILE.ERROR-CODE NE 0
+  P-ERROR-CODE := 0005
+  COMPRESS READ-FILE.ERROR-TEXT '/' #NODE '/' *PROGRAM '/' *LINE
+    TO P-ERROR-TEXT
+  ESCAPE BOTTOM
+END-IF
+IF READ-FILE.RECORD-NUMBER > #CHECK-TO
+  ESCAPE BOTTOM
+END-IF
+ADD 1 TO LINE-CURRENT
+LINE (LINE-CURRENT) := READ-FILE.RECORD
+IF SEGMENT-NUMBER > 1 AND SEGMENT-LENGTH < 251
+  COMPRESS '§' LINE (LINE-CURRENT) TO LINE (LINE-CURRENT) LEAVING NO
+  EXAMINE SUBSTRING (LINE (LINE-CURRENT),1,1) FOR '§'
+    REPLACE WITH ' ' /* cc character
+END-IF
+LINE-NUMBER (LINE-CURRENT) := #OBJECT-LINE
+PERFORM BUILD-LINE
+IF P-ERROR-CODE NE 0
+  ESCAPE BOTTOM
+END-IF
+ADD 1 TO #OBJECT-LINE
+IF #OBJECT-LINE > P-LINE-TO
+  ESCAPE BOTTOM
+END-IF
+*
+END-SUBROUTINE /* HANDLE-IT_READ-FILE
+*
+************************************************************************
+DEFINE SUBROUTINE FLUSH-LINES
+************************************************************************
+IF SR-CC-TYPE NE NO-CC AND SR-CC-TYPE NE BINARY
+  RESET #FORMFEEDS
+  DECIDE ON EVERY VALUE OF #FORMFEEDS
+    VALUE 0
+      EXAMINE LINE-L (*,1) FOR H'89'
+        GIVING NUMBER #FORMFEEDS /* mach.-code
+    VALUE 0
+      EXAMINE LINE-L (*,1) FOR H'8B'
+        GIVING NUMBER #FORMFEEDS /* mach.-code
+    VALUE 0
+      EXAMINE LINE-L (*,1) FOR '1'
+        GIVING NUMBER #FORMFEEDS /* ASA-code
+    NONE
+      IGNORE
+  END-DECIDE
+  SKIP-PAGES := SKIP-PAGES - #FORMFEEDS
+ELSE
+  RESET SKIP-PAGES
+END-IF
+IF SKIP-PAGES < 1
+  RESET SKIP-PAGES
+  CALLNAT FLUSH-PROGRAM FLUSH-PARMS LINE-PARMS XXUX---P
+    P-ERROR-CODE P-ERROR-TEXT
+/*RMPRVTM RMPRWKF RMPRWKF RMPRWKF RMPRNAF RMPRCMA
+/*RMPRTCP RMPRNAT RMPREML RMPRDSK RMPRWSP
+  FLUSH-SEG-BRACKET := 'M'
+END-IF
+*
+END-SUBROUTINE /* FLUSH-LINES
+*
+************************************************************************
+DEFINE SUBROUTINE BUILD-LINE
+************************************************************************
+IF #OBJECT-LINE >= P-LINE-TO OR #E-O-F
+  IF FLUSH-SEG-BRACKET = 'F'
+    FLUSH-SEG-BRACKET := 'A'
+  ELSE
+    FLUSH-SEG-BRACKET := 'L'
+  END-IF
+END-IF
+IF P-LAYOUT-ENTRIES > 0 AND NOT #E-O-F
+  PERFORM BUILD-LAYOUT-LINES
+END-IF
+*
+IF LINE-CURRENT >= #LINES-IN-BUFFER OR FLUSH-SEG-BRACKET = 'A' OR = 'L'
+  PERFORM FLUSH-LINES
+  RESET LINE-CURRENT
+  FLUSH-SEG-BRACKET := 'M'
+  #IN-BUFFER := FALSE
+ELSE
+  #IN-BUFFER := TRUE
+END-IF
+*
+END-SUBROUTINE /* BUILD-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE BUILD-LAYOUT-LINES
+************************************************************************
+#CC := LINE-L (LINE-CURRENT, 1)
+IF (#CC = H'89' AND SOURCE.SR-CC-TYPE = MACHINE-CODE)
+OR (#CC = H'8B' AND SOURCE.SR-CC-TYPE = MACHINE-CODE)                 /*
+OR (#CC = '1'   AND SOURCE.SR-CC-TYPE = ASA-CODE)                     /*
+OR (#CC = H'81' AND SOURCE.SR-CC-TYPE = BS2000-CC)                    /*
+OR (#CC = 'A'   AND SOURCE.SR-CC-TYPE = BS2000-CC)                    /*
+  #PAGE-START := LINE-NUMBER (LINE-CURRENT)
+END-IF
+*
+IF P-LAYOUT-HEADER-LINES > 0
+AND LINE-NUMBER (LINE-CURRENT) = #PAGE-START                          /*
+THRU #PAGE-START + P-LAYOUT-HEADER-LINES - 1                          /*
+  IGNORE
+ELSE
+  PERFORM LAYOUT-LINE
+END-IF
+*
+END-SUBROUTINE /* BUILD-LAYOUT-LINES
+*
+************************************************************************
+DEFINE SUBROUTINE LAYOUT-LINE
+************************************************************************
+RESET #WORK-LINE
+IF LAYOUT-SHIFT
+  N := 2
+  S := 1
+  #WORK-L (1) := LINE-L (LINE-CURRENT, 1)
+ELSE
+  N := 1
+END-IF
+*
+FOR J = 1 TO P-LAYOUT-ENTRIES
+  IF NOT (P-LAYOUT-FROM (J) = 0 OR P-LAYOUT-TO (J) = 0)
+    K := P-LAYOUT-FROM (J)
+    L := P-LAYOUT-TO   (J)
+    M := L - K
+    #WORK-L (N : N + M) := LINE-L (LINE-CURRENT, S + K : S + L)
+    N := N + M + 2
+  END-IF
+END-FOR
+LINE (LINE-CURRENT) := #WORK-LINE
+*
+END-SUBROUTINE /* LAYOUT-LINE
+*
+************************************************************************
+DEFINE SUBROUTINE SET-LFILE
+************************************************************************
+IF NOT LFILE
+  #LFILE-NEWDBID := #TARGET-DBID
+  #LFILE-NEWFILE := #TARGET-FNR
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-NEWDBID #LFILE-NEWFILE
+  IF #LFILE-RC NE 0
+    P-ERROR-CODE := 4007
+    P-ERROR-TEXT := #LFILE-RC
+  ELSE
+    LFILE := TRUE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* SET-LFILE
+*
+************************************************************************
+DEFINE SUBROUTINE REFRESH-LFILE
+************************************************************************
+IF LFILE
+  RESET #LFILE-RC
+  CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+  IF #LFILE-RC NE 0
+    P-ERROR-CODE := 4008
+    P-ERROR-TEXT := #LFILE-RC
+  ELSE
+    LFILE := FALSE
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* REFRESH-LFILE
+*
+************************************************************************
+ON ERROR
+  BACKOUT TRANSACTION
+  IF LFILE
+    CALLNAT 'RMIGSFIL' #LFILE-RC #LFILE-OLDDBID #LFILE-OLDFILE
+    LFILE := FALSE
+  END-IF
+END-ERROR
+*
+END

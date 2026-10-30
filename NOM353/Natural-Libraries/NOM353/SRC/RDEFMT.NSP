@@ -1,0 +1,445 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    RDEFMT
+* Version   2.1
+* Function  Define monitor subtasks
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* sju 00-03-01 s(191368) written
+* wcd 00-04-01 CE 7267   New PFkey for additional printers in RPFK---L
+* sju 03-02-12 p(225429) Subtask only activated if wait times differ
+* fhi     2009-11-16 P304569  Modify only if PF10 pressed
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2014-03-05 NOMALL-1281 show last update user+date
+* SU2     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU3     2015-02-09 NOMALL-1450 'ST'->'SI'
+* fhi     2015-04-23 NOMALL-1605 Prevent Scan and Copy in different tsks
+* SU4     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* SU5     2016-08-01 NOMALL-1518 NOM3.5 deactivate opt.Compiler
+* fhi     2016-11-11 NOMALL-1961 Duplicate monitor copy task, no tags
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs, no tags
+* fhi     2017-01-05 NOMALL-1961 same
+* fhi     2017-01-13 NOMALL-1961 same
+* fhi     2017-11-09 ES-23368    Force Monitor yoyo if update requested
+* fhi     2018-04-09 NOMALL-1918 Adapt multinode to Unix
+* SU6     2019-12-17 NOMALL-2367 noYoyoÜjustShowStat+msg(was ES-23368)
+* SU7     2021-04-16 NOMALL-2454 recat RMTASK-P to avoid NAT1305
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING NRM-GL
+* *****
+INDEPENDENT
+1 +MONITOR-FUNC              (A1)
+* *****
+LOCAL USING RMSETSTE /*SU6
+LOCAL USING RPFK---L
+LOCAL USING VSUBT-L
+LOCAL USING RMTASK-P /* NOMAL -1961 fhi in
+* *****
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR
+  2 M-WAIT-MINIMUM
+  2 M-WAIT-MAXIMUM
+  2 M-WAIT-INCREMENT
+  2 M-MONITOR-TASKS
+  2 REDEFINE M-MONITOR-TASKS
+    3 M-TASK-NUMBER          (N3/1:12)
+  2 REDEFINE M-MONITOR-TASKS
+    3 M-SPOOL-QUEUE          (N3)
+    3 M-COPY-SOURCE          (N3/1:9)
+    3 M-CREATE-REPORTS       (N3)
+    3 M-MANAGE-PRINTOUTS     (N3)
+  2 M-LAST-UPDATE-USER /*SU1
+  2 M-LAST-UPDATE /*SU1
+1 DEL-ST VIEW OF NRM-SUBTASK-INFO
+* *****
+1 #MAX-TASKS                 (N2)  CONST <59>
+1 #MAX-FUNCTS                (N2)  CONST <12>
+1 CV-MAP                     (C)   INIT <(AD=I)>
+1 #FATHER-PROG               (A08) INIT <'RDEFMO'>
+1 L-HEADER                   (A78)
+1 #ALLOWED                   (L)
+1 #J                         (I4)
+1 #K                         (I4)
+1 #I1                        (I1)
+1 #R                         (I1)
+1 #FUNC                      (A1)
+1 #LANGUAGE                  (I1)
+1 #FROM                      (A16)
+1 #TASK-ISN                  (N10/1:#MAX-TASKS)
+1 #PRINT-TASK                (A1/1:5)
+1 #QUEUE-TASK                (A1/1:5)
+1 #REPORTS-TASK              (A1/1:5)
+1 #SOURCE-TASK               (A1/1:5)
+1 #NO-TASKS-IN-GROUP         (I1)
+1 #TASK-NUMBERS              (A5/1:5)
+1 #TASK-NUMBERS-I            (I4)
+1 #TASK-WAIT                 (2:5)
+  2 #WAIT-MIN                (N4)
+  2 #WAIT-MAX                (N4)
+  2 #WAIT-INCREMENT          (N3)
+1 #SUBTASK-IX                (I1)
+1 #MAP-IX                    (I1)
+1 #MAP-IX-OLD                (I1)
+1 #TASK-ALREADY-DEFINED      (L/1:4)
+1 #ANY-TASK-DEFINED          (L/2:5)
+1 #TASK-FUNCTION             (N2/1:#MAX-FUNCTS)
+1 #LAST-MOD                  (A40) /*SU1
+* For RHAMON: SU6 ->
+1 #STATUS                    (A24)
+1 #LAST-TIME                 (A8)
+1 #LAST-DATE                 (A10)
+1 #ERROR-CODE                (N4)
+1 #ERROR-TEXT                (A250)
+1 #WAIT-CURRENT              (N4)
+1 #MONITISN                  (P10)
+1 #MAIN-TASK                 (N3) CONST <1>
+*
+1 #NODE-NAME                 (A16)
+1 #LINE                      (N4)
+* end for RHAMON
+1 #MSG                       (A72) /* SU6 <-
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET G-COMMIT G-LINECOM(*)
+*
+#FUNC := +MONITOR-FUNC
+MAIN-LOOP. REPEAT
+  RESET #PRINT-TASK(*) #QUEUE-TASK(*) #REPORTS-TASK(*)
+    #SOURCE-TASK(*) #TASK-WAIT(*) #TASK-ISN(*) #TASK-NUMBERS(*)
+  RMTASK-P.TASK-ID := F#MONITOR-TASK-ID1 (<>)
+  FIND-LOOP. FIND NRM-MONITOR WITH M-MONITOR-ID = RMTASK-P.TASK-ID
+    #TASK-ISN(1) := *ISN(FIND-LOOP.)
+    INCLUDE RDEFMT-C '1' '#QUEUE-TASK'
+    RESET #MAP-IX #NO-TASKS-IN-GROUP #TASK-NUMBERS-I
+    FOR #J = 2 TO 10
+      IF M-TASK-NUMBER (#J) EQ 1 THRU #MAX-TASKS
+        IF #NO-TASKS-IN-GROUP = 0
+          #MAP-IX := (M-TASK-NUMBER(#J) - 1) / 10
+          IF #MAP-IX = 0
+            #MAP-IX := 1
+          END-IF
+          #TASK-NUMBERS(#MAP-IX) :=
+          #TASK-NUMBERS-I := M-TASK-NUMBER(#J)
+          #NO-TASKS-IN-GROUP := M-TASK-NUMBER(#J) - 1
+        END-IF
+        ADD 1 TO #NO-TASKS-IN-GROUP
+      END-IF
+    END-FOR
+    IF #TASK-NUMBERS-I < #NO-TASKS-IN-GROUP
+      COMPRESS #TASK-NUMBERS(#MAP-IX) '-' #NO-TASKS-IN-GROUP
+        TO #TASK-NUMBERS(#MAP-IX) LEAVING NO
+    END-IF
+    DECIDE ON FIRST VALUE OF #MAP-IX
+      VALUE 1
+        #SOURCE-TASK(#MAP-IX) := 'X'
+      VALUES 2,3,4,5
+        IF #TASK-NUMBERS-I = #NO-TASKS-IN-GROUP
+          #SOURCE-TASK(#MAP-IX) := 'X'
+        ELSE
+          #SOURCE-TASK(#MAP-IX) :=
+            #NO-TASKS-IN-GROUP - #TASK-NUMBERS-I + 1
+        END-IF
+      NONE
+        IGNORE
+    END-DECIDE
+    INCLUDE RDEFMT-C '11' '#REPORTS-TASK'
+    INCLUDE RDEFMT-C '12' '#PRINT-TASK'
+    CALLNAT 'N-HEAD2' M-LAST-UPDATE-USER M-LAST-UPDATE /*SU1
+      #LAST-MOD G-DATE-FORMAT /*SU1
+    RMTASK-P.FUNCTION       := 'S'
+    RMTASK-P.SUBTASK-NUMBER := 21
+    CALLNAT 'RMTASKID' RMTASK-P
+    #FROM := RMTASK-P.TASK-ID
+    RMTASK-P.SUBTASK-NUMBER := #MAX-TASKS
+    CALLNAT 'RMTASKID' RMTASK-P
+    FIND-SUBT. FIND NRM-SUBTASK-INFO
+    WITH ST-SUBTASK-ID = #FROM THRU RMTASK-P.TASK-ID                  /*
+      RMTASK-P.FUNCTION := 'G'
+      RMTASK-P.TASK-ID  := ST-SUBTASK-ID
+      CALLNAT 'RMTASKID' RMTASK-P
+      #I1                    := (SUBTASK-NUMBER - 1)
+      #SUBTASK-IX            := SUBTASK-NUMBER
+      #TASK-ISN(#SUBTASK-IX) := *ISN(FIND-SUBT.)
+      DIVIDE 10 INTO #I1 REMAINDER #R
+      IF #R NE 0
+        ESCAPE TOP /* Only first subtask of same function
+      END-IF
+      #MAP-IX := (SUBTASK-NUMBER - 1) / 10
+      IF #MAP-IX = 0
+        #MAP-IX := 1
+      END-IF
+      IF ST-EXEC-TYPE NE 'N'
+        #SUBTASK-IX              := SUBTASK-NUMBER
+        #WAIT-INCREMENT(#MAP-IX) := ST-WAIT-INCREMENT(FIND-SUBT.)
+        #WAIT-MAX(#MAP-IX)       := ST-WAIT-MAXIMUM(FIND-SUBT.)
+        #WAIT-MIN(#MAP-IX)       := ST-WAIT-MINIMUM(FIND-SUBT.)
+      END-IF
+    END-FIND
+    DECIDE ON FIRST VALUE OF #FUNC
+      VALUE 'M'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'MMO' #ALLOWED
+        INCLUDE C-NALLOW
+      VALUE 'D'
+        CALLNAT 'NARPSEC' G-USER-PROFILE 'DMO' #ALLOWED
+        INCLUDE C-NALLOW
+        CV-MAP := (AD=IP)
+      NONE VALUE
+        IGNORE
+    END-DECIDE
+*
+    SCREEN-LOOP. REPEAT
+      IF #LANGUAGE NE *LANGUAGE
+        PERFORM INIT-PFKEYS
+        PERFORM SET-PFKEYS
+        #LANGUAGE := *LANGUAGE
+      END-IF
+      PERFORM FLIP-DISPLAY
+      SET CONTROL 'M21'
+      CALLNAT 'N-HEADER' L-HEADER G-DATE-FORMAT 'RDEFMTM&'
+      SET CONTROL 'WB'
+      RESET #SUBTASK-IX
+      FOR #J = 1 TO 5
+        IF #TASK-NUMBERS(#J) = ' '
+          IF #J = 1
+            #TASK-NUMBERS(1) := '1'
+          ELSE
+            COMPRESS '(' #J ')' TO #TASK-NUMBERS(#J) LEAVING NO
+          END-IF
+        END-IF
+      END-FOR
+      RESET G-LINECOM (*) G-FLIPLINES (*) #ERROR-CODE #ERROR-TEXT #MSG
+      CALLNAT 'RHANMON' #STATUS #LAST-TIME #LAST-DATE G-MONITOR-NODE
+        G-MONITOR-JOBNAME G-SPOOL-TYPE G-WAIT-MINIMUM G-WAIT-MAXIMUM
+        G-WAIT-INCREMENT #WAIT-CURRENT G-DATE-FORMAT G-LANGUAGE
+        #ERROR-TEXT #ERROR-CODE #MONITISN #MAIN-TASK #NODE-NAME #LINE
+      IF G-NATRP-ERC = 0 AND #ERROR-CODE NE 0
+        G-NATRP-ERC := #ERROR-CODE
+        G-NATRP-ERT := #ERROR-TEXT
+      END-IF
+      EXAMINE #STATUS FOR '<' DELETE
+      EXAMINE #STATUS FOR '>' DELETE
+* Monitor Status ..  Inaktiv
+      IF #FUNC = 'M'
+        IF NOT (#STATUS = #EQ2-NOTACTIVE OR=#EQ2-SHUTDOWN OR=#EQ2-CLOSED
+        OR=#EQN-NOTACTIVE OR=#EQN-SHUTDOWN OR=#EQN-CLOSED)            /*
+          #MSG := F#GETMSG(<643>) /*strongly recom.to Close Monitor 1.
+        ELSE
+          IF *PF-KEY = 'PF5'
+            G-NATRP-ERC := 15
+          END-IF
+        END-IF
+      END-IF
+      INPUT WITH TEXT *G-NATRP-ERC,G-NATRP-ERT
+        MARK *G-DIRECT-COMMAND USING MAP 'RDEFMTM&'
+      RESET #SUBTASK-IX G-NATRP-ERC G-NATRP-ERT
+*
+      INCLUDE RPFKVA-C
+      INCLUDE C-DIRECT
+      INCLUDE RPFKED-C
+*
+      IF CV-MAP MODIFIED OR G-MAP-MODIFIED
+        PERFORM VALIDATE-INPUT
+* DON'T FORGET TO DO THE UPDATES Ü
+        G-NATRP-ERC := 0032
+        INCLUDE C-COMMIT
+      END-IF
+      INCLUDE REXDO--C
+*
+    END-REPEAT /*(SCREEN-LOOP.)
+  END-FIND /*(FIND-LOOP.)
+END-REPEAT /*(MAIN-LOOP.)
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-INPUT
+************************************************************************
+* validate that a function is only allocated one task
+RESET #TASK-ALREADY-DEFINED(*) #ANY-TASK-DEFINED(*) #TASK-FUNCTION(*)
+FOR #MAP-IX = 1 TO 5
+  #SUBTASK-IX   := (#MAP-IX - 1) * 10 + 11
+  IF #SUBTASK-IX = 11
+    #SUBTASK-IX := 1
+  END-IF
+  IF #QUEUE-TASK(#MAP-IX) NE ' '
+    IF #TASK-ALREADY-DEFINED(1)
+      RESET #TASK-ALREADY-DEFINED(1)
+      REINPUT *0679 MARK *#QUEUE-TASK(#MAP-IX)
+    END-IF
+    #TASK-ALREADY-DEFINED(1):= TRUE
+    #TASK-FUNCTION(1):= #SUBTASK-IX
+    IF #MAP-IX GT 1
+      #ANY-TASK-DEFINED(#MAP-IX):= TRUE
+    END-IF
+  END-IF
+  IF #SOURCE-TASK(#MAP-IX) NE ' '
+    IF #TASK-ALREADY-DEFINED(2)
+      RESET #TASK-ALREADY-DEFINED(2)
+      REINPUT *0679 MARK *#SOURCE-TASK(#MAP-IX)
+    END-IF
+    #TASK-ALREADY-DEFINED(2):= TRUE
+    IF #SOURCE-TASK(#MAP-IX) IS (N1)
+        AND #MAP-IX > 1
+      #K := 2 + VAL(#SOURCE-TASK(#MAP-IX)) - 1
+    ELSE
+      #K := 2
+    END-IF
+    DUPTASKS.
+    FOR #J = 2 TO #K
+      #TASK-FUNCTION(#J):= #SUBTASK-IX + #J - 2
+    END-FOR
+    IF #MAP-IX GT 1
+      #ANY-TASK-DEFINED(#MAP-IX):= TRUE
+    END-IF
+  END-IF
+  IF #REPORTS-TASK(#MAP-IX) NE ' '
+    IF #TASK-ALREADY-DEFINED(3)
+      RESET #TASK-ALREADY-DEFINED(3)
+      REINPUT *0679 MARK *#REPORTS-TASK(#MAP-IX)
+    END-IF
+    #TASK-ALREADY-DEFINED(3):= TRUE
+    #TASK-FUNCTION(11):= #SUBTASK-IX
+    IF #MAP-IX GT 1
+      #ANY-TASK-DEFINED(#MAP-IX):= TRUE
+    END-IF
+  END-IF
+  IF #PRINT-TASK(#MAP-IX) NE ' '
+    IF #TASK-ALREADY-DEFINED(4)
+      RESET #TASK-ALREADY-DEFINED(4)
+      REINPUT *0679 MARK *#PRINT-TASK(#MAP-IX)
+    END-IF
+    #TASK-ALREADY-DEFINED(4):= TRUE
+    #TASK-FUNCTION(12):= #SUBTASK-IX
+    IF #MAP-IX GT 1
+      #ANY-TASK-DEFINED(#MAP-IX):= TRUE
+    END-IF
+  END-IF
+* no function has more than one task
+  IF #MAP-IX GT 1
+    IF #ANY-TASK-DEFINED(#MAP-IX)
+      IF #WAIT-MIN(#MAP-IX) = 0
+        #WAIT-MIN(#MAP-IX):= M-WAIT-MINIMUM
+      END-IF
+      IF #WAIT-MAX(#MAP-IX) = 0
+        #WAIT-MAX(#MAP-IX):= M-WAIT-MAXIMUM
+      END-IF
+      IF #WAIT-INCREMENT(#MAP-IX) = 0
+        #WAIT-INCREMENT(#MAP-IX):= M-WAIT-INCREMENT
+      END-IF
+      IF #WAIT-MIN(#MAP-IX) GT #WAIT-MAX(#MAP-IX)
+        REINPUT *0628 MARK *#WAIT-MIN(#MAP-IX)
+      END-IF
+      IF #WAIT-INCREMENT(#MAP-IX) GT #WAIT-MAX(#MAP-IX)
+        REINPUT *0631 MARK *#WAIT-INCREMENT(#MAP-IX)
+      END-IF
+    ELSE
+      IF #WAIT-MIN(#MAP-IX) NE 0 OR #WAIT-MAX(#MAP-IX) NE 0
+          OR #WAIT-INCREMENT(#MAP-IX) NE 0
+        REINPUT *0680 MARK *#WAIT-MIN(#MAP-IX)
+      END-IF
+    END-IF
+  END-IF
+END-FOR
+* now check if all functions have been defined
+IF #TASK-ALREADY-DEFINED(*) = FALSE /* at least one is not defined
+  REINPUT *0685 MARK *G-DIRECT-COMMAND
+END-IF
+* now check if duplicated copy tasks would take over other task types
+FOR #J = 2 TO 5
+  IF NOT (#SOURCE-TASK(#J) IS (N1))
+    ESCAPE TOP
+  END-IF
+  IF #QUEUE-TASK(#J)       NE ' '
+      OR #REPORTS-TASK(#J) NE ' '
+      OR #PRINT-TASK(#J)   NE ' '
+    REINPUT *0684 MARK *#SOURCE-TASK(#J)
+  END-IF
+END-FOR
+RESET #MAP-IX-OLD
+STORE-SUBT. FOR #SUBTASK-IX = 21 TO #MAX-TASKS
+  #MAP-IX := (#SUBTASK-IX - 1) / 10
+  DECIDE FOR EVERY CONDITION
+    WHEN #MAP-IX NE #MAP-IX-OLD
+      RESET #NO-TASKS-IN-GROUP
+      #MAP-IX-OLD := #MAP-IX
+    WHEN (#SOURCE-TASK(#MAP-IX) IS (N1)
+    AND #NO-TASKS-IN-GROUP GE VAL(#SOURCE-TASK(#MAP-IX)))             /*
+    OR (#NO-TASKS-IN-GROUP = 1 AND NOT (#SOURCE-TASK(#MAP-IX) IS (N1)) )
+      IF #TASK-ISN(#SUBTASK-IX) NE 0
+        GET DEL-ST #TASK-ISN(#SUBTASK-IX)
+        RESET #TASK-ISN(#SUBTASK-IX)
+        DELETE
+      END-IF
+      ESCAPE TOP
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+  IF #ANY-TASK-DEFINED(#MAP-IX)
+    ADD 1 TO #NO-TASKS-IN-GROUP
+    IF #TASK-ISN(#SUBTASK-IX) = 0       /* newly defined
+      NRM-SUBTASK-INFO.ST-WAIT-INCREMENT:= #WAIT-INCREMENT(#MAP-IX)
+      NRM-SUBTASK-INFO.ST-WAIT-MINIMUM  := #WAIT-MIN      (#MAP-IX)
+      NRM-SUBTASK-INFO.ST-WAIT-MAXIMUM  := #WAIT-MAX      (#MAP-IX)
+      RMTASK-P.FUNCTION                 := 'S'
+      RMTASK-P.SUBTASK-NUMBER           := #SUBTASK-IX
+      CALLNAT 'RMTASKID' RMTASK-P
+      NRM-SUBTASK-INFO.ST-SUBTASK-ID    := RMTASK-P.TASK-ID
+      NRM-SUBTASK-INFO.ST-OBJECT-TYPE   := 'SI' /*SU2 SU3 'ST'->'SI'
+      NRM-SUBTASK-INFO.ST-OBJECT-TIME   := *TIMX /*SU2
+      STORETSK. STORE NRM-SUBTASK-INFO
+      #TASK-ISN(#SUBTASK-IX)            := *ISN(STORETSK.)
+    ELSE                                /* update existing
+      GETTASK. GET NRM-SUBTASK-INFO #TASK-ISN(#SUBTASK-IX)
+      RESET NRM-SUBTASK-INFO.ST-EXEC-TYPE
+      NRM-SUBTASK-INFO.ST-WAIT-INCREMENT := #WAIT-INCREMENT(#MAP-IX)
+      NRM-SUBTASK-INFO.ST-WAIT-MINIMUM   := #WAIT-MIN      (#MAP-IX)
+      NRM-SUBTASK-INFO.ST-WAIT-MAXIMUM   := #WAIT-MAX      (#MAP-IX)
+      UPDATE
+    END-IF
+  ELSE                               /* nothing for this task
+    IF #TASK-ISN(#SUBTASK-IX) NE 0 /*???? SU
+      DELTASK. GET NRM-SUBTASK-INFO #TASK-ISN(#SUBTASK-IX)
+*     NRM-SUBTASK-INFO.ST-EXEC-TYPE   := 'N'  /* no longer used
+*     UPDATE
+      RESET #TASK-ISN(#SUBTASK-IX)
+      DELETE
+    END-IF
+  END-IF
+END-FOR
+IF NOT(#TASK-FUNCTION(*) EQ NRM-MONITOR.M-TASK-NUMBER(1:#MAX-FUNCTS))
+  GET NRM-MONITOR #TASK-ISN(1)
+  NRM-MONITOR.M-TASK-NUMBER(1:#MAX-FUNCTS):= #TASK-FUNCTION(*)
+  M-LAST-UPDATE      := *TIMX /*SU1
+  M-LAST-UPDATE-USER := G-USERID /*SU1
+  UPDATE
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-INPUT
+*
+************************************************************************
+DEFINE SUBROUTINE INIT-PFKEYS
+************************************************************************
+RESET G-PF
+*
+INCLUDE RPFSTD-C
+IF #FUNC = 'M'
+  INCLUDE RPFCOM-C
+END-IF
+CALLNAT 'RPFINI-N' G-PF G-PFB
+*
+END-SUBROUTINE /* INIT-PFKEYS
+*
+INCLUDE RPFSET-C /*SET-PFKEYS
+*
+END

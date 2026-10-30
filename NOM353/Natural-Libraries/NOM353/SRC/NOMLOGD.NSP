@@ -1,0 +1,144 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NOMLOGD
+* Version   : NOM 1.3
+* Function  : DELETE log messages
+*
+* Maintenance
+* fhi 00-01-18 created from program 'NOMLOG'
+* sju 00-11-16 s(999999) SAT logging
+* SU1     2017-03-07 NOM 3.5: remove unused code
+* SU2     2019-03-26 NOMALL-2233 use SATLGD2N for SAT 3.5
+* ----------------------------------------------------------------------
+DEFINE DATA
+LOCAL USING SATLGD2P /*SU2 was SATLGD1P
+LOCAL USING SATLGV1P
+LOCAL USING SATLG01E
+LOCAL
+1 #FROM-D                  (A12)
+1 REDEFINE #FROM-D
+  2 #FROM-DATE             (A8)
+  2 #FROM-TIME             (A4)
+  2 REDEFINE #FROM-TIME
+    3 #FROM-HH             (A2)
+    3 #FROM-II             (A2)
+1 #TO-D                    (A12)
+1 REDEFINE #TO-D
+  2 #TO-DATE               (A8)
+  2 #TO-TIME               (A4)
+  2 REDEFINE #TO-TIME
+    3 #TO-HH               (A2)
+    3 #TO-II               (A2)
+1 #FROM                    (T)
+1 #TO                      (T)
+1 ERROR-OCCURRED           (L)
+1 #ERROR-TEXT              (A80)
+1 #LANGUAGE                (N2)
+1 #OLD-LANGUAGE            (N2)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT (01) PS=60 LS=133
+*
+#OLD-LANGUAGE := *LANGUAGE
+*
+DECIDE FOR EVERY CONDITION
+  WHEN NOT ERROR-OCCURRED
+    PERFORM INPUT-PARAMETER
+  WHEN NOT ERROR-OCCURRED
+    PERFORM DELETE-MESSAGES
+  WHEN ERROR-OCCURRED
+    WRITE (01) NOTITLE NOHDR
+      *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II) #ERROR-TEXT
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+*LANGUAGE := #OLD-LANGUAGE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE INPUT-PARAMETER
+************************************************************************
+INPUT (AD=MIT)
+  // 'From date (YYYYMMDD) .' #FROM-DATE
+  / 'From time (HHII) .....' #FROM-TIME
+  // 'To date (YYYYMMDD) ...' #TO-DATE
+  / 'To time (HHII) .......' #TO-TIME
+  // 'Language (1,2) .......' #LANGUAGE
+*
+IF #FROM-DATE = MASK (YYYYMMDD)
+  IF #FROM-HH = '00' THRU '23' AND #FROM-II = '00' THRU '59'
+    IF #TO-DATE = MASK (YYYYMMDD)
+      IF #TO-HH = '00' THRU '23' AND #FROM-II = '00' THRU '59'
+        MOVE EDITED #FROM-D    TO #FROM (EM=YYYYMMDDHHII)
+        MOVE EDITED #TO-D      TO #TO   (EM=YYYYMMDDHHII)
+        WRITE #FROM (EM=YYYYMMDDHHII) #TO (EM=YYYYMMDDHHII)
+        IF #TO <= #FROM
+          #ERROR-TEXT := 'TO-TIME must be greater FROM-TIME'
+        END-IF
+      ELSE
+        #ERROR-TEXT := 'Invalid TO-TIME format'
+      END-IF
+    ELSE
+      #ERROR-TEXT := 'Invalid TO-DATE format'
+    END-IF
+  ELSE
+    #ERROR-TEXT := 'Invalid FROM-TIME format'
+  END-IF
+ELSE
+  #ERROR-TEXT := 'Invalid FROM-DATE format'
+END-IF
+*
+*LANGUAGE := #LANGUAGE
+*
+IF #ERROR-TEXT NE ' '
+  ERROR-OCCURRED := TRUE
+END-IF
+*
+END-SUBROUTINE /* INPUT-PARAMETER
+*
+************************************************************************-
+DEFINE SUBROUTINE DELETE-MESSAGES
+************************************************************************
+CALLNAT 'SATLGFVN' SATLGV-PARMS
+IF SATLGV-RC NE 0
+  WRITE *PROGRAM SATLGV-ERROR-TEXT
+  #ERROR-TEXT:= SATLGV-ERROR-TEXT
+  IF SATLGV-LOG-DBID NE 0 OR SATLGV-LOG-FNR NE 0
+    WRITE *PROGRAM 'Dbid:' SATLGV-LOG-DBID 'Fnr:' SATLGV-LOG-FNR
+    COMPRESS #ERROR-TEXT SATLGV-LOG-DBID SATLGV-LOG-FNR
+      TO #ERROR-TEXT
+  END-IF
+  ERROR-OCCURRED:= TRUE
+  ESCAPE ROUTINE
+END-IF
+SATLGD-PRODUCT    := 'NOM'
+SATLGD-SEARCH-KEY := SATLG-ENV-TIME
+SATLGD-ET-COUNT   := 50
+SATLGD-ISSUE-ET   := TRUE
+SATLGD-START-TIME := #FROM
+SATLGD-END-TIME   := #TO
+CALLNAT 'SATLGD2N' SATLGD-PARMS /*SU2 was SATLGD1N
+IF SATLGD-RC NE 0
+  WRITE *PROGRAM 'Error:' SATLGD-RC SATLGD-ERROR-FIELD
+    'during LOG delete'
+  ERROR-OCCURRED := TRUE
+  COMPRESS 'Error:' SATLGD-RC SATLGD-ERROR-FIELD 'during LOG delete'
+    TO #ERROR-TEXT
+  ESCAPE ROUTINE
+END-IF
+*
+END-SUBROUTINE /* DELETE-MESSAGES
+*
+END

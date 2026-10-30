@@ -1,0 +1,197 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RXRFCI
+* Function:  List User/list related as a Coordinator ID in bundle
+*            definition
+* xsiszha 2000-08-04 (CE7461) Extend Report and Bundle Names
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #P-USERID            (A8)
+1 G-DISPLAY-LONG-NAMES (L)
+************************************************************************
+LOCAL
+1 BUNDLES VIEW OF NRM-BUNDLES
+  2 B-BUNDLE
+*
+1 #I                   (P2)
+1 #NOFLINES            (I2)   CONST <12>
+1 L-SCREEN             (1:#NOFLINES)
+  2 L-BUNDLE           (A25)
+  2 REDEFINE L-BUNDLE
+    3 L-BUNDLE-A       (A1/25)
+1 #UEBER               (A25)  INIT <'_________________________'>
+1 REDEFINE #UEBER
+  2 #UEBER-A           (A1/25)
+1 END-OF-PROCESSING    (L)
+1 END-OF-DISPLAY       (L)
+1 END-OF-DATA          (L)
+1 SORTED               (L)
+1 NEW-SEARCH           (L)
+1 #RETAIN-SET          (A8) INIT <'RXRFDT'>
+1 #MAX-REC             (P4) INIT <200>
+1 #ERC                 (N4)
+1 #PAGE                (P2)  INIT <1>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+PERFORM PF-KEYS
+FNDS. FIND NUMBER BUNDLES WITH B-COORDINATOR-ID = #P-USERID
+  RETAIN AS #RETAIN-SET
+IF *NUMBER (FNDS.) > #MAX-REC
+  SORTED := FALSE
+ELSE
+  SORTED := TRUE
+END-IF
+*
+MAIN. REPEAT UNTIL END-OF-PROCESSING
+  RESET #I
+  RESET INITIAL END-OF-DATA #PAGE NEW-SEARCH
+  IF SORTED
+    PERFORM FIND-SORTED
+  ELSE
+    PERFORM FIND-NORMAL
+  END-IF
+END-REPEAT
+RELEASE SET #RETAIN-SET
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE FIND-SORTED
+************************************************************************
+FND. FIND BUNDLES WITH #RETAIN-SET SORTED BY B-BUNDLE
+  IF #I = #NOFLINES
+    PERFORM SCREEN-IO
+    IF END-OF-PROCESSING OR NEW-SEARCH
+      ESCAPE BOTTOM (FND.)
+    END-IF
+  END-IF
+  ADD 1 TO #I
+  PERFORM BUNDLE-TO-SCREEN
+END-FIND
+DECIDE FOR FIRST CONDITION
+  WHEN #I > 0
+    END-OF-DATA := TRUE
+  WHEN *NUMBER (FND.) = 0
+    END-OF-DATA := TRUE
+  WHEN ANY
+    PERFORM SCREEN-IO
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* FIND-SORTED
+*
+************************************************************************
+DEFINE SUBROUTINE FIND-NORMAL
+************************************************************************
+FNDN. FIND BUNDLES WITH #RETAIN-SET
+  IF #I = #NOFLINES
+    PERFORM SCREEN-IO
+    IF END-OF-PROCESSING OR NEW-SEARCH
+      ESCAPE BOTTOM (FNDN.)
+    END-IF
+  END-IF
+  ADD 1 TO #I
+  PERFORM BUNDLE-TO-SCREEN
+END-FIND
+DECIDE FOR FIRST CONDITION
+  WHEN #I > 0
+    END-OF-DATA := TRUE
+  WHEN *NUMBER (FNDN.) = 0
+    END-OF-DATA := TRUE
+  WHEN ANY
+    PERFORM SCREEN-IO
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* FIND-NORMAL
+*
+************************************************************************
+DEFINE SUBROUTINE SCREEN-IO
+************************************************************************
+RESET END-OF-DISPLAY
+REPEAT
+  IF G-DISPLAY-LONG-NAMES
+    L-BUNDLE-A(*,9) := H'FA'
+    #UEBER-A(9) := H'FA'
+  ELSE
+    #UEBER-A(9) := '_'
+  END-IF
+  DECIDE FOR FIRST CONDITION
+    WHEN #ERC NE 0
+      IGNORE
+    WHEN END-OF-DATA AND #PAGE > 1
+      #ERC := 12                   /* bottom of data
+    WHEN END-OF-DATA AND #PAGE = 1
+      #ERC := 14                   /* all
+    WHEN NOT END-OF-DATA AND #PAGE = 1
+      #ERC := 11                   /* top of data
+    WHEN NONE
+      #ERC := 13                   /* more
+  END-DECIDE
+  PERFORM FLIP-DISPLAY
+  SET CONTROL 'Y41'
+  SET CONTROL 'WFL42C19B01/36'
+  SET CONTROL 'M15'
+  INPUT WITH TEXT *#ERC USING MAP 'RXRFCIM&'
+  SET CONTROL 'WMB'
+  SET CONTROL 'YB'
+  RESET #ERC
+  PERFORM COMMAND-PF-KEY
+  UNTIL END-OF-DISPLAY
+END-REPEAT
+RESET #I L-SCREEN (*)
+*
+END-SUBROUTINE /* SCREEN-IO
+*
+************************************************************************
+DEFINE SUBROUTINE BUNDLE-TO-SCREEN
+************************************************************************
+L-BUNDLE (#I) := BUNDLES.B-BUNDLE
+*
+END-SUBROUTINE /* BUNDLE-TO-SCREEN
+*
+************************************************************************
+DEFINE SUBROUTINE COMMAND-PF-KEY
+************************************************************************
+DECIDE ON FIRST *PF-KEY
+  VALUE 'PF3'
+    END-OF-PROCESSING := END-OF-DISPLAY := TRUE
+  VALUE 'PF7'
+    IF #PAGE > 1
+      END-OF-DISPLAY := NEW-SEARCH := TRUE
+    END-IF
+  VALUE 'PF8'
+    IF NOT END-OF-DATA
+      END-OF-DISPLAY := TRUE
+      ADD 1 TO #PAGE
+    END-IF
+  VALUE 'PF11'
+    IF NOT SORTED
+      NEW-SEARCH := END-OF-DISPLAY := SORTED := TRUE
+    END-IF
+  NONE           IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* COMMAND-PF-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE PF-KEYS
+************************************************************************
+SET KEY PF1 = PGM PF2 = PGM PF3 = PGM PF4 = PGM PF5 = PGM PF6 = PGM
+  PF7 = PGM PF8 = PGM PF9 = PGM PF10 = PGM PF11 = PGM PF12 = PGM
+*
+END-SUBROUTINE /* PF-KEYS
+*
+END

@@ -1,0 +1,259 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* MEMBER        IODATE-N
+* FUNCTION      This program will validate and/or mask a given date.
+*               The parameters for this program are as follows
+*               1. OPTION
+*                   V=Validate a date
+*                   M=Mask a date
+*               2. LENGTH
+*                   S=Short - use for Display
+*                   L=Long  - use as input
+*                   A=Any
+*               3. DATE          > This can be in date or return date
+*               4. DATE-FORMATED > This can be in date or return date
+*               5. FORMAT
+*                    A,B   American       mm/dd/yyyy
+*                    E,F   European       dd/mm/yyyy
+*                    I,J   International  yyyy-mm-dd
+*                    G,H   German         yyyy.mm.dd
+*                  formats A,B .. are treated identical in all functions
+*                  except in subroutine MASK-DATE-SHORT, thus offering
+*                  the option to display dates with 4 digit year also
+*                  in 8 byte output fields as used in lists.
+*               6. ERORR CODE
+*               7. ERORR MESSAGE
+*
+*  NOTE: Short date allows for the year 00 as this could be year
+*        1900 or 2000. For this reason only the long date year is
+*        check for a valid value.
+* MAINTENANCE:
+* xxx xxxx-xx-xx created
+* jvd 1997-10-07 p(163166) Added a new Length (A). this is need for
+*                         Y2C.
+* fhi     2000-01-27 p(191368) Taken from NOM142 and stowed for NOM211
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* ----------------------------------------------------------------------
+DEFINE DATA PARAMETER
+1 #P-OPTION                    (A1)      /* v-validate m=mask
+1 #P-LENGTH                    (A1)      /* s=short l=long a=any
+1 #P-DATE                      (A8)      /* date (yyyymmdd)
+1 REDEFINE #P-DATE
+  2 #P-YEAR1                   (A4)
+1 #P-DATE-FORMATED             (A10)    /* date formated eg. dd/mm/yy
+1 REDEFINE #P-DATE-FORMATED             /* or dd/mm/yyyy
+  2 #P-DATE-FORMATED-S         (A8)
+1 REDEFINE #P-DATE-FORMATED
+  2 #P-DATE-YYYYMMDD           (N4)
+1 REDEFINE #P-DATE-FORMATED
+  2 #P-DATE-FILL6              (A6)
+  2 #P-DATE-DDMMYYYY           (N4)
+1 #P-FORMAT                    (A1)      /* ATE format
+1 #P-ERC                       (N4)      /* return code
+1 #P-ERT                       (A250)
+LOCAL
+1 #DATE                        (D)
+1 #FIRST-ERT                   (A250)
+1 #P-FORMAT-I                  (A1)      /* date format internal
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+#P-FORMAT-I := #P-FORMAT
+* Process identical A,B and E,F and I,J and G,H
+* with the exception of subroutine MASK-DATE-SHORT
+DECIDE ON FIRST VALUE OF #P-FORMAT
+  VALUE 'B' #P-FORMAT-I := 'A'
+  VALUE 'F' #P-FORMAT-I := 'E'
+  VALUE 'J' #P-FORMAT-I := 'I'
+  VALUE 'H' #P-FORMAT-I := 'G'
+  NONE IGNORE
+END-DECIDE
+RESET #P-ERC #P-ERT #FIRST-ERT
+DECIDE FOR FIRST CONDITION
+  WHEN #P-ERC NE 0
+    IGNORE
+  WHEN #P-OPTION = 'V' AND #P-LENGTH = 'S'
+    PERFORM VALIDATE-DATE-SHORT
+  WHEN #P-OPTION = 'V' AND #P-LENGTH = 'L'
+    PERFORM VALIDATE-DATE-LONG
+  WHEN #P-OPTION = 'V' AND #P-LENGTH = 'A'
+    PERFORM VALIDATE-DATE-LONG
+    IF #P-ERC NE 0
+      #FIRST-ERT := #P-ERT
+      RESET #P-ERC #P-ERT
+      PERFORM VALIDATE-DATE-SHORT
+      IF #P-ERC NE 0
+        #P-ERT := #FIRST-ERT
+      END-IF
+    END-IF
+  WHEN #P-OPTION = 'M' AND #P-LENGTH = 'S'
+    PERFORM MASK-DATE-SHORT
+  WHEN #P-OPTION = 'M' AND #P-LENGTH = 'L'
+    PERFORM MASK-DATE-LONG
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-DATE-LONG
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN #P-FORMAT-I = ' ' AND #P-DATE-FORMATED NE MASK (YYYY'-'MM'-'DD)
+    #P-ERT := 'YYYY-MM-DD'
+  WHEN #P-FORMAT-I = 'I' AND #P-DATE-FORMATED NE MASK (YYYY'-'MM'-'DD)
+    #P-ERT := 'YYYY-MM-DD'
+  WHEN #P-FORMAT-I = 'A' AND #P-DATE-FORMATED NE MASK (MM'/'DD'/'YYYY)
+    #P-ERT := 'MM/DD/YYYY'
+  WHEN #P-FORMAT-I = 'E' AND #P-DATE-FORMATED NE MASK (DD'/'MM'/'YYYY)
+    #P-ERT := 'DD/MM/YYYY'
+  WHEN #P-FORMAT-I = 'G' AND #P-DATE-FORMATED NE MASK (DD'.'MM'.'YYYY)
+    #P-ERT := 'DD.MM.YYYY'
+  WHEN ANY
+    #P-ERC := 0150
+  WHEN NONE
+    PERFORM CHECK-VALID-YEAR
+    IF #P-ERC = 0
+      PERFORM DEMASK-DATE-LONG
+    END-IF
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATE-DATE-LONG
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-DATE-SHORT
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN #P-FORMAT-I = ' ' AND #P-DATE-FORMATED-S NE MASK (YY'-'MM'-'DD)
+    #P-ERT := 'YY-MM-DD'
+  WHEN #P-FORMAT-I = 'I' AND #P-DATE-FORMATED-S NE MASK (YY'-'MM'-'DD)
+    #P-ERT := 'YY-MM-DD'
+  WHEN #P-FORMAT-I = 'A' AND #P-DATE-FORMATED-S NE MASK (MM'/'DD'/'YY)
+    #P-ERT := 'MM/DD/YY'
+  WHEN #P-FORMAT-I = 'E' AND #P-DATE-FORMATED-S NE MASK (DD'/'MM'/'YY)
+    #P-ERT := 'DD/MM/YY'
+  WHEN #P-FORMAT-I = 'G' AND #P-DATE-FORMATED-S NE MASK (DD'.'MM'.'YY)
+    #P-ERT := 'DD.MM.YY'
+  WHEN ANY
+    #P-ERC := 0150
+  WHEN NONE
+    PERFORM DEMASK-DATE-SHORT
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATE-DATE-SHORT
+*
+************************************************************************
+DEFINE SUBROUTINE MASK-DATE-LONG
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN #P-DATE = ' ' OR #P-DATE NE MASK (YYYYMMDD) OR #P-YEAR1 = '0000'
+    IGNORE
+  WHEN #P-FORMAT-I = ' '
+    MOVE EDITED #P-DATE TO #DATE (EM=YYYYMMDD)
+    MOVE EDITED #DATE (EM=YYYY'-'MM'-'DD) TO #P-DATE-FORMATED
+  WHEN #P-FORMAT-I = 'I'
+    MOVE EDITED #P-DATE TO #DATE (EM=YYYYMMDD)
+    MOVE EDITED #DATE (EM=YYYY'-'MM'-'DD) TO #P-DATE-FORMATED
+  WHEN #P-FORMAT-I = 'A'
+    MOVE EDITED #P-DATE TO #DATE (EM=YYYYMMDD)
+    MOVE EDITED #DATE (EM=MM'/'DD'/'YYYY) TO #P-DATE-FORMATED
+  WHEN #P-FORMAT-I = 'E'
+    MOVE EDITED #P-DATE TO #DATE (EM=YYYYMMDD)
+    MOVE EDITED #DATE (EM=DD'/'MM'/'YYYY) TO #P-DATE-FORMATED
+  WHEN #P-FORMAT-I = 'G'
+    MOVE EDITED #P-DATE TO #DATE (EM=YYYYMMDD)
+    MOVE EDITED #DATE (EM=DD'.'MM'.'YYYY) TO #P-DATE-FORMATED
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* MASK-DATE-LONG
+*
+************************************************************************
+DEFINE SUBROUTINE MASK-DATE-SHORT
+************************************************************************
+DECIDE FOR FIRST CONDITION
+  WHEN #P-DATE = ' ' OR #P-DATE NE MASK (YYYYMMDD) OR #P-YEAR1 = '0000'
+    IGNORE
+  WHEN #P-FORMAT   = ' '
+    MOVE EDITED #P-DATE TO #DATE (EM=YYYYMMDD)
+    MOVE EDITED #DATE (EM=YY'-'MM'-'DD) TO #P-DATE-FORMATED-S
+  WHEN #P-FORMAT   = 'I'
+    MOVE EDITED #P-DATE TO #DATE (EM=YYYYMMDD)
+    MOVE EDITED #DATE (EM=YY'-'MM'-'DD) TO #P-DATE-FORMATED-S
+  WHEN #P-FORMAT   = 'A'
+    MOVE EDITED #P-DATE TO #DATE (EM=YYYYMMDD)
+    MOVE EDITED #DATE (EM=MM'/'DD'/'YY) TO #P-DATE-FORMATED-S
+  WHEN #P-FORMAT   = 'E'
+    MOVE EDITED #P-DATE TO #DATE (EM=YYYYMMDD)
+    MOVE EDITED #DATE (EM=DD'/'MM'/'YY) TO #P-DATE-FORMATED-S
+  WHEN #P-FORMAT   = 'G'
+    MOVE EDITED #P-DATE TO #DATE (EM=YYYYMMDD)
+    MOVE EDITED #DATE (EM=DD'.'MM'.'YY) TO #P-DATE-FORMATED-S
+  WHEN #P-FORMAT = 'J'
+    MOVE EDITED #P-DATE TO #DATE (EM=YYYYMMDD)
+    MOVE EDITED #DATE (EM=YYYYMMDD) TO #P-DATE-FORMATED-S
+  WHEN #P-FORMAT = 'B'
+    MOVE EDITED #P-DATE TO #DATE (EM=YYYYMMDD)
+    MOVE EDITED #DATE (EM=MMDDYYYY) TO #P-DATE-FORMATED-S
+  WHEN #P-FORMAT = 'F' OR #P-FORMAT = 'H'
+    MOVE EDITED #P-DATE TO #DATE (EM=YYYYMMDD)
+    MOVE EDITED #DATE (EM=DDMMYYYY) TO #P-DATE-FORMATED-S
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* MASK-DATE-SHORT
+*
+************************************************************************
+DEFINE SUBROUTINE DEMASK-DATE-LONG
+************************************************************************
+DECIDE ON FIRST VALUE OF #P-FORMAT-I
+  VALUE ' ' MOVE EDITED #P-DATE-FORMATED   TO #DATE (EM=YYYY'-'MM'-'DD)
+  VALUE 'I' MOVE EDITED #P-DATE-FORMATED   TO #DATE (EM=YYYY'-'MM'-'DD)
+  VALUE 'A' MOVE EDITED #P-DATE-FORMATED   TO #DATE (EM=MM'/'DD'/'YYYY)
+  VALUE 'E' MOVE EDITED #P-DATE-FORMATED   TO #DATE (EM=DD'/'MM'/'YYYY)
+  VALUE 'G' MOVE EDITED #P-DATE-FORMATED   TO #DATE (EM=DD'.'MM'.'YYYY)
+  ANY       MOVE EDITED #DATE (EM=YYYYMMDD) TO #P-DATE
+  NONE      IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* DEMASK-DATE-LONG
+*
+************************************************************************
+DEFINE SUBROUTINE DEMASK-DATE-SHORT
+************************************************************************
+DECIDE ON FIRST VALUE OF #P-FORMAT-I
+  VALUE ' ' MOVE EDITED #P-DATE-FORMATED   TO #DATE (EM=YY'-'MM'-'DD)
+  VALUE 'I' MOVE EDITED #P-DATE-FORMATED   TO #DATE (EM=YY'-'MM'-'DD)
+  VALUE 'A' MOVE EDITED #P-DATE-FORMATED   TO #DATE (EM=MM'/'DD'/'YY)
+  VALUE 'E' MOVE EDITED #P-DATE-FORMATED   TO #DATE (EM=DD'/'MM'/'YY)
+  VALUE 'G' MOVE EDITED #P-DATE-FORMATED   TO #DATE (EM=DD'.'MM'.'YY)
+  ANY       MOVE EDITED #DATE (EM=YYYYMMDD) TO #P-DATE
+  NONE      IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* DEMASK-DATE-SHORT
+*
+************************************************************************
+DEFINE SUBROUTINE CHECK-VALID-YEAR /* YEAR 1582-2699 is valid Mask date
+************************************************************************
+IF (#P-FORMAT-I =' ' AND #P-DATE-YYYYMMDD < 1582)
+OR (#P-FORMAT-I ='I' AND #P-DATE-YYYYMMDD < 1582)                     /*
+OR (#P-FORMAT-I ='A' OR='E' OR='G' AND #P-DATE-DDMMYYYY < 1582)       /*
+  #P-ERC := 2001
+END-IF
+*
+END-SUBROUTINE /* CHECK-VALID-YEAR
+*
+END

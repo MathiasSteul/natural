@@ -1,0 +1,412 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* NODULS-N - NOM API List of Mainframe and Unix nodes
+*
+* =========================================================
+* Read Mainframe and Unix nodes, put resulting amount
+* into the same buffer structure.
+* The Mainframe nodes are read first as no more than
+* 50 entries are expected. They always have to fit
+* in the first buffer access.
+* The number of Unix nodes can't estimated in detail,
+* so a second buffer access is provided.
+* =========================================================
+*          Multi-usage:
+*           (1) ES-EXTEND-FUNCTION = ' '
+*               Standard list and expand list
+*               for EGF list handling
+*           (2) ES-EXTEND-FUNCTION = 'SEL'
+*               Selection list (with Internal-ID)
+*               for Report Def., Event Def., etc.
+*
+* Maintenance:
+* XSETGGR 2004-06-11 created
+* XSETGGR 2005-01-04 use NODUST-N to get unix node status text
+* fhi     2005-07-01 p(266530)  Make mointor NPR mainframe independent
+* xsetggr 2006-03-06 add parameter es-language for call NATA2000
+* XSETHZ  2008-07-23 p(307577) use full name of ES-APP-SERVER-LIBRARY
+* XSETHZ  2008-12-08   P312501  set error messsage text
+* XSETHZ  2009-03-17 P312501   NODE-SUSPEND only displayed (Status)
+* XSETHZ  2009-04-07 P312501   Status 'E nnnn' ---> 'inactive'
+* XSETHZ  2009-07-23 P309612   Status 'E nnnn' ---> 'error'
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* fhi     2012-04-03 NOMALL-1119 Recataloged due to changes of XXUX---P
+* su      2013-01-23 xref        define subroutine WRITE-LOG-MSG
+* fhi     2012-04-17 NOMALL-1245 Change suspend field to new values.
+* fhi     2014-08-29 NOMALL-1454 Recataloged due to changes of XXUX---P
+* SU1     2016-08-05 NOM 3.5: remove unused code
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* --------------------------------------------------------------------
+* CF      2017-07-26 NOMALL-2044 Re-worked for Mainframe and UNIX nodes
+* CF1     2017-12-21 NOMALL-2062 Enable usage as a selection list
+* fhi     2018-04-25 NOMALL-1918 Severe errors: Set suspend to 'E'
+* bli     2018-07-20 NOMALL-2088 error handling
+* SU2     2018-07-27             NPR: handle 999 instead 5999
+* CF2     2018-10-29 NOMALL-2062 Prevent Delete on Monitor/Local node
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* SU3     2020-06-04 NOMALL-2349 use N-ESYLG
+* SU4     2020-12-01 NOMALL-2440 del. UX-EMAIL-RECIPIENTS
+* HEB     2021-09-14 NOMALL-2493 'F' is a synonym of 'E' (Error)
+* SU5     2024-03-07 ES-34613    NOM 3.6 Remove power
+* --------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING ESMCNT-A
+PARAMETER USING ESMINP-A
+PARAMETER USING ESMWORKA
+PARAMETER USING NODULS-A
+************************************************************************
+/*SU4 LOCAL USING VUXDEF-L
+LOCAL USING NADA2000
+LOCAL USING NAD-MSG
+LOCAL USING NAD-FLD
+LOCAL USING XXUX---P
+LOCAL USING RLOG-L
+LOCAL
+1 UX-NODES VIEW OF NRM-UX-NODES /*SU4
+  2 UX-NODE-NAME          (A16)
+  2 UX-NODE-DESCRIPTION   (A50)
+  2 UX-NODE-USERID        (A8)
+  2 UX-NODE-PASSWORD      (A32)
+  2 UX-NODE-GROUP         (A8)
+  2 UX-NODE-SUSPEND       (A1)
+1 MF-NODES VIEW OF NRM-MF-NODES /*SU4 was NRM-MONITOR
+  2 MF-MONITOR-ID         (A20)
+  2 REDEFINE MF-MONITOR-ID
+    3 MF-TYPE-ID1         (A2)
+    3 MF-TYPE-ID2         (A16)
+  2 MF-MONITOR-DESCRIPTION (A50)
+  2 MF-NPR-USERID         (A8)
+  2 MF-SYSTEM-TYPE        (A8)
+  2 MF-SPOOL-TYPE         (A8)              /* CF1
+  2 MF-TYPE               (A1)
+  2 MF-MONITOR-NODE       (N5)
+  2 MF-PRODUCT-NAME       (A16)
+/*SU4  2 M-LAST-UPDATE         (T)
+  2 MF-INTERNAL-NODE-ID   (P11)             /* CF1
+*
+1 SYS-INFO VIEW OF SYSTEM-INFO
+  2 ERROR-CODE            (N3)
+  2 ERROR-TEXT            (A58)
+  2 NODE                  (N5)
+  2 SYSTEM-MESSAGE-CODE   (A10)
+  2 NODE-ID               (A50)
+* *****
+1 #NODE               (A16)
+1 #S-NODE             (A16)
+1 #NODE-E             (A16)
+1 #I2                 (I4)
+1 #IMAX               (I4)
+1 #ES-MSG-PREF        (A7) INIT <'NOM'>
+1 REDEFINE #ES-MSG-PREF
+  2 #ES-MSG-NOM       (A3)
+  2 #ES-MSG-NR        (N4)
+1 #OPTIONS            (A2/1:10)
+1 #LIBRARY-ID         (A8)
+1 #USER-LIB           (A8)
+1 #MSG-LONG           (A100)
+1 #ERC                (N4)
+1 #ERT                (A250)
+1 #CALLER             (A8) INIT <*PROGRAM>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET ES-RC ES-NUMBER ES-STARTINDEX ES-SORTKEY ES-SORTORDER
+#LIBRARY-ID := ES-APP-SERVER-LIBRARY
+ES-EOF := 'X'
+ES-OPTION-COUNT := 10
+/*
+IF ES-EXTEND-FUNCTION = 'SEL'          /* CF1 ->
+  ES-EXPAND := 'E'
+END-IF                                 /* CF1 <-
+/*
+IF ES-EXPAND NE ' '
+  #IMAX := 702
+  ES-FIELD-COUNT := 1
+  NODUEX-FIELD-LENGTH(1) := 16
+ELSE
+  #IMAX := 145
+  ES-FIELD-COUNT := 7
+  NODULS-FIELD-LENGTH(1) := 16
+  NODULS-FIELD-LENGTH(2) := 5
+  NODULS-FIELD-LENGTH(3) := 50
+  NODULS-FIELD-LENGTH(4) := 9
+  NODULS-FIELD-LENGTH(5) := 16
+  NODULS-FIELD-LENGTH(6) := 8
+  NODULS-FIELD-LENGTH(7) := 50
+END-IF
+#S-NODE := ES-SELECT
+EXAMINE #S-NODE FOR '*' DELETE
+COMPRESS #S-NODE H'FF' TO #NODE-E LEAVING NO
+IF ES-NEXT-KEY-PARM(1) > ' '
+  #NODE := ES-NEXT-KEY-PARM(1)
+ELSE
+  #NODE := #S-NODE
+  IF ES-EXPAND NE 'E'
+    /* Ignore this coding: Get list header from client site
+    IGNORE
+    /* Activate this coding: Get list header from server site
+*     ES-STARTINDEX := 2
+*     #I2 := 1
+*     RESET NODULS-HEADER(1)
+*     #ES-MSG-NR := #HEADER-NR
+*     PERFORM GET-MSG-TXT
+*     NODULS-HEADER(1) := LONG-MSG(1)
+*     FOR #I = 2 TO ES-FIELD-COUNT
+*       COMPRESS NODULS-HEADER(1) C-HEADER-DELIMITER LONG-MSG(#I)
+*           INTO NODULS-HEADER(1) LEAVING NO
+*     END-FOR
+  END-IF
+END-IF
+/*
+/* Read Mainframe Nodes
+/*
+IF ES-NEXT-KEY-PARM(1) = ' '
+  /* Get the Mainframe nodes only for the first result buffer
+  RDMF. READ MF-NODES BY MF-MONITOR-ID = 'R-'-H'00' THRU 'R-'-H'FF'
+    ADD 1 TO #I2
+    IF #I2 > #IMAX
+      ES-NUMBER := #IMAX
+      RESET  ES-EOF
+      ESCAPE BOTTOM
+    END-IF
+    RESET #OPTIONS(*)
+    IF ES-EXPAND = 'E'
+      NODUEX-NAME (#I2) := MF-NODES.MF-TYPE-ID2
+      RESET NODUEX-OPTIONS (#I2,*)
+      IF ES-EXTEND-FUNCTION = 'SEL'                        /* CF1 ->
+        NODUEX-INTERNAL-ID(#I2) := MF-INTERNAL-NODE-ID
+        NODUEX-NODE(#I2)        := MF-MONITOR-NODE
+        NODUEX-TYPE(#I2)        := MF-TYPE
+        DECIDE ON FIRST VALUE OF MF-SPOOL-TYPE
+          VALUE 'JES2'   NODUEX-SPOOL(#I2) := '2'
+          VALUE 'JES3'   NODUEX-SPOOL(#I2) := '3'
+/*SU5     VALUE 'POWR'   NODUEX-SPOOL(#I2) := 'P'
+          VALUE 'SPOOL'  NODUEX-SPOOL(#I2) := 'S'
+          VALUE 'BS2000' NODUEX-SPOOL(#I2) := 'S' /* compatibility
+          NONE           NODUEX-SPOOL(#I2) := ' '
+        END-DECIDE
+        DECIDE FOR FIRST CONDITION
+/*SU5     WHEN MF-SYSTEM-TYPE  = 'DOS/ESA' NODUEX-SYSTEM(#I2) := 'D'
+/*SU5     WHEN MF-PRODUCT-NAME = 'z/VSE'   NODUEX-SYSTEM(#I2) := 'V'
+          WHEN MF-SYSTEM-TYPE  = 'MVS/ESA' NODUEX-SYSTEM(#I2) := 'M'
+          WHEN MF-SYSTEM-TYPE  = 'BS2000'  NODUEX-SYSTEM(#I2) := 'B'
+          WHEN MF-PRODUCT-NAME = 'z/OS'    NODUEX-SYSTEM(#I2) := 'O'
+          WHEN MF-PRODUCT-NAME = 'BS2000'  NODUEX-SYSTEM(#I2) := 'B'
+          WHEN NONE                        NODUEX-SYSTEM(#I2) :=' ' /*MF
+        END-DECIDE
+        RESET NODUEX-DATA(#I2)
+      ELSE                                                 /* CF1 <-
+        RESET NODUEX-OPTIONS (#I2,*)
+        IF MF-TYPE = 'M'                            /* CF2 ->
+          NODUEX-OPTIONS (#I2,1) := 'DL'  /* Prevent Delete on Monitor
+        END-IF                                      /* CF2 <-
+      END-IF                                               /* CF1
+    ELSE
+      NODULS-NAME(#I2)        := MF-TYPE-ID2
+      NODULS-NODE(#I2)        := MF-MONITOR-NODE
+      NODULS-DESCRIPTION(#I2) := MF-MONITOR-DESCRIPTION
+      /*
+      IF MF-SYSTEM-TYPE = ' '
+        NODULS-SYSTEM(#I2) := 'Mainframe' /* better than nothing...
+      ELSE
+        NODULS-SYSTEM(#I2) := MF-SYSTEM-TYPE
+      END-IF
+      IF MF-PRODUCT-NAME = ' '
+        NODULS-PRODUCT-NAME(#I2) := 'Mainframe'
+      ELSE
+        NODULS-PRODUCT-NAME(#I2) := MF-PRODUCT-NAME
+        EXAMINE NODULS-PRODUCT-NAME(#I2) FOR 'OSD' REPLACE WITH 'BS2000'
+      END-IF
+      /*
+      IF NOT (MF-TYPE = 'D' OR='E')
+        FNDNPR. FIND SYS-INFO WITH NODE = MF-MONITOR-NODE
+          IF SYS-INFO.ERROR-CODE NE 0
+            DECIDE ON FIRST VALUE OF SYS-INFO.ERROR-CODE
+              VALUE 999 MF-TYPE :='I' /*'down'
+              NONE      MF-TYPE :='F' /*'error'('E')
+            END-DECIDE
+            NODULS-MESSAGE(#I2) := SYS-INFO.ERROR-TEXT
+          END-IF
+        END-FIND
+      END-IF
+      /*
+      IF NOT(MF-TYPE ='D' OR='E' OR='S') AND SYS-INFO.ERROR-CODE = 0
+        /* Optimistic approach: all Mainframe nodes are responding
+        /*   (in case of often occurring not responding nodes, this
+        /*    check should be separately performed on user request)
+        /*Show screen to user to be able to identify not resp. node:
+        /* COMPRESS MF-NODES.M-TYPE-ID2 '(' MF-NODES.M-MONITOR-NODE ')'
+        /*   TO ##NODE-MSG LEAVING NO
+        /* SET CONTROL 'N'
+        /* INPUT WINDOW='WAIT' USING MAP 'RLISNOW&'
+        CALLNAT 'N-ESYLG' 1X MF-MONITOR-NODE
+          MF-NPR-USERID #CALLER #ERC #ERT 1X
+        DECIDE ON FIRST VALUE OF #ERC
+          VALUE 0     IGNORE
+          VALUES 3148,5999  MF-TYPE := 'I'           /* Inactive/down
+/* ???? IF MF-NODES.M-TYPE = 'M' /*monitor - how to show mon.in err ??
+          NONE        MF-TYPE := 'F'           /* Error
+        END-DECIDE
+        NODULS-MESSAGE (#I2) := #ERT /*A250 -> A50 Ü
+      END-IF
+      NODULS-STATUS (#I2) := MF-TYPE
+      /*  ???? NODULS-IS-MF  (#I2) := TRUE
+      /*  ???? NODULS-TYPE   (#I2) := MF-TYPE
+      RESET NODULS-OPTIONS(#I2,*)
+      IF MF-TYPE = 'M'                            /* CF2 ->
+        NODULS-OPTIONS (#I2,1) := 'DL'  /* Prevent Delete on Monitor
+      END-IF                                      /* CF2 <-
+    END-IF
+    ES-NUMBER := #I2
+  END-READ
+END-IF
+/*
+/* Read UNIX Nodes
+/*
+RDUX. READ UX-NODES BY UX-NODE-NAME = #NODE
+  IF UX-NODE-NAME > #NODE-E
+    ESCAPE BOTTOM(RDUX.)
+  END-IF
+  ADD 1 TO #I2
+  IF #I2 > #IMAX
+    ES-NEXT-KEY-PARM(1) := UX-NODE-NAME
+    ES-NUMBER := #IMAX
+    RESET  ES-EOF
+    ESCAPE BOTTOM
+  END-IF
+  RESET #OPTIONS(*)
+  IF ES-EXPAND = 'E'
+    NODUEX-NAME (#I2) := UX-NODE-NAME
+    IF ES-EXTEND-FUNCTION = 'SEL'                        /* CF1 ->
+      NODUEX-INTERNAL-ID(#I2) := 0   /* No internal ID for UNIX nodes
+      NODUEX-NODE(#I2)        := 0   /* No node number for UNIX nodes
+      NODUEX-TYPE(#I2)        := UX-NODE-SUSPEND
+      NODUEX-SPOOL(#I2)       := 'U'
+      RESET NODUEX-DATA(#I2)
+    ELSE                                                 /* CF1 <-
+      RESET NODUEX-OPTIONS (#I2,*)
+      IF UX-NODES.UX-NODE-SUSPEND = 'M' OR = 'L'  /* CF2 ->
+        NODUEX-OPTIONS (#I2,1) := 'DL'  /* Prevent Delete Monitor/Local
+      END-IF                                      /* CF2 <-
+    END-IF                                               /* CF1
+  ELSE
+    NODULS-NAME(#I2)         := UX-NODE-NAME
+    NODULS-NODE(#I2)         := ' '
+    NODULS-DESCRIPTION (#I2) := UX-NODE-DESCRIPTION
+    IF UX-NODES.UX-NODE-SUSPEND = 'M' OR = 'L'
+      NODULS-PRODUCT-NAME (#I2) := *OS
+      NODULS-SYSTEM (#I2)       := *MACHINE-CLASS
+    ELSE
+      NODULS-PRODUCT-NAME (#I2) := 'Unix'
+      NODULS-SYSTEM (#I2)       := 'Unix'
+    END-IF
+    /*
+    RESET XXUX---P
+    IF NOT (UX-NODES.UX-NODE-SUSPEND ='Y' OR='D' OR='M' OR='L' OR='S'
+        OR='E' OR='F') /* NOMALL-2493
+      /* Optimistic approach: all UNIX nodes are responding
+      /*   (in case of often occurring not responding nodes, this
+      /*    check should be separately performed on user request)
+      P-FUNCTION        := 'INFO'
+      P-NODE-NAME       := UX-NODES.UX-NODE-NAME
+      P-USERID          := UX-NODES.UX-NODE-USERID
+      P-CIPHER-PASSWORD := UX-NODES.UX-NODE-PASSWORD
+      P-GROUP           := UX-NODES.UX-NODE-GROUP
+      P-NODE-SUSPEND    := UX-NODES.UX-NODE-SUSPEND
+      RESET P-ERC P-PASSWORD #ES-MSG-NR
+      CALLNAT 'XXUX---N' XXUX---P
+      DECIDE FOR FIRST CONDITION
+        WHEN P-ERC = 0
+          NODULS-STATUS(#I2) := 'A'      /* Active
+          IF P-OPSYS NE ' '
+            NODULS-SYSTEM(#I2) := P-OPSYS
+          END-IF
+        WHEN P-ERC =5 AND P-ERT=SCAN 'SAT1115'   /* NOMALL-2088
+          /* SAT1115 SENDMESSAGE ABEND - ACI :1:
+          NODULS-STATUS(#I2) := 'I'      /* INACTIVE
+        WHEN P-ERC NE 0
+          NODULS-STATUS(#I2) := 'F'      /* ERROR
+          #ES-MSG-NR := P-ERC
+          MOVE EDITED P-ERC (EM=9999) TO #MSG-LONG
+          COMPRESS 'E' #MSG-LONG TO #MSG-LONG LEAVING NO
+          COMPRESS #MSG-LONG P-ERT TO #MSG-LONG
+        WHEN NONE IGNORE
+      END-DECIDE
+    ELSE
+      IF UX-NODES.UX-NODE-SUSPEND = 'D' OR = 'M' OR = 'L' OR = 'E'
+          OR = 'F'/* NOMALL-2493 'F' SYNOMYM OF 'E'
+        /* D = Deactivated, E = Error, M = Monitor, L = Local Monitor
+        NODULS-STATUS(#I2) := UX-NODES.UX-NODE-SUSPEND
+        IF UX-NODES.UX-NODE-SUSPEND = 'E'     /* NOMALL-2493 ->
+          NODULS-STATUS(#I2) := 'F'
+        END-IF                                /* NOMALL-2493 <-
+      ELSE
+        NODULS-STATUS(#I2) := 'S'  /* Suspended ('S' and 'Y')
+      END-IF
+    END-IF
+    IF #MSG-LONG = ' '
+      IF P-ERT NE ' '
+        NODULS-MESSAGE(#I2) := P-ERT
+      END-IF
+    ELSE
+      NODULS-MESSAGE(#I2) := #MSG-LONG
+    END-IF
+    RESET NODULS-OPTIONS(#I2,*)
+      #MSG-LONG                  /* NOMALL-2493
+    IF UX-NODES.UX-NODE-SUSPEND = 'M' OR = 'L'  /* CF2 ->
+      NODULS-OPTIONS (#I2,1) := 'DL'  /* Prevent Delete Monitor/Local
+    END-IF                                      /* CF2 <-
+  END-IF
+  ES-NUMBER := #I2
+END-READ
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-MSG-TXT
+************************************************************************
+RESET SHORT-MSG LONG-MSG(*)
+VERSION := 0
+NADA2000.OBJECT-KIND    := 'U'
+NADA2000.ERROR-NUMBER   := #ES-MSG-NR
+NADA2000.OPT-INSERT-DYN := FALSE
+NADA2000.OPT-LANGUAGE   := ES-LANGUAGE
+NADA2000.LIBRARY := ES-APP-SERVER-LIBRARY
+CALLNAT 'NATA2000' NADA2000 NATA2000.EXTENDED-PARMS NAD-MSG NAD-FLD
+*
+END-SUBROUTINE /* GET-MSG-TXT
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-LOG-MSG
+************************************************************************
+DECIDE ON FIRST VALUE OF P-ERC
+  VALUE    0 IGNORE
+  VALUE    5 LG-MSG := P-ERT              /* NOMALL-2088
+  NONE VALUE COMPRESS P-ERC P-ERT TO LG-MSG
+END-DECIDE
+IF P-ERC NE 0
+  LG-USERID := F#MONITOR-TASK-USER-ID-LOG1 (<>)
+  LG-CODE   := 'MO'
+  CALLNAT 'NOLG---N' PL-PARMS #USER-LIB
+END-IF
+*
+END-SUBROUTINE /* WRITE-LOG-MSG
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  ES-RC := 1
+  COMPRESS *PROGRAM 'ERROR' *ERROR-NR *ERROR-LINE TO ES-MSG-TXT
+  ESCAPE ROUTINE
+END-ERROR
+*
+END

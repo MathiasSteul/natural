@@ -1,0 +1,441 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* RJGETVOL - Get volsers from catalog for an archive dataset (MVS)
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* jvd 98-08-04 s(172662) Duplicate DSN for tape archiving
+* jvd 98-09-14 p(164220) NAT23ÖNOM141
+* gw  98-09-24 p(174298) ignore ESY error code
+* jvd 99-06-02 p(182769) increase volser array to 20
+* fhi 00-06-08 QA01      Without NSC steplibs are not set.
+* xsisgg  00-07-05 p(195864) add SYSEXT as a steplib if NSC is not activ
+* fhi     00-07-26 QA01      add SYSNOMS as steplib if NSC is not active
+* xsisgg  2000-08-02 (191368) archive,revive jobs scheduled from NOP
+* xsetggr 2001-12-19 p(209875) add missing steplibs if NSC is not active
+* sju     2002-02-25 NOM221    New lfile for active data
+* sju     2002-08-07 NOM221    User defined archive types
+* fhi     2003-07-23 p(242064) Unify steplib concatentation
+* HH      2004-07-29 CHANGE PROCESS-STATEMENT IN FIND(1)-STATEMENT
+* fhi     2005-06-23 p(266530) Make Monitor NPR Mainframe independent
+* xsetggr 2007-05-07 Support 5 byte node numers
+* fhi     2007-05-30 P297047   Replace RSTEPLIB, old comments deleted
+* xsetggr 2010-01-26 P322358   write ESY errors in monitor log
+* fhi     2010-03-25 P324799   Do not use RGEST* modules, NOMGST* instd.
+* fhi     2010-08-30 NOMALL-838 Supply the correct SPOOL-TYPE
+* fhi     2010-08-31 NOMALL-93 Introduce trace levels                   STEM
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2014-07-16 restructured
+* BLI     2014-09-05 NOMALL-1422 Multivolume handling
+* SU3     2014-11-05 NOMALL-1450 fill fields for Adabas Vista
+* SU4     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* SU5     2020-06-04 NOMALL-2349 use N-ESYLG
+* ----------------------------------------------------------------------
+DEFINE DATA GLOBAL USING MONIT-GL
+LOCAL USING VARDSN-L    /* archive-dataset
+LOCAL USING RACTLF-A
+LOCAL USING VUSARC-L
+LOCAL USING RLOG-L
+* ----------------------------------------------------------------------
+LOCAL
+1 DATASET-REPORT VIEW OF NRM-DATASET-REPORT
+1 FILE-ATTRIBUTES VIEW OF FILE-ATTRIBUTES
+  2 VOLSER
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 REDEFINE ERROR-TEXT
+    3 ERROR-PREFIX            (A7)
+    3 ERROR-TXT               (A51)
+  2 SYSTEM-MESSAGE-CODE
+  2 VOLSER-ARRAY              (1:20) /* NPR has a limit of 30
+1 RESOURCE-CONTROL VIEW OF RESOURCE-CONTROL
+1 VTOC VIEW OF VTOC
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 SERIES
+1 VTOC-UPDATE VIEW OF VTOC-UPDATE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 REDEFINE ERROR-TEXT
+    3 ERROR-PREFIX            (A7)
+    3 ERROR-TXT               (A51)
+  2 SYSTEM-MESSAGE-CODE
+1 CATALOG-UPDATE VIEW OF CATALOG-UPDATE
+  2 ERROR-CODE
+  2 ERROR-TEXT
+1 CATALOG VIEW OF CATALOG
+  2 ERROR-CODE
+  2 ERROR-TEXT
+  2 VOLSER
+  2 CLASS
+* *****
+1 #ARCDSNAME                   (A44)
+1 #VOLNO                       (N3)
+1 #VOLUMES                     (A120)
+1 REDEFINE #VOLUMES
+  2 #VOLSERS                   (A6/20)
+1 #DEVICE                      (A8)
+*
+1 UPDATE-DATASET               (L)
+1 #NOP-SCHED                   (L)  /* true if jobs scheduled from NOP
+1 #USERARC-ID                  (A10)  INIT <'USERARC00'>
+1 REDEFINE #USERARC-ID
+  2 #USERARC-FIXED             (A8)
+  2 #USERARC-NUMBER            (N1)
+1 #CALLER                      (A8) INIT <*PROGRAM>
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF G-TRACE < 2
+  CALLNAT 'NOMGSTEP' '*' G-NATRP-ERC
+ELSE
+  CALLNAT 'NOMGSTEP' '*' G-NATRP-ERC G-TRACE
+END-IF
+RESET RACTLF-LOGGING
+RACTLF-ERROR-LOGGING := TRUE
+RACTLF-LOG-USERID := G-MONITOR-ID
+RACTLF-LOG-CODE := 'MO'
+RACTLF-LFILE-1 := 91
+RACTLF-LFILE-2 := 206
+CALLNAT 'RACTLF-N' RACTLF-PARMS
+IF RACTLF-ERROR-CODE NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    RACTLF-ERROR-CODE RACTLF-ERROR-TEXT
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Dbid1:' RACTLF-DBID-1 'Fnr1:' RACTLF-FNR-1
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX(EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Dbid2:' RACTLF-DBID-2 'Fnr2:' RACTLF-FNR-2
+  TERMINATE 50
+END-IF
+RESET G-NATRP-ERC G-NATRP-ERT
+IF *DATA > 4
+  INPUT #ARCDSNAME G-MONITOR-NODE G-NPR-USERID #NOP-SCHED
+    #USERARC-NUMBER
+ELSE
+  INPUT #ARCDSNAME G-MONITOR-NODE /  G-NPR-USERID #USERARC-NUMBER
+END-IF
+IF #USERARC-NUMBER GT 0
+  FIND NRM-USER-DEFINED-ARCHIVE WITH M-MONITOR-ID = #USERARC-ID
+    IF M-USERARC-EXITLIB GT ' ' AND M-USERARC-EXITMEM GT ' '
+      ESCAPE ROUTINE
+    END-IF
+  END-FIND
+END-IF
+IF #NOP-SCHED AND SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN 'BS2'
+  G-NPR-CURRENT-USERID := G-BS2-USERID
+ELSE
+  G-NPR-CURRENT-USERID := G-NPR-USERID
+END-IF
+*
+CALLNAT 'N-ESYLG' 1X G-MONITOR-NODE G-NPR-CURRENT-USERID #CALLER
+  G-NATRP-ERC G-NATRP-ERT 1X
+IF G-NATRP-ERC NE 0
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Error logging on to ESY ' G-NPR-CURRENT-USERID G-NATRP-ERC
+  RESET G-NPR-CURRENT-USERID
+END-IF
+*
+DECIDE FOR EVERY CONDITION
+  WHEN G-NATRP-ERC = 0
+    PERFORM SYSTEM-INFORMATION
+  WHEN G-NATRP-ERC = 0
+    PERFORM GET-VOLSERS
+  WHEN G-NATRP-ERC NE 0
+    IF #NOP-SCHED
+      ESCAPE ROUTINE
+    END-IF
+    PERFORM WRITE-ERROR-LOG
+    IF G-NATRP-ERC = 5
+      TERMINATE 4
+    END-IF
+    TERMINATE 50
+  WHEN NONE
+    IGNORE
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE GET-VOLSERS
+************************************************************************
+NUMREP. FIND NUMBER DATASET-REPORT WITH DR-ARCHIVE-DSNAME = #ARCDSNAME
+*
+ARCDSN. FIND ARCHIVE-DATASET WITH AD-ARCHIVE-DSNAME = #ARCDSNAME
+*
+  IF NO RECORDS FOUND
+    ENTER
+  END-NOREC
+  DECIDE FOR FIRST CONDITION
+    WHEN SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN 'BS2'
+      IF *NUMBER (NUMREP.) = 0
+        IF *NUMBER (ARCDSN.) NE 0
+          DELETE (ARCDSN.)
+        END-IF
+        PERFORM DELETE-BS2000-DATASET
+      ELSE
+        PERFORM UPDATE-BS2000-ARCHIVE-DATASET
+        IF UPDATE-DATASET
+          UPDATE (ARCDSN.)
+        END-IF
+      END-IF
+      END OF TRANSACTION
+    WHEN SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN 'MVS' OR = SCAN 'MSP'
+      IF *NUMBER (NUMREP.) = 0
+        IF *NUMBER (ARCDSN.) NE 0
+          DELETE (ARCDSN.)
+        END-IF
+        PERFORM DELETE-DATASET
+      ELSE
+        PERFORM UPDATE-ARCHIVE-DATASET
+        IF UPDATE-DATASET
+          UPDATE (ARCDSN.)
+        END-IF
+      END-IF
+      END TRANSACTION
+      PERFORM RELEASE-ENQ
+    WHEN NONE
+      BACKOUT TRANSACTION
+  END-DECIDE
+*
+END-FIND
+*
+END-SUBROUTINE /* GET-VOLSERS
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-ARCHIVE-DATASET
+************************************************************************
+RESET AD-VOLSERS (*)
+*
+FIND CATALOG WITH NODE = G-MONITOR-NODE AND DSNAME = #ARCDSNAME
+    AND PREFIX = 'NO'
+*
+  IF CATALOG.ERROR-CODE > 0
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Error reading catalog information' #ARCDSNAME
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      CATALOG.ERROR-TEXT
+    G-NATRP-ERC := 5
+    G-NATRP-ERT := CATALOG.ERROR-TEXT
+    ESCAPE ROUTINE
+  END-IF
+*
+  IF VOLSER EQ '*'                           /* NOMALL-1422 BLI start
+    ESCAPE BOTTOM
+  END-IF                                     /* NOMALL-1422 BLI  end
+*
+  IF CLASS = 'DASD'
+    VTOC1. FIND VTOC WITH NODE = G-MONITOR-NODE AND VOLSER = VOLSER
+        AND DSNAME = #ARCDSNAME
+*
+      IF VTOC.ERROR-CODE > 0
+        WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+          'Error reading vtoc information' VOLSER #ARCDSNAME
+        WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+          VTOC.ERROR-TEXT
+        G-NATRP-ERC := 5
+        G-NATRP-ERT := VTOC.ERROR-TEXT
+        ESCAPE ROUTINE
+      END-IF
+*
+      ADD 1 TO #VOLNO
+      ARCHIVE-DATASET.AD-VOLSERS(#VOLNO) := VOLSER
+      #DEVICE := SERIES
+*
+    END-FIND /* FIND VTOC
+  ELSE
+    ADD 1 TO #VOLNO
+    ARCHIVE-DATASET.AD-VOLSERS(#VOLNO) := VOLSER
+  END-IF  /* IF CLASS = 'DASD
+END-FIND  /* FIND CATALOG
+*
+UPDATE-DATASET := TRUE
+*
+PERFORM RECATALOG-DATASET
+*
+END-SUBROUTINE /* GET-VOLSERS
+*
+************************************************************************
+DEFINE SUBROUTINE RECATALOG-DATASET
+************************************************************************
+IF CATALOG.CLASS = 'DASD'
+  FIND CATALOG-UPDATE WITH NODE = G-MONITOR-NODE AND DSNAME = #ARCDSNAME
+      AND FUNCTION = 'UNCATLG'
+    IF CATALOG-UPDATE.ERROR-CODE > 0
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Error uncataloging dataset' #ARCDSNAME
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        CATALOG-UPDATE.ERROR-TEXT
+      ESCAPE ROUTINE
+    END-IF
+*
+  END-FIND
+  #VOLSERS (1:20) := ARCHIVE-DATASET.AD-VOLSERS (1:20)
+  FIND CATALOG-UPDATE WITH NODE = G-MONITOR-NODE AND DSNAME = #ARCDSNAME
+      AND VOLUMES = #VOLUMES AND DEVICE = #DEVICE AND FUNCTION = 'CATLG'
+    IF CATALOG-UPDATE.ERROR-CODE > 0
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Error cataloging dataset' #ARCDSNAME
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        CATALOG-UPDATE.ERROR-TEXT
+      G-NATRP-ERC := 5
+      G-NATRP-ERT := CATALOG-UPDATE.ERROR-TEXT
+      ESCAPE ROUTINE
+    END-IF
+  END-FIND
+END-IF
+*
+END-SUBROUTINE /* RECATALOG-DATASET
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-DATASET
+************************************************************************
+FIND CATALOG WITH NODE = G-MONITOR-NODE AND DSNAME = #ARCDSNAME
+    AND PREFIX = 'NO'
+*
+  IF CATALOG.ERROR-CODE > 0
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Error reading catalog information' #ARCDSNAME
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      CATALOG.ERROR-TEXT
+    G-NATRP-ERC := 5
+    G-NATRP-ERT := CATALOG.ERROR-TEXT
+    ESCAPE ROUTINE
+  END-IF
+*
+  IF CLASS = 'DASD'
+    FIND VTOC-UPDATE WITH NODE = G-MONITOR-NODE AND DSNAME = #ARCDSNAME
+        AND VOLSER = VOLSER AND FUNCTION = 'PURGE'
+    END-FIND
+  END-IF
+END-FIND
+*
+FIND CATALOG-UPDATE WITH NODE = G-MONITOR-NODE AND DSNAME = #ARCDSNAME
+    AND FUNCTION = 'UNCATLG'
+  IF CATALOG-UPDATE.ERROR-CODE > 0
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Error uncataloging dataset' #ARCDSNAME
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      CATALOG-UPDATE.ERROR-TEXT
+    ESCAPE ROUTINE
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* DELETE-DATASET
+*
+************************************************************************
+DEFINE SUBROUTINE RELEASE-ENQ
+************************************************************************
+* this routine will free enq on sysdsn
+* associated with natural process's admin task, even though all
+* allocations are done by user's subtask.
+* it seems to be an mvs bug
+*
+FIND RESOURCE-CONTROL WITH NODE = G-MONITOR-NODE
+    AND FUNCTION  = 'LIST' AND QNAME = 'SYSDSN' AND RNAME = #ARCDSNAME
+*
+  FIND (1) FILE-ATTRIBUTES WITH DSNAME = #ARCDSNAME
+      AND NODE = G-MONITOR-NODE
+  END-FIND
+*
+  FIND (1) VTOC WITH VOLSER = FILE-ATTRIBUTES.VOLSER
+      AND NODE   = G-MONITOR-NODE
+  END-FIND
+END-FIND
+*
+END-SUBROUTINE /* RELEASE-ENQ
+*
+************************************************************************
+DEFINE SUBROUTINE SYSTEM-INFORMATION
+************************************************************************
+IF G-MONITOR-NODE NE 0
+  FNDSY. FIND (1) SYSTEM-INFO-VIEW WITH NODE = G-MONITOR-NODE
+    IF SYSTEM-INFO-VIEW.ERROR-CODE NE 0
+      G-NATRP-ERC := SYSTEM-INFO-VIEW.ERROR-CODE
+      G-NATRP-ERT := SYSTEM-INFO-VIEW.ERROR-TEXT
+      WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        'Error reading system information' G-NATRP-ERC
+      PRINT NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+        G-NATRP-ERT
+    END-IF
+    IF SYSTEM-INFO-VIEW.SYSTEM-TYPE = SCAN ('BS2')
+      SYSTEM-INFO-VIEW.SPOOL-TYPE := SYSTEM-INFO-VIEW.SYSTEM-TYPE
+    END-IF
+  END-FIND
+ELSE
+  SYSTEM-INFO-VIEW.SYSTEM-TYPE := *OPSYS
+  SYSTEM-INFO-VIEW.SPOOL-TYPE  := 'UNIX'
+END-IF
+*
+END-SUBROUTINE /* SYSTEM-INFORMATION
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-BS2000-DATASET
+************************************************************************
+FNDCUBS2. FIND VTOC-UPDATE WITH NODE = G-MONITOR-NODE
+    AND DSNAME = #ARCDSNAME AND FUNCTION = 'DELETE'
+  IF VTOC-UPDATE.ERROR-CODE > 0
+    COMPRESS ERROR-PREFIX '(' SYSTEM-MESSAGE-CODE ')' ERROR-TXT
+      TO VTOC-UPDATE.ERROR-TEXT LEAVING NO
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Error deleting data set' #ARCDSNAME
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      VTOC-UPDATE.ERROR-TEXT
+    G-NATRP-ERC := 5
+    G-NATRP-ERT := VTOC-UPDATE.ERROR-TEXT
+    ESCAPE ROUTINE
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* DELETE-BS2000-DATASET
+*
+************************************************************************
+DEFINE SUBROUTINE UPDATE-BS2000-ARCHIVE-DATASET
+************************************************************************
+RESET AD-VOLSERS (*)
+*
+FIND FILE-ATTRIBUTES WITH NODE = G-MONITOR-NODE AND DSNAME = #ARCDSNAME
+  IF FILE-ATTRIBUTES.ERROR-CODE > 0
+    COMPRESS ERROR-PREFIX '(' SYSTEM-MESSAGE-CODE ')' ERROR-TXT
+      TO FILE-ATTRIBUTES.ERROR-TEXT LEAVING NO
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      'Error reading file attributes' #ARCDSNAME
+    WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+      FILE-ATTRIBUTES.ERROR-TEXT
+    G-NATRP-ERC := 5
+    G-NATRP-ERT := FILE-ATTRIBUTES.ERROR-TEXT
+    ESCAPE ROUTINE
+  END-IF
+  IF VOLSER-ARRAY (*) NE ' '
+    UPDATE-DATASET := TRUE
+    AD-VOLSERS (1:20) := VOLSER-ARRAY (1:20)
+  END-IF
+END-FIND
+*
+END-SUBROUTINE /* UPDATE-BS2000-ARCHIVE-DATASET
+*
+************************************************************************
+DEFINE SUBROUTINE WRITE-ERROR-LOG
+************************************************************************
+LG-USERID := G-MONITOR-ID
+LG-CODE := 'MO'
+IF G-NATRP-ERC = 5
+  COMPRESS 'Error processing' #ARCDSNAME TO LG-MSG
+  COMPRESS G-NATRP-ERC LG-MSG TO LG-MSG
+  CALLNAT 'RLOG' PL-PARMS
+END-IF
+COMPRESS G-NATRP-ERC G-NATRP-ERT TO LG-MSG
+CALLNAT 'RLOG' PL-PARMS
+END TRANSACTION
+*
+END-SUBROUTINE /* WRITE-ERROR-LOG
+*
+END

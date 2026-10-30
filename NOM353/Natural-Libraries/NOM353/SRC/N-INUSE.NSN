@@ -1,0 +1,112 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* Member    N-INUSE
+* Function  Check if active report is in use
+*
+*           P-RC =  1  -  in printout queue
+*                   2  -  in bundle printout
+*                   3  -  in open bundle
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  92-09-16           created
+* sju 00-11-14 s(999999) SAT log server
+* fhi     2008-07-24 P307319   restow due to changes in DDM NRM-BUNDLE-CONTENTS
+* xsetggr 2009-10-09 P321080   prevent wrong P-PO-ID
+* fhi     2010-09-03 NOMALL-97 Extend message line
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* ----------------------------------------------------------------------
+*
+DEFINE DATA PARAMETER USING N-INUSEA
+************************************************************************
+LOCAL USING SUPER-L
+LOCAL
+1 BUNDLE-CONTENTS VIEW OF NRM-BUNDLE-CONTENTS
+  2 BC-BUNDLE
+  2 BC-BUNDRNB
+1 ACTIVE-BUNDLES VIEW OF NRM-ACTIVE-BUNDLES
+  2 AB-BUNDLE
+  2 AB-BUNDRNB
+  2 AB-STATUS
+1 PRINTOUTS VIEW OF NRM-PRINTOUTS
+  2 PO-STATUS
+  2 PO-ID
+  2 PO-USERID
+*
+1 L-OWNER-OR-ADMIN (L)
+1 #MSG             (A250)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+RESET P-IN-USE P-MSG P-RC P-BUNDLE P-BUNDRNB P-PO-ID
+*
+#AR-REPNAME := P-REPORT
+#AR-REPRNB := P-REPRNB
+*
+IF P-USER-TYPE = 'A' OR P-OWNER
+  L-OWNER-OR-ADMIN := TRUE
+END-IF
+*
+BUND-CONT. FIND BUNDLE-CONTENTS WITH BC-REPORT-RNB = #AR-REPORT-RNB
+  IF NO RECORDS FOUND
+    ESCAPE BOTTOM (BUND-CONT.)
+  END-NOREC
+  #AB-BUNDLE  := BC-BUNDLE
+  #AB-BUNDRNB := BC-BUNDRNB
+  IF L-OWNER-OR-ADMIN
+    FIND (1) ACTIVE-BUNDLES WITH AB-BUNDLE-RNB = #AB-BUNDLE-RNB
+        WHERE AB-STATUS     = 'O'
+      P-IN-USE  := TRUE
+      P-RC      := 3                 /* in open bundle
+      P-BUNDLE  := AB-BUNDLE
+      P-BUNDRNB := AB-BUNDRNB
+      COMPRESS '0410' P-BUNDLE TO #MSG
+      CALLNAT 'RSUBMSGN' #MSG
+      P-MSG := #MSG
+      ESCAPE ROUTINE
+    END-FIND
+  END-IF
+*
+  PO-BUND. FIND (1) PRINTOUTS WITH PO-BUNDLE-RNB = #AB-BUNDLE-RNB
+      WHERE NOT (PO-STATUS = 'D' OR = 'F' OR = 'E')
+    IF NO RECORDS FOUND
+      ESCAPE BOTTOM (PO-BUND.)
+    END-NOREC
+    IF L-OWNER-OR-ADMIN OR P-USERID = PO-USERID
+      P-IN-USE := TRUE
+      P-RC     := 2                 /* in bundle printout
+      P-BUNDLE := BC-BUNDLE
+      P-PO-ID  := PO-ID
+      COMPRESS '0411' PO-ID TO #MSG
+      CALLNAT 'RSUBMSGN' #MSG
+      P-MSG:= #MSG
+      ESCAPE ROUTINE
+    END-IF
+  END-FIND
+END-FIND
+*
+PO-RE. FIND PRINTOUTS WITH PO-REPORT-RNB = #AR-REPORT-RNB
+    WHERE NOT (PO-STATUS = 'D' OR = 'F' OR = 'E')
+  IF NO RECORDS FOUND
+    ESCAPE BOTTOM (PO-RE.)
+  END-NOREC
+  IF L-OWNER-OR-ADMIN OR P-USERID = PO-USERID
+    P-IN-USE := TRUE
+    P-RC     := 1                 /* in printout queue
+    P-PO-ID  := PO-ID
+    /*  Substitute message text for error number in log message:
+    COMPRESS '0412' PO-ID TO #MSG
+    CALLNAT 'RSUBMSGN' #MSG
+    P-MSG := #MSG
+    ESCAPE ROUTINE
+  END-IF
+END-FIND
+*
+END

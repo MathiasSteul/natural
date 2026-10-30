@@ -1,0 +1,674 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* -------------------------------------------------------------------- *
+* RMSTX--N Handle Subtasks on Unix Systems
+*
+* Functions:
+* ----------
+*
+* SUBMIT/START
+* ------------
+* Start a Unix task.
+* STX-START-SCRIPT     - Script/program name
+* STX-LOGFILE          - File for script output
+* STX-TASK-NUMBER      - Number of a monitor task to be started
+*
+* If a printer task is already active, it will be posted, not started.
+*
+* STATUS
+* ------
+* Information if a task is running
+* STX-TASK-NAME        - Task name according to NRM-SUBTASK-INFO
+*                        (fully or not fully qualified)
+*
+* LIST
+* ------
+* List tasks sequentially and return their status
+* STX-TASK-NAME        - Task name according to NRM-SUBTASK-INFO
+*                        (fully or not fully qualified)
+*
+* KILL
+* ----
+* Kill a task
+* STX-TASK-NAME        - Task name according to NRM-SUBTASK-INFO
+*
+*
+* Status values in STX-TASK-STATUS
+*  0: Task is running
+*  1: Task is stopped
+*  2: Status unknown
+*
+*
+* Codes of NPR Unix function 'STATUS' and resulting STX-TASK-STATUS
+*
+* xsetggr 2011-07-04 NoMALL-1002 corrected status code handling
+* codes 6-12 (except 8) are assume as unknown and after pause status of
+* task checked again. If remains the same - set 1 (task stopped).
+*
+*
+*  NPR Status Value        STX-TASK-STATUS
+*  ------------------------- ------------
+*  0: UNKNOWN                     2
+*  1: NOT FOUND                   1
+*  2: SLEEPING                    0
+*  3: WAITING                     0
+*  4: RUNNING                     0
+*  5: IN INTERMEDIATE STATE       0
+*  6: TERMINATED                  2    /* xsetggr NOMALL-1002 was 1
+*  7: STOPPED                     2    /* xsetggr NOMALL-1002 was 1
+*  8: GROWING                     2    /* xsetggr NOMALL-1002 was 0
+*  9: IN UNKNOWN STATE            2
+* 10: FINISHED                    2    /* xsetggr NOMALL-1002 in
+* 11: WINDOWS SERVICE PAUSED      2    /* xsetggr NOMALL-1002 in
+* 12: ZOMBIE PROCESS              2    /* xsetggr NOMALL-1002 in
+*
+*
+* Message codes of a script, filled with function STATUS:
+*  STX-MESSAGE-CODE - Return code of the script in question
+*  STX-MESSAGE      - Text for abended script
+*
+* The started bash script requires the following handling:
+* 1. After the main command save the return code (i.e batch Natural)
+*    exitcode=$?
+* 2. Enter the following last 2 lines:
+*    set -x
+*    exit $exitcode
+*
+* Note: Caller has to do an END TRANSACTION, this module must not do it
+*
+* -------------------------------------------------------------------- *
+*
+* MAINTENANCE:
+* ------------
+* User ID yyyy-mm-dd Mark      Comment
+* fhi     2005-06-27 P266530   Created
+* fhi     2005-09-28 P270015   Task does not start
+* fhi     2005-10-14 P(266530) Recompiled, XXUX---P changed.
+* fhi     2007-03-13 FHI212    Recompiled, XXUX---P changed.
+* fhi     2007-03-26 FHI212    XXUX---n rewritten
+* fhi     2008-07-04 P304914   Error number not returned.
+* fhi     2010-08-11 NOMALL-853 Monitor Multitasking for Unix           STEM
+* fhi     2010-08-18 NOMALL-853 Monitor Multitasking for Unix           STEM
+* fhi     2010-08-20 NOMALL-853 Monitor Multitasking, rewritten, no tagsSTEM
+* fhi     2010-08-23 NOMALL-853 Monitor Multitasking, no tags           STEM
+* fhi     2010-09-28 NOMALL-853 Monitor Multitasking, no tags           STEM
+* fhi     2010-09-28 NOMALL-853 Monitor Multitasking, no tags           STEM
+* fhi     2010-11-05 NOMALL-97  Extend tracing, no tags
+* fhi     2011-01-03 NOMALL-853 Avoid deadlock (NAT3009, subcode 6)     STEM
+*                               No tags.                                STEM
+* fhi     2011-02-01 NOMALL-948 Avoid destroyed buffer pool             STEM
+* fhi     2011-02-01 NOMALL-922 Reuse printer tasks                     STEM
+* fhi     2011-02-07 NOMALL-929 Avoid 3009 and dead locks (Subcode 6)   STEM
+*                               No tags for this.
+* fhi     2011-03-23 NOMALL-947 Handle Status call with PID 0           STEM
+* fhi     2011-05-26 NOMALL-1000 Avoid NAT1314 in 3030                  STEM
+* xsetggr 2011-07-04 NOMALL-1002 handle corrections of NPROS-35
+* xsetggr 2011-07-06 NOMALL-1002 correct retry time
+* fhi     2012-04-04 NOMALL-1135 Status interpretation changed for AIX
+*                                Can be backouted after solution of
+*                                iTrac NPROS-53 or with NPR Unix
+*                                prerequitsite NPR 2.1.4.11 or higher
+* fhi     2012-04-10 NOMALL-1135 Backouted, old version kept in NOM33OLD
+*                                No tags entered for backout.
+* fhi     2012-06-12 NOMALL-1151 Trace extended.
+* fhi     2014-02-11 NOMALL-1333 Synchronize tasks just submitted
+* fhi     2014-02-20 NOMALL-1338 Use changed parameter sequence
+* fhi     2014-08-29 NOMALL-1454 Recataloged due to changes of XXUX---P
+* fhi     2014-09-25 NOMALL-1446 Honour error 1581 (wrong NPR version)
+* fhi     2014-12-09 NOMALL-1531 same
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2015-02-09 NOMALL-1450 'ST'->'SI'
+* fhi     2015-04-20 NOMALL-1611 Introduce DB/FNR params for nommon.bsh
+* fhi     2015-09-23 NOMALL-1663 Correct exit code handling
+* fhi     2015-09-25 NOMALL-1541 Correct msg 2048 if node is only down.
+* SU3     2015-11-23 NOMALL-1784 avoid NAT1301 (P10->B4/I4 - big ISNs)
+* SU4     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* fhi     2016-12-02 NOMALL-1961 Wrong linesize
+* fhi     2017-05-31 NOMALL-2026 Correct WH=ON handling
+* bli     2018-07-17 NOMALL-2088 XXUX---N error handling
+* BLI     2019-05-06 NOMALL-2261 Recataloged due to changes of XXUX---P
+* BLI     2019-06-17 NOMALL-2274 Wrong NPR message handling 1581
+* fhi     2019-09-16 NOMALL-2294 Call RMLEVEL with desired log-type
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING RMSTX--P
+PARAMETER
+1 #TRACE-LEVEL                  (I2) OPTIONAL
+* *****
+INDEPENDENT
+1 +ERROR-COUNT-UX               (I2)
+* *****
+LOCAL USING VUXDEF-L
+LOCAL USING XXUX---P
+LOCAL USING XXGMSG-A
+*
+LOCAL
+1 NRM-MONITOR VIEW OF NRM-MONITOR
+/*SU3  2 M-MONITOR-ID
+/*SU3  2 M-VERSION
+  2 M-NATRPT-DBID-N5
+  2 REDEFINE M-NATRPT-DBID-N5
+    3 M-NATRPT-DBID-A (A5)
+  2 M-NATRPT-FNR-N5
+  2 REDEFINE M-NATRPT-FNR-N5
+    3 M-NATRPT-FNR-A  (A5)
+1 SUBT VIEW OF NRM-SUBTASK-INFO
+  2 ST-SUBTASK-ID
+  2 ST-LAST-ACTIVE
+  2 ST-STATUS
+  2 ST-WAIT-MINIMUM
+  2 ST-WAIT-MAXIMUM
+  2 ST-WAIT-INCREMENT
+  2 ST-WAIT-CURRENT
+  2 ST-EXEC-TYPE
+  2 ST-MESSAGE-CODE
+  2 ST-MESSAGE
+  2 ST-PID
+  2 ST-LOGFILE
+  2 ST-OBJECT-TYPE /*SU1
+  2 ST-OBJECT-TIME /*SU1
+1 SUBT-UPD VIEW OF NRM-SUBTASK-INFO
+  2 ST-LAST-ACTIVE
+  2 ST-MESSAGE-CODE
+  2 ST-MESSAGE
+  2 ST-PID
+  2 ST-LOGFILE
+/*SU4 2 ST-OBJECT-TYPE /*SU1
+/*SU4 2 ST-OBJECT-TIME /*SU1
+* *****
+1 #POS                          (I2)
+1 #ISN                          (P10) /*/*SU3 was I4
+1 #STATUS                       (A1)
+1 #STATUS-TABLE                 (A2/10)
+  INIT <'02','11','20','30','40','50','62','72','80','92'>
+1 #TRACING                      (L)
+1 #STACK-FUNCTION               (A10)
+1 #STACK-RC                     (N1)
+1 #EXITCODE                     (N10)
+1 #ST-LOGFILE                   (A250)
+1 #TRACE-MSG                    (A250)
+1 #SEPARATE                     (A250) /* NOMALL-1000 fhi in
+1 #SECOND                       (I2)   INIT <1>
+1 #TWOSEC                       (I2)   INIT <1>  /* NOMALL-1333 in
+1 #I                            (I2)   /* NOMALL-1002 in
+1 #REP-WAIT                     (I2)   /* NOMALL-1663 fhi in
+1 #P-ERT                        (A250) /* NOMALL-1663 fhi in
+1 #MONIT-ID                     (A16)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+FORMAT LS=133  /* NOMALL-1961 fhi was LS=132
+*
+IF #TRACE-LEVEL SPECIFIED AND #TRACE-LEVEL GE *LEVEL
+  #TRACING:= TRUE
+END-IF
+RESET STX-ERROR-CODE STX-ERROR-TEXT
+PERFORM XXPARAMS-SET-PARAM 'WH=OFF'
+READ-LOOP. READ UX-NODES BY UX-NODE-NAME /* Get monitor parameters
+  REJECT IF UX-NODES.UX-NODE-SUSPEND NE 'M'
+    AND UX-NODES.UX-NODE-SUSPEND NE 'L'
+  RESET XXUX---P
+  P-NODE-NAME := UX-NODES.UX-NODE-NAME
+  P-NODE-SUSPEND := UX-NODES.UX-NODE-SUSPEND
+  P-USERID := UX-NODES.UX-NODE-USERID
+  P-CIPHER-PASSWORD := UX-NODES.UX-NODE-PASSWORD
+  RESET                              P-PASSWORD
+  P-GROUP := UX-NODES.UX-NODE-GROUP
+  P-FUNCTION := 'INFO'
+  IF #TRACE-LEVEL SPECIFIED
+    CALLNAT 'XXUX---N' XXUX---P #TRACE-LEVEL
+  ELSE
+    CALLNAT 'XXUX---N' XXUX---P
+  END-IF
+  IF P-ERC NE 0
+* BLI 2019-06-17 NOMALL-2274 start
+    #XX-MSG-DYNA(1)   := P-NODE-NAME
+    IF P-ERC = 1581        /* wrong npr version
+      STX-ERROR-CODE  := #XX-ERROR-CODE  := 1581
+      #XX-MSG-DYNA(2) := P-NPR-VERSION
+    ELSE                   /* node not active
+      STX-ERROR-CODE  := #XX-ERROR-CODE := 2038
+    END-IF
+    CALLNAT 'XXGMSG-N' #XX-GMSG-PARMS
+    STX-ERROR-TEXT := #XX-SHORT-TEXT
+* BLI 2019-06-17 NOMALL-2274 end
+    ESCAPE BOTTOM (READ-LOOP.)
+  END-IF
+  RESET P-PROCESS-ID #ISN
+  IF #TRACING
+    COMPRESS ' Trace for function' STX-FUNCTION TO #TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+  END-IF
+  DECIDE ON EVERY VALUE OF  STX-FUNCTION
+    VALUES 'STATUS', 'LIST'
+      P-FUNCTION := 'STATUS'
+    VALUE 'KILL'
+      P-FUNCTION := 'COMMAND'
+    VALUES 'STATUS', 'LIST', 'KILL', 'START', 'SUBMIT'
+      RESET #ISN P-PROCESS-ID
+      STX-TASK-STATUS := 2 /* unknown
+      RDSUBT. READ SUBT BY ST-SUBTASK-ID = STX-TASK-NAME
+        EXAMINE SUBT.ST-SUBTASK-ID FOR STX-TASK-NAME
+          GIVING POSITION IN #POS
+        IF #POS NE 1 /* does not begin with task name
+            AND STX-FUNCTION NE 'LIST'
+          IF STX-FUNCTION NE 'START' AND STX-FUNCTION NE 'SUBMIT'
+            COMPRESS 'Subtask Info not found:' STX-TASK-NAME
+              TO STX-ERROR-TEXT
+            STX-ERROR-CODE := 5
+            IF #TRACING
+              COMPRESS STX-ERROR-TEXT TO #TRACE-MSG
+              PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+            END-IF
+            ESCAPE BOTTOM (READ-LOOP.)
+          END-IF
+        ELSE
+          IF #TRACING
+            COMPRESS 'Subtask Info search:' STX-TASK-NAME
+              'Processing:' SUBT.ST-SUBTASK-ID TO #TRACE-MSG
+            PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+          END-IF
+          STX-TASK-NAME   := SUBT.ST-SUBTASK-ID
+          #ISN            := *ISN (RDSUBT.)
+          P-PROCESS-ID    := SUBT.ST-PID
+          IF SUBT.ST-SUBTASK-ID =MASK('PRT') /*printer task still alive?
+            IF SUBT.ST-PID NE 0
+              P-FUNCTION := 'STATUS'
+              P-PROCESS-ID := SUBT.ST-PID
+              IF #TRACE-LEVEL SPECIFIED
+                CALLNAT 'XXUX---N' XXUX---P #TRACE-LEVEL
+              ELSE
+                CALLNAT 'XXUX---N' XXUX---P
+              END-IF
+              IF #TRACING
+                COMPRESS 'Unix-function executed:' P-FUNCTION 'RC' P-ERC
+                  'task' SUBT.ST-SUBTASK-ID 'got process ID'
+                  P-PROCESS-ID TO #TRACE-MSG
+                PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+              END-IF
+            ELSE
+              P-STATUS := 1          /* not running
+              P-ERC    := 0
+            END-IF
+            RESET #STATUS
+            IF P-ERC = 0
+              #STATUS := P-STATUS
+              IF #STATUS IS (N1)
+                IF #TRACING
+                  COMPRESS STX-FUNCTION 'of task #' STX-TASK-NUMBER
+                    'returns status' #STATUS 'for task '
+                    SUBSTR(STX-TASK-NAME,1,40) TO #TRACE-MSG
+                  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+                END-IF
+                EXAMINE #STATUS TRANSLATE USING #STATUS-TABLE (*)
+              ELSE
+                #STATUS := '2'
+              END-IF
+            END-IF
+            IF P-ERC NE 0 OR #STATUS NE '0'
+              RESET P-PROCESS-ID SUBT.ST-PID
+            END-IF
+          END-IF
+        END-IF
+        ESCAPE BOTTOM (RDSUBT.)
+      END-READ
+    VALUE 'KILL'
+      COMPRESS 'kill -15' P-PROCESS-ID TO P-RECORD
+      IF #TRACING
+        COMPRESS 'Executing:' P-RECORD TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+    VALUES 'SUBMIT','START'
+      IF #ISN = 0 /* store a new subtask info record
+        RESET SUBT
+/*SU3  SUBT.ST-LAST-ACTIVE SUBT.ST-WAIT-MINIMUM SUBT.ST-WAIT-MAXIMUM
+/*SU3  SUBT.ST-WAIT-INCREMENT SUBT.ST-WAIT-CURRENT
+/*SU3  SUBT.ST-MESSAGE-CODE SUBT.ST-PID
+        SUBT.ST-SUBTASK-ID  := STX-TASK-NAME
+        SUBT.ST-OBJECT-TYPE := 'SI' /*SU1 SU2 'ST'->'SI'
+        SUBT.ST-OBJECT-TIME := *TIMX /*SU1
+        STSUBT. STORE SUBT
+        #ISN   := *ISN (STSUBT.)
+      END-IF
+      IF STX-START-SCRIPT = ' '
+        STX-START-SCRIPT := 'nommon.bsh'
+      END-IF
+      IF STX-LOGFILE = ' '
+        IF STX-START-SCRIPT = 'nommon.bsh'
+*         STX-LOGFILE := 'nommon.log'
+* fhi     2010-11-08 NOMALL-95  line above out, below in                STEM
+          STX-LOGFILE := 'nommon.task1.stdout'
+        ELSE
+          COMPRESS STX-START-SCRIPT '.log' TO STX-LOGFILE LEAVING NO
+        END-IF
+      END-IF
+      RESET STX-ERROR-CODE STX-ERROR-TEXT
+      DECIDE ON EVERY VALUE OF STX-ERROR-CODE
+        VALUE 0
+          PERFORM XXGETENV-GET-VARS
+            STX-START-SCRIPT STX-ERROR-CODE STX-ERROR-TEXT XXUX---P
+        VALUE 0
+          PERFORM XXGETENV-GET-VARS
+            STX-LOGFILE STX-ERROR-CODE STX-ERROR-TEXT XXUX---P
+        ANY
+          IF STX-ERROR-CODE NE 0
+            ESCAPE BOTTOM (READ-LOOP.)
+          END-IF
+        NONE
+          IGNORE
+      END-DECIDE
+      IF STX-TASK-NUMBER NE 0
+        COMPRESS STX-START-SCRIPT STX-TASK-NUMBER TO STX-START-SCRIPT
+      ELSE
+        IF STX-START-SCRIPT = SCAN('nommon.bsh')
+          COMPRESS STX-START-SCRIPT '1' TO STX-START-SCRIPT
+        END-IF
+      END-IF
+      IF STX-START-SCRIPT = SCAN('nommon.bsh')
+        RESET M-NATRPT-DBID-N5 M-NATRPT-FNR-N5
+        #MONIT-ID := F#MONITOR-TASK-ID1 (<>)
+        FIND NRM-MONITOR WITH M-MONITOR-ID = #MONIT-ID
+        END-FIND
+        IF  M-NATRPT-DBID-N5 NE 0 AND  M-NATRPT-FNR-N5 NE 0
+          COMPRESS STX-START-SCRIPT M-NATRPT-DBID-A M-NATRPT-FNR-A
+            TO STX-START-SCRIPT
+        END-IF
+      END-IF
+      IF SUBT.ST-PID NE 0 /* task already started
+      AND SUBT.ST-SUBTASK-ID = MASK('PRT') /* it's a printer task      *
+        IF #TRACING
+          COMPRESS 'Post Printer Task' STX-START-SCRIPT TO #TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+        SEPARATE STX-START-SCRIPT INTO #SEPARATE
+          REMAINDER SUBT.ST-MESSAGE WITH DELIMITERS ' '
+        STX-FUNCTION    := 'POST'
+      ELSE
+        P-FUNCTION  := 'SUBMIT'
+        P-RECORD    :=  STX-START-SCRIPT
+        P-FILE-NAME :=  STX-LOGFILE
+      END-IF
+    VALUE  'STATUS'
+      IF P-PROCESS-ID NE 0
+        IF #TRACE-LEVEL SPECIFIED
+          CALLNAT 'XXUX---N' XXUX---P #TRACE-LEVEL
+        ELSE
+          CALLNAT 'XXUX---N' XXUX---P
+        END-IF
+        IF #TRACING
+          COMPRESS 'Unix-function executed:' P-FUNCTION 'RC' P-ERC
+            'with script' STX-START-SCRIPT 'log file' STX-LOGFILE
+            'task' STX-TASK-NAME 'with number' STX-TASK-NUMBER
+            'got process ID' P-PROCESS-ID TO #TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+        END-IF
+      ELSE                  /* P-PROCESS-ID = 0
+        P-STATUS := 1        /* not running
+        P-ERC    := 0
+      END-IF
+    VALUES 'LIST','KILL','SUBMIT','START'
+      IF #TRACE-LEVEL SPECIFIED
+        CALLNAT 'XXUX---N' XXUX---P #TRACE-LEVEL
+      ELSE
+        CALLNAT 'XXUX---N' XXUX---P
+      END-IF
+      IF #TRACING
+        COMPRESS 'Unix-function executed:' P-FUNCTION 'RC' P-ERC
+          'with script' STX-START-SCRIPT 'log file' STX-LOGFILE
+          'task' STX-TASK-NAME 'with number' STX-TASK-NUMBER
+          'got process ID' P-PROCESS-ID TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+    VALUE 'STATUS'
+      IF P-ERC = 0
+        #STATUS := P-STATUS
+        IF #STATUS IS (N1)
+          IF #TRACING
+            COMPRESS STX-FUNCTION 'of task #' STX-TASK-NUMBER
+              'returns status' #STATUS 'for task '
+              SUBSTR(STX-TASK-NAME,1,40) TO #TRACE-MSG
+            PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+          END-IF
+          EXAMINE #STATUS TRANSLATE USING #STATUS-TABLE (*)
+        ELSE
+          #STATUS := '2'
+        END-IF
+        STX-TASK-STATUS := VAL(#STATUS)
+        RESET P-EXIT-CODE STX-MESSAGE-CODE STX-MESSAGE
+*
+        IF STX-TASK-STATUS = 1 /* not active, get exit code
+            AND STX-FUNCTION = 'STATUS'
+          #STACK-FUNCTION := 'PUSH'
+          CALLNAT 'XXUXST-N' #STACK-FUNCTION #STACK-RC XXUX---P
+          IF #STACK-RC NE 0
+            STX-ERROR-CODE :=  5
+            COMPRESS *PROGRAM *LINE
+              'Internal error: Stack overflow' TO STX-ERROR-TEXT
+            ESCAPE BOTTOM (READ-LOOP.)
+          END-IF
+          P-FUNCTION  := 'GETEXIT'
+          P-FILE-NAME := SUBT.ST-LOGFILE
+          IF #TRACE-LEVEL SPECIFIED
+            CALLNAT 'XXUX---N' XXUX---P #TRACE-LEVEL
+          ELSE
+            CALLNAT 'XXUX---N' XXUX---P
+          END-IF
+          #REP-WAIT := 1
+          REPEAT
+            UNTIL P-ERC = 0 OR #REP-WAIT = 3
+            CALLNAT 'NAT00031' #SECOND /* Wait a second
+            RESET #EXITCODE XXUX---P.P-ERC XXUX---P.P-ERT
+            IF #TRACE-LEVEL SPECIFIED
+              CALLNAT 'XXUX---N' XXUX---P #TRACE-LEVEL
+            ELSE
+              CALLNAT 'XXUX---N' XXUX---P
+            END-IF
+            #REP-WAIT := #REP-WAIT + 1
+          END-REPEAT
+          IF P-ERC NE 0
+            P-ERC := 2035
+            #P-ERT := XXUX---P.P-ERT
+            COMPRESS '2035' *PROGRAM 'GETEXIT' P-FILE-NAME TO P-ERT
+            COMPRESS P-ERT '/' #P-ERT TO P-ERT LEAVING NO
+            PERFORM XXRLOG-WRITE-LOG 'W' P-ERT
+          END-IF
+          #EXITCODE   := P-EXIT-CODE
+          RESET P-ERC P-ERT /* don't worry about return code
+          #STACK-FUNCTION := 'POP'
+          CALLNAT 'XXUXST-N' #STACK-FUNCTION #STACK-RC XXUX---P
+          IF #STACK-RC NE 0
+            STX-ERROR-CODE :=  5
+            COMPRESS *PROGRAM *LINE
+              'Internal error: Stack overflow' TO STX-ERROR-TEXT
+            ESCAPE BOTTOM (READ-LOOP.)
+          END-IF
+          P-EXIT-CODE      := #EXITCODE
+        END-IF                             /* stx-task-status = 1
+*
+        IF STX-TASK-STATUS=2 AND STX-FUNCTION='STATUS' /*unknown status
+          RETRY. FOR #I = 1 TO ST-WAIT-MINIMUM
+            CALLNAT 'NAT00031' #SECOND      /* wait 1 second
+            RESET #STATUS
+            IF #TRACE-LEVEL SPECIFIED
+              CALLNAT 'XXUX---N' XXUX---P #TRACE-LEVEL
+            ELSE
+              CALLNAT 'XXUX---N' XXUX---P
+            END-IF
+            IF P-ERC = 0
+              #STATUS := P-STATUS
+              IF #STATUS IS (N1)
+                IF #TRACING
+                  COMPRESS STX-FUNCTION 'of task #' STX-TASK-NUMBER
+                    'returns status' #STATUS 'for task '
+                    SUBSTR(STX-TASK-NAME,1,40) TO #TRACE-MSG
+                  PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+                END-IF
+                EXAMINE #STATUS TRANSLATE USING #STATUS-TABLE (*)
+              ELSE
+                #STATUS := '2'
+              END-IF
+              STX-TASK-STATUS := VAL(#STATUS)
+            END-IF
+            IF STX-TASK-STATUS NE 2
+              ESCAPE BOTTOM (RETRY.)   /* task status changes
+            END-IF
+          END-FOR
+          IF STX-TASK-STATUS = 2      /* stay the same as before
+            STX-TASK-STATUS := 1      /* not running
+          END-IF
+        END-IF
+      END-IF
+    VALUES 'STATUS','LIST','KILL','SUBMIT','START','POST'
+      IF P-ERC = 0
+        IF #ISN NE 0
+          DECIDE ON EVERY VALUE OF STX-FUNCTION
+            VALUE 'KILL'
+              GETSUBTK. GET SUBT-UPD #ISN
+              DELETE (GETSUBTK.)
+              STX-TASK-STATUS := 1
+            VALUES 'SUBMIT', 'START'
+              GETSUBTS. GET SUBT-UPD #ISN
+              SUBT-UPD.ST-PID         := P-PROCESS-ID
+              SUBT-UPD.ST-LOGFILE     := STX-LOGFILE
+              SUBT-UPD.ST-LAST-ACTIVE := *TIMX
+/*SU4         SUBT-UPD.ST-OBJECT-TYPE := 'SI' /*SU1 SU2 'ST'->'SI'
+/*SU4         SUBT-UPD.ST-OBJECT-TIME := *TIMX /*SU1
+              UPDATE (GETSUBTS.)
+              CALLNAT 'NAT00031' #TWOSEC /* wait 2 secs, NOMALL-1333 in
+            VALUE 'POST'
+              GETSUBTP. GET SUBT-UPD #ISN
+              SUBT-UPD.ST-PID          := P-PROCESS-ID
+              SUBT-UPD.ST-MESSAGE      := SUBT.ST-MESSAGE
+              SUBT-UPD.ST-MESSAGE-CODE := 9995 /* msg=print command
+/*SU4         SUBT-UPD.ST-OBJECT-TYPE  := 'SI' /*SU1 SU2 'ST'->'SI'
+/*SU4         SUBT-UPD.ST-OBJECT-TIME  := *TIMX /*SU1
+              UPDATE (GETSUBTP.)
+            VALUES 'STATUS','LIST'
+              GETSUBTL. GET SUBT-UPD #ISN
+              SUBT-UPD.ST-MESSAGE-CODE := STX-MESSAGE-CODE :=P-EXIT-CODE
+              IF SUBT-UPD.ST-MESSAGE-CODE = 0
+                RESET SUBT-UPD.ST-MESSAGE STX-MESSAGE
+              ELSE
+                RESET SUBT-UPD.ST-MESSAGE
+                #ST-LOGFILE := SUBT-UPD.ST-LOGFILE
+                REPEAT
+                  UNTIL #ST-LOGFILE = ' '
+                  SEPARATE #ST-LOGFILE INTO SUBT-UPD.ST-MESSAGE
+                    REMAINDER #ST-LOGFILE WITH DELIMITERS '/'
+                END-REPEAT
+                COMPRESS '2053' SUBT-UPD.ST-MESSAGE
+                  SUBT-UPD.ST-MESSAGE-CODE TO SUBT-UPD.ST-MESSAGE
+                CALLNAT 'RSUBMSGN' SUBT-UPD.ST-MESSAGE
+                STX-MESSAGE-CODE := SUBT-UPD.ST-MESSAGE-CODE
+                STX-MESSAGE      := SUBT-UPD.ST-MESSAGE
+              END-IF
+* UPDATE must be done in the caller due to unnecessary locked
+* records. STATUS is called extremely often, and the subtask
+* lock does disturb other asynchronous processes.
+            NONE IGNORE
+          END-DECIDE
+        END-IF
+        PERFORM XXPARAMS-SET-PARAM 'WH=ON'
+        RESET +ERROR-COUNT-UX
+        PERFORM XXPARAMS-SET-PARAM 'WH=ON' /* NOMALL-2026 fhi in
+        ESCAPE ROUTINE /* everything worked.
+      END-IF
+      STX-TASK-STATUS := 2
+      RESET STX-ERROR-TEXT
+      DECIDE FOR FIRST CONDITION
+        WHEN P-ERC = 5       /* NOMALL-2088 handle SAT errors
+        AND (P-ERT = SCAN 'SAT1114' OR P-ERT = SCAN 'SAT1115')        /*
+          STX-ERROR-TEXT := '2031' /* node inactive
+        WHEN ANY
+          IF STX-ERROR-TEXT NE ' '
+            STX-ERROR-CODE := P-ERC
+            CALLNAT 'RSUBMSGN' STX-ERROR-TEXT
+          END-IF
+          GETSUBTA. GET SUBT-UPD #ISN
+          SUBT-UPD.ST-MESSAGE-CODE := STX-ERROR-CODE
+          SUBT-UPD.ST-MESSAGE      := STX-ERROR-TEXT
+/*SU4       SUBT-UPD.ST-OBJECT-TYPE  := 'SI' /*SU1 SU2 'ST'->'SI'
+/*SU4       SUBT-UPD.ST-OBJECT-TIME  := *TIMX /*SU1
+          UPDATE (GETSUBTA.)
+        WHEN NONE
+          GETSUBTE. GET SUBT-UPD #ISN
+          STX-ERROR-CODE  := 5 /* already filled
+          STX-ERROR-TEXT  := P-ERT
+          SUBT-UPD.ST-MESSAGE-CODE := STX-ERROR-CODE
+          SUBT-UPD.ST-MESSAGE      := STX-ERROR-TEXT
+/*SU4       SUBT-UPD.ST-OBJECT-TYPE  := 'SI' /*SU1 SU2 'ST'->'SI'
+/*SU4       SUBT-UPD.ST-OBJECT-TIME  := *TIMX /*SU1
+          UPDATE (GETSUBTE.)
+      END-DECIDE
+      IF STX-FUNCTION = 'KILL'
+        GETSUBTD. GET SUBT-UPD #ISN
+        DELETE (GETSUBTD.)
+        ESCAPE BOTTOM (READ-LOOP.)
+      END-IF
+    NONE
+      STX-ERROR-CODE := 2033
+      STX-ERROR-TEXT := '2033'
+      CALLNAT 'RSUBMSGN' STX-ERROR-TEXT
+  END-DECIDE
+END-READ
+PERFORM XXPARAMS-SET-PARAM 'WH=ON'
+RESET +ERROR-COUNT-UX
+IF STX-ERROR-CODE = 0
+  STX-ERROR-CODE := 2048
+  STX-ERROR-TEXT := STX-ERROR-CODE
+  CALLNAT 'RSUBMSGN' STX-ERROR-TEXT
+END-IF
+* ------------------------------------ end main ---------------------- *
+ON ERROR
+* ------
+  PERFORM XXPARAMS-SET-PARAM 'WH=ON' /* NOMALL-2026 fhi in
+  DECIDE ON EVERY VALUE OF *ERROR-NR
+    VALUES 3145,3009
+      +ERROR-COUNT-UX := +ERROR-COUNT-UX + 1
+      IF +ERROR-COUNT-UX > 15
+        BACKOUT TRANSACTION
+        IF #TRACING
+*         FETCH RETURN 'RMLEVEL'
+* fhi     2019-09-16 NOMALL-2294 line above out, below in
+          FETCH RETURN 'RMLEVEL' 'T'
+          COMPRESS 'Error' *ERROR-NR 'trapped. Error limit reached. '
+            'Starting new cycle.' TO #TRACE-MSG
+          PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+          END TRANSACTION
+        END-IF
+        PERFORM XXPARAMS-SET-PARAM 'WH=ON'
+        RESET +ERROR-COUNT-UX
+        FETCH 'RMONITOR'
+      END-IF
+      IF #TRACING
+*       FETCH RETURN 'RMLEVEL'
+* fhi     2019-09-16 NOMALL-2294 line above out, below in
+        FETCH RETURN 'RMLEVEL' 'T'
+        COMPRESS 'Error' *ERROR-NR 'trapped. Retry:'
+          +ERROR-COUNT-UX 'of 15.' ' ISNs: RDSUBT:' *ISN (RDSUBT.)
+          '- GETSUBTK:' *ISN (GETSUBTK.) '- GETSUBTS:' *ISN (GETSUBTS.)
+          '- GETSUBTP:' *ISN (GETSUBTP.) '- GETSUBTL:' *ISN (GETSUBTL.)
+          '- GETSUBTA:' *ISN (GETSUBTA.) '- GETSUBTE:' *ISN (GETSUBTE.)
+          '- GETSUBTD:' *ISN (GETSUBTD.) TO #TRACE-MSG
+        PERFORM XXRLOG-WRITE-LOG 'T' #TRACE-MSG
+      END-IF
+      CALLNAT 'NAT00031' #SECOND /* wait a second
+    VALUE 3145
+      RETRY
+    VALUE 3009
+      CALLNAT 'RMSTX--N' STX-PARMS
+      ESCAPE MODULE
+    NONE
+      PERFORM XXPARAMS-SET-PARAM 'WH=ON'
+  END-DECIDE
+END-ERROR
+*                                                                       STEM
+END

@@ -1,0 +1,313 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+/*******************************************************************************
+/*  Software AG - Entire Output Management
+/*  Group:    Print
+/*  Module:   RMPR
+/*  Template:
+/*
+/*  Function:
+/** Leave printer tasks active under Unix, call RMPRRP, RMPRBU. */
+/*
+/** Last :author fhi
+/*
+/*******************************************************************************
+/*  Maintenance
+/*******************************************************************************
+/*  User ID   yyyy-mm-dd Issue         Remark
+/* -----------------------------------------------------------------------------
+/*  fhi       2011-02-01 NOMALL-922    Created.
+/*  fhi       2011-03-14 NOMALL-922    Improved wait routine, no tags.
+/*  fhi       2011-03-23 NOMALL-947    Better GDA cleanup
+/*  fhi       2011-04-28 NOMALL-971    Handle idle timeout correctly
+/*  fhi       2011-05-02 NOMALL-971    Handle idle timeout correctly
+/*  fhi       2014-01-10 NOMALL-1332   Correct NAT0376
+/*  fhi       2014-10-15 NOMALL-79     Introduce long filenames
+* SU1     2014-11-17 NOMALL-1450 fill fields for Adabas Vista
+* SU2     2015-02-09 NOMALL-1450 'ST'->'SI'
+* fhi     2015-05-20 NOMALL-1585 show additional system info at start
+* SU3     2015-11-23 NOMALL-1784 avoid NAT1301 (P10->B4/I4 - big ISNs)
+* fhi     2016-01-18 NOMALL-1773 delete add system info at normal end
+* SU4     2016-01-20 NOMALL-1802 do not update Adabas Vista fields
+* SU5     2016-07-25 NOM 3.5: remove unused code
+* fhi     2018-03-15 NOMALL-1918 add RMSWNODE for +NOD-Variables
+* SU6     2019-11-13 NOMALL-2348 do not cut msg
+/************************************* data ************************************
+DEFINE DATA
+GLOBAL USING PRINT-GL
+INDEPENDENT
+1 +ERROR-COUNT-UX            (I2)            /* fhi NOMALL-929 in
+1 +PRINTER_OPEN              (L)
+1 +FILE-HANDLE               (N10)
+1 +FILE-ID                   (A) DYNAMIC /* NOMALL-79 was A120
+1 +LOGFILE-ID                (A120)
+1 +P-RC                      (N4)
+1 +DISKUNIX-SAVE             (A1000)
+1 +TEMPFILE                  (A50)
+1 +PHYSICAL-NAME             (A80)
+* *****
+LOCAL  USING VSUBT-L
+LOCAL
+1 #I                         (I2)
+1 #ISN                       (P10) /*SU3 was I4
+1 #PID                       (N10)
+1 #TRACING                   (L)
+1 #PROGRAM                   (A8)
+1 #EVENT-NAME                (A8)
+1 #EVENT-MESSAGE             (A250)
+1 #PO-ID                     (N7)
+1 #PO-ID-A                   (A7)
+1 #ESY-USER                  (A8)
+1 #FOLLOW-PRINTOUT           (A1)
+1 #NOMEXIT-6                 (A1)
+1 #OPTION                    (A8)
+1 #TASK-TYPE                 (A8)
+1 #NSC-ACTIVE                (A1)
+1 #CYCLE-WAS-IDLE            (L)
+1 #WAIT-MAXIMUM              (I2)
+1 #WAIT-INCREMENT            (I2)
+1 #WAIT-CURRENT              (N4)
+1 #WAIT-IDLE-CYCLES          (I2)
+1 #SUBTASK-NAME              (A16)
+1 #SUBTASK-NAME-ORIG         (A16)            /*fhi NOMALL-922 in
+1 #POINT                     (A)   DYNAMIC
+*                                                                       ********
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+IF *PID IS (N10)
+  #PID := VAL(*PID)
+END-IF
+PERFORM RMGTRACP-GET-SETTINGS
+IF G-TRACE GE *LEVEL AND G-TRACE-SET = SCAN ('PRINT')
+  #TRACING := TRUE
+END-IF
+CALLNAT 'RMSWNODE' 'L' 1 0 0 #TRACING
+* fhi     2018-03-15 NOMALL-1918 line above in
+RESET G-NATRP-ERC G-NATRP-ERT
+#WAIT-MAXIMUM    := 5 /* seconds / first time parameters
+#WAIT-INCREMENT  := 1 /* second
+INPUT #PROGRAM #PO-ID-A #ESY-USER #FOLLOW-PRINTOUT #NOMEXIT-6
+  #TASK-TYPE #OPTION #NSC-ACTIVE #SUBTASK-NAME
+#OPTION            := 'ALL'            /* Ignore parameter value
+#SUBTASK-NAME-ORIG := #SUBTASK-NAME    /* fhi NOMALL-922 in
+#POINT := 'start of printer task' /* NOMALL-1585 fhi in
+*  PERFORM SHOW-UNIX-PARAMETERS   /* NOMALL-1585 fhi in, NOMALL-1773 out
+COMPRESS '1567' #SUBTASK-NAME TO G-TRACE-MSG
+PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+END TRANSACTION
+IF #SUBTASK-NAME NE ' '
+  FIND NRM-SUBTASK-INFO WITH ST-SUBTASK-ID =  #SUBTASK-NAME
+    IF *PID IS (N10)
+      ST-PID := VAL(*PID)
+    ELSE
+      RESET ST-PID
+    END-IF
+    UPDATE
+    END TRANSACTION
+  END-FIND
+END-IF
+IF #PO-ID-A IS (N7)
+  #PO-ID := VAL(#PO-ID-A)
+  FOR #I = 1 TO 1                      /* Loop needed for subroutine
+    PERFORM FETCH-PRINT-PROGRAM        /* in case of ESCAPE TOP
+  END-FOR
+END-IF
+CYCLE. REPEAT
+  IF #TRACING
+    G-TRACE-MSG := '***************'
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    G-TRACE-MSG := 'Begin of cycle.'
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    G-TRACE-MSG := '***************'
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  END-IF
+  #CYCLE-WAS-IDLE := TRUE
+  PERFORM CLEANUP-GDA
+  RESET #ISN
+  READSUBT. READ NRM-SUBTASK-INFO BY ST-SUBTASK-ID
+    ACCEPT IF ST-SUBTASK-ID   = MASK ('PRT') AND
+      ST-MESSAGE-CODE = 9995 /* message = print command
+    #ISN := *ISN (READSUBT.)
+    ESCAPE BOTTOM
+  END-READ
+  IF #ISN NE 0
+    GETSUBT1. GET NRM-SUBTASK-INFO #ISN
+    IF #TRACING
+      COMPRESS 'Got print command' ST-MESSAGE TO G-TRACE-MSG
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+    SEPARATE ST-MESSAGE INTO #PROGRAM #PO-ID-A #ESY-USER
+      #FOLLOW-PRINTOUT #NOMEXIT-6 #TASK-TYPE #OPTION #NSC-ACTIVE IGNORE
+    #CYCLE-WAS-IDLE := FALSE
+    RESET ST-MESSAGE-CODE ST-MESSAGE
+    UPDATE (GETSUBT1.)
+    END TRANSACTION
+  END-IF
+  IF #PO-ID-A IS (N7)
+    #PO-ID := VAL(#PO-ID-A)
+  ELSE
+    IF #PROGRAM NE 'FIN'
+      #CYCLE-WAS-IDLE := TRUE /* do nothing
+    END-IF
+  END-IF
+  IF NOT #CYCLE-WAS-IDLE
+    PERFORM FETCH-PRINT-PROGRAM
+  END-IF
+  IF #TRACING
+    G-TRACE-MSG := '*************'
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    G-TRACE-MSG := 'End of cycle.'
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    G-TRACE-MSG := '*************'
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END-IF
+  PERFORM WAIT-FOR-NEXT-CYCLE
+END-REPEAT
+#POINT := 'end of printer task' /* NOMALL-1585 fhi in
+*  PERFORM SHOW-UNIX-PARAMETERS   /* NOMALL-1585 fhi in, NOMALL-1773 out
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE WAIT-FOR-NEXT-CYCLE
+************************************************************************
+IF #CYCLE-WAS-IDLE
+  #WAIT-IDLE-CYCLES  := #WAIT-IDLE-CYCLES + 1
+  IF #WAIT-IDLE-CYCLES > 360 /* about half an hour
+    COMPRESS '1566' #SUBTASK-NAME-ORIG TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+    END TRANSACTION
+    PERFORM DELETE-SUBTASK-INFO
+    TERMINATE
+  END-IF
+  #WAIT-CURRENT := #WAIT-CURRENT + #WAIT-INCREMENT
+  IF #WAIT-CURRENT > #WAIT-MAXIMUM
+    #WAIT-CURRENT := #WAIT-MAXIMUM
+  END-IF
+  IF #TRACING
+    COMPRESS 'Printer task waiting' #WAIT-CURRENT 'sec.' TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  END-IF
+  END TRANSACTION
+  #EVENT-NAME    := ST-SUBTASK-ID
+  #EVENT-MESSAGE := ST-MESSAGE
+  CALLNAT 'RMEVNT-N' G-MONITOR-NODE #EVENT-NAME 'WAIT    ' #WAIT-CURRENT
+    G-NATRP-ERC G-NATRP-ERT #EVENT-MESSAGE
+  END TRANSACTION
+ELSE
+  RESET #WAIT-IDLE-CYCLES #WAIT-CURRENT
+  IF #TRACING
+    G-TRACE-MSG := 'Printer task continues without waiting.'
+    PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END TRANSACTION
+  END-IF
+END-IF
+END-SUBROUTINE /* WAIT-FOR-NEXT-CYCLE
+*
+************************************************************************
+DEFINE SUBROUTINE FETCH-PRINT-PROGRAM
+************************************************************************
+IF #TRACING
+  COMPRESS 'Executing' #PROGRAM 'with parameters:'
+    'PO-ID:'            #PO-ID-A '- ESY-USER:'       #ESY-USER
+    '- Follow printout?'#FOLLOW-PRINTOUT '- NOMEXIT-6?'      #NOMEXIT-6
+    '- Task Type:'      #TASK-TYPE '- Option:'         #OPTION
+    '- NSC active?'     #NSC-ACTIVE TO G-TRACE-MSG
+  PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+  END TRANSACTION
+END-IF
+DECIDE ON EVERY VALUE OF #PROGRAM
+  VALUES 'RMPRRP','RMPRBU'
+    COMPRESS '1568' #PO-ID-A #PROGRAM TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+    END TRANSACTION
+    RESET G-TRACE-MSG
+  VALUE 'RMPRRP'
+    FETCH RETURN #PROGRAM #PO-ID #ESY-USER #FOLLOW-PRINTOUT #NOMEXIT-6
+      #TASK-TYPE #NSC-ACTIVE
+  VALUE 'RMPRBU'
+    FETCH RETURN #PROGRAM #PO-ID #ESY-USER #FOLLOW-PRINTOUT #NOMEXIT-6
+      #OPTION #TASK-TYPE #NSC-ACTIVE
+  VALUE 'FIN'
+    COMPRESS '1569' #SUBTASK-NAME-ORIG TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+    IF #TRACING
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+    END TRANSACTION
+    PERFORM DELETE-SUBTASK-INFO
+    TERMINATE
+  VALUE 'IGNORE'
+    IGNORE
+  NONE
+    COMPRESS 'Ececution of program' #PROGRAM 'not implemented.'
+      TO G-TRACE-MSG
+    PERFORM XXRLOG-WRITE-LOG 'W' G-TRACE-MSG
+    IF #TRACING
+      PERFORM XXRLOG-WRITE-LOG 'T' G-TRACE-MSG
+    END-IF
+    END TRANSACTION
+    ESCAPE TOP
+END-DECIDE
+*
+END-SUBROUTINE /* FETCH-PRINT-PROGRAM
+*
+************************************************************************
+DEFINE SUBROUTINE CLEANUP-GDA
+************************************************************************
+RESET G-NATRP-ERC G-NATRP-ERT G-P-POID G-LINE-PARMS G-LINE-CURRENT
+  G-LINE (*) G-LINE-NUMBER (*) G-SUBST-PARMS G-SUBST-ENTRIES
+  G-TRACE-MSG
+  +ERROR-COUNT-UX /* fhi 2011-02-11 NOMALL-929 in
+  +FILE-HANDLE +LOGFILE-ID +P-RC +DISKUNIX-SAVE +PRINTER_OPEN
+  +TEMPFILE +PHYSICAL-NAME
+/*SU 2018-10-10 G-SOURCE-ATTRIBUTES G-SPOOL-ATTRIBUTES G-FLAGS (*)
+/*+FILE-ID                   /* NOMALL-79 fhi 2014-10-15 out
+REDUCE DYNAMIC +FILE-ID TO 0 /* NOMALL-79 fhi 2014-10-15 in
+*
+END-SUBROUTINE /* CLEANUP-GDA
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-SUBTASK-INFO
+************************************************************************
+READSUBT2. READ NRM-SUBTASK-INFO BY ST-SUBTASK-ID
+  ACCEPT IF ST-SUBTASK-ID = MASK ('PRT') AND ST-PID = #PID
+  IF ST-MESSAGE-CODE NE 9995
+    DELETE (READSUBT2.)
+  ELSE
+    RESET ST-PID
+    UPDATE (READSUBT2.)
+  END-IF
+  END TRANSACTION
+END-READ
+*
+END-SUBROUTINE
+*
+************************************************************************
+ON ERROR
+************************************************************************
+  BACKOUT TRANSACTION
+  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+    'Printer Task abnormal termination.'
+  CALLNAT 'C-NATERN' G-NATRP-ERT
+/*SU6  WRITE NOTITLE NOHDR *PROGRAM *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II)
+/*SU6    G-NATRP-ERT (AL=70)
+  PRINT NOTITLE NOHDR *PROGRAM 10T /*SU6
+    *TIMX (EM=YYYY'-'MM'-'DD' 'HH':'II) G-NATRP-ERT
+  PERFORM DELETE-SUBTASK-INFO
+  TERMINATE 50 /*==> STOP Ü
+*
+END-ERROR
+*                                                                       ********
+END

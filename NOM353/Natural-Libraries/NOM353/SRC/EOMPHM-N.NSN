@@ -1,0 +1,646 @@
+* >Natural Source Header 000000
+* :Mode S
+* :CP
+* :LineIncrement 10
+* <Natural Source Header
+* EOMPHM-N - Maintenance of EOM Object >>> Physical Printer <<<
+*
+* Maintenance
+* uuu yy-mm-dd s(999999) ...
+* gw  93-06-01           created
+* gw  94-03-10 s(999999) assign print-pgm
+* gw  94-10-04 s(999999) printer WINPM added
+* gw  94-10-18 s(999999) printer OS2PM added
+* mrs 95-07-07 s(999999) printer ECL added
+* sju 95-09-27 s(229945) delete function added
+* gw  96-09-06 s(999999) WINPM32  added
+* gw  96-11-08 s(257242) alllow name to begin with any printable char
+* gw  96-02-05 s(261425) set work file to 1 if RECFM 0 'V' or = 'v'
+* xsethz   2000-05-30 s(CE7760) READ-NEXT, READ-HOLD-NEXT added
+* xsetggr 2001-12-06 p(208312) some problems of printer definition
+* xsetggr 2002-02-03 p(208312) change validation check for escape char
+* xsetggr 2002-02-08 p(208312) make using type DUMMY available
+* fhi     2002-06-13 p(225125) add physical printer type 'EMAIL'
+* xsetggr 2002-11-14 p(220046) check for empty type
+* fhi     2003-02-06 p(225241) Get rid of prt type 'DISKUNIX','UNIXLP'
+* xsetggr 2003-08-11 p(240465) correct CE7553 solution
+* sju     2004-04-22 p(250355) correct handling of recfm
+* fhi     2004-12-10 NOM3104   Backout p(225241)
+* xsetggr 2005-06-30 p(265613) read default user profile for security
+* xsetggr 2007-10-05 p(297910) honored default recfm=vba if recfm= ' '
+* xsetggr 2007-10-25 NRT2185   add default values for UNIXLP printers
+* xsetggr 2008-02-07 p(301854) do not add default values when modify
+*                              printer attributes
+* fhi     2008-06-23 P303640   Don't accept NATUNIX printer on mainframe
+* fhi     2008-06-25 P306560   Reactivate DISKUNIX printer type
+* xsetggr 2008-11-28 P311915  improve getting suffix for default printer
+* xsetggr 2009-06-19 P317871   correction in  modify-printer-attributes
+* xsetggr 2009-09-04 P314431  for UNix systems allow only NATUNIX and
+*                              DISKUNIX printers
+* xsetggr 2010-10-07 NOMALL-865 add printer of type ##PHYS-WRTSPOOL
+* fhi     2011-05-02 NOMALL-901 Log any online delete operation
+* SU1     2013-01-31 unused      Deactivate unused data areas
+* SU2     2013-06-05 NOMALL-1262 remove OS2PM,HPSPOOL,WINPM,WINPM32
+* fhi     2016-11-15 NOMALL-1961 Use new task IDs
+* SU3     2017-10-09 NOMALL-1823 NOM 3.5: remove CONNECT,ECL,XML
+* SU4     2020-11-10 NOMALL-2440 split DDM -> NRM-MF-NODES
+* ----------------------------------------------------------------------
+DEFINE DATA
+PARAMETER USING EOM----P
+PARAMETER USING EOMPHM-P
+PARAMETER USING EOMMSG-P
+************************************************************************
+LOCAL USING EOMPHM-E
+LOCAL USING EOMPHTYE
+LOCAL USING EOM----E
+LOCAL USING EOMGRM-P
+*
+LOCAL
+/*SU4 1 MONITOR VIEW OF NRM-MONITOR
+1 USERS VIEW OF NRM-USERS
+  2 USER-PROFILE
+  2 REDEFINE USER-PROFILE
+    3 PROF-TYPE (A1)
+1 PR VIEW OF NRM-PRINTERS
+  2 P-ID
+1 LOGICAL-PRINTERS VIEW OF NRM-PRINTERS
+  2 P-ID
+  2 P-NAME
+  2 C*P-ATTRIBUTES
+  2 P-ATTRIBUTES          (1:25)
+  2 P-PHYSICAL-NAME
+  2 P-LAST-UPDATE-USER /*SU2
+  2 P-LAST-UPDATE      /*SU2
+*
+1 #NOF                       (I2) CONST <4>
+1 #FUNCTION                  (A1/1:#NOF) INIT <'O','P','M','D'>
+1 #SECURITY-OPTION           (A3)
+1 ALLOWED                    (L)
+1 #I                         (I2)
+1 #J                         (I2)
+1 OT                         (I2)
+1 OJ                         (I2)
+1 #EXIST                     (L)
+1 #FROM                      (A5/1:8)
+1 #TO                        (A5/1:8)
+1 #FIX-VAR                   (A1)
+1 #K                         (I2)
+1 #LRECL                     (A5)
+1 REDEFINE #LRECL
+  2 #LRECL-A1                (A1/5)
+1 #LRECL-N                   (N5)
+1 #P-ID-E                    (A8)
+1 #P-ID                      (A8) INIT <'DEFAULT '>
+1 REDEFINE #P-ID
+  2 #P-ID-1                  (A7)
+  2 #SUFFIX                  (A1)
+1 #F                         (I2)
+1 #N                         (I2)
+1 #TABLE1                    (A1/26)
+1 #TABLE                     (A26) INIT <'ABCDEFGHIJKLMNOPQRSTUVWXYZ'>
+1 REDEFINE #TABLE
+  2 #TABLE-A                 (A1/26)
+1 #NEW-SUFFIX                (L)
+1 #OBJ                       (A50)
+1 #USER                      (A8)
+1 #APPL                      (A8)
+*
+END-DEFINE
+*
+************************************************************************
+* Main line
+************************************************************************
+*
+EOMPHM-ATTRIBUTES-OCC-MAX := 25
+RESET EOMMSG-NR
+*
+PERFORM SECURITY-CHECK
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+IF EOM-FUNCTION NE EOM-SECURITY-CHECK
+  EOMPHM-I-CHECK-FUNCTION := EOM-FUNCTION
+  PERFORM FUNCTION-SECURITY
+  IF EOMMSG-NR NE 0
+    ESCAPE ROUTINE
+  END-IF
+END-IF
+*
+DECIDE ON FIRST EOM-FUNCTION
+  VALUE EOM-SECURITY-CHECK PERFORM FUNCTION-SECURITY
+  VALUE EOM-ADD            PERFORM MODIFY-PRINTER-ATTRIBUTES
+  VALUE EOM-MODIFY         PERFORM MODIFY-PRINTER-ATTRIBUTES
+  VALUE EOM-DELETE         PERFORM DELETE-PRINTER-DEFINITION
+  VALUE EOM-COMMIT         END OF TRANSACTION
+  VALUE EOM-BACKOUT        BACKOUT TRANSACTION
+  VALUE EOM-READ, EOM-READHOLD, EOM-READ-NEXT, EOM-READHOLD-NEXT
+    PERFORM READ-PRINTER-ATTRIBUTES
+  NONE  IGNORE /*VALUE EOM-COPY, EOM-RENAME
+END-DECIDE
+*
+************************************************************************
+* End of main line (now subroutines):
+************************************************************************
+*
+************************************************************************
+DEFINE SUBROUTINE SECURITY-CHECK
+************************************************************************
+IF EOM-OBJTYP NE 'H'
+  IF EOM-USER = ' ' AND EOM-USER-TYPE NE 'A'
+    EOMMSG-NR := 48
+    EOMMSG-FIELD-NAME := 'EOM-USER'
+    ESCAPE ROUTINE
+  END-IF
+  IF EOM-USER-TYPE NE 'A'
+    FNDUS. FIND USERS WITH USER-ID = EOM-USER
+      IF NO RECORDS FOUND
+        IF EOM-DEF-USER NE 'Y'
+          EOMMSG-NR := 2
+          EOMMSG-TOKEN(1) := EOM-USER
+          EOMMSG-FIELD-NAME := 'EOM-USER'
+          ESCAPE ROUTINE
+        END-IF
+        FIND USERS WITH USER-ID = 'DEFAULT'
+          EOM-USER-PROFILE := USER-PROFILE
+          EOM-USER-TYPE := PROF-TYPE
+        END-FIND
+        ESCAPE BOTTOM(FNDUS.)
+      END-NOREC
+      EOM-USER-PROFILE := USER-PROFILE
+      EOM-USER-TYPE := PROF-TYPE
+    END-FIND
+  END-IF
+  EOM-OBJTYP := 'H'
+  IF EOM-USER-TYPE = 'A'
+    EOM-OBJTYP-SECURITY (*) := 'Y'
+  ELSE
+    EOM-OBJTYP-SECURITY (*) := 'N'
+    FOR #I = 2 TO 4
+      COMPRESS #FUNCTION (#I) 'PH' TO #SECURITY-OPTION LEAVING NO
+      RESET ALLOWED
+      CALLNAT 'NARPSEC' EOM-USER-PROFILE #SECURITY-OPTION ALLOWED
+      IF ALLOWED
+        EOM-OBJTYP-SECURITY (#I:6) := 'Y'
+        ESCAPE BOTTOM
+      END-IF
+    END-FOR
+  END-IF
+  RESET EOM-OBJECT-NAME EOM-OBJECT-SECURITY (*)
+END-IF
+*
+IF NOT (EOM-OBJTYP-SECURITY (*) = 'Y')
+  EOMMSG-NR := 0020
+  ESCAPE ROUTINE
+END-IF
+*
+IF EOM-FUNCTION = EOM-INIT OR = EOM-ADD
+  EOM-OBJECT-NAME := EOMPHM-I-ID
+  EOM-OBJECT-SECURITY (*) := EOM-OBJTYP-SECURITY (*)
+  IF EOM-OBJTYP-SECURITY (2) = 'Y' OR EOM-OBJTYP-SECURITY (3) = 'Y'
+    EOM-OBJECT-SECURITY (1) := 'Y'
+  ELSE
+    EOM-OBJECT-SECURITY (1) := 'N'
+  END-IF
+END-IF
+*
+IF EOM-OBJECT-NAME NE EOMPHM-I-ID OR EOMPHM-I-ID = ' '
+  EOM-OBJECT-NAME := EOMPHM-I-ID
+  IF EOM-USER-TYPE = 'A'
+    EOM-OBJECT-SECURITY (*) := 'Y'
+  ELSE
+    EOM-OBJECT-SECURITY (*) := EOM-OBJTYP-SECURITY (*)
+  END-IF
+END-IF
+*
+IF NOT (EOM-OBJECT-SECURITY (*) = 'Y')
+  EOMMSG-NR := 0020
+END-IF
+*
+END-SUBROUTINE /* SECURITY-CHECK
+*
+************************************************************************
+DEFINE SUBROUTINE FUNCTION-SECURITY
+************************************************************************
+EXAMINE EOM-OBJECT-SECURITY (*) FOR 'Y' GIVING INDEX IN OJ
+EXAMINE EOM-OBJTYP-SECURITY (*) FOR 'Y' GIVING INDEX IN OT
+*
+DECIDE ON FIRST EOMPHM-I-CHECK-FUNCTION
+  VALUE EOM-SECURITY-CHECK, EOM-COMMIT, EOM-BACKOUT
+    IGNORE
+  VALUE EOM-ADD, EOM-READHOLD, EOM-READHOLD-NEXT,
+      EOM-MODIFY, EOM-INIT, EOM-COPY, EOM-RENAME
+    IF OJ > 3 OR OT > 3
+      EOMMSG-NR := 0020
+    END-IF
+  VALUE EOM-READ, EOM-READ-NEXT
+    IF OJ > 4 OR OT > 4
+      EOMMSG-NR := 0020
+    END-IF
+  VALUE EOM-DELETE
+    IF OJ > 2 OR OT > 2
+      EOMMSG-NR := 0020
+    END-IF
+  NONE VALUE
+    EOMMSG-NR := 2600
+END-DECIDE
+*
+END-SUBROUTINE /* FUNCTION-SECURITY
+*
+************************************************************************
+DEFINE SUBROUTINE READ-PRINTER-ATTRIBUTES
+************************************************************************
+PERFORM VALIDATE-KEY
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+PERFORM PRINTER-ATTRIBUTE-INTERFACE
+*
+END-SUBROUTINE /* READ-PRINTER-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE MODIFY-PRINTER-ATTRIBUTES
+************************************************************************
+PERFORM VALIDATE-KEY
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+PERFORM VALIDATION
+IF EOMMSG-NR = 0
+  PERFORM PRINTER-ATTRIBUTE-INTERFACE
+END-IF
+IF EOMMSG-NR NE 0 OR EOM-FUNCTION NE EOM-ADD
+OR EOMPHM-PRINTER-TYPE NE ##PHYS-UNIXLP                               /*
+  ESCAPE ROUTINE
+END-IF
+PERFORM GET-SUFFIX
+IF NOT #NEW-SUFFIX
+  EOMMSG-NR := 0167
+  EOMMSG-FIELD-NAME := 'EOMPHM-PRINTER-TYPE'
+  ESCAPE ROUTINE
+END-IF
+FNDPI. FIND NUMBER LOGICAL-PRINTERS WITH P-ID = #P-ID
+IF *NUMBER(FNDPI.) = 0
+  RESET LOGICAL-PRINTERS
+  LOGICAL-PRINTERS.P-ID := #P-ID
+  LOGICAL-PRINTERS.P-PHYSICAL-NAME := EOMPHM-I-ID
+  COMPRESS 'Default values for' EOMPHM-I-ID TO LOGICAL-PRINTERS.P-NAME
+  LOGICAL-PRINTERS.P-ATTRIBUTES(*) := EOMPHM-ATTRIBUTES(*)
+  CALLNAT 'EOMPHSRN' P-ATTRIBUTES(*)
+  LOGICAL-PRINTERS.P-LAST-UPDATE-USER := EOM-USER /*SU2
+  LOGICAL-PRINTERS.P-LAST-UPDATE      := *TIMX /*SU2
+  STORE LOGICAL-PRINTERS
+*
+  EOMGRM-I-NAME     := LOGICAL-PRINTERS.P-ID
+  EOMGRM-I-TYPE     := 'P'
+  EOMGRM-I-USER     := EOM-USER
+  EOMGRM-I-DEF-USER := EOM-DEF-USER
+  EOMGRM-OPTION (*) := 'Y'
+  CALLNAT 'EOMGRM-N' EOM-ADD EOMGRM-PARMS EOMMSG-PARMS /*Mnt Grant
+  IF EOMMSG-NR NE 0
+    ESCAPE ROUTINE
+  END-IF
+  END TRANSACTION
+END-IF
+*
+END-SUBROUTINE /* MODIFY-PRINTER-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE GET-SUFFIX     /* get suffix for DEFAULTx printers
+************************************************************************
+RESET #TABLE1(*) #I #NEW-SUFFIX
+#SUFFIX := 'Z'
+#P-ID-E := #P-ID
+#SUFFIX := 'A'
+HPR. HISTOGRAM PR FOR P-ID STARTING FROM #P-ID THRU #P-ID-E
+  #P-ID := P-ID
+  ADD 1 TO #N
+  IF #N > 26
+    RESET #SUFFIX
+    ESCAPE BOTTOM (HPR.)
+  END-IF
+  #TABLE1(#N) := #SUFFIX
+END-HISTOGRAM
+IF #SUFFIX NE ' ' AND #I < 26
+  FOR #N = 1 TO 26
+    EXAMINE #TABLE1(*) FOR #TABLE-A(#N) GIVING INDEX IN #F
+    IF #F = 0
+      #SUFFIX := #TABLE-A(#N)
+      ESCAPE BOTTOM
+    END-IF
+  END-FOR
+  #NEW-SUFFIX := TRUE
+END-IF
+*
+END-SUBROUTINE /* GET-SUFFIX
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATION
+************************************************************************
+DECIDE ON FIRST EOMPHM-I-ATTRIBUTE-TYPE
+  VALUE PRINTER-GENERAL-ATTRIBUTES
+    PERFORM VALIDATE-ATTRIBUTES
+  VALUE PRINTER-SPECIAL-ATTRIBUTES
+    PERFORM VALIDATE-ATTRIBUTES
+  NONE  IGNORE
+END-DECIDE
+*
+END-SUBROUTINE /* VALIDATION
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-KEY
+************************************************************************
+RESET EOMMSG-NR EOMMSG-FIELD-NAME
+MOVE LEFT JUSTIFIED EOMPHM-I-ID TO EOMPHM-I-ID
+*
+IF NOT (EOM-FUNCTION = EOM-READ-NEXT OR = EOM-READHOLD-NEXT)
+  DECIDE FOR EVERY CONDITION
+    WHEN EOMPHM-I-ID = ' '
+      EOMMSG-NR := 0106
+      EOMMSG-FIELD-NAME := 'EOMPHM-I-ID'
+      ESCAPE ROUTINE
+    WHEN EOMPHM-I-ID NE MASK (P.......)
+      EOMMSG-NR := 0019
+      EOMMSG-FIELD-NAME := 'EOMPHM-I-ID'
+      ESCAPE ROUTINE
+    WHEN NONE
+      IGNORE
+  END-DECIDE
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-KEY
+*
+************************************************************************
+DEFINE SUBROUTINE VALIDATE-ATTRIBUTES
+************************************************************************
+RESET EOMMSG-NR EOMMSG-FIELD-NAME
+*
+DECIDE FOR EVERY CONDITION
+  WHEN EOMPHM-PRINTER-TYPE = ' '
+    EOMMSG-NR := 0127
+    EOMMSG-FIELD-NAME := 'EOMPHM-PRINTER-TYPE'
+    ESCAPE ROUTINE
+  WHEN EOMPHM-PRINTER-TYPE = 'NATUNIX' AND *MACHINE-CLASS = 'MAINFRAME'
+    EOMMSG-NR := 0130
+    EOMMSG-FIELD-NAME := 'EOMPHM-PRINTER-TYPE'
+    ESCAPE ROUTINE
+  WHEN NOT ##PHYS-TYPES (*) = EOMPHM-PRINTER-TYPE
+    EOMMSG-NR := 0109 /* 'Invalid printer type'
+    EOMMSG-FIELD-NAME := 'EOMPHM-PRINTER-TYPE'
+    ESCAPE ROUTINE
+  WHEN NOT(EOMPHM-PRINTER-TYPE = ##PHYS-NATUNIX OR = ##PHYS-DISKUNIX)
+      AND *MACHINE-CLASS NE 'MAINFRAME'
+    EOMMSG-NR := 0131
+    EOMMSG-FIELD-NAME := 'EOMPHM-PRINTER-TYPE'
+    ESCAPE ROUTINE
+  WHEN EOMPHM-PRINTER-TYPE = 'USER'
+    CALLNAT 'N-CHKSRC' EOM-USER-LIBRARY EOMPHM-PRINT-PGM #EXIST
+    IF NOT #EXIST
+      EOMMSG-NR := 0116 /* 'Program does not exist'
+      EOMMSG-FIELD-NAME := 'EOMPHM-PRINT-PGM'
+      ESCAPE ROUTINE
+    END-IF
+    CALLNAT 'N-CHKSRC' EOM-USER-LIBRARY EOMPHM-JCL-SKELETON #EXIST
+    IF NOT #EXIST
+      EOMMSG-NR := 0117 /* 'Skeleton does not exist'
+      EOMMSG-FIELD-NAME := 'EOMPHM-JCL-SKELETON'
+      ESCAPE ROUTINE
+    END-IF
+  WHEN NOT ( EOMPHM-PRINTER-TYPE = ##PHYS-VTAM OR = ##PHYS-DUMMY
+  OR=##PHYS-NAF   OR=##PHYS-UNIXLP  OR=##PHYS-NATUNIX OR=##PHYS-WRTSPOOL
+  OR=##PHYS-EMAIL OR=##PHYS-CMASPOOL OR=##PHYS-DISKUNIX)              /*
+    IF EOMPHM-JCL-SKELETON = ' '
+      EOMMSG-NR := 2126 /* 'Skeleton required'
+      EOMMSG-FIELD-NAME := 'EOMPHM-JCL-SKELETON'
+      ESCAPE ROUTINE
+    END-IF
+    CALLNAT 'N-CHKSRC' EOM-USER-LIBRARY EOMPHM-JCL-SKELETON #EXIST
+    IF NOT #EXIST
+      EOMMSG-NR := 0117            /* 'Skeleton does not exist'
+      EOMMSG-FIELD-NAME := 'EOMPHM-JCL-SKELETON'
+      ESCAPE ROUTINE
+    END-IF
+    IF EOMPHM-ESCAPE-CHAR = ' ' OR = MASK (A) OR = MASK (N)
+      EOMMSG-NR := 0115                /* 'Invalid escape char'
+      EOMMSG-FIELD-NAME := 'EOMPHM-ESCAPE-CHAR'
+      ESCAPE ROUTINE
+    END-IF
+  WHEN  ( EOMPHM-PRINTER-TYPE = ##PHYS-VTAM OR=##PHYS-DUMMY
+  OR=##PHYS-NAF   OR=##PHYS-UNIXLP  OR=##PHYS-NATUNIX OR=##PHYS-WRTSPOOL
+  OR=##PHYS-EMAIL OR=##PHYS-CMASPOOL OR=##PHYS-DISKUNIX)              /*
+    IF EOMPHM-JCL-SKELETON > ' '
+      EOMMSG-NR := 0184                      /* 'Skeleton not required'
+      EOMMSG-FIELD-NAME := 'EOMPHM-JCL-SKELETON'
+      RESET  EOMPHM-JCL-SKELETON
+      ESCAPE ROUTINE
+    END-IF
+    IF EOMPHM-ESCAPE-CHAR > ' '
+      EOMMSG-NR := 0185                 /* 'Escape char not necessary'
+      EOMMSG-FIELD-NAME := 'EOMPHM-ESCAPE-CHAR'
+      RESET EOMPHM-ESCAPE-CHAR
+      ESCAPE ROUTINE
+    END-IF
+  WHEN EOMPHM-PRINTER-TYPE = 'VTAM'
+    EOMPHM-PRINT-PGM := 'RMPRVTM'
+    RESET  EOMPHM-JCL-SKELETON EOMPHM-ESCAPE-CHAR
+  WHEN NONE
+    IGNORE
+END-DECIDE
+IF EOMPHM-PRINTER-TYPE = ##PHYS-DUMMY
+  #I:=##PHYS-MAX-TYPES
+ELSE
+  EXAMINE  ##PHYS-TYPES (*) FOR EOMPHM-PRINTER-TYPE GIVING INDEX #I
+END-IF
+EOMPHM-PRINT-PGM := ##PHYS-PRINT-PGM (#I)
+*
+FOR #I 1 8
+  IF NOT(EOMPHM-TIME-FROM (#I) =' ' OR=MASK (00-23':'00-59))
+    EOMMSG-NR   := 0051        /* 'Invalid time'
+    EOMMSG-IND1 := #I
+    EOMMSG-FIELD-NAME := 'EOMPHM-TIME-FROM'
+    ESCAPE ROUTINE
+  END-IF
+  IF NOT(EOMPHM-TIME-TO (#I) =' ' OR=MASK (00-23':'00-59))
+    EOMMSG-NR   := 0051        /* 'Invalid time'
+    EOMMSG-IND1 := #I
+    EOMMSG-FIELD-NAME := 'EOMPHM-TIME-TO'
+    ESCAPE ROUTINE
+  END-IF
+  IF EOMPHM-TIME-FROM (#I) = ' ' AND EOMPHM-TIME-TO (#I) NE ' '
+    EOMMSG-NR   := 0053        /* 'Specify from time'
+    EOMMSG-IND1 := #I
+    EOMMSG-FIELD-NAME := 'EOMPHM-TIME-FROM'
+    ESCAPE ROUTINE
+  END-IF
+  IF EOMPHM-TIME-TO (#I) = ' ' AND EOMPHM-TIME-FROM (#I) NE ' '
+    EOMMSG-NR   := 0054        /* 'Specify to time'
+    EOMMSG-IND1 := #I
+    EOMMSG-FIELD-NAME := 'EOMPHM-TIME-TO'
+    ESCAPE ROUTINE
+  END-IF
+  IF EOMPHM-TIME-FROM (#I) NE ' '
+    #FROM (#I) := EOMPHM-TIME-FROM (#I)
+    EXAMINE #FROM (#I) FOR ':' REPLACE '0'
+    #TO (#I) := EOMPHM-TIME-TO         (#I)
+    EXAMINE #TO (#I) FOR ':' REPLACE '0'
+    IF #FROM (#I) GE #TO (#I)
+      EOMMSG-NR   := 0055 /* From time may not be GE To time
+      EOMMSG-IND1 := #I
+      EOMMSG-FIELD-NAME := 'EOMPHM-TIME-FROM'
+      ESCAPE ROUTINE
+    END-IF
+  END-IF
+END-FOR
+FOR #I 1 7
+  FOR #J 8 1 STEP -1
+    IF #FROM (#J) = ' ' OR #J = #I
+      ESCAPE TOP
+    END-IF
+    IF (#FROM (#I) = #FROM (#J) THRU #TO (#J) )
+    OR (#TO   (#I) = #FROM (#J) THRU #TO (#J) )                       /*
+      EOMMSG-NR   := 0056 /* Time windows may not overlap
+      EOMMSG-IND1 := #J
+      EOMMSG-FIELD-NAME := 'EOMPHM-TIME-FROM'
+      ESCAPE ROUTINE
+    END-IF
+  END-FOR
+END-FOR
+*
+* validation of special attributes
+CALLNAT 'EOMPHATN' EOMPHM-PRINTER-TYPE EOMPHM-ATTRIBUTES-OCC-MAX
+  EOMPHM-ATTRIBUTES (*) EOMMSG-PARMS
+*
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+FOR #I 1 25
+  IF EOMPHM-PRINT-PGM NE 'RMPRWKF'
+    ESCAPE TOP
+  END-IF
+  IF EOMPHM-ATTR-VAR     (#I) = 'DCB1' OR = 'DCB2'
+    EXAMINE EOMPHM-ATTR-DEFAULT(#I) FOR 'RECFM' GIVING POSITION IN #J
+    IF #J GT 0
+      ADD 6 TO #J
+      #FIX-VAR := SUBSTR (EOMPHM-ATTR-DEFAULT(#I),#J,1)
+    END-IF
+  END-IF
+  IF EOMPHM-ATTR-VAR (#I) = 'RECFM' AND EOMPHM-ATTR-DEFAULT(#I) NE ' '
+    #FIX-VAR := EOMPHM-ATTR-DEFAULT (#I)
+  END-IF
+  IF EOMPHM-ATTR-VAR     (#I) = 'WKF'
+    IF #FIX-VAR = 'V' OR = 'v' OR = ' '
+      EOMPHM-ATTR-DEFAULT (#I) := '01'
+    ELSE
+      EOMPHM-ATTR-DEFAULT (#I) := '02'
+    END-IF
+  END-IF
+END-FOR
+*
+IF NOT #FIX-VAR = 'V' OR = 'v' OR = ' '
+  EXAMINE EOMPHM-ATTR-VAR(*) FOR 'LRECL' GIVING INDEX IN #I
+  IF #I GT 0
+    #LRECL:= EOMPHM-ATTR-DEFAULT(#I)
+  END-IF
+  IF #LRECL = ' '
+    EXAMINE EOMPHM-ATTR-VAR(*) FOR 'DCB1' GIVING INDEX IN #I
+    IF #I GT 0
+      EXAMINE EOMPHM-ATTR-DEFAULT(#I) FOR 'LRECL=' GIVING POSITION IN #J
+      IF #J GT 0
+        ADD 6 TO #J
+        #K:= 73 - #J
+        IF #K GT 5
+          #K:= 5
+        END-IF
+        #LRECL := SUBSTR (EOMPHM-ATTR-DEFAULT(#I), #J, #K)
+        FOR #K = 1 TO 5
+          IF NOT #LRECL-A1(#K) IS (N1)
+            RESET #LRECL-A1(#K)
+          END-IF
+        END-FOR
+      END-IF
+    END-IF
+    IF #LRECL = ' '
+      EXAMINE EOMPHM-ATTR-VAR(*) FOR 'DCB2' GIVING INDEX IN #I
+      IF #I GT 0
+        EXAMINE EOMPHM-ATTR-DEFAULT(#I) FOR 'LRECL=' GIVING POSITION IN #J
+        IF #J GT 0
+          ADD 6 TO #J
+          #K:= 73 - #J
+          IF #K GT 5
+            #K:= 5
+          END-IF
+          #LRECL := SUBSTR (EOMPHM-ATTR-DEFAULT(#I), #J, #K)
+          FOR #K = 1 TO 5
+            IF NOT #LRECL-A1(#K) IS (N1)
+              RESET #LRECL-A1(#K)
+            END-IF
+          END-FOR
+        END-IF
+      END-IF
+    END-IF
+  END-IF
+  IF #LRECL NE ' ' AND #LRECL IS (N5)
+    #LRECL-N:= VAL(#LRECL)
+    IF #LRECL-N GT 0 AND #LRECL-N LT 251
+      EOMMSG-NR:= 0107
+    END-IF
+  END-IF
+END-IF
+*
+END-SUBROUTINE /* VALIDATE-ATTRIBUTES
+*
+************************************************************************
+DEFINE SUBROUTINE DELETE-PRINTER-DEFINITION
+************************************************************************
+IF NOT(EOM-OBJTYP-SECURITY (1) = 'Y' OR EOM-OBJTYP-SECURITY (2) = 'Y')
+OR NOT(EOM-OBJECT-SECURITY (1) = 'Y' OR EOM-OBJECT-SECURITY (2) = 'Y')/*
+  EOMMSG-NR := 0020
+  ESCAPE ROUTINE
+END-IF
+*
+CALLNAT 'EOMPHMGN' EOM-PARMS EOMPHM-PARMS EOMMSG-PARMS
+IF EOMMSG-NR NE 0
+  ESCAPE ROUTINE
+END-IF
+*
+EOMGRM-I-NAME := EOMPHM-I-ID
+EOMGRM-I-TYPE := 'H'
+RESET   EOMGRM-I-USER EOMGRM-I-AUTO-COMMIT
+CALLNAT 'EOMGRM-N' EOM-DELETE-ALL EOMGRM-PARMS EOMMSG-PARMS
+*
+* delete defaults for UNIXLP printers
+IF EOMPHM-PRINTER-TYPE = ##PHYS-UNIXLP
+  #SUFFIX := 'Z'
+  #P-ID-E := #P-ID
+  #SUFFIX := 'A'
+  FNDDEF. FIND (1) LOGICAL-PRINTERS WITH P-PHYSICAL-NAME = EOMPHM-I-ID
+      WHERE P-ID = #P-ID THRU #P-ID-E
+    #P-ID := P-ID
+    DELETE
+    #USER := EOM-USER
+    #APPL := EOM-LIBRARY
+    #OBJ := P-ID
+    PERFORM RMLOGDEL #OBJ 'LOG-PRINTER' #USER #APPL
+  END-FIND
+  EOMGRM-I-NAME := #P-ID
+  EOMGRM-I-TYPE := 'P'
+  RESET   EOMGRM-I-USER EOMGRM-I-AUTO-COMMIT
+  CALLNAT 'EOMGRM-N' EOM-DELETE-ALL EOMGRM-PARMS EOMMSG-PARMS
+END-IF
+*
+END-SUBROUTINE /* DELETE-PRINTER-DEFINITION
+*
+************************************************************************
+DEFINE SUBROUTINE PRINTER-ATTRIBUTE-INTERFACE
+************************************************************************
+IF EOMPHM-I-ATTRIBUTE-TYPE = PRINTER-GENERAL-ATTRIBUTES
+OR= PRINTER-SPECIAL-ATTRIBUTES                                        /*
+  CALLNAT 'EOMPHMGN' EOM-PARMS EOMPHM-PARMS EOMMSG-PARMS
+END-IF
+*
+END-SUBROUTINE /* PRINTER-ATTRIBUTE-INTERFACE
+*
+END
